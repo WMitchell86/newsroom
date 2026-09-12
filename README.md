@@ -1,12 +1,14 @@
-# editor-assistant (chernomorie-bg.com) — M0 Safety Foundation
+# editor-assistant (chernomorie-bg.com)
 
-Assistant to the editor-in-chief. M0 is the **safety foundation only**:
+Assistant to the editor-in-chief. M0 was the **safety foundation only**:
 no WordPress, no scrapers, no LLM, no network writes. The single external
 write added since is the M1.4B Telegram **TEST-channel** alert, which stays
 dry-run by default (see below).
 
 Full harness rules: [`AI_HARNESS_EDITOR_ASSISTANT.md`](./AI_HARNESS_EDITOR_ASSISTANT.md).
 Current status: [`MILESTONE.md`](./MILESTONE.md). Deferred ideas: [`BACKLOG.md`](./BACKLOG.md).
+Session guides for AI agents: [`agents.md`](./agents.md) (how to work in this repo) ·
+[`handoff.md`](./handoff.md) (current state at session start).
 
 ## Safety defaults
 
@@ -18,10 +20,12 @@ Current status: [`MILESTONE.md`](./MILESTONE.md). Deferred ideas: [`BACKLOG.md`]
 ## Quickstart (clean checkout)
 
 ```bash
-cp .env.example .env   # optional; safe placeholders only
-pip install -e ".[dev]"
-pytest
+cp .env.example .env                 # optional; safe placeholders only
+PYTHONPATH=src python3 -m pytest -q  # full suite, offline, no side effects
 ```
+
+Note: `pip install -e .` is blocked on this machine (PEP 668 externally-managed
+environment) — always run tests and CLIs with `PYTHONPATH=src`.
 
 Expected: smoke + safety tests pass, no network calls, no external side effects.
 
@@ -57,8 +61,13 @@ Read-only: no persistence, no Telegram/WordPress/LLM.
 ## Layout
 
 ```text
-src/editor_assistant/  config.py, logging_setup.py (stdlib only)
-tests/                 smoke + safety tests (no network)
-fixtures/              empty in M0 (M1.1 adds parser fixtures)
+src/editor_assistant/  package (stdlib only)
+  sources/             RSS fetch + parse + HTML description normalization
+  state/               fingerprint, SQLite item_state, process_items
+  notify/              outbox, renderer, telegram transport
+  *.py                 CLIs: check_state, fetch_live, send_telegram
+tests/                 offline tests; HTTP mocked where present
+fixtures/              RSS fixtures (Burgas council, HTML description)
 .ai/skills/            harness skill files
+var/                   runtime SQLite (git-ignored, never committed)
 ```
