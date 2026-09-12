@@ -36,6 +36,18 @@ _CREDIT_PATTERN = re.compile(
 # §2 subject marker ("относно:") — case-insensitive, source text only.
 _SUBJECT_PATTERN = re.compile(r"относно\s*:\s*(.+)", re.IGNORECASE | re.DOTALL)
 
+# M1.5 Step 4 — leading-marker for the conservative `относно: <subject>` case.
+# The marker must sit near the very start of the cleaned text (real-data max
+# measured marker position across 19 items: 115 chars) so the removable region
+# stays clearly anchored at the beginning (§5), never mid-body.
+_LEADING_MARKER_RE = re.compile(r"относно\s*:\s*", re.IGNORECASE)
+_LEADING_PREFIX_LIMIT = 200
+
+# Punctuation/connectors trimmed from a remainder after a removed prefix.
+# The period is safe: it terminates the duplicated subject sentence, never
+# the informative remainder (a display line never meaningfully starts with ".").
+_TRIM_CHARS = " .,;:–—-»«()[]"
+
 # §7 neutral extension-based attachment labels (no semantic naming).
 _EXT_LABELS = {
     "pdf": "PDF",
@@ -97,17 +109,70 @@ def clean_body_text(body_text: str | None, *, title: str | None = None) -> str |
     return text
 
 
+def _flex_regex(text: str) -> re.Pattern[str]:
+    """§3 comparison-only regex: escaped subject with case-insensitive + flexible
+    whitespace. Used ONLY to decide whether leading duplication exists; the
+    displayed remainder always keeps the original spelling."""
+    escaped = re.escape(text)
+    escaped = re.sub(r"\\\s+", r"\\s+", escaped)
+    return re.compile(escaped, re.IGNORECASE)
+
+
+def strip_leading_subject(text: str, subject: str | None) -> str | None:
+    """M1.5 Step 4 — remove a strong, deterministic LEADING duplication only.
+
+    Two anchored cases (both at the very start of `text`):
+      A) text begins with `subject` (case/whitespace-insensitive match) →
+         drop the subject itself;
+      B) text begins with an administrative prefix ending in an `относно:`
+         marker that is immediately followed by `subject` → drop prefix +
+         marker + subject (§5 partial-prefix case).
+
+    Comparison normalization exists for MATCHING ONLY; the returned remainder
+    keeps the original source spelling. Nothing is removed from the middle of
+    the body, no fuzzy/semantic similarity is used, and text that merely
+    shares some words with the subject is preserved (§4). Returns None when
+    nothing meaningful remains.
+    """
+    if not text or not subject:
+        return text
+    end: int | None = None
+    pattern = _flex_regex(subject)
+    taken = pattern.match(text)
+    if taken:
+        end = taken.end()
+    else:
+        marker = _LEADING_MARKER_RE.search(text)
+        if marker and marker.start() <= _LEADING_PREFIX_LIMIT:
+            taken = pattern.match(text[marker.end():])
+            if taken:
+                end = marker.end() + taken.end()
+    if end is None:
+        return text
+    # lstrip leading punctuation/whitespace of the REMAINDER, then plain
+    # whitespace only on the right — a sentence-final '.' is legitimate text.
+    remainder = text[end:].lstrip(_TRIM_CHARS).rstrip()
+    return remainder or None
+
+
 def clean_excerpt(
     body_text: str | None,
     *,
     title: str | None = None,
+    subject: str | None = None,
     limit: int = DISPLAY_EXCERPT_LIMIT,
 ) -> str | None:
-    """§5 clean FIRST, then excerpt to `limit` (never truncate before cleaning)."""
+    """§5/§7 clean FIRST → de-duplicate leading subject → then excerpt to `limit`.
+
+    The length limit is applied only AFTER de-duplication (§7). A fully
+    duplicated body yields None (renderer then omits the excerpt cleanly)."""
     cleaned = clean_body_text(body_text, title=title)
     if not cleaned:
         return None
     text = re.sub(r"\s+", " ", cleaned).strip()
+    if not text:
+        return None
+    text = strip_leading_subject(text, subject)
     if not text:
         return None
     if len(text) <= limit:

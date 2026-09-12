@@ -1,10 +1,11 @@
 # MILESTONE — M1.5: Editorial Alert UX Calibration
 
-## Status: IN PROGRESS — steps 1+2+3 done · awaiting editor review of the new format
+## Status: IN PROGRESS — steps 1–4 done · awaiting editor review
 
 - **Step 1 (2026-09-12)** — preview 5 real alerts + audit, no code changes (`UX_AUDIT.md`, D1–D8)
 - **Step 2** — deterministic editorial cleanup implemented (presentation-only, render-time)
 - **Step 3** — source provenance + pagination integrity audit (verification-only, zero mutations)
+- **Step 4** — headline/excerpt de-duplication implemented (presentation-only, deterministic)
 
 ## Step 2 scope (implemented)
 `notify/present.py` (deterministic, stdlib-only): display-name map, `относно:` subject
@@ -29,24 +30,42 @@ Store / fingerprint / outbox identity untouched (proven by tests + runtime audit
   Any "pagination" wording elsewhere referred to preview *display* pagination only.
   No speculative pagination code or tests were added (§5 documentation-only by design).
 
-## Gate (steps 2+3)
-- [x] 120 tests green (25 new present-proof tests incl. all 20 required; 3 stale format asserts updated)
-- [x] BEFORE/AFTER previews, all 5 doc types: `var/ux_previews_before_after_2026-09-12.txt` (not sent)
-- [x] 19-item audit: subject extracted 19/19, boilerplate removed 19/19, max excerpt 281,
-      max rendered message 892 chars (<4096)
-- [x] pending rows byte-identical (payload snapshots + delivered_at); no sends; no regeneration
-- [x] fingerprints/state/outbox identity untouched (read-only mode=ro audit); ruff clean
+## Step 4 — headline / excerpt de-duplication (implemented)
+`present.strip_leading_subject()` removes a *strong, deterministic LEADING* duplication only:
+(A) the excerpt begins with `display_subject`, or (B) an administrative prefix ends at an
+`относно:` marker (within the first 200 chars) immediately followed by the subject.
+Comparison normalization (case/whitespace) exists for MATCHING ONLY — the displayed remainder
+keeps the original spelling; nothing is ever removed mid-body (§5), no fuzzy/semantic matching
+(§4), empty remainder → excerpt omitted, never repeated (§6). The 280-char limit applies AFTER
+de-duplication (§7). Renderer passes the extracted subject through.
 
-## Known findings (recorded, NOT solved — §8)
-- headline/excerpt duplication **11/19** (cleaned excerpt repeats display_subject verbatim)
-- 3/19 subject lines >300 chars (max 343 — far under Telegram's 4096)
-- Candidate future presentation rule (needs its own approval): if the cleaned excerpt
-  substantially repeats display_subject, drop the repeated leading text and continue
-  from the first new informative sentence.
+Real 19-item audit: duplicate_before **11** → duplicate_after **0**; 12 excerpts removed
+entirely (their 500-char snapshots ended at the subject — nothing informative lost), 7 remain;
+max excerpt 108 chars; max rendered message 615 chars (<4096).
+
+## Gate (steps 2+3+4)
+- [x] 135 tests green (14 new Step-4 proofs incl. §9 1–14; 39 present tests; 120 prior green)
+- [x] BEFORE/AFTER previews: `var/ux_previews_before_after_2026-09-12.txt` (steps 2) +
+      `var/ux_previews_step4_2026-09-12.txt` (5 representative examples; not sent)
+- [x] Step-4 metrics: duplicate 11→0; excerpt 12 fully removed / 7 present; max 108/615
+- [x] false-positive review: for every removed excerpt the removed region = prefix +
+      `относно:` + subject (tail after subject was only punctuation/whitespace, verified
+      for all 12) — no informative content was swallowed
+- [x] pending rows byte-identical, 19 PENDING; no sends; no regeneration; fingerprints/
+      state/outbox identity untouched (tests + read-only audit); ruff clean
+
+## Known findings after step 4
+- headline/excerpt duplication **11/19 → SOLVED (0/19)** by step 4.
+- Remaining item-noise visible in step-4 previews: `Приложение N` appendix labels at the
+  start of some remainders (e.g. node 3631) — this is the open D3 noise-strip decision,
+  NOT in step-4 scope (deduplication only). Also noted: 3/19 registry subjects are 300+ chars.
+- Known limitation: payload snapshots keep only a 500-char `body_excerpt`, so when the
+  subject ends at the snapshot edge there is no further informative text to show — the
+  excerpt is then omitted entirely (12/19) rather than repeated.
 
 ## STOP rule
-**STOP AND WAIT FOR EDITOR REVIEW** — no sends of the 19 pending rows, no scheduler, no
-duplication fix until approved.
+**STOP AND WAIT FOR EDITOR REVIEW** — no sends of the 19 pending rows, no scheduler,
+no `Приложение N`/noise changes until approved.
 
 
 ---

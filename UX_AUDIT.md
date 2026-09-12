@@ -82,6 +82,11 @@ becomes the next narrowly-scoped milestone after D1–D8 answers.
   if the cleaned excerpt substantially repeats display_subject, drop the repeated leading
   text and continue from the first new informative sentence.
 - Also observed: 3/19 subject lines exceed 300 chars (max 343; Telegram 4096 unaffected).
+- **Step 4 (implemented)**: headline/excerpt duplication **11/19 → 0/19** via
+  `present.strip_leading_subject()` (anchored, deterministic, normalized comparison for
+  matching only — original spelling preserved). 14 new tests, 135 suite green; samples in
+  `var/ux_previews_step4_2026-09-12.txt`. Remaining `Приложение N`-tail noise at remainder
+  starts (e.g. node 3631) is a separate D3 decision — out of deduplication scope.
 - Provenance/pagination audit (step 3): single source `burgas-municipal-council`, zero
   integrity violations (0 duplicate identities, 0 orphans, 0 duplicate version intents);
   **no pagination code exists in ingestion** — documented, none invented.

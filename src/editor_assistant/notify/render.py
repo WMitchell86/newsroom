@@ -78,7 +78,7 @@ def render_message(payload: NotificationPayload, *, source_label: str | None = N
     published_bg = format_published_bg_display(payload.published_at)
     if published_bg:
         lines += ["", f"🕒 {published_bg}"]
-    excerpt = clean_excerpt(payload.body_excerpt, title=payload.title)
+    excerpt = clean_excerpt(payload.body_excerpt, title=payload.title, subject=subject)
     if excerpt:
         lines += ["", excerpt]
     visible, hidden = attachment_summary(payload.body_links)

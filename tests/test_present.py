@@ -7,9 +7,11 @@ item_state semantics, or outbox identity.
 from __future__ import annotations
 
 import pathlib
+import sqlite3
 from datetime import datetime, timezone
 
 from editor_assistant.models import SourceDef, SourceItem
+from editor_assistant.notify.outbox import list_pending
 from editor_assistant.notify.present import (
     DISPLAY_EXCERPT_LIMIT,
     MAX_ATTACHMENTS_SHOWN,
@@ -19,6 +21,7 @@ from editor_assistant.notify.present import (
     clean_excerpt,
     display_source_name,
     extract_display_subject,
+    strip_leading_subject,
 )
 from editor_assistant.notify.render import (
     build_payload,
@@ -26,7 +29,9 @@ from editor_assistant.notify.render import (
     render_message,
 )
 from editor_assistant.sources.rss import PARSER_ID
+from editor_assistant.state import process_items
 from editor_assistant.state.fingerprint import fingerprint_item
+from editor_assistant.state.store import TELEGRAM_TEST_DESTINATION
 
 FIXTURE = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "rss_burgas_municipality.xml"
 SOURCE = SourceDef(
@@ -242,3 +247,126 @@ def test_updated_marker_differs_from_new():
     assert new_msg.startswith("🆕")
     assert upd_msg.startswith("🔄")
     assert new_msg != upd_msg
+
+
+# =====================================================================
+# M1.5 Step 4 — headline/excerpt de-duplication (§9 required tests)
+# =====================================================================
+
+def test_exact_leading_subject_duplication_removed():
+    subj = "Даване на съгласие за учредяване на център"
+    text = f"{subj}. Допълнителна информация за бюджета."
+    rest = strip_leading_subject(text, subj)
+    assert rest is not None and rest.startswith("Допълнителна информация")
+
+
+def test_case_only_variation_matches():
+    subj = "Даване на съгласие за учредяване"
+    text = "даване НА съгласие за учредяване на център. Останалото продължава."
+    rest = strip_leading_subject(text, subj)
+    assert rest is not None and rest.startswith("на център")
+
+
+def test_whitespace_variation_matches():
+    subj = "Определяне предназначението на общински жилища"
+    text = "Определяне   предназначението\nна общински жилища по чл. 42. Продължение на текста."
+    rest = strip_leading_subject(text, subj)
+    print(repr(rest))
+    assert rest is not None and rest.startswith("по чл. 42")
+
+
+def test_otnosno_prefix_removed_conservatively():
+    prefix = "от Димитър Николов - кмет на Община Бургас"
+    subj = "Определяне предназначението на общински жилища по чл. 42"
+    text = f"{prefix}, относно: {subj} от Закона. Останала част на текста."
+    rest = strip_leading_subject(text, subj)
+    assert rest is not None and rest.startswith("от Закона")
+
+
+def test_punctuation_variation_at_boundary():
+    subj = "Предмет на записката"
+    text = "предмет на записката — Следва пълния текст по чл. 3."
+    rest = strip_leading_subject(text, subj)
+    assert rest is not None and rest.startswith("Следва")
+
+
+def test_partial_resemblance_preserved():
+    subj = "Даване на съгласие за учредяване на център"
+    text = "Даване на участие в конкурса за новия проекти. Друг текст."
+    assert strip_leading_subject(text, subj) == text
+
+
+def test_same_words_later_in_body_not_removed():
+    subj = "Обновление на план за действие"
+    text = "Пълен анализ на делото. В първата година се предвижда обновление на план за действие."
+    assert strip_leading_subject(text, subj) == text
+
+
+def test_unrelated_body_untouched():
+    subj = "Бюджет за 2026"
+    text = "Статия за културата и образованието в Община Бургас."
+    assert strip_leading_subject(text, subj) == text
+
+
+def test_fully_duplicated_body_produces_no_excerpt():
+    subj = "Единствен известен текст без резюме"
+    assert strip_leading_subject(f"{subj} ", subj) is None
+    assert clean_excerpt(f"{subj}. ", subject=subj) is None
+
+
+def test_bulgarian_unicode_remains_intact():
+    subj = "Определяне предназначението на общински жилища по чл. 42"
+    text = "ОПРЕДЕЛЯНЕ ПРЕДНАЗНАЧЕНИЕТО НА ОБЩИНСКИ ЖИЛИЩА ПО ЧЛ. 42 от закона. Оставай крайно важна част."
+    rest = strip_leading_subject(text, subj)
+    assert rest == "от закона. Оставай крайно важна част."
+
+
+def test_source_item_unchanged_after_dedup():
+    item = _item()
+    before = (item.title, item.body_text, item.body_links, item.published_at)
+    _ = strip_leading_subject(
+        item.body_text or "", extract_display_subject(item.title, item.body_text)
+    )
+    assert (item.title, item.body_text, item.body_links, item.published_at) == before
+
+
+def test_fingerprint_unchanged_after_dedup():
+    item = _item()
+    fp = fingerprint_item(item)
+    _ = strip_leading_subject(
+        item.body_text or "", extract_display_subject(item.title, item.body_text)
+    )
+    assert fingerprint_item(item) == fp
+
+
+def test_step4_content_hash_unaffected(tmp_path):
+    item = _item()
+    db = tmp_path / "s.sqlite3"
+    process_items([item], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
+    conn = sqlite3.connect(db)
+    before = conn.execute(
+        "SELECT content_hash FROM item_state WHERE item_url = ?", (item.item_url,)
+    ).fetchone()[0]
+    conn.close()
+    payload = list_pending(db, destination=TELEGRAM_TEST_DESTINATION)[0].payload
+    _ = render_message(payload)
+    conn = sqlite3.connect(db)
+    after = conn.execute(
+        "SELECT content_hash FROM item_state WHERE item_url = ?", (item.item_url,)
+    ).fetchone()[0]
+    conn.close()
+    assert before == after
+
+
+def test_step4_render_deterministic():
+    payload = build_payload(_item(), event_type="NEW", version_no=1)
+    assert render_message(payload) == render_message(payload)
+
+
+def test_step4_render_shows_subject_once():
+    payload = build_payload(_item(), event_type="NEW", version_no=1)
+    msg = render_message(payload)
+    subj = extract_display_subject(payload.title, payload.body_excerpt)
+    assert subj is not None
+    assert msg.count(subj) == 1  # headline only — no duplicate in the excerpt
+    assert "от Димитър Николов" not in msg  # admin prefix + relation marker gone
