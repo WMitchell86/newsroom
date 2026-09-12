@@ -1,20 +1,53 @@
 # MILESTONE — M1.5: Editorial Alert UX Calibration
 
-## Status: IN PROGRESS — step 1 DONE (preview 5 real alerts + audit; NO code changes)
+## Status: IN PROGRESS — steps 1+2+3 done · awaiting editor review of the new format
 
-## Scope (editor-defined)
-Before any scheduler work: calibrate the alert format against real data.
-Step 1: render 5 real PENDING alerts locally (one per document type), audit,
-decide. No sends, no code changes. Evidence: `UX_AUDIT.md` (D1–D8 decision list).
+- **Step 1 (2026-09-12)** — preview 5 real alerts + audit, no code changes (`UX_AUDIT.md`, D1–D8)
+- **Step 2** — deterministic editorial cleanup implemented (presentation-only, render-time)
+- **Step 3** — source provenance + pagination integrity audit (verification-only, zero mutations)
 
-## Gate checklist (step 1)
-- [x] 5 previews rendered locally from 19 real PENDING rows (var/, git-ignored, not sent)
-- [x] measured evidence over all 19 (lengths, links, boilerplate, title patterns)
-- [x] 8 calibration questions answered with data; D1–D8 decision list prepared
-- [x] no code changes, no state changes, no HTTP; secrets check clean
+## Step 2 scope (implemented)
+`notify/present.py` (deterministic, stdlib-only): display-name map, `относно:` subject
+extraction with title fallback, boilerplate strip-list, clean→excerpt at 280 chars,
+≤3 attachments + `+N още`, 🆕/🔄 markers, 🕒 BG local time (`Europe/Sofia`).
+`render.py` builds the §11 editor-facing shape from immutable payload snapshots.
+Store / fingerprint / outbox identity untouched (proven by tests + runtime audit).
+
+## Step 3 — provenance + pagination audit (verification-only)
+- Read-only DB audit (`sqlite3 mode=ro`): **19 PENDING rows, all `burgas-municipal-council`,
+  all v1 NEW; `outbox.content_hash == item_state.content_hash` 19/19; 1 delivered
+  (message_id=4)** — composition fully explained by ONE source: source A = 19, total = 19.
+- **Single source, one pipeline**: `sources/live.py` `BURGAS_MUNICIPAL_COUNCIL` →
+  single fetch of `last-update.xml` (RSS) → `process_items(destination="telegram-test")`.
+  The earlier "Octopus vs Burgas" note was an error: `octopus` appears nowhere in the
+  repo; exactly one source is declared. Nothing fixture/test-only entered the runtime DB.
+- Identity `(source_id, item_url)` proven collision-free: same URL under two source_ids →
+  two identities (`tests/test_state.py::test_same_url_two_sources_two_identities`);
+  outbox UNIQUE `(destination, source_id, item_url, version_no)`; duplicate identity = 0,
+  orphan outbox = 0, duplicate version intents = 0, cross-source URL overlap = none.
+- **Pagination: none exists in ingestion** (one feed URL, no page/offset logic anywhere).
+  Any "pagination" wording elsewhere referred to preview *display* pagination only.
+  No speculative pagination code or tests were added (§5 documentation-only by design).
+
+## Gate (steps 2+3)
+- [x] 120 tests green (25 new present-proof tests incl. all 20 required; 3 stale format asserts updated)
+- [x] BEFORE/AFTER previews, all 5 doc types: `var/ux_previews_before_after_2026-09-12.txt` (not sent)
+- [x] 19-item audit: subject extracted 19/19, boilerplate removed 19/19, max excerpt 281,
+      max rendered message 892 chars (<4096)
+- [x] pending rows byte-identical (payload snapshots + delivered_at); no sends; no regeneration
+- [x] fingerprints/state/outbox identity untouched (read-only mode=ro audit); ruff clean
+
+## Known findings (recorded, NOT solved — §8)
+- headline/excerpt duplication **11/19** (cleaned excerpt repeats display_subject verbatim)
+- 3/19 subject lines >300 chars (max 343 — far under Telegram's 4096)
+- Candidate future presentation rule (needs its own approval): if the cleaned excerpt
+  substantially repeats display_subject, drop the repeated leading text and continue
+  from the first new informative sentence.
 
 ## STOP rule
-**STOP AND WAIT FOR EDITOR'S D1–D8 ANSWERS** before implementing any format change.
+**STOP AND WAIT FOR EDITOR REVIEW** — no sends of the 19 pending rows, no scheduler, no
+duplication fix until approved.
+
 
 ---
 

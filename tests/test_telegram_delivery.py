@@ -37,7 +37,7 @@ def test_dry_run_default_no_http_no_deliver(tmp_path, capsys, monkeypatch):
     monkeypatch.delenv("TELEGRAM_TEST_BOT_TOKEN", raising=False)
     assert send_main(["--db", str(db)]) == 0
     out = capsys.readouterr().out
-    assert "DRY RUN" in out and "[NEW]" in out
+    assert "DRY RUN" in out and "🆕" in out
     assert len(list_pending(str(db))) == 2
 
 

@@ -8,10 +8,19 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from editor_assistant.models import SourceItem
+from editor_assistant.notify.present import (
+    attachment_summary,
+    clean_excerpt,
+    display_source_name,
+    extract_display_subject,
+)
 
 BODY_EXCERPT_LIMIT = 500
+
+_SOFIA_TZ = ZoneInfo("Europe/Sofia")
 
 
 @dataclass(frozen=True)
@@ -55,21 +64,31 @@ def build_payload(item: SourceItem, *, event_type: str, version_no: int) -> Noti
 
 
 def render_message(payload: NotificationPayload, *, source_label: str | None = None) -> str:
-    """Plain-text editor-facing alert. Deterministic; normalized data only."""
-    label = source_label or payload.source_id
-    lines = [f"[{payload.event_type}] {label}", "", payload.title, ""]
-    if payload.published_at:
-        lines.append(f"Публикувано: {payload.published_at}")
-        lines.append("")
-    if payload.body_excerpt:
-        lines.append(payload.body_excerpt)
-        lines.append("")
-    lines.append("Източник:")
-    lines.append(payload.item_url)
-    for link in payload.body_links:
-        lines.append("")
-        lines.append("Документ:")
-        lines.append(link)
+    """§11 editor-facing alert. Plain text only; deterministic; display-only.
+
+    Every editor-facing field is derived at render time from the immutable
+    payload snapshot (see notify.present). Stored source data, fingerprints,
+    and outbox identity are never modified by rendering.
+    """
+    marker = _EVENT_MARKERS.get(payload.event_type, payload.event_type)
+    label = source_label or display_source_name(payload.source_id)
+    subject = extract_display_subject(payload.title, payload.body_excerpt)
+    headline = subject or payload.title
+    lines: list[str] = [f"{marker} {label}", "", headline]
+    published_bg = format_published_bg_display(payload.published_at)
+    if published_bg:
+        lines += ["", f"🕒 {published_bg}"]
+    excerpt = clean_excerpt(payload.body_excerpt, title=payload.title)
+    if excerpt:
+        lines += ["", excerpt]
+    visible, hidden = attachment_summary(payload.body_links)
+    if visible:
+        lines += ["", "📎 Документи:"]
+        for att_label, att_url in visible:
+            lines.append(f"• {att_label} — {att_url}")
+        if hidden > 0:
+            lines.append(f"+{hidden} още")
+    lines += ["", "🔗 Източник:", payload.item_url]
     return "\n".join(lines).strip() + "\n"
 
 
@@ -89,7 +108,25 @@ def payload_from_json(raw: str) -> NotificationPayload:
     return NotificationPayload(**data)
 
 
-def format_published_bg(published_at: datetime | None) -> str | None:
+def format_published_bg_display(published_at: datetime | str | None) -> str | None:
+    """§6 display-only BG local time (Europe/Sofia): `дд.мм.гггг, чч:мм`.
+
+    Never mutates or replaces the stored value; None renders as None so the
+    line is omitted cleanly. Naive datetimes are rejected (project-wide rule).
+    """
     if published_at is None:
         return None
-    return published_at.strftime("%d.%m.%Y %H:%M %Z").strip() or None
+    if isinstance(published_at, str):
+        published_at = datetime.fromisoformat(published_at)
+    if published_at.tzinfo is None:
+        raise ValueError("published_at must be timezone-aware for display formatting")
+    return published_at.astimezone(_SOFIA_TZ).strftime("%d.%m.%Y, %H:%M")
+
+
+# Kept for backwards compatibility with the M1.4A name (UTC, %Z suffix).
+def format_published_bg(published_at: datetime | None) -> str | None:
+    return format_published_bg_display(published_at)
+
+
+# §11 markers (plain text; no Telegram parse mode).
+_EVENT_MARKERS = {"NEW": "🆕", "UPDATED": "🔄"}

@@ -164,7 +164,7 @@ def test_new_updated_render_differently(tmp_path):
         destination=TELEGRAM_TEST_DESTINATION,
     )
     new_msg, upd_msg = (render_message(r.payload) for r in _pending(db))
-    assert new_msg.startswith("[NEW]") and upd_msg.startswith("[UPDATED]")
+    assert new_msg.startswith("🆕") and upd_msg.startswith("🔄")
     assert new_msg != upd_msg
 
 
@@ -179,7 +179,7 @@ def test_render_contains_url_and_excerpt(tmp_path):
 def test_render_missing_body_no_crash():
     item = dataclasses.replace(_items()[0], body_text=None, body_links=())
     msg = render_message(build_payload(item, event_type="NEW", version_no=1))
-    assert item.item_url in msg and "[NEW]" in msg
+    assert item.item_url in msg and "🆕" in msg
 
 
 def test_render_deterministic(tmp_path):

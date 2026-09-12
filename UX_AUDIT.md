@@ -70,3 +70,18 @@ prefers them over `[NEW]`/`[UPDATED]`.
 ## Non-goals for this step
 No code changes, no sends (19 rows remain PENDING untouched), no scheduler. Implementation
 becomes the next narrowly-scoped milestone after D1–D8 answers.
+
+---
+
+## Addendum (2026-09-12, M1.5 steps 2–3)
+- **D1–D7 were implemented in step 2** (see MILESTONE.md): display name, subject promotion,
+  boilerplate strip-list, 280-char cap after cleaning, BG local time, compact attachments
+  (+N още), emoji markers. D8 kept the source page last.
+- **§8 duplicate finding, measured on real data: 11/19** cleaned excerpts repeat the
+  display subject verbatim (recorded, NOT solved). Candidate future rule (needs approval):
+  if the cleaned excerpt substantially repeats display_subject, drop the repeated leading
+  text and continue from the first new informative sentence.
+- Also observed: 3/19 subject lines exceed 300 chars (max 343; Telegram 4096 unaffected).
+- Provenance/pagination audit (step 3): single source `burgas-municipal-council`, zero
+  integrity violations (0 duplicate identities, 0 orphans, 0 duplicate version intents);
+  **no pagination code exists in ingestion** — documented, none invented.
