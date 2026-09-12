@@ -1,4 +1,24 @@
-# MILESTONE — M1.4B: Telegram TEST-Channel Delivery (Manual)
+# MILESTONE — M1.5: Editorial Alert UX Calibration
+
+## Status: IN PROGRESS — step 1 DONE (preview 5 real alerts + audit; NO code changes)
+
+## Scope (editor-defined)
+Before any scheduler work: calibrate the alert format against real data.
+Step 1: render 5 real PENDING alerts locally (one per document type), audit,
+decide. No sends, no code changes. Evidence: `UX_AUDIT.md` (D1–D8 decision list).
+
+## Gate checklist (step 1)
+- [x] 5 previews rendered locally from 19 real PENDING rows (var/, git-ignored, not sent)
+- [x] measured evidence over all 19 (lengths, links, boilerplate, title patterns)
+- [x] 8 calibration questions answered with data; D1–D8 decision list prepared
+- [x] no code changes, no state changes, no HTTP; secrets check clean
+
+## STOP rule
+**STOP AND WAIT FOR EDITOR'S D1–D8 ANSWERS** before implementing any format change.
+
+---
+
+# MILESTONE HISTORY — M1.4B: Telegram TEST-Channel Delivery (Manual)
 
 ## Status: DONE (verified LIVE 2026-09-12) — real message delivered to TEST chat
 

@@ -6,7 +6,10 @@ Per harness rule §3.3: ideas discovered mid-task go here, not into the current 
 - [x] M1.1 — Source Contract + Fixture Only (fixture → parser → normalized object → local output; no network) — done
 - [x] M1.2 — One Real Source, Read-Only (1 public source → fetch → parser → console/JSON; no Telegram/DB) — done (+ M1.2.1 description normalization)
 - [x] M1.3 — Local State + Dedupe (SQLite; NEW / UNCHANGED / UPDATED) — done
-- [x] M1.4 — Telegram TEST channel (M1.4A outbox+renderer, M1.4B manual dry-run-gated delivery) — done offline; live send pending
+- [x] M1.4 — Telegram TEST channel (M1.4A outbox+renderer, M1.4B manual dry-run-gated delivery) — done, live-verified
+- [ ] M1.5 — Alert UX calibration (step 1 audit done → `UX_AUDIT.md`; D1–D8 with the editor)
+- [ ] M1.6 — Manual polling command (ingest+enqueue+preview in one reviewed run)
+- [ ] M1.7 — Scheduled polling (only after the alert format is confirmed worth automating)
 
 ## Deferred to later levels
 - [ ] L2 editorial triage (risk/priority/region/type rules)

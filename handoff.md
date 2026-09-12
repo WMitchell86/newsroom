@@ -12,9 +12,12 @@ M1.4A durable outbox + renderer · M1.4B Step A (explicit intents) ·
 `delivered_at` written), dry-run gate confirmed still holding with real
 credentials present.
 
-PENDING (needs the human): **milestone review + M2 scope decision.** Per the
-STOP rule, no further scope (second source, scheduler, production channel)
-starts without explicit approval and a new milestone definition.
+IN PROGRESS: **M1.5 Alert UX Calibration — step 1 done (audit only, no code changes).**
+5 real pending alerts rendered locally (one per doc type), evidence + answers in
+`UX_AUDIT.md`; **D1–D8 decisions awaited from the editor.** 19 rows still PENDING (untouched).
+
+Roadmap (editor, 2026-09-12): M1.5 Alert UX → M1.6 manual polling command →
+M1.7 scheduled polling. Scheduler only after the format is confirmed worth automating.
 
 ## Environment facts (this machine)
 - `TELEGRAM_TEST_BOT_TOKEN` / `TELEGRAM_TEST_CHAT_ID` now hold **REAL secrets in the
@@ -55,7 +58,7 @@ env DRY_RUN=false PYTHONPATH=src python3 -m editor_assistant.send_telegram --db 
 - `--send` without `DRY_RUN=false` stays dry; without credentials it exits 2 cleanly.
 
 ## Next smallest step
-None in flight — M1.4B is closed after live verification. STOP and await the
-human's milestone review; propose the M2 milestone definition together with
-them (candidates live in `BACKLOG.md`: L2 triage rules are next per the
-harness ladder; scheduler/second source only if explicitly approved).
+Await the editor's D1–D8 answers in `UX_AUDIT.md`; then implement the approved
+format changes as a narrow M1.5 milestone (render-time only, fingerprints untouched,
+one-time comparison preview before/after). Do NOT start M1.6/M1.7 (polling/scheduler)
+until M1.5 closes.

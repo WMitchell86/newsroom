@@ -7,6 +7,7 @@ dry-run by default (see below).
 
 Full harness rules: [`AI_HARNESS_EDITOR_ASSISTANT.md`](./AI_HARNESS_EDITOR_ASSISTANT.md).
 Current status: [`MILESTONE.md`](./MILESTONE.md). Deferred ideas: [`BACKLOG.md`](./BACKLOG.md).
+Alert format calibration (editor decisions pending): [`UX_AUDIT.md`](./UX_AUDIT.md).
 Session guides for AI agents: [`agents.md`](./agents.md) (how to work in this repo) ·
 [`handoff.md`](./handoff.md) (current state at session start).
 
