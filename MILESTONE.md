@@ -1,4 +1,41 @@
-# MILESTONE — M1.4A: Durable Notification Outbox + Local Alert Rendering
+# MILESTONE — M1.4B: Telegram TEST-Channel Delivery (Manual)
+
+## Status: CODE COMPLETE (2026-09-12, offline-verified) — live send pending manual verification
+
+## Scope
+`PENDING outbox row → render → stdlib urllib POST sendMessage (TEST chat) → mark_delivered`.
+One destination only (`telegram-test`). No retries, no scheduler, no worker,
+no production channel, no parse_mode (plain text).
+
+## Gate checklist
+- [x] transport: urllib POST `{chat_id, text}` only, explicit 15s timeout
+- [x] success requires JSON `ok=true` AND `result.message_id` (int) — else TelegramSendError
+- [x] all failures (HTTP/timeout/bad JSON/ok=false/missing message_id) → TelegramSendError; token never in message/logs/URL output
+- [x] >4096 chars rejected locally before any HTTP; row stays PENDING
+- [x] CLI `send_telegram.py`: dry-run DEFAULT (preview, zero HTTP, no state change)
+- [x] real send needs `--send` AND `DRY_RUN=false` AND both env vars present (else clean exit 2)
+- [x] limit default 1, hard max 5 (0/6+ rejected); oldest-first (outbox id) order
+- [x] failure mid-run: row stays PENDING, run stops, nothing marked delivered
+- [x] success: `delivered_at` written (at-least-once crash window documented in module docstring)
+- [x] smoke guard updated: telegram delivery confined to `notify/telegram.py` + `send_telegram.py` (only excluded files)
+- [x] 95 tests green, ruff clean, no runtime DB committed
+
+## Manual live verification (requires human-supplied secrets — never commit)
+```bash
+export TELEGRAM_TEST_BOT_TOKEN=...   # from @BotFather
+export TELEGRAM_TEST_CHAT_ID=...     # test chat/group id
+PYTHONPATH=src python3 -m editor_assistant.send_telegram          # 1: dry run preview
+PYTHONPATH=src python3 -m editor_assistant.send_telegram --send   # send 1 pending row
+PYTHONPATH=src python3 -m editor_assistant.send_telegram --send --limit 5
+```
+Secrets live only in the environment (or uncommitted `.env`); `.gitignore` covers `.env` + `*.sqlite3`.
+
+## STOP rule
+**STOP AND WAIT FOR REVIEW** before any M2 scope (second source, scheduler, production channel).
+
+---
+
+# MILESTONE HISTORY — M1.4A: Durable Notification Outbox + Local Alert Rendering
 
 ## Status: DONE (verified 2026-09-12)
 

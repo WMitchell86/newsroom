@@ -60,16 +60,22 @@ def test_no_publish_or_external_write_paths_exist():
     import tokenize
 
     src = pathlib.Path(__file__).resolve().parents[1] / "src" / "editor_assistant"
-    forbidden = ("publish", "telegram", "wordpress", "n8n", "requests", "httpx")
+    forbidden = ("publish", "wordpress", "n8n", "requests", "httpx")
     # Allowed: config.py owns the AUTO_PUBLISH safety flag as data, not behavior;
     # sources/fetcher.py owns the stdlib-only read-only HTTP fetch (urllib) used
-    # by M1.2 fetch_bytes — no write/publish capability. Everything else must be
-    # free of external-write/network-client symbols.
+    # by M1.2 fetch_bytes — no write/publish capability.
+    # NOTE (M1.4B): notify/telegram.py + send_telegram.py are the single
+    # allow-listed TEST-channel notification delivery path (dry-run default,
+    # --send + DRY_RUN=false + explicit allow-listed chat required). They are
+    # intentionally excluded here; delivery-gate tests live in test_telegram*.
     # Match whole identifiers / underscore segments (so `published_at` is fine,
     # but a real `publish(...)` symbol anywhere is flagged).
     allowed = {("config.py", "auto_publish"), ("fetcher.py", "urllib")}
+    excluded = {"telegram.py", "send_telegram.py"}
     hits = []
-    for path in sorted(src.glob("*.py")) + sorted((src / "sources").glob("*.py")):
+    files = [p for p in sorted(src.glob("*.py")) + sorted((src / "sources").glob("*.py"))]
+    files += [p for p in sorted((src / "notify").glob("*.py")) if p.name not in excluded]
+    for path in files:
         with open(path, "rb") as fh:
             tokens = tokenize.tokenize(fh.readline)
             for tok in tokens:
