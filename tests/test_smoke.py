@@ -62,16 +62,21 @@ def test_no_publish_or_external_write_paths_exist():
     src = pathlib.Path(__file__).resolve().parents[1] / "src" / "editor_assistant"
     forbidden = ("publish", "telegram", "wordpress", "n8n", "requests", "httpx", "urllib")
     # config.py legitimately owns the AUTO_PUBLISH safety flag as data, not behavior.
+    # Match whole identifiers / underscore segments (so `published_at` is fine,
+    # but a real `publish(...)` symbol anywhere is flagged).
     allowed = {("config.py", "auto_publish")}
     hits = []
-    for path in sorted(src.glob("*.py")):
+    for path in sorted(src.glob("*.py")) + sorted((src / "sources").glob("*.py")):
         with open(path, "rb") as fh:
             tokens = tokenize.tokenize(fh.readline)
             for tok in tokens:
                 if tok.type != tokenize.NAME:
                     continue
                 lowered = tok.string.lower()
+                if (path.name, lowered) in allowed:
+                    continue
+                segments = set(lowered.split("_")) | {lowered}
                 for word in forbidden:
-                    if word in lowered and (path.name, lowered) not in allowed:
+                    if word in segments:
                         hits.append(f"{path.name}:{tok.start[0]}: {tok.string}")
     assert hits == [], f"forbidden external-write symbols found: {hits}"

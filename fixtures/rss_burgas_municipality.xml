@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- M1.1 fixture: realistic municipal press RSS 2.0 (saved, no network).
+     Representative of official/regional feeds the radar will ingest later.
+     Item 1: full (pubDate with +0300 zone, author, multiline description).
+     Item 2: minimal (no author -> must stay missing, not invented). -->
+<rss version="2.0">
+  <channel>
+    <title>Община Бургас — Прессъобщения</title>
+    <link>https://www.burgas.bg/press</link>
+    <description>Официални прессъобщения на Община Бургас</description>
+    <language>bg</language>
+    <item>
+      <title>
+        Временна   организация на движението по ул. „Александровска“
+        в събота
+      </title>
+      <link>https://www.burgas.bg/press/2026/09/traffic-aleksandrovska</link>
+      <pubDate>Fri, 11 Sep 2026 08:30:00 +0300</pubDate>
+      <description>
+        Община Бургас уведомява, че на 12 септември 2026 г.
+        от 08:00 до 17:00 ч. ще бъде въведена временна организация
+        на движението по ул. „Александровска“ поради ремонтни дейности.
+      </description>
+      <author>press@burgas.bg (Пресцентър)</author>
+    </item>
+    <item>
+      <title>Почистване на плажната ивица след летния сезон</title>
+      <link>https://www.burgas.bg/press/2026/09/beach-cleanup</link>
+      <pubDate>Thu, 10 Sep 2026 15:00:00 +0300</pubDate>
+      <description>Община Бургас организира почистване на плажната ивица.</description>
+    </item>
+  </channel>
+</rss>
