@@ -22,7 +22,10 @@ version intents**, `outbox.content_hash == item_state.content_hash` 19/19; **no 
 code exists in ingestion** — documented, none invented. **Step 4 (done)**: headline/excerpt
 duplication **11/19 → 0/19** via `present.strip_leading_subject()` (anchored, deterministic,
 normalized comparison for matching only); 14 new tests → **135 suite green**; samples in
-`var/ux_previews_step4_2026-09-12.txt`. Pending rows (outbox IDs 2–20) byte-identical.
+`var/ux_previews_step4_2026-09-12.txt`. **Step 5 (done, 2026-09-12)**: one real TEST send of
+outbox_id=2/node 3636 in the new format — Telegram `message_id=5`, `delivered_at` written,
+pending 19→18, other 18 rows byte-identical (verified read-only); verdict **PASS WITH UX
+NOTES** in `MILESTONE.md`. No code changes in Step 5.
 
 Roadmap (editor, 2026-09-12): M1.5 Alert UX → M1.6 manual polling command →
 M1.7 scheduled polling. Scheduler only after the format is confirmed worth automating.
@@ -42,10 +45,10 @@ PYTHONPATH=src python3 -m editor_assistant.check_state     # RUN1 NEW → RUN2 U
 ```
 
 ## Runtime data (var/, git-ignored)
-`var/editor_assistant.sqlite3` holds live results: 20 ingested council items
-(state NEW/UNCHANGED on rerun), outbox 1 sent + 19 PENDING (limit=1 on the
-verification send — intentional). Future sends drain the 19 with
-`--send --limit 5` runs.
+`var/editor_assistant.sqlite3` holds live results: 20 ingested council items,
+outbox **2 delivered** (id 1 — M1.4B `message_id=4`; id 2 — M1.5 Step 5
+`message_id=5`, new format) + **18 PENDING**. Future sends drain the 18 with
+`--send --limit 5` runs (CLI picks oldest-first; no row selector exists by design).
 
 ## Sending more PENDING rows (routine)
 ```bash

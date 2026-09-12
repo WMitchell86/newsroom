@@ -1,11 +1,12 @@
 # MILESTONE — M1.5: Editorial Alert UX Calibration
 
-## Status: IN PROGRESS — steps 1–4 done · awaiting editor review
+## Status: IN PROGRESS — steps 1–5 done · awaiting editor review (Step 5 = 1 live send)
 
 - **Step 1 (2026-09-12)** — preview 5 real alerts + audit, no code changes (`UX_AUDIT.md`, D1–D8)
 - **Step 2** — deterministic editorial cleanup implemented (presentation-only, render-time)
 - **Step 3** — source provenance + pagination integrity audit (verification-only, zero mutations)
 - **Step 4** — headline/excerpt de-duplication implemented (presentation-only, deterministic)
+- **Step 5** — one real Telegram TEST verification send (verification-only, 1 message sent)
 
 ## Step 2 scope (implemented)
 `notify/present.py` (deterministic, stdlib-only): display-name map, `относно:` subject
@@ -43,7 +44,28 @@ Real 19-item audit: duplicate_before **11** → duplicate_after **0**; 12 excerp
 entirely (their 500-char snapshots ended at the subject — nothing informative lost), 7 remain;
 max excerpt 108 chars; max rendered message 615 chars (<4096).
 
-## Gate (steps 2+3+4)
+## Step 5 — one real Telegram UX verification (2026-09-12)
+- Dry run first (real CLI path, default gate): rendered outbox_id=2 / node 3636,
+  all §2 checks pass (human source label, extracted subject headline, BG local
+  date `11.09.2026, 16:23`, deduplicated excerpt OMITTED — no boilerplate, 2
+  attachments, source URL, plain text, message 615 chars).
+- Real send (existing M1.4B gates: `--send` + `DRY_RUN=false`, limit=1):
+  **status SENT · Telegram `message_id=5` · remaining_pending 18.**
+- State verified read-only: id=2 `delivered_at=2026-09-12T18:08:45.296916+00:00`;
+  pending 19 → 18; the 18 remaining rows byte-identical (payload sha256 +
+  delivered_at NULL compared against a pre-send snapshot).
+- Selection caveat: the CLI has no row-selection flag (oldest-first by
+  `ORDER BY id` only). The 16-attachment candidate (node 3631, outbox id 7)
+  was therefore verified at RENDER level only (first 3 links + `+13 още`,
+  no "main" labeling) and NOT live-sent — adding a selector would be a
+  feature change, out of scope for a verification-only milestone.
+- Verdict: **PASS WITH UX NOTES** — the sent message rendering is clean and
+  complete; notes: (a) excerpt omitted by design when the 500-char snapshot
+  ends at the subject (12/19 items) — editor to confirm acceptable; (b) the
+  high-attachment layout is renderer-verified, not chat-verified; (c) final
+  visual confirmation is the editor's eyeball in the TEST chat.
+
+## Gate (steps 2+3+4+5)
 - [x] 135 tests green (14 new Step-4 proofs incl. §9 1–14; 39 present tests; 120 prior green)
 - [x] BEFORE/AFTER previews: `var/ux_previews_before_after_2026-09-12.txt` (steps 2) +
       `var/ux_previews_step4_2026-09-12.txt` (5 representative examples; not sent)
@@ -53,6 +75,8 @@ max excerpt 108 chars; max rendered message 615 chars (<4096).
       for all 12) — no informative content was swallowed
 - [x] pending rows byte-identical, 19 PENDING; no sends; no regeneration; fingerprints/
       state/outbox identity untouched (tests + read-only audit); ruff clean
+- [x] Step 5: 1 real TEST message sent (message_id=5), pending 19→18, other 18 rows
+      byte-identical (verified read-only), no code changes, docs only
 
 ## Known findings after step 4
 - headline/excerpt duplication **11/19 → SOLVED (0/19)** by step 4.
