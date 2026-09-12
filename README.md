@@ -43,7 +43,9 @@ PYTHONPATH=src python3 -m editor_assistant.send_telegram --send   # send 1 pendi
 
 Real sending requires ALL of: `--send`, `DRY_RUN=false`, and
 `TELEGRAM_TEST_BOT_TOKEN` / `TELEGRAM_TEST_CHAT_ID` in the environment
-(never committed; `.env` and `*.sqlite3` are git-ignored). Limit is 1 by
+(never committed; `.env` and `*.sqlite3` are git-ignored). If you keep
+credentials in an uncommitted `.env`, source it first: `set -a; . ./.env; set +a`.
+Limit is 1 by
 default, hard max 5. Failures leave rows PENDING; delivery is at-least-once
 (duplicate TEST-chat messages are possible after a crash between send and
 `delivered_at` write — by design). No retries, no scheduler.

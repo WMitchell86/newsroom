@@ -1,6 +1,6 @@
 # MILESTONE — M1.4B: Telegram TEST-Channel Delivery (Manual)
 
-## Status: CODE COMPLETE (2026-09-12, offline-verified) — live send pending manual verification
+## Status: DONE (verified LIVE 2026-09-12) — real message delivered to TEST chat
 
 ## Scope
 `PENDING outbox row → render → stdlib urllib POST sendMessage (TEST chat) → mark_delivered`.
@@ -29,6 +29,11 @@ PYTHONPATH=src python3 -m editor_assistant.send_telegram --send   # send 1 pendi
 PYTHONPATH=src python3 -m editor_assistant.send_telegram --send --limit 5
 ```
 Secrets live only in the environment (or uncommitted `.env`); `.gitignore` covers `.env` + `*.sqlite3`.
+
+### Live verification evidence (2026-09-12)
+- Live feed ingested: 20 items parsed, 20 NEW → 20 PENDING intents
+- Real send: `status: SENT`, Telegram `message_id=4`, `delivered_at` written; 19 remain PENDING (limit=1)
+- Gate re-check with real credentials present: `--send` without `DRY_RUN=false` stayed dry (no HTTP, no state change)
 
 ## STOP rule
 **STOP AND WAIT FOR REVIEW** before any M2 scope (second source, scheduler, production channel).
