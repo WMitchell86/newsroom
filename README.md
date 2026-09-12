@@ -23,6 +23,16 @@ pytest
 
 Expected: smoke + safety tests pass, no network calls, no external side effects.
 
+## M1.2 live read-only run (manual, needs internet)
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.fetch_live
+# optional explicit URL: PYTHONPATH=src python3 -m editor_assistant.fetch_live https://burgascouncil.org/last-update.xml
+```
+
+Prints HTTP envelope then normalized `SourceItem[]` JSON to stdout.
+Read-only: no persistence, no Telegram/WordPress/LLM.
+
 ## Layout
 
 ```text

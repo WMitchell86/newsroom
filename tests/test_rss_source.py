@@ -106,15 +106,16 @@ def test_pubdate_timezone_matrix():
         parse_datetime("not a date at all")
 
 
-def test_no_network_usage_in_sources_package():
+def test_no_network_usage_in_parser_module():
+    """Parser side stays pure: rss.py + models.py contain no network imports."""
     src = pathlib.Path(__file__).resolve().parents[1] / "src" / "editor_assistant"
     forbidden = ("socket", "requests", "httpx", "urllib", "aiohttp")
     hits = [
         f"{p.name}: {line.strip()}"
-        for p in sorted((src / "sources").glob("*.py"))
+        for p in (src / "models.py", src / "sources" / "rss.py")
         for line in p.read_text(encoding="utf-8").splitlines()
         if not line.strip().startswith(("#", '"', "'"))
         for word in forbidden
         if word in line.lower()
     ]
-    assert hits == [], f"network usage found: {hits}"
+    assert hits == [], f"network usage found in parser: {hits}"

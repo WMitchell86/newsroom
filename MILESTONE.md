@@ -1,22 +1,41 @@
-# MILESTONE — M1.1: Source Contract + Fixture Only
+# MILESTONE — M1.2: One Real Source, Read-Only
 
 ## Status: DONE (verified 2026-09-12)
 
 ## Scope
-`fixture → parser → normalized SourceItem → local deterministic output → verification`.
-One RSS 2.0 fixture, stdlib only, no network, no persistence, no Telegram/WordPress.
+`live RSS → HTTP fetch (stdlib urllib) → existing rss20 parser → SourceItem[] → JSON stdout`.
+No persistence, no Telegram/WordPress/DB/LLM/scheduling/retries/dedupe.
+Live source: `burgas-municipal-council`, feed `https://burgascouncil.org/last-update.xml`
+(official Municipal Council Burgas "Последно съдържание"; 20 items at verification).
 
 ## Gate checklist
-- [x] pytest passes (15 passed: 9 M1.1 + 6 M0 smoke)
+- [x] corrective timezone tests pass (naive pubDate → SourceParseError)
+- [x] all existing tests pass (25 passed)
 - [x] ruff check + format clean
-- [x] no network imports introduced
-- [x] no production write path exists
-- [x] parser result manually inspectable (`item_to_dict` JSON)
-- [x] malformed input behavior demonstrated (SourceParseError, 3 cases)
-- [x] git diff contains only M1.1 scope (sources/models/fixture/tests/MILESTONE + smoke guard fix)
+- [x] exactly one external source introduced (`sources/live.py`)
+- [x] live endpoint documented (above + README run section)
+- [x] manual live fetch succeeds (HTTP 200, application/rss+xml, 66899 bytes, 20/20 parsed)
+- [x] output is normalized SourceItem (item_to_dict JSON)
+- [x] no network call inside parser (rss.py/models.py clean; urllib isolated in fetcher.py)
+- [x] no persistence; no production write integration
+- [x] timeout behavior demonstrated (live: timed out → FetchError)
+- [x] response-size protection demonstrated (live: max_bytes=100 → FetchError)
+- [x] git diff contains only M1.1-corrective + M1.2 scope
 
 ## STOP rule
-**STOP AND WAIT FOR REVIEW.** No M1.2 work starts without approval.
+**STOP AND WAIT FOR REVIEW.** No M1.3 (persistence/dedupe) without approval.
+
+---
+
+# MILESTONE HISTORY — M1.1: Source Contract + Fixture Only
+
+## Status: DONE (verified 2026-09-12, commits fb84a57 + corrective 344dbf1)
+One RSS 2.0 fixture → rss20 parser → SourceItem → local JSON. Corrective patch:
+naive pubDate raises SourceParseError (no UTC/Sofia/local guess); timezone matrix tests.
+
+---
+
+# MILESTONE HISTORY — M0: Project Bootstrap + Safety Foundation
 
 ---
 

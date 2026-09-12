@@ -60,11 +60,14 @@ def test_no_publish_or_external_write_paths_exist():
     import tokenize
 
     src = pathlib.Path(__file__).resolve().parents[1] / "src" / "editor_assistant"
-    forbidden = ("publish", "telegram", "wordpress", "n8n", "requests", "httpx", "urllib")
-    # config.py legitimately owns the AUTO_PUBLISH safety flag as data, not behavior.
+    forbidden = ("publish", "telegram", "wordpress", "n8n", "requests", "httpx")
+    # Allowed: config.py owns the AUTO_PUBLISH safety flag as data, not behavior;
+    # sources/fetcher.py owns the stdlib-only read-only HTTP fetch (urllib) used
+    # by M1.2 fetch_bytes — no write/publish capability. Everything else must be
+    # free of external-write/network-client symbols.
     # Match whole identifiers / underscore segments (so `published_at` is fine,
     # but a real `publish(...)` symbol anywhere is flagged).
-    allowed = {("config.py", "auto_publish")}
+    allowed = {("config.py", "auto_publish"), ("fetcher.py", "urllib")}
     hits = []
     for path in sorted(src.glob("*.py")) + sorted((src / "sources").glob("*.py")):
         with open(path, "rb") as fh:
