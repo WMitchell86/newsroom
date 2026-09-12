@@ -12,6 +12,7 @@ from editor_assistant.sources.rss import (
     PARSER_ID,
     SourceParseError,
     item_to_dict,
+    parse_datetime,
     parse_rss_feed,
 )
 
@@ -88,6 +89,21 @@ def test_malformed_fixture_fails_predictably():
 
 def test_repeated_parsing_produces_equivalent_output():
     assert [item_to_dict(i) for i in _parse()] == [item_to_dict(i) for i in _parse()]
+
+
+def test_pubdate_timezone_matrix():
+    # (1) tz-aware +0300 parses and preserves the zone.
+    aware = parse_datetime("Fri, 11 Sep 2026 08:30:00 +0300")
+    assert aware is not None and aware.isoformat() == "2026-09-11T08:30:00+03:00"
+    # (2) missing pubDate remains None — never invented.
+    assert parse_datetime(None) is None
+    assert parse_datetime("   ") is None
+    # (3) naive pubDate fails predictably — no UTC/Sofia/local guess.
+    with pytest.raises(SourceParseError):
+        parse_datetime("Fri, 11 Sep 2026 08:30:00")
+    # (4) malformed pubDate fails predictably.
+    with pytest.raises(SourceParseError):
+        parse_datetime("not a date at all")
 
 
 def test_no_network_usage_in_sources_package():

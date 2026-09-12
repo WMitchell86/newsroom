@@ -7,7 +7,7 @@ deterministically; timezone-aware datetimes; fail clearly on invalid input.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
 
@@ -28,10 +28,10 @@ def normalize_whitespace(text: str) -> str:
 
 
 def parse_datetime(raw: str | None) -> datetime | None:
-    """Parse RFC-2822 pubDate into tz-aware datetime; None stays None.
+    """Parse RFC-2822 pubDate into a tz-aware datetime; None stays None.
 
-    Naive results (no zone in string) are explicitly normalized to UTC —
-    never silently left naive, never guessed as local time.
+    No timezone is ever inferred: a present-but-naive pubDate is a source
+    defect and raises SourceParseError (not UTC, not Europe/Sofia, not local).
     """
     if raw is None:
         return None
@@ -43,7 +43,7 @@ def parse_datetime(raw: str | None) -> datetime | None:
     except (TypeError, ValueError) as exc:
         raise SourceParseError(f"unparseable pubDate: {raw!r}") from exc
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+        raise SourceParseError(f"pubDate without timezone: {raw!r}")
     return parsed
 
 
