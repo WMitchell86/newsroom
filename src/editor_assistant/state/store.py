@@ -70,16 +70,19 @@ def process_items(
     observed_at: datetime,
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
-    destination: str = TELEGRAM_TEST_DESTINATION,
+    destination: str | None = None,
 ) -> list[StateResult]:
     """Process a batch in one transaction; results preserve input order.
 
-    NEW/UPDATED transitions enqueue a durable outbox intent atomically in the
-    same transaction (no state-without-notification window). UNCHANGED enqueues
-    nothing. Reprocessing an unchanged item never duplicates an intent
-    (UNIQUE + INSERT OR IGNORE defensive layer).
+    Notification intents are explicit: pass destination="telegram-test" to
+    enqueue NEW/UPDATED intents atomically with the state transition.
+    destination=None (default) means state-only, no notification intent.
+    UNCHANGED never enqueues. Reprocessing an unchanged item never duplicates
+    an intent (UNIQUE + INSERT OR IGNORE defensive layer).
     """
     observed_iso = _require_aware(observed_at, what="observed_at")
+    if destination is not None and destination != TELEGRAM_TEST_DESTINATION:
+        raise StateError(f"unsupported notification destination: {destination!r}")
     fingerprints = [fingerprint_item(item) for item in items]  # fail before touching DB
     results: list[StateResult] = []
     with sqlite3.connect(db_path) as conn:
@@ -103,7 +106,8 @@ def process_items(
                             " VALUES (?, ?, ?, 1, ?, ?)",
                             (item.source_id, item.item_url, digest, observed_iso, observed_iso),
                         )
-                        _enqueue(conn, item, digest, 1, "NEW", destination, observed_iso)
+                        if destination is not None:
+                            _enqueue(conn, item, digest, 1, "NEW", destination, observed_iso)
                         results.append(
                             StateResult(ItemStatus.NEW, item.source_id, item.item_url, 1, digest)
                         )
@@ -129,9 +133,10 @@ def process_items(
                             "WHERE source_id = ? AND item_url = ?",
                             (item.source_id, item.item_url),
                         ).fetchone()
-                        _enqueue(
-                            conn, item, digest, updated[0], "UPDATED", destination, observed_iso
-                        )
+                        if destination is not None:
+                            _enqueue(
+                                conn, item, digest, updated[0], "UPDATED", destination, observed_iso
+                            )
                         results.append(
                             StateResult(
                                 ItemStatus.UPDATED,

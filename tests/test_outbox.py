@@ -38,9 +38,19 @@ def _pending(db):
     return list_pending(db, destination=TELEGRAM_TEST_DESTINATION)
 
 
+def test_generic_processing_creates_no_intent(tmp_path):
+    """Step A: destination=None (default) is state-only, no outbox row."""
+    db = tmp_path / "explicit.sqlite3"
+    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=None)
+    assert _pending(db) == []
+    with pytest.raises(StateError):
+        process_items(_items()[:1], T0, db_path=db, destination="telegram-prod")
+
+
 def test_new_creates_one_pending_row(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     rows = _pending(db)
     assert len(rows) == 1 and rows[0].pending
     assert (rows[0].event_type, rows[0].version_no) == ("NEW", 1)
@@ -48,17 +58,17 @@ def test_new_creates_one_pending_row(tmp_path):
 
 def test_unchanged_creates_no_row(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
-    process_items(_items()[:1], T1, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
+    process_items(_items()[:1], T1, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert len(_pending(db)) == 1
 
 
 def test_updated_creates_second_row(tmp_path):
     db = tmp_path / "o.sqlite3"
     (first,) = _items()[:1]
-    process_items([first], T0, db_path=db)
+    process_items([first], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     changed = dataclasses.replace(first, title=first.title + " v2")
-    process_items([changed], T1, db_path=db)
+    process_items([changed], T1, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     rows = _pending(db)
     assert [(r.event_type, r.version_no) for r in rows] == [("NEW", 1), ("UPDATED", 2)]
 
@@ -66,27 +76,32 @@ def test_updated_creates_second_row(tmp_path):
 def test_repeated_processing_no_duplicates(tmp_path):
     db = tmp_path / "o.sqlite3"
     for _ in range(3):
-        process_items(_items()[:1], T1, db_path=db)
+        process_items(_items()[:1], T1, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert len(_pending(db)) == 1
 
 
 def test_two_items_two_intents(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:2], T0, db_path=db)
+    process_items(_items()[:2], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert len(_pending(db)) == 2
 
 
 def test_same_url_two_sources_independent(tmp_path):
     db = tmp_path / "o.sqlite3"
     a = _items()[0]
-    process_items([a, dataclasses.replace(a, source_id="other")], T0, db_path=db)
+    process_items(
+        [a, dataclasses.replace(a, source_id="other")],
+        T0,
+        db_path=db,
+        destination=TELEGRAM_TEST_DESTINATION,
+    )
     assert len(_pending(db)) == 2
 
 
 def test_payload_event_type_and_url(tmp_path):
     db = tmp_path / "o.sqlite3"
     (first,) = _items()[:1]
-    process_items([first], T0, db_path=db)
+    process_items([first], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     (row,) = _pending(db)
     assert row.payload.event_type == "NEW"
     assert row.payload.item_url == first.item_url
@@ -94,7 +109,7 @@ def test_payload_event_type_and_url(tmp_path):
 
 def test_bulgarian_survives_serialization(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     (row,) = _pending(db)
     assert "Александровска" in row.payload.title
     assert "Бургас" in (row.payload.body_excerpt or "")
@@ -107,7 +122,9 @@ def test_excerpt_limit_deterministic(tmp_path):
     payload = build_payload(item, event_type="NEW", version_no=1)
     assert len(payload.body_excerpt or "") <= BODY_EXCERPT_LIMIT + 1
     assert build_payload(item, event_type="NEW", version_no=1) == payload
-    process_items(_items()[:1], T0, db_path=db)  # unrelated run unaffected
+    process_items(
+        _items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION
+    )  # unrelated run unaffected
     assert len(_pending(db)) == 1
 
 
@@ -118,7 +135,7 @@ def test_links_preserve_order(tmp_path):
         "https://e.com/a",
         "https://e.com/b",
     )
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert _pending(db)[0].payload.body_links == ()
 
 
@@ -126,21 +143,26 @@ def test_missing_pubdate_explicit(tmp_path):
     item = dataclasses.replace(_items()[0], published_at=None)
     assert build_payload(item, event_type="NEW", version_no=1).published_at is None
     db = tmp_path / "o.sqlite3"
-    process_items([item], T0, db_path=db)
+    process_items([item], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert _pending(db)[0].payload.published_at is None
 
 
 def test_missing_links_ok(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert _pending(db)[0].payload.body_links == ()
 
 
 def test_new_updated_render_differently(tmp_path):
     db = tmp_path / "o.sqlite3"
     (first,) = _items()[:1]
-    process_items([first], T0, db_path=db)
-    process_items([dataclasses.replace(first, title=first.title + " v2")], T1, db_path=db)
+    process_items([first], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
+    process_items(
+        [dataclasses.replace(first, title=first.title + " v2")],
+        T1,
+        db_path=db,
+        destination=TELEGRAM_TEST_DESTINATION,
+    )
     new_msg, upd_msg = (render_message(r.payload) for r in _pending(db))
     assert new_msg.startswith("[NEW]") and upd_msg.startswith("[UPDATED]")
     assert new_msg != upd_msg
@@ -148,7 +170,7 @@ def test_new_updated_render_differently(tmp_path):
 
 def test_render_contains_url_and_excerpt(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     msg = render_message(_pending(db)[0].payload)
     assert _items()[0].item_url in msg
     assert "Бургас" in msg
@@ -162,14 +184,14 @@ def test_render_missing_body_no_crash():
 
 def test_render_deterministic(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     payload = _pending(db)[0].payload
     assert render_message(payload) == render_message(payload)
 
 
 def test_pending_query_and_delivered_lifecycle(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:2], T0, db_path=db)
+    process_items(_items()[:2], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     assert len(_pending(db)) == 2
     mark_delivered(db, _pending(db)[0].id, T1)
     assert len(_pending(db)) == 1
@@ -178,7 +200,7 @@ def test_pending_query_and_delivered_lifecycle(tmp_path):
 
 def test_mark_delivered_requires_aware(tmp_path):
     db = tmp_path / "o.sqlite3"
-    process_items(_items()[:1], T0, db_path=db)
+    process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     with pytest.raises(StateError):
         mark_delivered(db, 1, datetime(2026, 9, 12, 12, 0, 0).replace(tzinfo=None))  # noqa: DTZ001
 
@@ -196,7 +218,7 @@ def test_outbox_insert_failure_rolls_back_state(tmp_path):
     monkeypatch.setattr(store_mod, "_enqueue", boom)
     try:
         with pytest.raises(StateError):
-            process_items(_items()[:1], T0, db_path=db)
+            process_items(_items()[:1], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
     finally:
         monkeypatch.setattr(store_mod, "_enqueue", real_enqueue)
         monkeypatch.undo()
@@ -226,9 +248,14 @@ def test_state_failure_creates_no_outbox_row(tmp_path):
     monkeypatch.setattr(store_mod.sqlite3, "connect", boom_connect)
     try:
         (first,) = _items()[:1]
-        process_items([first], T0, db_path=db)
+        process_items([first], T0, db_path=db, destination=TELEGRAM_TEST_DESTINATION)
         with pytest.raises(StateError):
-            process_items([dataclasses.replace(first, title="changed")], T1, db_path=db)
+            process_items(
+                [dataclasses.replace(first, title="changed")],
+                T1,
+                db_path=db,
+                destination=TELEGRAM_TEST_DESTINATION,
+            )
     finally:
         monkeypatch.undo()
     with real_connect(db) as conn:
