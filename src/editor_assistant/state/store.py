@@ -1,7 +1,8 @@
-"""M1.3 SQLite state — stdlib sqlite3 only, no ORM, current-state only.
+"""M1.3+M1.4A SQLite state — stdlib sqlite3 only, no ORM, current-state only.
 
 Identity: (source_id, item_url). No deletion/tombstone semantics.
-No historical version tables. One transaction per process_items batch.
+No historical version tables. One transaction per process_items batch,
+covering both item_state and the notification_outbox (M1.4A).
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from pathlib import Path
 
 from editor_assistant.models import SourceItem
 from editor_assistant.state.fingerprint import StateError, fingerprint_item
+
+TELEGRAM_TEST_DESTINATION = "telegram-test"
 
 DEFAULT_DB_PATH = Path("var/editor_assistant.sqlite3")
 
@@ -67,13 +70,23 @@ def process_items(
     observed_at: datetime,
     *,
     db_path: str | Path = DEFAULT_DB_PATH,
+    destination: str = TELEGRAM_TEST_DESTINATION,
 ) -> list[StateResult]:
-    """Process a batch in one transaction; results preserve input order."""
+    """Process a batch in one transaction; results preserve input order.
+
+    NEW/UPDATED transitions enqueue a durable outbox intent atomically in the
+    same transaction (no state-without-notification window). UNCHANGED enqueues
+    nothing. Reprocessing an unchanged item never duplicates an intent
+    (UNIQUE + INSERT OR IGNORE defensive layer).
+    """
     observed_iso = _require_aware(observed_at, what="observed_at")
     fingerprints = [fingerprint_item(item) for item in items]  # fail before touching DB
     results: list[StateResult] = []
     with sqlite3.connect(db_path) as conn:
         conn.execute(_SCHEMA)  # init-on-first-use, idempotent, keeps state
+        from editor_assistant.notify.outbox import init_outbox
+
+        init_outbox(conn)
         try:
             with conn:  # single transaction: commit on success, rollback on error
                 for item, digest in zip(items, fingerprints, strict=True):
@@ -90,6 +103,7 @@ def process_items(
                             " VALUES (?, ?, ?, 1, ?, ?)",
                             (item.source_id, item.item_url, digest, observed_iso, observed_iso),
                         )
+                        _enqueue(conn, item, digest, 1, "NEW", destination, observed_iso)
                         results.append(
                             StateResult(ItemStatus.NEW, item.source_id, item.item_url, 1, digest)
                         )
@@ -115,6 +129,9 @@ def process_items(
                             "WHERE source_id = ? AND item_url = ?",
                             (item.source_id, item.item_url),
                         ).fetchone()
+                        _enqueue(
+                            conn, item, digest, updated[0], "UPDATED", destination, observed_iso
+                        )
                         results.append(
                             StateResult(
                                 ItemStatus.UPDATED,
@@ -127,3 +144,29 @@ def process_items(
         except sqlite3.Error as exc:
             raise StateError(f"batch storage failed, rolled back: {exc}") from exc
     return results
+
+
+def _enqueue(
+    conn: sqlite3.Connection,
+    item: SourceItem,
+    digest: str,
+    version_no: int,
+    event_type: str,
+    destination: str,
+    observed_iso: str,
+) -> None:
+    from editor_assistant.notify.outbox import enqueue_notification
+    from editor_assistant.notify.render import build_payload
+
+    payload = build_payload(item, event_type=event_type, version_no=version_no)
+    enqueue_notification(
+        conn,
+        destination=destination,
+        source_id=item.source_id,
+        item_url=item.item_url,
+        version_no=version_no,
+        event_type=event_type,
+        content_hash=digest,
+        payload=payload,
+        created_at_iso=observed_iso,
+    )

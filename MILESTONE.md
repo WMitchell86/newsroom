@@ -1,23 +1,28 @@
-# MILESTONE — M1.3: Local State + Identity + Version Detection
+# MILESTONE — M1.4A: Durable Notification Outbox + Local Alert Rendering
 
 ## Status: DONE (verified 2026-09-12)
 
 ## Scope
-`SourceItem[] → stable identity → SHA-256 version fingerprint → SQLite state
-→ NEW / UNCHANGED / UPDATED`. Stdlib `hashlib` + `sqlite3` only, no ORM.
-Runtime DB default `var/editor_assistant.sqlite3` (gitignored); tests use tmp DBs.
+`NEW/UPDATED → PENDING outbox row (same SQLite transaction) → local renderer`.
+One destination id (`telegram-test`, no Telegram code/credentials/network).
+No delivery, retries, workers, scheduling. M1.3 fingerprint/identity unchanged.
 
 ## Gate checklist
-- [x] all existing tests green (57 passed: 19 state + 38 prior)
-- [x] ruff check + format clean
-- [x] same item never NEW twice; fetched_at changes don't trigger UPDATED
-- [x] content changes trigger UPDATED with version_no += 1
-- [x] batch failure rolls back fully (simulated mid-batch INSERT failure → 0 rows)
-- [x] no external write system; no scheduling; no Telegram
-- [x] no runtime DB committed (var/ + *.sqlite3 gitignored)
+- [x] all previous tests green (77 passed: 20 outbox + 57 prior)
+- [x] NEW→1 intent; UNCHANGED→none; UPDATED→new version intent; no duplicates
+- [x] state + outbox atomic (outbox-fail rolls back state; state-fail adds no row)
+- [x] payload snapshots render later (excerpt ≤500+…, links ordered, bg Unicode)
+- [x] pending survives UNCHANGED runs; mark_delivered lifecycle works locally
+- [x] renderer deterministic; NEW vs UPDATED visually distinct
+- [x] no Telegram import/credential/network write; ruff clean
+- [x] no runtime DB committed
 
 ## STOP rule
-**STOP AND WAIT FOR REVIEW.** No Telegram/scheduling/history/next milestone.
+**STOP AND WAIT FOR REVIEW.** No Telegram delivery (M1.4B) without approval.
+
+---
+
+# MILESTONE HISTORY — M1.3: Local State + Identity + Version Detection
 
 ---
 

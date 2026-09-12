@@ -1,4 +1,4 @@
-"""M1.3 state package: fingerprint + SQLite store (stdlib only)."""
+"""M1.3+M1.4A state package: fingerprint + SQLite store + outbox (stdlib only)."""
 
 from editor_assistant.state.fingerprint import (
     StateError,
