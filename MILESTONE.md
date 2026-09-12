@@ -1,29 +1,29 @@
-# MILESTONE — M1.2: One Real Source, Read-Only
+# MILESTONE — M1.2.1: RSS Description Normalization
 
 ## Status: DONE (verified 2026-09-12)
 
 ## Scope
-`live RSS → HTTP fetch (stdlib urllib) → existing rss20 parser → SourceItem[] → JSON stdout`.
-No persistence, no Telegram/WordPress/DB/LLM/scheduling/retries/dedupe.
-Live source: `burgas-municipal-council`, feed `https://burgascouncil.org/last-update.xml`
-(official Municipal Council Burgas "Последно съдържание"; 20 items at verification).
+Deterministic stdlib HTML normalization for RSS descriptions:
+`description string → plain body_text + body_links (resolved, ordered, deduped)`.
+No persistence/hashes/dedupe, no fetcher changes, no new dependencies.
 
 ## Gate checklist
-- [x] corrective timezone tests pass (naive pubDate → SourceParseError)
-- [x] all existing tests pass (25 passed)
+- [x] all previous tests green (38 passed total)
+- [x] 13 new normalization tests green (12 required + inner-HTML recovery)
 - [x] ruff check + format clean
-- [x] exactly one external source introduced (`sources/live.py`)
-- [x] live endpoint documented (above + README run section)
-- [x] manual live fetch succeeds (HTTP 200, application/rss+xml, 66899 bytes, 20/20 parsed)
-- [x] output is normalized SourceItem (item_to_dict JSON)
-- [x] no network call inside parser (rss.py/models.py clean; urllib isolated in fetcher.py)
-- [x] no persistence; no production write integration
-- [x] timeout behavior demonstrated (live: timed out → FetchError)
-- [x] response-size protection demonstrated (live: max_bytes=100 → FetchError)
-- [x] git diff contains only M1.1-corrective + M1.2 scope
+- [x] live sample: body_contains_markup_after_normalization = 0/20
+- [x] href URLs survive as body_links (20/20 items, 20 PDF links)
+- [x] plain-text descriptions unregressed (M1.1 fixture bodies byte-identical)
+- [x] parser remains network-free (urllib only in fetcher.py)
+- [x] no persistence; no external write capability
+- [x] diff scoped to models/rss/html_desc/fixture/tests/MILESTONE
 
 ## STOP rule
-**STOP AND WAIT FOR REVIEW.** No M1.3 (persistence/dedupe) without approval.
+**STOP AND WAIT FOR REVIEW.** No M1.3 without approval.
+
+---
+
+# MILESTONE HISTORY — M1.2: One Real Source, Read-Only
 
 ---
 

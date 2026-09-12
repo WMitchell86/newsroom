@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- M1.2.1 focused fixture: Drupal-style description HTML in miniature.
+     Covers: nested span, paragraphs, anchor text, absolute + relative + duplicate
+     links, PDF href, HTML entity (&nbsp;/&amp;), script/style exclusion. -->
+<rss version="2.0">
+  <channel>
+    <title>Test council feed</title>
+    <link>https://example.com/council</link>
+    <item>
+      <title>Докладна записка 18838 / 11.09.2026 г.</title>
+      <link>https://example.com/council/node/3637</link>
+      <pubDate>Fri, 11 Sep 2026 14:32:00 +0000</pubDate>
+      <description>&lt;span class="field"&gt;Докладна записка 18838&lt;/span&gt;&lt;p&gt;Първи абзац&amp;nbsp;с текст.&lt;/p&gt;&lt;p&gt;Втори абзац с &lt;a href="https://example.com/files/18838_sayt.pdf"&gt;документ PDF&lt;/a&gt; и &lt;a href="/files/annex.pdf"&gt;приложение&lt;/a&gt;. Повторно: &lt;a href="https://example.com/files/18838_sayt.pdf"&gt;документ PDF&lt;/a&gt;. Празна: &lt;a&gt;без адрес&lt;/a&gt;.&lt;/p&gt;&lt;script&gt;evil()==1&lt;/script&gt;&lt;style&gt;.x{color:red}&lt;/style&gt;</description>
+    </item>
+  </channel>
+</rss>

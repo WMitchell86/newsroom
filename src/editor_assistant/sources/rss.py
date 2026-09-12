@@ -1,7 +1,8 @@
-"""M1.1 RSS 2.0 fixture parser — deterministic, stdlib only, no network.
+"""M1.1/M1.2.1 RSS 2.0 parser — deterministic, stdlib only, no network.
 
-Rules: extract only what the fixture contains; normalize whitespace
+Rules: extract only what the feed contains; normalize whitespace
 deterministically; timezone-aware datetimes; fail clearly on invalid input.
+Description HTML is normalized via sources/html_desc.py (plain text + links).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
 
 from editor_assistant.models import SourceDef, SourceItem
+from editor_assistant.sources.html_desc import normalize_description
 
 PARSER_ID = "rss20"
 
@@ -61,12 +63,30 @@ def _optional_text(element: ET.Element, tag: str) -> str | None:
     return normalize_whitespace(child.text)
 
 
+def _raw_optional_text(element: ET.Element, tag: str) -> str | None:
+    """Raw inner content for tags whose payload may contain markup (description).
+
+    ElementTree drops inner tags from .text, so re-serialize children to
+    recover the original inner HTML before handing it to the HTML normalizer.
+    """
+    child = element.find(tag)
+    if child is None:
+        return None
+    parts = [child.text or ""]
+    for sub in child:
+        parts.append(ET.tostring(sub, encoding="unicode"))
+    inner = "".join(parts)
+    return inner if inner.strip() else None
+
+
 def parse_rss_item(item: ET.Element, *, source: SourceDef, fetched_at: datetime) -> SourceItem:
     """Parse one <item> element into a SourceItem. Missing optionals stay None."""
     title = _required_text(item, "title", what="RSS item")
     link = _required_text(item, "link", what="RSS item")
     published_at = parse_datetime(_optional_text(item, "pubDate"))
-    body_text = _optional_text(item, "description")
+    body_text, body_links = normalize_description(
+        _raw_optional_text(item, "description"), base_url=link
+    )
     author = _optional_text(item, "author")
     if fetched_at.tzinfo is None:
         raise SourceParseError("fetched_at must be timezone-aware")
@@ -78,6 +98,7 @@ def parse_rss_item(item: ET.Element, *, source: SourceDef, fetched_at: datetime)
         published_at=published_at,
         fetched_at=fetched_at,
         body_text=body_text,
+        body_links=body_links,
         author=author,
     )
 
@@ -105,7 +126,7 @@ def parse_rss_feed(
     return [parse_rss_item(it, source=source, fetched_at=fetched_at) for it in items]
 
 
-def item_to_dict(item: SourceItem) -> dict[str, str | None]:
+def item_to_dict(item: SourceItem) -> dict[str, object]:
     """Local deterministic rendering: every normalized field, inspectable JSON."""
     return {
         "source_id": item.source_id,
@@ -115,5 +136,6 @@ def item_to_dict(item: SourceItem) -> dict[str, str | None]:
         "published_at": item.published_at.isoformat() if item.published_at else None,
         "fetched_at": item.fetched_at.isoformat(),
         "body_text": item.body_text,
+        "body_links": list(item.body_links),
         "author": item.author,
     }

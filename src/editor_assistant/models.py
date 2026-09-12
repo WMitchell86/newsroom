@@ -30,4 +30,5 @@ class SourceItem:
     published_at: datetime | None
     fetched_at: datetime
     body_text: str | None
+    body_links: tuple[str, ...] = ()
     author: str | None = None
