@@ -1,4 +1,4 @@
-"""M2.1 style corpus package — isolated from frozen Radar (stdlib only)."""
+"""M2.1A style corpus package — isolated from frozen Radar (stdlib only)."""
 
 from editor_assistant.style.corpus import (
     SOURCE_TYPE,
@@ -14,7 +14,14 @@ from editor_assistant.style.corpus import (
     manifest_to_dict,
     normalize_text,
 )
-from editor_assistant.style.extract import ArticleParseError, parse_article_html
+from editor_assistant.style.extract import (
+    ArticleParseError,
+    extract_post_id,
+    normalize_chrono_date,
+    normalize_live_datetime,
+    parse_article_html,
+    stable_article_id,
+)
 
 __all__ = [
     "SOURCE_TYPE",
@@ -26,9 +33,13 @@ __all__ = [
     "article_to_dict",
     "body_hash",
     "build_manifest",
+    "extract_post_id",
     "find_duplicates",
     "make_article_id",
     "manifest_to_dict",
+    "normalize_chrono_date",
+    "normalize_live_datetime",
     "normalize_text",
     "parse_article_html",
+    "stable_article_id",
 ]

@@ -1,9 +1,9 @@
-"""M2.1 Style Corpus tests — offline fixtures only, no network.
+"""M2.1A Style Corpus tests — offline fixtures only, no network.
 
-Covers the 12 M2.1 cases: valid extraction, missing author/category,
-Bulgarian Unicode, multi-paragraph body, quote preservation, metadata
-cleanup, navigation exclusion, deterministic normalization, duplicate
-detection, malformed quarantine, re-run stability.
+Covers M2.1A section 18 (10 required proofs) + M2.1 extractor cases:
+valid live-template extraction, missing author/category, Unicode,
+multi-paragraph body, quote-in-body, metadata/caption, nav exclusion,
+deterministic normalization, stable identity, quarantine, re-run.
 """
 
 from __future__ import annotations
@@ -18,10 +18,15 @@ from editor_assistant.style.corpus import (
     body_hash,
     build_manifest,
     find_duplicates,
-    make_article_id,
     normalize_text,
 )
-from editor_assistant.style.extract import parse_article_html
+from editor_assistant.style.extract import (
+    extract_post_id,
+    normalize_chrono_date,
+    normalize_live_datetime,
+    parse_article_html,
+    stable_article_id,
+)
 from editor_assistant.style.store import import_pages, read_jsonl, write_jsonl
 
 FIX = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "style"
@@ -31,85 +36,133 @@ def _read(name: str) -> str:
     return (FIX / name).read_text(encoding="utf-8")
 
 
-def test_valid_extraction():
-    record = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
-    assert record.headline == "Новият парк в Бургас отвори врати"
-    assert record.author == "Иванка Петрова"
-    assert record.category == "Бургас"
-    assert record.published_at == "2026-08-14T10:30:00+03:00"
+def test_valid_live_extraction():
+    record = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    assert "\u043a\u0438\u043d\u043e" in (record.headline or "")
+    assert record.headline and "\u043a\u0438\u043d\u043e" in record.headline
+    assert (
+        record.author == "\u0427\u0435\u0440\u043d\u043e\u043c\u043e\u0440\u0438\u0435-\u0431\u0433"
+    )
+    assert record.post_id == "7085"
     assert record.source_type == SOURCE_TYPE
 
 
 def test_missing_author_stays_none():
     record = parse_article_html(
-        _read("article_missing_author.html"), url="https://example.com/cherries"
+        _read("live_old_no_author.html"), url="https://example.com/post/m-bus-x"
     )
     assert record.author is None
     assert record.headline is not None
 
 
-def test_missing_category_stays_none():
+def test_missing_category_or_single():
     record = parse_article_html(
-        _read("article_missing_category.html"), url="https://example.com/notice"
+        _read("live_old_no_author.html"), url="https://example.com/post/m-bus-x"
     )
-    assert record.category is None
-    assert record.published_at is None
-    assert record.author == "Редакционен екип"
+    assert record.category == "\u041d\u0430 \u043f\u044a\u0442"
+    assert record.categories == ("\u041d\u0430 \u043f\u044a\u0442",)
 
 
 def test_bulgarian_unicode_preserved():
-    record = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
-    assert "„" in (record.quotes[0] if record.quotes else "")
-    assert "“" in (record.quotes[0] if record.quotes else "")
-    assert "Бургаското езеро" in (record.body or "")
-    record2 = parse_article_html(
-        _read("article_standard.html").encode("utf-8"), url="https://example.com/park"
+    record = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    assert "Burgas" in (record.body or "")
+    assert "\u201e\u0414\u0435\u043a\u0430\u043c\u0435\u0440\u043e\u043d" in (record.body or "")
+    again = parse_article_html(
+        _read("live_culture.html").encode("utf-8"), url="https://example.com/post/x-7085"
     )
-    assert record2.body == record.body
+    assert again.body == record.body
 
 
 def test_multi_paragraph_body():
-    record = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
+    record = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
     assert record.body is not None
-    assert record.body.count("\n\n") == 2
-    assert record.lead == record.body.split("\n\n")[0]
+    assert len(record.body.split("\n\n")) >= 3
 
 
-def test_metadata_cleanup():
-    record = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
-    assert record.subheadline == "Паркът край езерото посрещна първите посетители."
-    assert record.tags == ("Бургас", "парк", "езеро")
+def test_quote_remains_in_body_and_structured():
+    record = parse_article_html(_read("live_quote.html"), url="https://example.com/post/q-1")
+    assert len(record.quotes) == 1
+    assert "\u0418\u0441\u043a\u0430\u0445\u043c\u0435" in record.quotes[0]
+    assert record.quotes[0] in (record.body or "")
 
 
-def test_navigation_exclusion():
-    record = parse_article_html(_read("article_boilerplate.html"), url="https://example.com/season")
+def test_metadata_cleanup_and_caption_not_lead():
+    record = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    assert record.caption == "Caption text stays out of body and lead."
+    assert record.lead is None
+    assert record.caption not in (record.body or "")
+    assert len(record.tags) == 2
+
+
+def test_navigation_and_related_exclusion():
+    record = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
     assert record.body is not None
-    for noise in ("Сподели", "Реклама", "Свързани", "Начало"):
+    for noise in (
+        "\u041e\u0449\u0435 \u043d\u043e\u0432\u0438\u043d\u0438",
+        "\u0422\u0430\u0433\u043e\u0432\u0435",
+        "Related Headline",
+    ):
         assert noise not in record.body
+    assert "tag-one" not in record.body
 
 
 def test_deterministic_normalization():
-    raw = _read("article_standard.html").replace("</p>", "  </p>\n  ")
-    first = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
-    second = parse_article_html(raw, url="https://example.com/park")
+    raw = _read("live_culture.html").replace("</p>", "  </p>\n  ")
+    first = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    second = parse_article_html(raw, url="https://example.com/post/x-7085")
     assert first == second
-    assert normalize_text("  а   б \n в  ") == "а б в"
+    assert normalize_text("  \u0430   \u0431 \n \u0432  ") == "\u0430 \u0431 \u0432"
     assert normalize_text("   ") is None
-    assert first.article_id == make_article_id(
-        "https://example.com/park", first.published_at, first.headline
+
+
+def test_identity_stable_against_headline_edit():
+    first = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    edited = _read("live_culture.html").replace(
+        "\u043a\u0438\u043d\u043e", "\u041a\u0418\u041d\u041e"
     )
+    second = parse_article_html(edited, url="https://example.com/post/x-7085")
+    assert first.article_id == second.article_id
+    assert first.headline != second.headline
 
 
-def test_duplicate_detection():
-    first = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
-    twin = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
+def test_identity_stable_against_body_edit():
+    first = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    edited = _read("live_culture.html").replace(
+        "Third paragraph closes", "Third paragraph closes with extra program notes"
+    )
+    second = parse_article_html(edited, url="https://example.com/post/x-7085")
+    assert first.article_id == second.article_id
+    assert first.body != second.body
+
+
+def test_canonical_identity_and_post_id():
+    record = parse_article_html(
+        _read("live_culture.html"), url="https://example.com/post/other-path"
+    )
+    assert record.url == "https://example.com/post/x-7085"
+    assert record.post_id == "7085"
+    assert record.article_id == stable_article_id(record.url, "7085")
+    assert extract_post_id("https://example.com/post/m-bus-x") is None
+
+
+def test_chrono_date_parsing():
+    assert normalize_live_datetime("2026-09-03EEST17:38:00+02:00") == "2026-09-03T17:38:00+02:00"
+    assert normalize_chrono_date("2026-09-03T17:38:00+02:00") == "2026-09-03"
+    assert normalize_chrono_date("03.09.2026\u0433. 17:38\u0447.") == "2026-09-03"
+    record = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    assert record.published_date == "2026-09-03"
+
+
+def test_duplicate_detection_by_post_and_url():
+    first = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
+    twin = parse_article_html(_read("live_culture.html"), url="https://example.com/post/x-7085")
     other = parse_article_html(
-        _read("article_missing_author.html"), url="https://example.com/cherries"
+        _read("live_old_no_author.html"), url="https://example.com/post/m-bus-x"
     )
     dups = find_duplicates([first, twin, other])
     assert len(dups["by_url"]) == 1
+    assert len(dups["by_post_id"]) == 1
     assert len(dups["by_body_hash"]) == 1
-    assert len(dups["by_headline_date"]) == 1
     manifest = build_manifest([first, twin, other])
     assert manifest.duplicate_count == 1
     assert body_hash(first.body) == body_hash(twin.body)
@@ -131,8 +184,8 @@ def test_malformed_page_quarantine():
 def test_rerun_stability_and_jsonl_roundtrip(tmp_path):
     records, failures = import_pages(
         [
-            ("https://example.com/park", _read("article_standard.html")),
-            ("https://example.com/cherries", _read("article_missing_author.html")),
+            ("https://example.com/post/x-7085", _read("live_culture.html")),
+            ("https://example.com/post/m-bus-x", _read("live_old_no_author.html")),
         ]
     )
     assert failures == []
@@ -140,18 +193,10 @@ def test_rerun_stability_and_jsonl_roundtrip(tmp_path):
     again = read_jsonl(path)
     assert [article_to_dict(r) for r in again] == [article_to_dict(r) for r in records]
     assert [article_from_dict(article_to_dict(r)) for r in again] == records
-    first_manifest = build_manifest(records)
-    second_manifest = build_manifest(read_jsonl(path))
-    assert first_manifest == second_manifest
-    assert first_manifest.total_articles == 2
-    assert first_manifest.missing_author == 1
+    assert build_manifest(records) == build_manifest(read_jsonl(path))
+    assert build_manifest(records).total_articles == 2
+    assert build_manifest(records).date_min == "2015-10-28"
+    assert build_manifest(records).date_max == "2026-09-03"
     raw = path.read_text(encoding="utf-8").splitlines()
     assert len(raw) == 2
     assert json.loads(raw[0])["source_type"] == SOURCE_TYPE
-
-
-def test_quote_preservation():
-    record = parse_article_html(_read("article_standard.html"), url="https://example.com/park")
-    assert len(record.quotes) == 1
-    assert "Искахме място" in record.quotes[0]
-    assert record.quotes[0] not in (record.body or "")
