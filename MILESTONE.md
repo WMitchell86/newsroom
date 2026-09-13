@@ -1,12 +1,12 @@
-# MILESTONE — M1.5: Editorial Alert UX Calibration
+# MILESTONE — M1.5: Editorial Alert UX Calibration — DONE
 
-## Status: IN PROGRESS — steps 1–5 done · awaiting editor review (Step 5 = 1 live send)
+## Status: **DONE (2026-09-12)** — editor visual confirmation accepted (`message_id=5` channel message reviewed normal/convenient); renderer frozen, no further UX polishing.
 
 - **Step 1 (2026-09-12)** — preview 5 real alerts + audit, no code changes (`UX_AUDIT.md`, D1–D8)
 - **Step 2** — deterministic editorial cleanup implemented (presentation-only, render-time)
 - **Step 3** — source provenance + pagination integrity audit (verification-only, zero mutations)
 - **Step 4** — headline/excerpt de-duplication implemented (presentation-only, deterministic)
-- **Step 5** — one real Telegram TEST verification send (verification-only, 1 message sent)
+- **Step 5** — one real Telegram TEST verification send (verification-only, `message_id=5`); **PASS WITH UX NOTES** (no code changes)
 
 ## Step 2 scope (implemented)
 `notify/present.py` (deterministic, stdlib-only): display-name map, `относно:` subject
@@ -88,8 +88,10 @@ max excerpt 108 chars; max rendered message 615 chars (<4096).
   excerpt is then omitted entirely (12/19) rather than repeated.
 
 ## STOP rule
-**STOP AND WAIT FOR EDITOR REVIEW** — no sends of the 19 pending rows, no scheduler,
-no `Приложение N`/noise changes until approved.
+**M1.5 CLOSED.** Renderer is frozen — no UX polishing without a new scope decision.
+**Next: M1.6 — Manual Poll Cycle** (fetch → parse/normalize → NEW/UPDATED/UNCHANGED →
+atomic outbox → report; ingestion and delivery stay separated: poll → queue, then
+separately review/dry-run → send; NO automatic Telegram sending in M1.6).
 
 
 ---
