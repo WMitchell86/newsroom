@@ -152,7 +152,9 @@ def _semantic_viability(candidate, refs, facts, numeric_eligible):
     return (VIABLE if numeric_eligible else NOT_VIABLE), False, []
 
 
-def assess_angles(packet, candidates, *, editor_selection=None, editor_override_reason=None):
+def assess_angles(
+    packet, candidates, *, editor_selection=None, editor_override_reason=None, min_candidates=3
+):
     """Rank supplied research judgments, validate grounding, permit no story.
 
     candidate: {angle_id, title, reason, new_proposition, fact_ids, scores:
@@ -170,9 +172,19 @@ def assess_angles(packet, candidates, *, editor_selection=None, editor_override_
     and be eligible - the editor may overrule the ranking, never the gate.
     editor_override_reason: with editor_selection, selects an otherwise
     ineligible candidate; the override is recorded, never silent (§32).
+
+    M2S: `min_candidates` relaxes the pilot's 3-candidate floor for generic
+    transcript discovery (1-2 real candidates instead of fabricated padding;
+    harness B9). The LIVE pilot default stays 3 - the relaxation is opt-in,
+    explicit at the call site, and its result carries `min_candidates` so the
+    relaxed floor is visible in the persisted record.
     """
-    if not isinstance(candidates, list) or not 3 <= len(candidates) <= 5:
-        raise AngleError("review requires 3-5 candidate angles; do not invent padding topics")
+    if not isinstance(min_candidates, int) or not 1 <= min_candidates <= 3:
+        raise AngleError("min_candidates must be an integer in [1..3]")
+    if not isinstance(candidates, list) or not min_candidates <= len(candidates) <= 5:
+        raise AngleError(
+            f"review requires {min_candidates}-5 candidate angles; do not invent padding topics"
+        )
     if editor_override_reason is not None:
         if editor_selection is None:
             raise AngleError("editor override requires an explicit angle selection")
@@ -254,6 +266,8 @@ def assess_angles(packet, candidates, *, editor_selection=None, editor_override_
         "editor_selection": editor_selection,
         "reason": reason,
     }
+    if min_candidates != 3:
+        assessment["min_candidates"] = min_candidates  # relaxed floor stays visible
     if override_record:
         assessment["editor_override"] = override_record
     if status == NEEDS_RESEARCH:

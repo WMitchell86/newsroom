@@ -4,6 +4,7 @@ import pytest
 
 from editor_assistant.drafting.evidence import validate_packet
 from editor_assistant.workflow import research as r
+from editor_assistant.workflow import transcripts as t
 
 
 def test_opened_source_to_provenanced_evidence_packet(tmp_path):
@@ -368,4 +369,13 @@ def test_council_decision_claim_requires_primary_official_provenance(tmp_path):
         r.validate_council_claims(packet, bundle)
     bundle2 = _dup_bundle(tmp_path, "NO_DUPLICATE")
     bundle2["sources"][0]["source_type"] = "transcript"
+    # M2S: an auto-caption transcript alone no longer carries a decision claim
+    with pytest.raises(r.ResearchError, match="auto-caption transcript alone"):
+        r.validate_council_claims(packet, bundle2)
+    # ... but a human-verified transcript does (stronger provenance quality)
+    bundle2["sources"][0]["transcript_trust_level"] = t.TRUST_HUMAN_VERIFIED
+    assert r.validate_council_claims(packet, bundle2)
+    # ... and an explicit corroboration marker vouches for the fragile claim
+    bundle2["sources"][0]["transcript_trust_level"] = t.TRUST_AUTO_CAPTION
+    packet["facts"][0]["corroborated"] = True
     assert r.validate_council_claims(packet, bundle2)

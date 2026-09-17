@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from editor_assistant.workflow import transcripts as transcripts_mod
+
 SOFIA = ZoneInfo("Europe/Sofia")
 RESEARCH_DIR = Path(__file__).resolve().parents[3] / "var" / "editorial_workflow" / "research"
 
@@ -601,21 +603,47 @@ def council_decision_claims(packet):
 
 def validate_council_claims(packet, bundle):
     """ "Council approved/adopted/rejected" requires PRIMARY authority (official
-    protocol/decision record/transcript) - never discussion alone."""
+    protocol/decision record/transcript) - never discussion alone.
+
+    M2S (audit B6): a transcript is additionally trusted by its provenance
+    quality. AUTO_CAPTION material may *discover* a story and raise research
+    questions, but a fragile high-risk decision claim needs corroboration
+    (ASR can flip приема/не приема or 5/15 млн.). The source record may carry
+    `transcript_trust_level` (transcripts.TRUST_*); anything recorded as
+    AUTO_CAPTION (or with no recorded level) keeps the stricter guard: the
+    decision fact must name a corroborating source (official_document /
+    official_institution) besides the transcript, or carry an explicit
+    `corroborated` marker from a human/official verification step.
+    """
     promotable = promotable_sources(bundle)
     for fact in council_decision_claims(packet):
-        for ref in fact.get("source_refs") or []:
+        refs = fact.get("source_refs") or []
+        ok_ref = False
+        transcript_only = bool(refs)
+        for ref in refs:
             src = promotable.get(ref["source_id"])
-            if (
-                src is None
-                or src["authority"] != "PRIMARY"
-                or src["source_type"]
-                not in ("official_institution", "official_document", "transcript")
-            ):
-                raise ResearchError(
-                    f"decision claim {fact['id']} needs PRIMARY official "
-                    "protocol/decision/transcript provenance, not discussion alone"
-                )
+            if src is None or src["authority"] != "PRIMARY":
+                continue
+            if src["source_type"] in ("official_institution", "official_document"):
+                ok_ref = True
+                transcript_only = False
+                break
+            if src["source_type"] == "transcript":
+                trust = src.get("transcript_trust_level") or "AUTO_CAPTION"
+                if trust in transcripts_mod.STRONG_TRUST or fact.get("corroborated"):
+                    ok_ref = True
+                    transcript_only = False
+        if transcript_only and not ok_ref:
+            raise ResearchError(
+                f"decision claim {fact['id']} rests on auto-caption transcript alone; "
+                "needs an official protocol/decision source (or explicit corroboration) "
+                "before publication-grade provenance"
+            )
+        if not ok_ref and not transcript_only:
+            raise ResearchError(
+                f"decision claim {fact['id']} needs PRIMARY official "
+                "protocol/decision/transcript provenance, not discussion alone"
+            )
     return True
 
 

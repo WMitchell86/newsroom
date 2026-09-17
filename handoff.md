@@ -1,3 +1,24 @@
+## Handoff — M2S Search + Transcript Foundation (2026-09-17)
+
+Verified: 339 offline tests, Ruff clean. Verdicts: SEARCH_EXECUTION_ENGINEERING =
+PROMISING · TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING · EDITORIAL_EFFECTIVENESS
+still PENDING (editor review unchanged; editorial profiles/thresholds untouched).
+Built per REPO_AUDIT_SEARCH_AND_TRANSCRIPTS.md + HARNESS_PROMPT: Track S
+(`workflow/search.py` provider contract + Brave adapter, failure taxonomy,
+retry/Retry-After, constraints preservation, query planning, audit log;
+`sources/web_fetch.py` SSRF-guarded fetcher; Radar fetcher frozen) and Track T
+(`workflow/transcripts.py` SRT parser with ms provenance + trust levels +
+overlap normalization + corroboration guard; `workflow/discovery.py` generic
+topic segmentation + model-assisted fact/angle discovery through the unchanged
+v2 gate with explicit relaxed floor). AUTO_CAPTION decision claims now need an
+official corroborating source (`research.validate_council_claims` refined).
+Batch on all 7 bg-orig SRTs: 7/7 parsed, 48 grounded facts, 47 corroboration-
+flagged, zero hand-authored facts/angles, no articles generated. Artifacts:
+`var/transcript_analysis/*.json` + `MANUAL_AUDIT_SAMPLE.md`. Reports:
+`m2/review/SEARCH_RELIABILITY_AUDIT.md` +
+`m2/review/TRANSCRIPT_DISCOVERY_BATCH_REPORT.md`. Live search benchmark not run
+(no BRAVE_SEARCH_API_KEY) — capability state is explicit, never faked. STOP.
+
 ## Handoff — M2R Editorial Readiness Layer (2026-09-17)
 
 Verified: 313 offline tests, Ruff clean. Verdict split per editor feedback:

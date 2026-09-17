@@ -1,4 +1,33 @@
-## M2R Editorial Readiness Layer — 2026-09-17 — IMPLEMENTED + OPERATIONAL PASS, AWAITING EDITOR TEST
+## M2S Search + Transcript Foundation — 2026-09-17 — BUILT + BATCH-VALIDATED, AWAITING EDITOR REVIEW
+
+Verdicts: **SEARCH_EXECUTION_ENGINEERING = PROMISING** · **TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING** ·
+EDITORIAL_EFFECTIVENESS still **PENDING** (editor review unchanged; no profile/threshold/hook changes).
+
+Track S (audit A): real SearchProvider contract + Brave adapter (stdlib only,
+no scraping of consumer search HTML), explicit failure taxonomy
+(SEARCH_CAPABILITY_UNAVAILABLE / PROVIDER_ERROR / RATE_LIMITED / NO_RESULTS /
+QUERY_EXHAUSTED — infrastructure failure is never evidence of absence), bounded
+429/Retry-After handling, generic SSRF-guarded page fetcher
+(`sources/web_fetch.py`; frozen Radar fetcher untouched), semantic editor-request
+constraints (SEARCH_INCOMPLETE instead of silent task change), gap-driven query
+planning (1–3 queries), snippets stay DISCOVERY_ONLY, append-only search audit.
+No API key in environment → live benchmark honestly not run; provider mocked-tested.
+
+Track T (audit B): raw SRT is authoritative — deterministic parser with exact-ms
+provenance, TranscriptDocument + trust levels (AUTO_CAPTION…OFFICIAL_VERBATIM),
+time-aware overlap normalization (provenance binding preserved), AUTO_CAPTION
+corroboration guard (decisions/numbers/names/quotes/negation need an official
+source before publication-grade provenance; `validate_council_claims` refined
+generically), generic topic segmentation + model-assisted fact extraction
+(segment-id binding re-verified, unknown refs dropped) + angle discovery through
+the unchanged rubric v2 gate (relaxed floor explicit via min_candidates — no
+padding angles). Batch on all 7 bg-orig SRTs: 7/7 parsed, 48 grounded facts
+(47 corroboration-flagged), zero hand-authored data. No articles generated.
+
+Reports: `m2/review/SEARCH_RELIABILITY_AUDIT.md`,
+`m2/review/TRANSCRIPT_DISCOVERY_BATCH_REPORT.md`; artifacts:
+`var/transcript_analysis/*.json` + `MANUAL_AUDIT_SAMPLE.md` (internal audit,
+not sent to editor). 339 tests, Ruff clean. STOP — awaiting editor review.
 
 Verdict split (per editor feedback): **ENGINEERING = PROVEN** · **EDITORIAL_EFFECTIVENESS = PENDING**
 (editor test on the real LIVE cases is the proof that remains).
