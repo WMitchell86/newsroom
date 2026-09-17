@@ -37,6 +37,11 @@ PREFER_AI_START_VALUES = ("YES", "MIXED", "NO")
 # finalized LIVE cases so newsworthiness thresholds and hook rules can later be
 # calibrated from AGGREGATED editor corrections (never auto-learned).
 READINESS_OUTCOMES = ("ANGLE_ACCEPTED", "ANGLE_CHANGED", "NO_STORY_CONFIRMED", "RESEARCH_REQUESTED")
+# M2R editor-form questions (per readiness outcome): would you publish a story
+# on this topic / is the selected angle right / is the headline strong enough /
+# is the opening engaging enough. Values: YES | NO | CHANGE.
+READINESS_ANSWER_KEYS = ("would_publish", "angle_right", "headline_strong", "opening_engaging")
+YES_NO_CHANGE = ("YES", "NO", "CHANGE")
 _DRYRUN_FORBIDDEN_FIELDS = ("time_saved_estimate", "editing_weight", "editor_outcome")
 _CHERNOMORIE_HOST = "chernomorie-bg.com"
 CIRCULAR_NOTE = (
@@ -109,6 +114,9 @@ def open_case(
         "mode_suggestion_reason": suggestion_reason or "",
         "mode_changed": bool(mode_suggested and mode_suggested != mode),
         "draft_headline": draft["draft"]["headline"],
+        # M2R §20: the model offers up to 3 headline candidates; keep them so
+        # the editor scorecard can present the options, not just one label.
+        "draft_headlines": list(draft["draft"].get("headlines") or [draft["draft"]["headline"]]),
         "final_headline": "",
         "draft_text": draft["draft"]["body"],
         "final_text": "",
@@ -144,6 +152,7 @@ def record_editor_final(
     idea_status="",
     readiness_outcome="",
     readiness_note="",
+    readiness_answers=None,
     _published_reference=False,
 ):
     """Editor completes the case. Never mutates the AI draft fields.
@@ -185,6 +194,25 @@ def record_editor_final(
             f"{case['case_id']}: readiness_outcome is a LIVE-case learning signal "
             f"(case track is {case.get('track')!r})"
         )
+    answers = dict(readiness_answers or {})
+    if answers and case.get("track") != TRACK_LIVE:
+        raise CaseError(
+            f"{case['case_id']}: readiness_answers are a LIVE-case learning signal "
+            f"(case track is {case.get('track')!r})"
+        )
+    if answers:
+        unknown = [k for k in answers if k not in READINESS_ANSWER_KEYS]
+        if unknown:
+            raise CaseError(
+                f"{case['case_id']}: unknown readiness_answers keys {unknown} "
+                f"(use {READINESS_ANSWER_KEYS})"
+            )
+        for key, value in answers.items():
+            if value not in YES_NO_CHANGE:
+                raise CaseError(
+                    f"{case['case_id']}: readiness_answers[{key}!r]={value!r} "
+                    f"is invalid (use {YES_NO_CHANGE})"
+                )
     if (
         case.get("track") == TRACK_DRYRUN
         and not _published_reference
@@ -210,6 +238,7 @@ def record_editor_final(
     case["notes"] = notes
     case["readiness_outcome"] = readiness_outcome
     case["readiness_note"] = readiness_note
+    case["readiness_answers"] = answers
     case["diff"] = diff_draft_final(
         case["draft_headline"], case["draft_text"], final_headline, final_text
     )

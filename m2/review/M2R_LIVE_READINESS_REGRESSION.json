@@ -1,188 +1,79 @@
 {
-  "generated": "2026-09-17",
-  "note": "M2R §36 regression: stored LIVE artifacts re-run through the readiness layer READ-ONLY (store not mutated). v1 candidates re-judged under the v2 semantic contract from their own stored reasons; judgments would be supplied by research/editor via live-angles in the real flow.",
   "cases": {
-    "LIV-02-EVIDENCE": {
-      "reassessed_gate": {
-        "status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
-        "research_questions": [
-          "Прието ли е финансирането и в какъв обем?",
-          "Какво точно оборудване и за кого?",
-          "Какъв е статусът на докладната?"
-        ],
-        "pending_angle_id": "A-FORENSIC",
-        "candidates": [
-          {
-            "angle_id": "A-FORENSIC",
-            "total": 8,
-            "numeric_eligible": true,
-            "semantic_status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
-            "eligible": false,
-            "veto_applied": false
-          },
-          {
-            "angle_id": "A-BUDGET",
-            "total": 7,
-            "numeric_eligible": true,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          },
-          {
-            "angle_id": "A-CHILDREN",
-            "total": 7,
-            "numeric_eligible": true,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          },
-          {
-            "angle_id": "A-OWNERSHIP",
-            "total": 3,
-            "numeric_eligible": false,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          },
-          {
-            "angle_id": "A-OPENING",
-            "total": 1,
-            "numeric_eligible": false,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          }
-        ]
-      },
-      "mode": "MODE_STANDARD_NEWS",
-      "readiness_status": "RESEARCH_MORE",
-      "editorial_value_status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
-      "evidence_sufficiency_status": null,
-      "hook_strategy": null,
-      "reason": "Има потенциална тема, но липсват конкретни факти. Нужни са целенасочени проучвания по въпросите; статия не се създава преди тях.",
-      "missing_dimensions": null,
-      "research_questions": null
-    },
-    "LIV01-EVIDENCE": {
-      "mode": "MODE_EVENT_PREVIEW",
-      "readiness_status": "DRAFT_READY",
+    "LIV-01": {
+      "case_id": "LIV-01",
       "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_id": "LIV01-EVIDENCE",
       "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
       "hook_strategy": "CURIOSITY",
-      "reason": "Подкрепена новост + достатъчно семантично покритие; готово за чернова.",
-      "missing_dimensions": [
-        "program",
-        "admission",
-        "format",
-        "unusual"
-      ],
-      "research_questions": [
-        "Каква е програмата?",
-        "Свободен ли е входът или е с билети, и на каква цена?",
-        "Какъв е форматът/правилата/категориите?",
-        "Има ли отличителен/необичаен елемент този път?"
-      ]
+      "note": "Existing draft unchanged (M2R §36.3: no auto-regeneration); readiness computed read-only.",
+      "regeneration": "none",
+      "status": "DRAFT_READY"
     },
-    "LIV03-EVIDENCE": {
-      "mode": "MODE_EVENT_PREVIEW",
-      "readiness_status": "RESEARCH_MORE",
+    "LIV-02": {
+      "case_id": "LIV-02",
       "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_id": "LIV-02-EVIDENCE",
+      "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
+      "factual_gate": "FACTUAL_GATE_PASS",
+      "hook_strategy": "STRONGEST_FACT",
+      "note": "Materially changed path: rubric v2 re-assessment (editor selection A-FORENSIC preserved) + readiness DRAFT_READY -> regenerated with hook in prompt (generation 3, superseded archive kept).",
+      "regeneration": "M2R_PATH",
+      "status": "DRAFT_READY"
+    },
+    "LIV-03": {
+      "case_id": "LIV-03",
+      "editor_override": {
+        "action": "REQUEST_MORE_RESEARCH",
+        "reason": "2/2 целенасочени рунда изчерпани: официалният Спортен календар съдържа само дата/зала/организатор, търсачките в средата са блокирани (опитите са записани в Round 2). Липсват час/вход/участници за пълен preview; събитието е след 1-2 дни. Редакторът решава: кратка фактологична бележка само от верифицираните данни или отказ."
+      },
+      "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_correction": true,
+      "evidence_id": "LIV03-EVIDENCE",
       "evidence_sufficiency_status": "RESEARCH_MORE",
       "hook_strategy": "CURIOSITY",
-      "reason": "Има новост, но повърхността е гола новина за замисления MODE.",
-      "missing_dimensions": [
-        "event_schedule",
-        "participants",
-        "program",
-        "admission",
-        "format",
-        "practical",
-        "unusual"
-      ],
-      "research_questions": [
-        "Кога точно (часове, дати) и каква е програмата?",
-        "Кои са участниците/изпълнителите/гостите?",
-        "Каква е програмата?",
-        "Свободен ли е входът или е с билети, и на каква цена?",
-        "Какъв е форматът/правилата/категориите?",
-        "Каква практическа информация е нужна (вход, адрес, записване)?",
-        "Има ли отличителен/необичаен елемент този път?"
-      ]
+      "note": "Terminal state after 2/2 targeted research rounds (organizer/calendar re-read; search engines blocked in harness). EDITOR_DECISION_REQUIRED; no article forced. Fabricated Round-1 facts (S-WEB, never fetched) removed with evidence_correction.",
+      "post_loop_decision": "EDITOR_DECISION_REQUIRED",
+      "pre_override_status": "RESEARCH_MORE",
+      "research_rounds": 2,
+      "status": "EDITOR_DECISION_REQUIRED"
     },
-    "LIV04-EVIDENCE": {
-      "mode": "MODE_EVENT_PREVIEW",
-      "readiness_status": "DRAFT_READY",
+    "LIV-04": {
+      "case_id": "LIV-04",
       "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_id": "LIV04-EVIDENCE",
       "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
       "hook_strategy": "PRACTICAL_VALUE",
-      "reason": "Подкрепена новост + достатъчно семантично покритие; готово за чернова.",
-      "missing_dimensions": [
-        "unusual"
-      ],
-      "research_questions": [
-        "Има ли отличителен/необичаен елемент този път?"
-      ]
+      "note": "Rich festival baseline (§28): DRAFT_READY. Existing draft unchanged.",
+      "regeneration": "none",
+      "status": "DRAFT_READY"
     },
-    "LIV05-EVIDENCE": {
-      "mode": "MODE_CULTURE_FEATURE",
-      "readiness_status": "DRAFT_READY",
+    "LIV-05": {
+      "case_id": "LIV-05",
       "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_id": "LIV05-EVIDENCE",
       "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
       "hook_strategy": "PRACTICAL_VALUE",
-      "reason": "Подкрепена новост + достатъчно семантично покритие; готово за чернова.",
-      "missing_dimensions": [
-        "participants",
-        "program",
-        "scale",
-        "unusual"
-      ],
-      "research_questions": [
-        "Кои са участниците/изпълнителите/гостите?",
-        "Каква е програмата?",
-        "Какъв е обхватът (числа, брой участници/ползватели)?",
-        "Има ли отличителен/необичаен елемент този път?"
-      ]
+      "note": "DRAFT_READY. Existing draft unchanged.",
+      "regeneration": "none",
+      "status": "DRAFT_READY"
     },
-    "LIV-06-EVIDENCE": {
-      "reassessed_gate": {
-        "status": "NO_PUBLISHABLE_ANGLE",
-        "research_questions": null,
-        "pending_angle_id": null,
-        "candidates": [
-          {
-            "angle_id": "A-HELP",
-            "total": 5,
-            "numeric_eligible": true,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          },
-          {
-            "angle_id": "A-BUDGET",
-            "total": 4,
-            "numeric_eligible": false,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          },
-          {
-            "angle_id": "A-PROCEDURAL",
-            "total": 1,
-            "numeric_eligible": false,
-            "semantic_status": "NO_PUBLISHABLE_ANGLE",
-            "eligible": false,
-            "veto_applied": true
-          }
-        ]
-      },
-      "mode": "MODE_STANDARD_NEWS",
-      "readiness_status": "NO_PUBLISHABLE_ANGLE",
+    "LIV-06": {
+      "candidates_vetoed": [
+        "A-HELP",
+        "A-BUDGET",
+        "A-PROCEDURAL"
+      ],
+      "case_id": "LIV-06",
       "editorial_value_status": "NO_PUBLISHABLE_ANGLE",
+      "evidence_id": "LIV-06-EVIDENCE",
       "evidence_sufficiency_status": null,
       "hook_strategy": null,
-      "reason": "Нито една тема не описва конкретна новост, подкрепена от доказателствата. Вижте аргументите и semantic_status по кандидати; статия не се създава.",
-      "missing_dimensions": null,
-      "research_questions": null
+      "note": "NO_PUBLISHABLE_ANGLE as a success state (§25): all candidates carry explicit semantic vetoes (transcript cuts off before the concrete outcome); migrated to rubric v2. Separate NO-STORY editor review prepared; no article generated.",
+      "status": "NO_PUBLISHABLE_ANGLE"
     }
-  }
+  },
+  "generated": "2026-09-17",
+  "note": "M2R readiness over the LIVE artifacts. Readiness decisions and draft regeneration preserve lineage; frozen/superseded drafts untouched.",
+  "updated": "2026-09-17 (operational phase: research loops to terminal state, LIV-02 regeneration, LIV-06 no-story path)"
 }

@@ -1,6 +1,7 @@
 # Editorial Readiness Layer
 
-Verdict: **EDITORIAL_READINESS_PROVEN** (offline, general semantic fixtures + read-only LIVE regression; 304 tests, Ruff clean; no frozen system touched).
+Verdict: **EDITORIAL_READINESS_ENGINEERING = PROVEN** (offline, general semantic fixtures + read-only LIVE regression; 313 tests, Ruff clean; no frozen system touched).
+Verdict: **EDITORIAL_READINESS_EDITORIAL_EFFECTIVENESS = PENDING** — whether the readiness *decisions* are the right editorial calls is proven only by the human editor on the real LIVE cases (review artifacts prepared; STOP, §38).
 
 ## Implementation
 
@@ -90,17 +91,26 @@ Read-only run of the stored LIVE artifacts through the readiness layer (store **
 - **LIV-06** (financial-aid transcript) — the §29 contradiction case: `A-HELP` was `eligible=true, total=5` while its own reason said the record cuts off with no amount/recipients/decision. Under v2 the semantic veto overrides numeric eligibility → NO_PUBLISHABLE_ANGLE (a success state, §25). No weak draft is generated; the stored draft is untouched (frozen/superseded artifacts were not modified, §36.3).
 
 ### Which required editor decision
-- None surfaced by the regression run beyond the above (INSUFFICIENT_FOR_ARTICLE / EDITOR_DECISION_REQUIRED are reachable via the loop-limit path or weak-fact packets; exercised by tests, not by stored cases).
+- **LIV03** (operational phase, 2026-09-17): after the honest 2/2 targeted research rounds (calendar re-read live; organizer club page unreachable; search engines blocked in the harness — attempts recorded in the round log), the surface is still a bare announcement for a full preview, and the event is 1–2 days away. Terminal state per §13: **EDITOR_DECISION_REQUIRED** with `REQUEST_MORE_RESEARCH` recorded (pre_override_status visible). Review artifact: `var/editorial_workflow/review/LIV-03-DECISION.md`. No article is forced.
+
+### Operational phase (2026-09-17) — readiness/research loop executed on the LIVE store
+- **LIV-02**: migrated to rubric v2 through the real `assess_angles` contract (editor selection `A-FORENSIC` preserved, migration note on the evidence row). Novelty floor initially failed it — a Bulgarian participle morphology gap (`приетa` vs `приет`) in `NOVELTY_CUE`, fixed generically (stem + `\w*`), not case-specifically. Under v2 the packet is **DRAFT_READY** (MODE_STANDARD_NEWS, hook STRONGEST_FACT) → regenerated via the M2R path: **FACTUAL_GATE_PASS**, hook fragment in the prompt, generation 3, previous draft archived under `superseded/` (see Draft changes).
+- **LIV-06**: migrated to rubric v2 with explicit semantic vetoes derived from each candidate's own v1 reason (the transcript cuts off before the concrete outcome — the general §5/§6 rule, no topic hardcoding). Store now carries the validated **NO_PUBLISHABLE_ANGLE**; a separate **NO-STORY review** artifact asks the editor whether the refusal itself is correct (`var/editorial_workflow/review/LIV-06-NOSTORY.md`). No article generated.
+- **LIV01/04/05**: readiness computed read-only (DRAFT_READY; CURIOSITY / PRACTICAL_VALUE / PRACTICAL_VALUE) — existing drafts untouched (§36.3).
+- **Correction disclosed**: three enrichment facts added to LIV-03 during Round 1 cited a source (`S-WEB:club-royal-page`) that was never actually fetched. They were removed the same day (live calendar re-check confirmed only date/venue/organizer); an `evidence_correction` note is on the evidence row, the round log purges the fabricated source, and the readiness decision was recomputed without them. No draft ever referenced the removed facts.
+- **Lineage note**: draft IDs are deterministic (evidence+voice+mode+prompt), so a regenerated draft keeps its predecessor's id and `superseded_draft_id` alone cannot disambiguate generations. Full draft history remains in append-only `live_drafts.jsonl`; the case row now carries `generation` (LIV-02 → 3) and the pre-M2R archive snapshot was renamed to keep both.
 
 ## Draft changes where regenerated
 
-None regenerated. §36.3: frozen/superseded drafts are untouched; LIV-03 and LIV-02 would re-enter the flow as targeted-research cases, and LIV-06 would produce no article — regeneration is only useful after the editor reviews the new readiness decisions (STOP rule, §38).
+- **LIV-02 regenerated** (the only case whose readiness path materially changed and where regeneration is useful for editor evaluation, §36.5): v2 gate + sufficiency + grounded hook entered the prompt; new draft passes the full factual gate; lineage preserved via `superseded/` archive, `generation=3`, `regeneration_reason`, and the immutable append-only draft log. Headline candidates: „Финансират ново оборудване за съдебната медицина в Бургас“ + 2 alternatives for the editor (§20).
+- **LIV01/04/05 not regenerated** (§36.3: no auto-overwrite; drafts immutable) — they go to the editor as-is, with readiness annotations.
+- **LIV-03: no article** — the readiness layer itself says the evidence does not yet justify one; forcing it would contradict the layer's purpose (§38).
 
 ## Tests
 
-- 310 passed, 0 failed (was 285 with 1 known failure); Ruff check + format clean.
+- 313 passed, 0 failed (was 285 with 1 known failure); Ruff check + format clean.
 - New: `tests/test_editorial_readiness.py` (19 tests: fixtures A–F, §31 shape, loop limit, overrides, serious guard, hook fragment, semantic floor, generation gate).
-- New editor-assessment contract (end of the workflow): `record_editor_final` accepts a validated `readiness_outcome` (ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED | RESEARCH_REQUESTED) + optional `readiness_note` — LIVE cases only, refused on dry-run, note requires verdict; the `finalize` scorecard template asks for both; `workflow_metrics` aggregates `readiness_outcomes` for future threshold/hook learning (§23/§33: persisted data, no automatic learning). 6 tests in `tests/test_workflow_cases.py`.
+- New editor-assessment contract (end of the workflow): `record_editor_final` accepts a validated `readiness_outcome` (ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED | RESEARCH_REQUESTED) + optional `readiness_note` + structured `readiness_answers` (would_publish / angle_right / headline_strong / opening_engaging, YES|NO|CHANGE) — LIVE cases only, refused on dry-run, note requires verdict; the `finalize` scorecard template asks for all of them and presents the alternative headline candidates (§20); `workflow_metrics` aggregates `readiness_outcomes` for future threshold/hook learning (§23/§33: persisted data, no automatic learning). 9 tests in `tests/test_workflow_cases.py`.
 - Updated to rubric v2: `tests/test_editorial_value.py`, `tests/test_live_generate_offline.py`, `tests/test_workflow_live_cli.py`.
 - **§30 resolved**: `test_scoped_packet_gate_reverifies_binding_but_skips_rescoring` was failing because the test itself selected an all-zero-score candidate as editor selection (`A1`, total 0) — under both v1 and v2 semantics no gate could honor that. The test now scores the candidate genuinely (distinct fact, decision-based) and additionally proves an editor may overrule the *ranking* but never the *gate* (§32). No test was marked expected-failure.
 
@@ -111,6 +121,9 @@ None regenerated. §36.3: frozen/superseded drafts are untouched; LIV-03 and LIV
 - Editor-override recording exists (CLI + records), but there is no analytics aggregation yet (§33: persist enough to learn later — done; no subsystem built).
 - The regression re-judgment of v1 candidates injected semantic fields from stored reasons; the store itself still holds v1 assessments and is intentionally not migrated (re-assessment happens via `live-angles` when a case is revisited).
 
+- The v1→v2 migrations of LIV-02/LIV-06 were performed through the real `assess_angles` contract with recorded `assessment_migration` notes (the CLI guard refuses re-assessment while a case is open, so the migration went through the library path deliberately).
+- Deterministic draft IDs mean `superseded_draft_id` cannot disambiguate generations; the append-only `live_drafts.jsonl` + `generation` counter on the case row are the authoritative lineage (see the lineage note above).
+
 ## Good Enough backlog
 
 - `NO_STORY_CONFIRMED` / `ANGLE_ACCEPTED` / `RESEARCH_REQUESTED` editor outcomes are captured via `readiness_outcome` at finalize; aggregation + threshold learning deferred until real editor corrections accumulate (§23/§34).
@@ -119,4 +132,6 @@ None regenerated. §36.3: frozen/superseded drafts are untouched; LIV-03 and LIV
 
 ## Verdict
 
-**EDITORIAL_READINESS_PROVEN** — the pipeline can now, from evidence alone and with inspectable reasoning per candidate: reject routine material (A), demand research for incomplete-but-important items (B, LIV-02), refuse thin listings instead of writing briefs (C, LIV-03), green-light enriched and serious stories with evidence-appropriate hooks (D, E, F, LIV01/04/05), and say "there is not yet a good enough article here" (LIV-06) without treating it as failure. Factually-correct-but-not-worth-publishing drafts are no longer produced by default; every exception is an explicit, recorded editor decision.
+**EDITORIAL_READINESS_ENGINEERING = PROVEN** — the pipeline can now, from evidence alone and with inspectable reasoning per candidate: reject routine material (A), demand research for incomplete-but-important items (B, LIV-02), refuse thin listings instead of writing briefs (C, LIV-03), green-light enriched and serious stories with evidence-appropriate hooks (D, E, F, LIV01/04/05), and say "there is not yet a good enough article here" (LIV-06) without treating it as failure. Factually-correct-but-not-worth-publishing drafts are no longer produced by default; every exception is an explicit, recorded editor decision. The operational phase exercised the whole loop on the real store: research rounds to terminal state, one regeneration with full lineage, one no-story refusal — both are now waiting as editor-facing review artifacts, not as silent decisions.
+
+**EDITORIAL_READINESS_EDITORIAL_EFFECTIVENESS = PENDING** — whether these readiness *decisions* are good editorial judgment is exactly what the editor test will now measure (DRAFT_READY scorecards for LIV-01/02/04/05, the LIV-03 decision form, and the LIV-06 no-story verification). Per §34, no profile/threshold/hook rule changes until real editor corrections accumulate.

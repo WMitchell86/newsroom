@@ -552,6 +552,14 @@ def cmd_review(args):
                 "",
             ]
         else:
+            readiness = c.get("readiness") or {}
+            headline_options = ""
+            alt = [h for h in (c.get("draft_headlines") or []) if h != c["draft_headline"]]
+            if alt:
+                headline_options = (
+                    "\n\nAlternative headline candidates (same draft, §20):\n"
+                    + "\n".join(f"- {h}" for h in alt)
+                )
             lines += [
                 "## EDITOR SCORECARD (fill in, then run `finalize`)",
                 "",
@@ -565,11 +573,28 @@ def cmd_review(args):
                 "published_or_ready: READY           # PUBLISHED | READY | NOT_READY",
                 "notes: ''",
                 "idea_status: FOLLOW_UP              # optional new IdeaCard status",
-                "readiness_outcome: ''               # M2R editor verdict: ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED | RESEARCH_REQUESTED",
+                "# M2R readiness feedback (LIVE learning signals, never auto-applied):",
+                "readiness_outcome: ''               # ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED | RESEARCH_REQUESTED",
                 "readiness_note: ''                  # optional why (recorded with readiness_outcome)",
+                "# readiness answers (YES | NO | CHANGE per question):",
+                "readiness_answers:",
+                "  would_publish: ''                 # Would you publish a story on this topic?",
+                "  angle_right: ''                   # Is the selected angle right? (NO/CHANGE -> ANGLE_CHANGED)",
+                "  headline_strong: ''               # Is the headline strong enough? (AI offers 3 candidates above)",
+                "  opening_engaging: ''              # Is the opening engaging enough?",
                 "```",
                 "",
-            ]
+            ] + ([headline_options, ""] if headline_options else [])
+            if readiness:
+                lines += [
+                    (
+                        f"Readiness layer: **{readiness.get('status')}** | "
+                        f"value: {readiness.get('editorial_value_status')} | "
+                        f"sufficiency: {readiness.get('evidence_sufficiency_status')} | "
+                        f"hook: {readiness.get('hook_strategy')}"
+                    ),
+                    "",
+                ]
         lines += [
             "Tip: keep the draft body above untouched — paste your final separately;",
             "the deterministic diff + FACT/STYLE/STRUCTURE classification runs on save.",
@@ -627,6 +652,11 @@ def cmd_finalize(args):
                 if c.get("readiness_outcome")
                 else ""
             )
+            answers = c.get("readiness_answers") or {}
+            if answers:
+                readiness += " | answers=" + ",".join(
+                    f"{k}={v}" for k, v in sorted(answers.items())
+                )
             print(
                 f"{args.case_id}: finalized | editing_weight={c['editing_weight']} | "
                 f"headline_changed={c['diff']['headline_changed']} | categories={active}"

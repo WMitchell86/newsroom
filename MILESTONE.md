@@ -1,4 +1,7 @@
-## M2R Editorial Readiness Layer — 2026-09-17 — IMPLEMENTED, AWAITING REVIEW
+## M2R Editorial Readiness Layer — 2026-09-17 — IMPLEMENTED + OPERATIONAL PASS, AWAITING EDITOR TEST
+
+Verdict split (per editor feedback): **ENGINEERING = PROVEN** · **EDITORIAL_EFFECTIVENESS = PENDING**
+(editor test on the real LIVE cases is the proof that remains).
 
 Offline-proven: rubric v2 semantic viability gate (`new_proposition` mandatory, veto
 overrides numeric eligibility), MODE-aware evidence sufficiency (bare announcement →
@@ -7,15 +10,28 @@ Good-Enough decisions enforced), reader-interest hook planner (§17 serious guar
 §18 supported-playful rule, grounded `basis_fact_ids`, clickbait guard), readiness
 orchestrator gating `live-generate` (only DRAFT_READY drafts; force_draft recorded),
 `live-readiness` CLI command. Editor assessment at finalize now records the M2R
-verdict (`readiness_outcome`: ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED |
-RESEARCH_REQUESTED + note; LIVE-only, validated, aggregated in metrics for future
-learning). General fixtures A–F pass; LIVE regression (read-only):
-LIV01/04/05 DRAFT_READY · LIV03 RESEARCH_MORE · LIV-02 NEEDS_RESEARCH · LIV-06
-NO_PUBLISHABLE_ANGLE (the §29 contradiction fixed generically). 310 tests, Ruff clean.
-Report: `m2/review/EDITORIAL_READINESS_REPORT.md`. Regression:
-`m2/review/M2R_LIVE_READINESS_REGRESSION.json`. Guidance:
-`m2/review/editorial_readiness_guidance.json`. Frozen M2.1/2.2/2.3 systems untouched.
-No drafts regenerated; no LIVE 6–10; STOP — awaiting editor review.
+verdict (`readiness_outcome` + note + structured `readiness_answers`:
+would_publish / angle_right / headline_strong / opening_engaging; LIVE-only,
+validated, aggregated in metrics for future learning) and the scorecard presents
+alternative headline candidates (§20).
+
+Operational phase (same day, on the real store): LIV-03 ran the research loop to
+terminal state (2/2 rounds, search blocked in harness → EDITOR_DECISION_REQUIRED,
+review artifact ready; fabricated Round-1 facts removed with `evidence_correction`,
+no draft ever used them). LIV-02 migrated to rubric v2 through the real gate
+(editor selection preserved; generic BG participle morphology fix in NOVELTY_CUE)
+→ DRAFT_READY → regenerated with hook in prompt, FACTUAL_GATE_PASS, generation 3,
+lineage preserved (deterministic draft-id caveat documented; append-only draft log
++ `generation` counter are authoritative). LIV-06 migrated with explicit vetoes →
+NO_PUBLISHABLE_ANGLE kept, separate NO-STORY review artifact for the editor.
+LIV01/04/05 DRAFT_READY, drafts untouched.
+
+313 tests, Ruff clean. Report: `m2/review/EDITORIAL_READINESS_REPORT.md`.
+Regression: `m2/review/M2R_LIVE_READINESS_REGRESSION.json`. Guidance:
+`m2/review/editorial_readiness_guidance.json`. Editor artifacts:
+`var/editorial_workflow/review/LIV-0{1,2,4,5}.md` (DRAFT_READY scorecards),
+`LIV-03-DECISION.md`, `LIV-06-NOSTORY.md`. Frozen M2.1/2.2/2.3 systems untouched.
+No LIVE 6–10; no profile/threshold changes (§34); STOP — awaiting editor review.
 
 
 # MILESTONE — M1.5: Editorial Alert UX Calibration — DONE

@@ -1,18 +1,31 @@
 ## Handoff — M2R Editorial Readiness Layer (2026-09-17)
 
-Verified: 310 offline tests, Ruff clean. New readiness layer gates drafting:
-rubric v2 (`new_proposition` + semantic veto override numeric eligibility),
-MODE-aware sufficiency (bare announcement never SUFFICIENT; BRIEF cannot bypass
-research), research loop max 2 rounds, hook planner with §17 serious guard and
-§18 playful-only-with-supported-premise, `live-readiness` CLI (rounds/mark-*/
-override), `live-generate --force-draft --force-reason` (recorded). Editor
-assessment at finalize: validated `readiness_outcome` + `readiness_note`
-(LIVE-only, in the scorecard template, aggregated in `workflow_metrics` —
-persisted for future learning, no auto-learning).
-Fixtures A–F pass; LIVE regression read-only: LIV01/04/05 DRAFT_READY,
-LIV03 RESEARCH_MORE, LIV-02 NEEDS_RESEARCH, LIV-06 NO_PUBLISHABLE_ANGLE.
-Report: `m2/review/EDITORIAL_READINESS_REPORT.md`; regression JSON + guidance
-JSON alongside. Prior pilot drafts untouched; committed; STOP for review.
+Verified: 313 offline tests, Ruff clean. Verdict split per editor feedback:
+**ENGINEERING = PROVEN · EDITORIAL_EFFECTIVENESS = PENDING** (editor test pending).
+New readiness layer gates drafting: rubric v2 (`new_proposition` + semantic veto
+override numeric eligibility), MODE-aware sufficiency (bare announcement never
+SUFFICIENT; BRIEF cannot bypass research), research loop max 2 rounds, hook planner
+with §17 serious guard and §18 playful-only-with-supported-premise, `live-readiness`
+CLI (rounds/mark-*/override), `live-generate --force-draft --force-reason` (recorded).
+Editor assessment at finalize: validated `readiness_outcome` + `readiness_note` +
+structured `readiness_answers` (would_publish/angle_right/headline_strong/
+opening_engaging; LIVE-only, scorecard asks all + shows alternative headlines,
+aggregated in `workflow_metrics` — persisted for future learning, no auto-learning).
+
+Operational pass (same day): LIV-03 research loop → terminal EDITOR_DECISION_REQUIRED
+(2/2 rounds; search blocked in harness; fabricated Round-1 facts removed with
+`evidence_correction`, no draft used them) → `review/LIV-03-DECISION.md`. LIV-02
+migrated v1→v2 via the real gate (editor selection preserved; generic BG participle
+morphology fix in NOVELTY_CUE: `приетa` never matched `\bприет\b`) → DRAFT_READY →
+regenerated (FACTUAL_GATE_PASS, hook in prompt, generation 3, superseded archive;
+lineage caveat: deterministic draft IDs mean `superseded_draft_id` cannot
+disambiguate — append-only `live_drafts.jsonl` + case `generation` are authoritative).
+LIV-06 migrated with explicit vetoes → NO_PUBLISHABLE_ANGLE kept → separate
+`review/LIV-06-NOSTORY.md` asking the editor to verify the refusal. LIV01/04/05
+DRAFT_READY read-only, drafts untouched. Current editor-facing state:
+4 DRAFT_READY scorecards + 2 special artifacts, all in `var/editorial_workflow/review/`.
+Report: `m2/review/EDITORIAL_READINESS_REPORT.md`; regression JSON + guidance JSON
+alongside. No LIVE 6–10; no profile/threshold changes (§34); STOP for editor test.
 Incident note: a stray `git checkout -- src/` reverted tracked M2.2 work in
 `style/corpus.py` + `style/extract.py`; both were restored intact from a
 dangling git checkpoint (`deb9653`) and the full suite verifies them.

@@ -564,6 +564,22 @@ def _live_case(case_id="LIV-77"):
     )
 
 
+def test_open_case_keeps_headline_candidates():
+    draft = _draft_row()
+    draft["draft"]["headlines"] = [
+        "Основно заглавие",
+        "Алтернативен ъгъл",
+    ]
+    case = cases_mod.open_case(
+        case_id="LIV-90",
+        idea_id="IDEA-T",
+        evidence_id="EV-T",
+        draft=draft,
+    )
+    assert case["draft_headlines"] == ["Основно заглавие", "Алтернативен ъгъл"]
+    assert case["draft_headline"] == draft["draft"]["headline"]
+
+
 def test_readiness_outcome_recorded_on_live_case():
     case = _live_case()
     cases_mod.record_editor_final(
@@ -689,3 +705,55 @@ def test_cli_finalize_persists_readiness_outcome(tmp_path, monkeypatch, capsys):
     m = cases_mod.workflow_metrics(cases_mod.read_cases(cases_path))
     assert m["readiness_outcomes"]["RESEARCH_REQUESTED"] == 1
     assert "readiness_outcome=RESEARCH_REQUESTED" in capsys.readouterr().out
+
+
+def test_readiness_answers_recorded_and_validated():
+    case = _live_case()
+    cases_mod.record_editor_final(
+        case,
+        final_headline="Финал",
+        final_text="Финален текст, различен от черновата.",
+        editor_outcome="ACCEPTED_FOR_EDIT",
+        editing_weight="LIGHT",
+        readiness_outcome="ANGLE_CHANGED",
+        readiness_answers={"would_publish": "YES", "angle_right": "CHANGE"},
+    )
+    assert case["readiness_answers"] == {"would_publish": "YES", "angle_right": "CHANGE"}
+    with pytest.raises(cases_mod.CaseError, match="readiness_answers"):
+        cases_mod.record_editor_final(
+            case,
+            final_headline="Ф",
+            final_text="Т",
+            editor_outcome="ACCEPTED_FOR_EDIT",
+            editing_weight="LIGHT",
+            readiness_answers={"would_publish": "MAYBE"},
+        )
+    with pytest.raises(cases_mod.CaseError, match="unknown readiness_answers keys"):
+        cases_mod.record_editor_final(
+            case,
+            final_headline="Ф",
+            final_text="Т",
+            editor_outcome="ACCEPTED_FOR_EDIT",
+            editing_weight="LIGHT",
+            readiness_answers={"style": "YES"},
+        )
+
+
+def test_readiness_answers_refused_on_dryrun_case():
+    case = cases_mod.open_case(
+        case_id="WFX-94",
+        idea_id="IDEA-S",
+        evidence_id="EV-S",
+        draft=_draft_row(),
+        track=cases_mod.TRACK_DRYRUN,
+    )
+    with pytest.raises(cases_mod.CaseError, match="LIVE-case learning signal"):
+        cases_mod.record_editor_final(
+            case,
+            final_headline="Ф",
+            final_text="Т",
+            editor_outcome="ACCEPTED_FOR_EDIT",
+            editing_weight="NONE",
+            _published_reference=True,
+            readiness_answers={"would_publish": "YES"},
+        )
