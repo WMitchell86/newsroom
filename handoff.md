@@ -1,9 +1,23 @@
-## Handoff — M2S Search + Transcript Foundation (2026-09-17)
+## Handoff — M2S-R2 Provider Stack + Live Search Benchmark (2026-09-17)
 
-Verified: 339 offline tests, Ruff clean. Verdicts: SEARCH_EXECUTION_ENGINEERING =
-PROMISING · TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING · EDITORIAL_EFFECTIVENESS
-still PENDING (editor review unchanged; editorial profiles/thresholds untouched).
-Built per REPO_AUDIT_SEARCH_AND_TRANSCRIPTS.md + HARNESS_PROMPT: Track S
+Verified: 355 offline tests, Ruff clean. Verdicts: SEARCH_EXECUTION_ENGINEERING =
+**PROVEN** (live benchmark passed, no key needed) · TRANSCRIPT_DISCOVERY_ENGINEERING =
+PROMISING · EDITORIAL_EFFECTIVENESS still PENDING (editor review unchanged;
+editorial profiles/thresholds untouched).
+
+M2S-R2 (editor-approved provider-stack plan): capability routing NEWS/WEB/
+BACKGROUND over google_news_rss / serper / ddgs / wikipedia (+ brave optional).
+`ddgs` approved as the repo's first non-stdlib dependency (user-site, pyproject
+optional extra `search`; fallback role only). Serper adapter implemented,
+activates on `SERPER_API_KEY` (free 2,500 queries, no CC). Live benchmark
+(14 ops, keyless, zero mocks): 7/7 known-answer discovered (incl. the boxing
+story that stalled LIV-03 — found via News RSS), 7/7 unseen with results,
+42/42 pages FETCH_OK, taxonomy held everywhere; details + records in
+`m2/review/SEARCH_RELIABILITY_AUDIT.md` + `var/search_benchmark/`. Live-found
+bug fixed: Cyrillic URLs crashed `web_fetch` (IRI→URI encoding + regression
+test).
+
+Previous M2S foundation (still valid): Track S
 (`workflow/search.py` provider contract + Brave adapter, failure taxonomy,
 retry/Retry-After, constraints preservation, query planning, audit log;
 `sources/web_fetch.py` SSRF-guarded fetcher; Radar fetcher frozen) and Track T
@@ -15,9 +29,9 @@ official corroborating source (`research.validate_council_claims` refined).
 Batch on all 7 bg-orig SRTs: 7/7 parsed, 48 grounded facts, 47 corroboration-
 flagged, zero hand-authored facts/angles, no articles generated. Artifacts:
 `var/transcript_analysis/*.json` + `MANUAL_AUDIT_SAMPLE.md`. Reports:
-`m2/review/SEARCH_RELIABILITY_AUDIT.md` +
-`m2/review/TRANSCRIPT_DISCOVERY_BATCH_REPORT.md`. Live search benchmark not run
-(no BRAVE_SEARCH_API_KEY) — capability state is explicit, never faked. STOP.
+`m2/review/SEARCH_RELIABILITY_AUDIT.md` (now incl. live benchmark + PROVEN) +
+`m2/review/TRANSCRIPT_DISCOVERY_BATCH_REPORT.md` +
+`m2/review/TRANSCRIPT_SEMANTIC_AUDIT.md`. STOP.
 
 ## Handoff — M2R Editorial Readiness Layer (2026-09-17)
 

@@ -83,6 +83,25 @@ def guard_target(url):
         raise WebFetchError(FETCH_BLOCKED_TARGET, "target resolves to a private/loopback address")
 
 
+def _ascii_url(url):
+    """Percent-encode non-ASCII path/query characters (IRI -> URI).
+
+    urllib's HTTP layer sends the request line as ASCII, so raw Cyrillic URLs
+    (common for .bg publishers) crash with UnicodeEncodeError unless encoded
+    first. Scheme and network location stay untouched, so the SSRF guard
+    still evaluates the exact same target.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        encoded = parts._replace(
+            path=urllib.parse.quote(parts.path, safe="/%:@&=$,+;~*'!()[]-._"),
+            query=urllib.parse.quote(parts.query, safe="=%:@&/$,+;~*'!()[]-._"),
+        )
+    except ValueError:
+        return None
+    return urllib.parse.urlunsplit(encoded)
+
+
 def fetch_page(
     url,
     *,
@@ -96,8 +115,11 @@ def fetch_page(
     with .status/.headers/.read()); defaults to a real urlopen.
     """
     guard_target(url)
+    ascii_url = _ascii_url(url)
+    if ascii_url is None:
+        raise WebFetchError(FETCH_UNREACHABLE, f"unusable URL: {url}")
     request = urllib.request.Request(
-        url,
+        ascii_url,
         method="GET",
         headers={
             "User-Agent": USER_AGENT,

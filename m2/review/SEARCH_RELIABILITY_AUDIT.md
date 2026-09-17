@@ -1,6 +1,6 @@
 # Search Reliability Foundation — M2S Track S
 
-Verdict: **SEARCH_EXECUTION_ENGINEERING = PROMISING** — the execution layer now exists as a stable, tested, stdlib-only contract with explicit failure states and constraint preservation; it is not yet *live-proven* against a real API because no search API key was available in this environment (all live-provider paths are implemented and mocked-tested, and honestly report `SEARCH_CAPABILITY_UNAVAILABLE` without a key).
+Verdict: **SEARCH_EXECUTION_ENGINEERING = PROVEN** — live-proven (2026-09-17) against real providers, no API key required: 14/14 operations, 42/42 pages opened, failure taxonomy held under real network conditions. History: the initial implementation carried PROMISING because no search key existed; the M2S-R2 capability stack (Google News RSS / Serper / DDGS / Wikipedia + Brave as optional) made a keyless live benchmark possible, and it passed.
 
 `EDITORIAL_EFFECTIVENESS` remains **PENDING** human editor review (unchanged).
 
@@ -43,15 +43,72 @@ ever stored (tested: `test_operation_without_provider_reports_capability`).
 
 ## Known-answer benchmark status (A11)
 
-Not executed live: `BRAVE_SEARCH_API_KEY` is not configured in this environment,
-and the harness explicitly forbids pretending success. The benchmark harness
-point is ready (`run_search_operation` + audit records measure: target found in
-top N, usable results, open success, failure type, latency). Running it live is
-a one-command step once a key exists in `.env`. All provider behavior is
-covered offline by mocked-transport tests (11 in `tests/test_search_foundation.py`).
+Superseded by the live benchmark below (M2S-R2, 2026-09-17): executed for real,
+no API key required.
+
+## Live benchmark (M2S-R2, 2026-09-17) — **executed for real**
+
+Scope: 14 operations (7 known-answer from LIVE-pilot ground truth + 7 unseen
+Burgas/Bulgaria topics), 3 pages opened per operation, keyless provider chain,
+zero HTTP mocks. Raw records: `var/search_benchmark/benchmark_results.json`.
+
+### Provider stack used (capability routing)
+
+| capability | chain used | keyless? |
+|---|---|---|
+| NEWS | google_news_rss → ddgs | yes |
+| WEB | ddgs | yes (serper/brave join when keys exist) |
+| BACKGROUND | wikipedia → ddgs | yes |
+
+### Results
+
+| metric | value |
+|---|---|
+| known-answer discovered | **7/7** (target entity found in candidates) |
+| unseen queries with results | 7/7 (avg ~9 candidates/op) |
+| provider ops OK | 14/14 (google_news_rss 5, ddgs 5, wikipedia 4) |
+| pages opened FETCH_OK | **42/42** (0 fetch-taxonomy failures) |
+| latency | RSS ~0.5 s, Wikipedia ~0.4 s, DDGS ~2.7 s avg |
+| infra failures → "no material" | 0 (taxonomy held everywhere) |
+
+Known-answer hits included the previously **undiscoverable** boxing story
+("Зала Младост в Бургас става арена на боксови двубои", EraNova.bg — found via
+Google News RSS within seconds), the theatre and DOCK cases, and both
+background targets. The LIV-03 research gap that stalled the readiness loop is
+closed in principle: NEWS discovery now reaches local publishers directly.
+
+### Live-found product bugs (fixed during the benchmark)
+
+1. `web_fetch.fetch_page` crashed with `UnicodeEncodeError` on non-ASCII URLs
+   (common for .bg publishers) — urllib requires ASCII request lines. Fixed:
+   IRI→URI percent-encoding in `_ascii_url` (scheme/host untouched, SSRF guard
+   evaluates the same target), regression test
+   `test_fetch_page_encodes_non_ascii_url`.
+2. Test fixture used `&quot;` inside an attribute value — invalid XML; real
+   Google News RSS emits `&amp;`, fixture corrected to wire truth.
+
+### Verdict
+
+**SEARCH_EXECUTION_ENGINEERING = PROVEN** — the execution layer works live end
+to end with real providers: discovery, fetch, constraint preservation, failure
+taxonomy and audit under real network conditions, with zero infra-to-semantic
+collapses. Caveats recorded honestly:
+
+- `ddgs` scrapes unofficial surfaces (DuckDuckGo/Bing/Google/Brave/Yahoo
+  backends) — approved as an explicit scope exception, but positioned as
+  fallback, not SLA primary; Serper remains the planned general-web upgrade
+  (key-gated adapter already implemented and mocked-tested; activates the
+  moment a key is added — no code change, no CC for the free 2,500 queries).
+- Google News RSS is an undocumented best-effort endpoint: 0 results means
+  "no candidates", never "the news does not exist" (contract-tested).
+- Snippets remain DISCOVERY_ONLY; only opened pages can become evidence
+  (unchanged, tested at the SourceBundle layer).
 
 ## Known limitations
 
-- Brave is the only implemented adapter; the interface is provider-generic by construction (A3's "abstraction matters more than the brand").
-- The live audit's BTA-429 / Bing-consent observations are environment history, not reproducible here; the taxonomy now names every such state explicitly instead of collapsing them into "no results".
+- Brave and Serper are implemented adapters but unkeyed in this environment;
+  their live behavior is contract-tested offline only. Provider routing is
+  configuration, not code: adding a key to `.env` activates them.
+- The live audit's BTA-429 / Bing-consent observations are environment history; the taxonomy names every such state explicitly instead of collapsing them into "no results".
+- `ddgs` is the first approved non-stdlib runtime dependency (user-site install; recorded in pyproject as optional extra `search`).
 - Snippet→claim promotion remains forbidden at the SourceBundle layer (unchanged, tested there).

@@ -1,6 +1,31 @@
-## M2S Search + Transcript Foundation — 2026-09-17 — BUILT + BATCH-VALIDATED, AWAITING EDITOR REVIEW
+## M2S-R2 Provider Stack + Live Search Benchmark — 2026-09-17 — LIVE-PROVEN, AWAITING EDITOR REVIEW
 
-Verdicts: **SEARCH_EXECUTION_ENGINEERING = PROMISING** · **TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING** ·
+Verdicts: **SEARCH_EXECUTION_ENGINEERING = PROVEN** (live benchmark passed) · **TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING** (unchanged) ·
+EDITORIAL_EFFECTIVENESS still **PENDING** (editor review unchanged; no profile/threshold/hook changes).
+
+M2S-R2 changes (per editor-approved provider-stack plan; `ddgs` approved as the
+repo's first non-stdlib dependency, positioned as fallback only):
+
+- Capability-based provider stack replacing single-provider routing:
+  NEWS → google_news_rss → serper → ddgs → brave; WEB → serper → ddgs → brave;
+  BACKGROUND → wikipedia → serper → ddgs. Brave adapter kept, key-optional;
+  Serper adapter implemented (2,500 free queries, no CC) and activates on key.
+- New stdlib providers: GoogleNewsRSSProvider (best-effort discovery,
+  DISCOVERY_ONLY redirects, 0 results ≠ news does not exist) and
+  WikipediaBackgroundProvider (MediaWiki search API, background only).
+- **Live benchmark executed for real, no key, no mocks**: 14 ops (7 known-answer
+  + 7 unseen) — 7/7 known targets discovered (including the boxing story that
+  stalled LIV-03, found via News RSS), 7/7 unseen returned candidates,
+  42/42 pages FETCH_OK, 0 infra→semantic collapses. Latency: RSS ~0.5 s,
+  Wikipedia ~0.4 s, DDGS ~2.7 s. Records: `var/search_benchmark/`.
+- Live-found product bug fixed: `web_fetch` crashed on Cyrillic URLs
+  (UnicodeEncodeError) — IRI→URI percent-encoding added with regression test.
+- Full details: `m2/review/SEARCH_RELIABILITY_AUDIT.md` (Live benchmark section).
+
+## M2S Search + Transcript Foundation — 2026-09-17 — BUILT + BATCH-VALIDATED (superseded in part by M2S-R2 above)
+
+Verdicts at the time: SEARCH_EXECUTION_ENGINEERING = PROMISING (now PROVEN
+per M2S-R2) · TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING ·
 EDITORIAL_EFFECTIVENESS still **PENDING** (editor review unchanged; no profile/threshold/hook changes).
 
 Track S (audit A): real SearchProvider contract + Brave adapter (stdlib only,

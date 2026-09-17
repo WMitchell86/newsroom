@@ -33,7 +33,7 @@ def _brave_payload(n=2):
 class _FakeResponse:
     def __init__(self, payload, status=200):
         self.status = status
-        self._payload = json.dumps(payload).encode()
+        self._payload = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
         self.headers = {"Content-Type": "application/json"}
 
     def read(self, n=-1):
@@ -196,21 +196,29 @@ def test_private_and_local_targets_rejected():
         assert exc.value.category == web_fetch.FETCH_BLOCKED_TARGET
 
 
-def test_operation_without_provider_reports_capability(tmp_path):
+def test_operation_without_provider_reports_capability(tmp_path, monkeypatch):
+    """Empty chain = explicit capability state; audited, never fabricated."""
+    monkeypatch.setattr(
+        search,
+        "provider_chain",
+        lambda capability="WEB", env=None: ([], ["serper:no-key", "brave:no-key"]),
+    )
     audit = tmp_path / "runs.jsonl"
     operation = search.run_search_operation(
         topic="тема",
         constraints=search.make_constraints(description="описание"),
         provider=None,
-        env={},
+        env={"BRAVE_SEARCH_API_KEY": "supersecret-brave", "SERPER_API_KEY": "supersecret-serper"},
         audit_path=audit,
     )
     assert operation["status"] == search.SEARCH_INCOMPLETE
     assert operation["failure"] == search.SEARCH_CAPABILITY_UNAVAILABLE
+    assert operation["providers_unavailable"] == ["serper:no-key", "brave:no-key"]
     lines = audit.read_text(encoding="utf-8").strip().splitlines()
     recorded = json.loads(lines[0])
     assert recorded["failure"] == search.SEARCH_CAPABILITY_UNAVAILABLE
-    assert "key" not in json.dumps(recorded).lower()  # no secrets in audit
+    dumped = json.dumps(recorded)
+    assert "supersecret" not in dumped  # no credential values in the audit
 
 
 def test_planner_caps_queries_and_is_gap_driven():
@@ -221,3 +229,274 @@ def test_planner_caps_queries_and_is_gap_driven():
     )
     assert 1 <= len(queries) <= 3
     assert all("Събитие X" in q for q in queries)
+
+
+# ---------- M2S-R2: capability-based provider stack ----------
+
+
+def test_provider_chain_news_defaults_keyless(monkeypatch):
+    """NEWS chain without keys: RSS first, serper/brave explicitly unavailable."""
+    chain, unavailable = search.provider_chain(capability=search.CAP_NEWS, env={})
+    names = [p.name for p in chain]
+    assert names[0] == "google_news_rss"
+    assert "serper:no-key" in unavailable and "brave:no-key" in unavailable
+    if search._load_ddgs() is not None:
+        assert "ddgs" in names
+
+
+def test_provider_chain_pins_single_provider(monkeypatch):
+    """SEARCH_PROVIDER pins one provider; missing key is an explicit outcome."""
+    chain, unavailable = search.provider_chain(
+        capability=search.CAP_WEB, env={"SEARCH_PROVIDER": "serper"}
+    )
+    assert chain == []
+    assert unavailable == ["serper:no-key"]
+
+
+def test_provider_chain_unknown_capability_raises():
+    with pytest.raises(search.SearchError):
+        search.provider_chain(capability="TELEPATHY", env={})
+
+
+def test_operation_falls_back_along_the_chain(monkeypatch):
+    """A failing provider is skipped; its status stays visible in the audit."""
+
+    class Fail(search.SearchProvider):
+        name = "fail"
+
+        def search(self, query, **kw):
+            rec = self._empty(query, 5)
+            rec["status"] = search.SEARCH_PROVIDER_ERROR
+            return rec
+
+    class Ok(search.SearchProvider):
+        name = "ok"
+
+        def search(self, query, **kw):
+            rec = self._empty(query, 5)
+            rec["status"] = search.SEARCH_OK
+            rec["results"] = [
+                {"rank": 1, "title": "t", "url": "https://example.org/x", "snippet": "s"}
+            ]
+            return rec
+
+    monkeypatch.setattr(
+        search, "provider_chain", lambda capability="WEB", env=None: ([Fail(), Ok()], [])
+    )
+    operation = search.run_search_operation(
+        topic="тема",
+        constraints=search.make_constraints(description="описание"),
+        provider=None,
+        audit_path=None,
+    )
+    assert [q["provider"] for q in operation["queries"]] == ["fail", "ok"]
+    assert operation["chain_fallbacks"] == ["fail:SEARCH_PROVIDER_ERROR"]
+    assert operation["candidates"][0]["url"] == "https://example.org/x"
+    assert operation["status"] == search.SEARCH_COMPLETE
+
+
+def test_operation_survives_provider_raising_searcherror(monkeypatch):
+    """A provider that cannot even run (package missing) never kills the chain."""
+
+    class Broken(search.SearchProvider):
+        name = "broken"
+
+        def search(self, query, **kw):
+            raise search.SearchError("ddgs package is not installed")
+
+    class Ok(search.SearchProvider):
+        name = "ok"
+
+        def search(self, query, **kw):
+            rec = self._empty(query, 5)
+            rec["status"] = search.SEARCH_OK
+            rec["results"] = [
+                {"rank": 1, "title": "t", "url": "https://example.org/y", "snippet": "s"}
+            ]
+            return rec
+
+    monkeypatch.setattr(
+        search, "provider_chain", lambda capability="WEB", env=None: ([Broken(), Ok()], [])
+    )
+    operation = search.run_search_operation(
+        topic="тема",
+        constraints=search.make_constraints(description="описание"),
+        audit_path=None,
+    )
+    assert operation["chain_fallbacks"] == ["broken:SEARCH_CAPABILITY_UNAVAILABLE"]
+    assert operation["status"] == search.SEARCH_COMPLETE
+
+
+def _rss_feed(n=2):
+    items = "".join(
+        f"<item><title>Новина {i}</title><link>https://example.org/n/{i}</link>"
+        f"<description>Описание {i}</description>"
+        f"<pubDate>Tue, 1 Sep 2026 10:0{i}:00 GMT</pubDate>"
+        # real Google News RSS shape: &amp;-escaped attr value (note: &quot; in an
+        # attribute value is invalid XML and must never appear on the wire)
+        f'<source url="https://example.org/r?via=1&amp;x={i}">Пример</source></item>'
+        for i in range(1, n + 1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>'
+        f"<title>Google News</title>{items}</channel></rss>"
+    ).encode()
+
+
+def test_fetch_page_encodes_non_ascii_url():
+    """Regression: Cyrillic URLs (.bg publishers) must not crash urllib (IRI->URI)."""
+    seen = {}
+
+    def fake_opener(request, timeout=None):
+        seen["url"] = request.full_url
+
+        class _R:
+            status = 200
+
+            def __init__(self):
+                self.headers = {"Content-Type": "text/html; charset=utf-8"}
+
+            def read(self, n=-1):
+                return b"<html>ok</html>"
+
+            def geturl(self):
+                return request.full_url
+
+        return _R()
+
+    page = web_fetch.fetch_page("https://example.org/новини/бургас", opener=fake_opener)
+    assert seen["url"].isascii(), seen["url"]
+    assert "%D0%BD" in seen["url"]  # encoded Cyrillic
+    assert page["status"] == 200
+
+
+def test_rss_provider_parses_feed(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        return _FakeResponse(_rss_feed(2))
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    record = search.GoogleNewsRSSProvider().search("Бургас тест")
+    assert record["status"] == search.SEARCH_OK
+    assert "news.google.com/rss/search" in seen["url"]
+    assert record["results"][0]["title"] == "Новина 1"
+    assert record["results"][0]["url"] == "https://example.org/n/1"
+    assert record["results"][0]["source_name"] == "Пример"
+
+
+def test_rss_provider_empty_feed_is_no_results_not_error(monkeypatch):
+    monkeypatch.setattr(
+        search.urllib.request, "urlopen", lambda req, timeout=None: _FakeResponse(_rss_feed(0))
+    )
+    record = search.GoogleNewsRSSProvider().search("q")
+    assert record["status"] == search.NO_RESULTS
+
+
+def test_rss_provider_http_error_is_provider_error(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        raise search.urllib.error.HTTPError(request.full_url, 503, "down", {}, None)
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    record = search.GoogleNewsRSSProvider().search("q")
+    assert record["status"] == search.SEARCH_PROVIDER_ERROR
+    assert record["http_status"] == 503
+
+
+def test_wikipedia_provider_normalizes(monkeypatch):
+    payload = {
+        "query": {
+            "search": [
+                {
+                    "title": "Бургас",
+                    "snippet": "<span>град в България</span>",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(
+        search.urllib.request, "urlopen", lambda req, timeout=None: _FakeResponse(payload)
+    )
+    record = search.WikipediaBackgroundProvider().search("Бургас")
+    assert record["status"] == search.SEARCH_OK
+    assert (
+        record["results"][0]["url"]
+        == "https://bg.wikipedia.org/wiki/%D0%91%D1%83%D1%80%D0%B3%D0%B0%D1%81"
+    )
+    assert "<span>" not in record["results"][0]["snippet"]
+    assert record["results"][0]["source_name"] == "bg.wikipedia.org"
+
+
+def test_serper_provider_sends_key_and_normalizes(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        seen["api_key"] = request.get_header("X-api-key")
+        seen["body"] = request.data.decode("utf-8")
+        return _FakeResponse(
+            {"organic": [{"title": "t", "link": "https://example.org/a", "snippet": "s"}]}
+        )
+
+    monkeypatch.setattr(search.urllib.request, "urlopen", fake_urlopen)
+    record = search.SerperProvider("sk-test").search("Бургас")
+    assert record["status"] == search.SEARCH_OK
+    assert seen["api_key"] == "sk-test"
+    import json as _json
+
+    assert _json.loads(seen["body"])["q"] == "Бургас"
+    assert record["results"][0]["url"] == "https://example.org/a"
+
+
+def test_serper_provider_requires_key():
+    with pytest.raises(search.SearchError):
+        search.SerperProvider("  ")
+
+
+def test_ddgs_provider_requires_package():
+    with pytest.raises(search.SearchError):
+        search.DDGSProvider(ddgs_factory=lambda: None)
+
+
+def test_ddgs_provider_normalizes():
+    class FakeDDGS:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def text(self, query, region=None, max_results=None):
+            assert region == "bg-bg"
+            return [
+                {"title": "t", "href": "https://example.org/d", "body": "b", "date": ""},
+                {"title": "bad", "href": "", "body": "", "date": ""},
+            ]
+
+    record = search.DDGSProvider(ddgs_factory=lambda: FakeDDGS).search("Бургас")
+    assert record["status"] == search.SEARCH_OK
+    assert len(record["results"]) == 2
+    assert record["results"][0]["url"] == "https://example.org/d"
+
+
+def test_ddgs_provider_runtime_error_is_provider_error():
+    class ExplodingDDGS:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def text(self, *a, **kw):
+            raise RuntimeError("backend gone")
+
+    record = search.DDGSProvider(ddgs_factory=lambda: ExplodingDDGS).search("q")
+    assert record["status"] == search.SEARCH_PROVIDER_ERROR
+    assert record["error"] == "RuntimeError"
+
+
+def test_resolve_provider_still_supports_new_names():
+    provider, status = search.resolve_provider(env={"SEARCH_PROVIDER": "google_news_rss"})
+    assert status == search.SEARCH_OK and provider.name == "google_news_rss"
+    provider, status = search.resolve_provider(env={"SEARCH_PROVIDER": "wikipedia"})
+    assert status == search.SEARCH_OK and provider.name == "wikipedia"
+    provider, status = search.resolve_provider(env={"SEARCH_PROVIDER": "serper"})
+    assert provider is None and status == search.SEARCH_CAPABILITY_UNAVAILABLE
+    with pytest.raises(search.SearchError):
+        search.resolve_provider(env={"SEARCH_PROVIDER": "altavista"})

@@ -8,6 +8,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Approved scope change (M2S-R2): zero-signup fallback search backend.
+# Everything else in the provider stack remains stdlib-only.
+search = ["ddgs>=9"]
 
 [build-system]
 requires = ["setuptools>=61"]
