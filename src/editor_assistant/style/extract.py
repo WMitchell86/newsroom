@@ -45,8 +45,13 @@ def extract_post_id(url: str) -> str | None:
 
 
 def stable_article_id(canonical_url: str, post_id: str | None) -> str:
-    """Identity from canonical URL — never from headline/date/body."""
-    seed = f"chernomorie-post:{post_id}" if post_id else f"chernomorie-url:{canonical_url}"
+    """Identity from canonical URL only — never post_id/headline/date/body.
+
+    post_id is intentionally unused for identity (M2.1C: post_id is not
+    unique — same suffix is reused across distinct articles). It remains
+    metadata + a duplicate signal in the record.
+    """
+    seed = f"chernomorie-url:{canonical_url}"
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
 
 
@@ -111,8 +116,9 @@ class _LiveParser(HTMLParser):
         self.in_entry = False
         self.entry_depth = 0
         self.paragraphs: list[str] = []
-        self._current: list[str] = []
-        self._in_para = False
+        # block frames inside entry-content: [kind, capture, parts]; capture
+        # False for non-content embedded headings/labels (their text is dropped)
+        self._frames: list[list[object]] = []
         self.quotes: list[str] = []
         self._quote_buf: list[str] = []
         self._in_quote = False
@@ -133,6 +139,10 @@ class _LiveParser(HTMLParser):
         name = tag.lower()
         classes = self._classes(attrs)
         attr = {k.lower(): (v or "") for k, v in attrs}
+        if name == "br":
+            # bare <br> (CMS form) — void element: boundary space, no block frame
+            self._push_boundary(" ")
+            return
         if name == "title":
             self.in_title = True
             return
@@ -185,17 +195,29 @@ class _LiveParser(HTMLParser):
             self.in_entry = True
             self.entry_depth = 1
             return
-        if self.in_entry and name == "div":
-            self.entry_depth += 1
-            return
-        if self.in_entry and name == "p" and not self._in_quote:
-            self._in_para = True
-            self._current = []
-            return
-        if self.in_entry and name in ("blockquote", "q"):
-            self._in_quote = True
-            self._quote_buf = []
-            return
+        if self.in_entry:
+            if name in ("blockquote", "q"):
+                self._in_quote = True
+                self._quote_buf = []
+                return
+            if name == "p" and (self._in_quote or self._in_caption):
+                # text is routed to the quote/caption buffers; no paragraph frame
+                return
+            if name in ("p", "div", "li"):
+                self._frames.append(
+                    [
+                        "p" if name == "p" else "div" if name == "div" else "li",
+                        True,
+                        [],
+                    ]
+                )
+                if name == "div":
+                    self.entry_depth += 1
+                return
+            if name in ("h1", "h2", "h3", "h4", "h5", "h6", "figure", "figcaption"):
+                # non-content embedded headings/source labels: capture=False -> dropped
+                self._frames.append(["h" if name.startswith("h") else "figure", False, []])
+                return
         if name == "div" and "post-tags" in classes:
             self._in_post_tags = True
             self.post_tags_depth = 1
@@ -207,8 +229,21 @@ class _LiveParser(HTMLParser):
             self._tag_buf = []
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        name = tag.lower()
+        if name == "br":
+            # deterministic boundary so words/sentences never glue together
+            self._push_boundary(" ")
+            return
         self.handle_starttag(tag, attrs)
         self.handle_endtag(tag)
+
+    def _push_boundary(self, token: str) -> None:
+        if self._in_quote:
+            self._quote_buf.append(token)
+        elif self._in_caption:
+            self.caption_parts.append(token)
+        elif self.in_entry and self._frames and self._frames[-1][1]:
+            self._frames[-1][2].append(token)
 
     def handle_endtag(self, tag: str) -> None:
         name = tag.lower()
@@ -251,16 +286,34 @@ class _LiveParser(HTMLParser):
                 self.paragraphs.append(text)
             self._in_quote = False
             return
-        if self.in_entry and name == "p" and self._in_para:
-            text = normalize_text("".join(self._current))
-            if text:
-                self.paragraphs.append(text)
-            self._in_para = False
+        if self.in_entry and name in ("p", "div", "li"):
+            if name == "p" and self._in_quote:
+                return
+            kind = "p" if name == "p" else "div" if name == "div" else "li"
+            if self._frames and self._frames[-1][0] == kind:
+                _, capture, parts = self._frames.pop()
+                if capture:
+                    text = normalize_text("".join(parts))
+                    if text:
+                        self.paragraphs.append(text)
+            if name == "div":
+                self.entry_depth -= 1
+                if self.entry_depth <= 0:
+                    self.in_entry = False
             return
-        if self.in_entry and name == "div":
-            self.entry_depth -= 1
-            if self.entry_depth <= 0:
-                self.in_entry = False
+        if self.in_entry and name in (
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "figure",
+            "figcaption",
+        ):
+            kind = "h" if name.startswith("h") else "figure"
+            if self._frames and self._frames[-1][0] == kind:
+                self._frames.pop()
             return
         if name == "a" and self._in_tag_link:
             text = normalize_text("".join(self._tag_buf))
@@ -297,8 +350,8 @@ class _LiveParser(HTMLParser):
         if self._in_quote:
             self._quote_buf.append(data)
             return
-        if self._in_para:
-            self._current.append(data)
+        if self.in_entry and self._frames and self._frames[-1][1]:
+            self._frames[-1][2].append(data)
             return
         if self._in_tag_link:
             self._tag_buf.append(data)
@@ -344,9 +397,7 @@ def parse_article_html(html: str | bytes, *, url: str) -> ArticleRecord:
     author = _author_text(parser._author_buf)
     categories = [c for c in parser.categories if c]
     category = categories[0] if categories else None
-    subheadline = normalize_text(parser.meta.get("og:description")) or normalize_text(
-        parser.meta.get("description")
-    )
+    subheadline = None  # template has no structural subheadline; meta description is not one
     caption = normalize_text("".join(parser.caption_parts))
     return ArticleRecord(
         article_id=stable_article_id(canonical, post_id),

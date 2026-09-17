@@ -1,3 +1,23 @@
+## M2R Editorial Readiness Layer — 2026-09-17 — IMPLEMENTED, AWAITING REVIEW
+
+Offline-proven: rubric v2 semantic viability gate (`new_proposition` mandatory, veto
+overrides numeric eligibility), MODE-aware evidence sufficiency (bare announcement →
+RESEARCH_MORE in every MODE; no BRIEF bypass), targeted research loop (max 2 rounds,
+Good-Enough decisions enforced), reader-interest hook planner (§17 serious guard,
+§18 supported-playful rule, grounded `basis_fact_ids`, clickbait guard), readiness
+orchestrator gating `live-generate` (only DRAFT_READY drafts; force_draft recorded),
+`live-readiness` CLI command. Editor assessment at finalize now records the M2R
+verdict (`readiness_outcome`: ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED |
+RESEARCH_REQUESTED + note; LIVE-only, validated, aggregated in metrics for future
+learning). General fixtures A–F pass; LIVE regression (read-only):
+LIV01/04/05 DRAFT_READY · LIV03 RESEARCH_MORE · LIV-02 NEEDS_RESEARCH · LIV-06
+NO_PUBLISHABLE_ANGLE (the §29 contradiction fixed generically). 310 tests, Ruff clean.
+Report: `m2/review/EDITORIAL_READINESS_REPORT.md`. Regression:
+`m2/review/M2R_LIVE_READINESS_REGRESSION.json`. Guidance:
+`m2/review/editorial_readiness_guidance.json`. Frozen M2.1/2.2/2.3 systems untouched.
+No drafts regenerated; no LIVE 6–10; STOP — awaiting editor review.
+
+
 # MILESTONE — M1.5: Editorial Alert UX Calibration — DONE
 
 ## Status: **DONE (2026-09-12)** — editor visual confirmation accepted (`message_id=5` channel message reviewed normal/convenient); renderer frozen, no further UX polishing.

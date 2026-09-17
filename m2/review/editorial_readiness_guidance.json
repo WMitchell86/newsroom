@@ -1,0 +1,80 @@
+{
+  "artifact_id": "EDITORIAL_READINESS_GUIDANCE",
+  "version": "editorial-readiness-guidance-1",
+  "created": "2026-09-17",
+  "status": "PROVISIONAL",
+  "scope": "M2R Editorial Readiness Layer: reader-interest strategy selection and forbidden patterns. AUGMENTS the frozen CHRONOMORIE_SITE_DNA + VOICE_HOUSE + MODE profiles; it does not replace or mutate them (M2R \u00a722). Derived from the frozen profiles' own headline/opening statistics, not new house rules.",
+  "corpus_basis": {
+    "site_dna": "CHERNOMORIE_SITE_DNA (frozen, M2.2)",
+    "profiles_used": ["MODE_STANDARD_NEWS", "MODE_BRIEF", "MODE_EVENT_PREVIEW", "MODE_CULTURE_FEATURE"],
+    "observed_headline_reader_interest": [
+      "Digits in ~26-32% of recent headlines (number-led service/incident forms are established house practice).",
+      "Result/decision forms ('взе три точки', 'прие...') are the dominant newsworthiness surface.",
+      "Headlines are direct informative (40-60 chars, 7-9 words); no colon/question/exclamation (0% in 2020-2026 bands).",
+      "Opening classes: immediate_fact ~77% in recent house; scene/quote openings only where MODE_CULTURE_FEATURE allows them."
+    ],
+    "conclusion": "The house already leads with strongest-fact and consequence forms; the profiles encode HOW. This artifact encodes WHEN each reader-interest strategy applies and WHAT is forbidden. No M2.2 profile was changed."
+  },
+  "hook_strategies": {
+    "STRONGEST_FACT": {
+      "use_when": "A concrete decision, result or announcement with clear verification context (who/what/when/status).",
+      "profile_alignment": "MODE_STANDARD_NEWS 'immediate_fact' opening (~77%); direct fact headline form.",
+      "forbidden_for_serious_subjects": false
+    },
+    "CONSEQUENCE": {
+      "use_when": "Evidence shows what the event changes or enables (ще даде / ще позволи / ще осигури).",
+      "profile_alignment": "STANDARD_NEWS P1 fact + P2-P3 detail/context pacing.",
+      "forbidden_for_serious_subjects": false
+    },
+    "SCALE": {
+      "use_when": "A credible number carries the interest (edition count, participants, amount).",
+      "profile_alignment": "Number-led headline form ('21 сигнала за мазут...'); digits in headlines are house practice.",
+      "forbidden_for_serious_subjects": false
+    },
+    "LOCAL_IMPACT": {
+      "use_when": "Named local group/place is affected; default for serious local subjects.",
+      "profile_alignment": "SITE DNA local_specificity (Burgas-region anchors, formal institution naming).",
+      "forbidden_for_serious_subjects": false
+    },
+    "HUMAN_INTEREST": {
+      "use_when": "Affected people or participants are concrete in evidence (not invented sympathy).",
+      "profile_alignment": "STANDARD_NEWS/BRIEF detail paragraphs (who is affected).",
+      "forbidden_for_serious_subjects": false
+    },
+    "CURIOSITY": {
+      "use_when": "Evidence contains an unusual or surprising concrete element; grounded curiosity only.",
+      "profile_alignment": "No profile precedent needed; subject to the same no-clickbait rules.",
+      "forbidden_for_serious_subjects": true
+    },
+    "UNUSUAL_DETAIL": {
+      "use_when": "A specific distinctive element (за пръв път, рекорд, новина-елемент) is supported.",
+      "profile_alignment": "EVENT_PREVIEW 'distinctive element' depth dimension.",
+      "forbidden_for_serious_subjects": false
+    },
+    "PRACTICAL_VALUE": {
+      "use_when": "Admission, schedule, format or participation info is the reader's direct benefit.",
+      "profile_alignment": "EVENT_PREVIEW practical closing line; announcement -> program -> practical pacing.",
+      "forbidden_for_serious_subjects": false
+    },
+    "PLAYFUL": {
+      "use_when": "Entertainment/culture subject AND a supported comic/unusual premise in evidence (M2R \u00a718).",
+      "profile_alignment": "EVENT_PREVIEW guidance: light editorial hook for CULTURE/COMEDY/ENTERTAINMENT only; omitted when evidence is calendar-only.",
+      "forbidden_for_serious_subjects": true
+    }
+  },
+  "serious_subject_rule": "For death, crime, serious accident, health emergency, court proceedings, minors, human tragedy or serious allegations, only STRONGEST_FACT, CONSEQUENCE or LOCAL_IMPACT may be selected (M2R \u00a717). Playful, sensational or emotionally manipulative framing is never generated.",
+  "headline_behavior": {
+    "candidates": "Up to 3 headline variants with different truthful emphasis: direct factual; reader-interest/strongest angle; more energetic within house tone. Variants are editor options - never labelled in output.",
+    "house_constraints": "No colon, question or exclamation marks in headlines (0% in 2020-2026 bands); 40-60 chars, 7-9 words typical; occasional quoted title only as allowed by MODE_CULTURE_FEATURE."
+  },
+  "forbidden_clickbait_patterns": [
+    "Няма да повярвате",
+    "Ето какво се случи",
+    "Шок",
+    "Скандал",
+    "Невероятно",
+    "Не можете да пропуснете"
+  ],
+  "forbidden_clickbait_rule": "No headline may open a curiosity gap it does not close, promise an emotion instead of a fact, or use the forbidden patterns above in any form (M2R \u00a720). A rhetorical question is not a loophole for unsupported factual premises.",
+  "learning_note": "Newsworthiness thresholds and hook rules remain provisional (M2R \u00a723, \u00a734): no automatic profile mutation from single editor reviews; aggregate editor outcomes first. Editor outcomes recorded on cases: ANGLE_ACCEPTED | ANGLE_CHANGED | NO_STORY_CONFIRMED | RESEARCH_REQUESTED (readiness_outcome field)."
+}

@@ -1,0 +1,78 @@
+{
+  "date": "2026-09-16",
+  "artifact": [
+    "var/draft_experiment/review.md",
+    "var/draft_experiment/blind_map.json"
+  ],
+  "finding": "review.md rendered Draft A = primary draft in every blind pair, while blind_map.json maps the primary to label B for EV-01, EV-04 and EV-02",
+  "verified_programmatically": {
+    "contradicted_pairs": [
+      "EV-01",
+      "EV-04",
+      "EV-02"
+    ],
+    "pairs": [
+      {
+        "kind": "VOICE",
+        "evidence_id": "EV-01",
+        "map_primary_label": "B",
+        "rendered_A_is_primary": true,
+        "rendered_A_is_variant": false,
+        "rendered_B_is_variant": true,
+        "rendered_B_is_primary": false,
+        "consistent": false
+      },
+      {
+        "kind": "VOICE",
+        "evidence_id": "EV-05",
+        "map_primary_label": "A",
+        "rendered_A_is_primary": true,
+        "rendered_A_is_variant": false,
+        "rendered_B_is_variant": true,
+        "rendered_B_is_primary": false,
+        "consistent": true
+      },
+      {
+        "kind": "VOICE",
+        "evidence_id": "EV-04",
+        "map_primary_label": "B",
+        "rendered_A_is_primary": true,
+        "rendered_A_is_variant": false,
+        "rendered_B_is_variant": true,
+        "rendered_B_is_primary": false,
+        "consistent": false
+      },
+      {
+        "kind": "MODE",
+        "evidence_id": "EV-02",
+        "map_primary_label": "B",
+        "rendered_A_is_primary": true,
+        "rendered_A_is_variant": false,
+        "rendered_B_is_variant": true,
+        "rendered_B_is_primary": false,
+        "consistent": false
+      },
+      {
+        "kind": "MODE",
+        "evidence_id": "EV-10",
+        "map_primary_label": "A",
+        "rendered_A_is_primary": true,
+        "rendered_A_is_variant": false,
+        "rendered_B_is_variant": true,
+        "rendered_B_is_primary": false,
+        "consistent": true
+      }
+    ]
+  },
+  "renderer_pattern": "A=primary, B=variant for all pairs",
+  "root_cause": "review rebuild renderer ordered texts fixed (primary, variant) and ignored the sealed blind_order shuffle",
+  "consequence": "sealed experiment cannot yield a valid blind-accuracy score",
+  "decision": "artifact retired unscored; no re-run; verdict based on editor qualitative review (M2.3 PASS WITH NOTES); no further synthetic blind cycles",
+  "blind_map_sha256_before_flag": "7eca29e2def11d7347d0afdfb60899a57e41a5c5d9d32dee7d5fd6068ec22e11",
+  "blind_map_sha256_after_flag": "1db2c164df176256f99dc5eab381ccf3e7d70d2c00d94a9ccb110ee8ebc5f0ac",
+  "contradicted_pairs_verified": [
+    "EV-01",
+    "EV-04",
+    "EV-02"
+  ]
+}

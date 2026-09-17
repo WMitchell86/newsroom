@@ -1,0 +1,450 @@
+[
+  {
+    "profile_id": "HOUSE_NEWS",
+    "display_name": "House news (standard)",
+    "scope": "house-signed 2020-2026, 3-5 paras",
+    "status": "PROVEN",
+    "sample_size": 40,
+    "source_authors": [
+      "Черноморие-бг"
+    ],
+    "source_categories": [
+      "Общество",
+      "Култура",
+      "Туризъм",
+      "Бизнес",
+      "Спорт",
+      "Образование"
+    ],
+    "preferred_use": "Default news draft: municipal news, weather/institutional notices, mid-length reports.",
+    "site_dna_inherited": "CHERNOMORIE_SITE_DNA",
+    "headline": {
+      "typical_length": "40-58 chars, 7-9 words (median ~52-56).",
+      "common_patterns": [
+        "Direct fact statement: 'Набират доброволци за разкопките на Русокастро'.",
+        "Result/decision form: 'Черноморец взе три точки от Берое'.",
+        "Number-led service form: '21 сигнала за мазут по Черноморието...'.",
+        "No quote/colon/question marks (0% quotes in house 2020+)."
+      ],
+      "avoid": [
+        "Do not open headline with a quotation.",
+        "Do not use colon or question form.",
+        "Do not copy legacy headline-repeat opening (0% in house 2020+)."
+      ]
+    },
+    "opening": {
+      "typical_patterns": [
+        "Immediate fact expanded: P1 restates headline + adds who/when/where in the same sentence.",
+        "Institutional attribution in P1: 'съобщават от НИМХ', 'съобщиха от пресцентъра на ОД на МВР'.",
+        "Opening classes: immediate_fact ~77% in recent house (37/48); event_date_first ~12%; place_first ~6%."
+      ]
+    },
+    "body": {
+      "paragraph_shape": "3-5 paragraphs; median body ~1000-1330 chars; first para longest (median ~267-455 chars), closing para short (~195-230).",
+      "sentence_shape": "Medium sentences, median ~16-17 words; no one-line staccato.",
+      "pacing": "Even: fact -> detail -> context -> short closing line.",
+      "structure": [
+        "P1: fact + attribution.",
+        "P2-P3: details (numbers, names, places).",
+        "Last: short status/closing line, not a summary moral."
+      ]
+    },
+    "quotes": {
+      "frequency": "Inline quotes only; quote-mark density ~3-6 per 1000 chars (lower than culture).",
+      "placement": "Quote normally in P2-P4, never as the opening line (quote_first 1/48 recent house).",
+      "integration": "Attribution verb + comma: '\"...\", каза/заяви/съобщиха ...'."
+    },
+    "tone": {
+      "factual_vs_descriptive": "Strongly factual; adjectives only in institutional names.",
+      "narrative_distance": "Distant third person; first-person 0-2%.",
+      "local_specificity": "Full formal institution + place in P1 (press-center formula)."
+    },
+    "numbers_dates": {
+      "conventions": [
+        "Press-center formula verbatim: 'съобщиха от пресцентъра на Областна дирекция на МВР в Бургас'.",
+        "Full dates with ordinal: 'на 1-ви септември около 21.10 ч.'.",
+        "Number + unit spelled in body ('км. 442+700', '2-3 бала')."
+      ]
+    },
+    "lexical_notes": {
+      "recurring_preferences": [
+        "'съобщиха от пресцентъра', 'е станал/станал', 'в района', 'с бургаска регистрация', 'почистване/разпореди' (service verbs)."
+      ]
+    },
+    "avoidances": [
+      "Never invent a blockquote or pull-quote layout.",
+      "Never add a subheadline/lead element (template has none).",
+      "Never use first person or rhetorical questions.",
+      "Never treat caption/tags as voice (they are CMS metadata)."
+    ],
+    "example_article_ids": [
+      "2ba12a8ede485a3c",
+      "4eba4d9c0bf6def9",
+      "8a1f3693ed7aafd2",
+      "e467d7a72cd65d2b",
+      "85ad7db08d7d1bf2"
+    ],
+    "evidence_notes": [
+      "n=40 house 2020-2026, 3-5 paras; hl_repeat 0%; hl_quote 0%; immediate_fact 37/48 recent-house; quote density ~3-6/1000."
+    ],
+    "corpus_snapshot": {
+      "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+      "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+      "article_count": 150
+    }
+  },
+  {
+    "profile_id": "HOUSE_BRIEF",
+    "display_name": "House brief (police/service 1-2 paras)",
+    "scope": "house-signed 2020-2026, 1-2 paras (incl. single-paragraph)",
+    "status": "PROVISIONAL",
+    "sample_size": 15,
+    "source_authors": [
+      "Черноморие-бг"
+    ],
+    "source_categories": [
+      "На път",
+      "Общество",
+      "Образование"
+    ],
+    "preferred_use": "Shortest drafts: incident blotter, school send-off notices, single-fact service items.",
+    "site_dna_inherited": "CHERNOMORIE_SITE_DNA",
+    "headline": {
+      "typical_length": "Short: median ~39 chars, ~7 words; shortest of all profiles.",
+      "common_patterns": [
+        "Incident result form: 'Мъж се блъсна в комбайн и загина на място'.",
+        "School send-off form: 'Морското изпраща 70 абитуриента'.",
+        "Number/alcohol form: 'Моторист шофирал с 2.21 промила алкохол'.",
+        "No quotes/colons/questions in headlines."
+      ],
+      "avoid": [
+        "Do not expand beyond the single fact + attribution.",
+        "Do not add background paragraphs the source record lacks."
+      ]
+    },
+    "opening": {
+      "typical_patterns": [
+        "Whole story in one block (median 558 chars, 1 para): headline fact + ', съобщиха от пресцентъра...' + time/place/vehicle details.",
+        "No development arc: the first sentence IS the story."
+      ]
+    },
+    "body": {
+      "paragraph_shape": "1-2 paragraphs, median ~558 chars; first para median ~558 (whole story).",
+      "sentence_shape": "Shorter sentences, median ~13 words; dense with numbers.",
+      "pacing": "Flat: all facts at once, no build.",
+      "structure": [
+        "Sentence 1: result + attribution.",
+        "Sentences 2-4: time/place/vehicle/person details.",
+        "Optional last: hospital/status line."
+      ]
+    },
+    "quotes": {
+      "frequency": "Few or no quotes; quote density ~7.7/1000 comes from quoted vehicle/place names, not speech.",
+      "placement": "Attribution in sentence 1.",
+      "integration": "'..., съобщиха от пресцентъра на ОД на МВР в Бургас. Инцидентът е станал на ...'."
+    },
+    "tone": {
+      "factual_vs_descriptive": "Pure blotter factual.",
+      "narrative_distance": "Maximally distant; first-person 0%.",
+      "local_specificity": "Street/vehicle/registration detail instead of scene-setting."
+    },
+    "numbers_dates": {
+      "conventions": [
+        "Highest number density of any profile (~16.8/1000): times, ages, registration, promille.",
+        "Ordinal date + clock in sentence 2, always."
+      ]
+    },
+    "lexical_notes": {
+      "recurring_preferences": [
+        "'съобщиха от пресцентъра', 'Инцидентът е станал/станал', 'с бургаска регистрация', 'управляван от ...-годишен', 'движещ се с несъобразена скорост'."
+      ]
+    },
+    "avoidances": [
+      "Never pad to 4-5 paragraphs.",
+      "Never add scene-setting or quotes.",
+      "Never soften into feature tone."
+    ],
+    "example_article_ids": [
+      "1ad2de3ce83318fd",
+      "8895ec13c20a424f",
+      "c5bc868932a3d50a",
+      "6b11bb7e27ec2fde",
+      "f0fde7667ae539c4"
+    ],
+    "evidence_notes": [
+      "n=15 (PROVISIONAL: below 20, but internally consistent); 11/15 are 2024-2026 practice; number density ~16.8/1000 vs ~11 house; sentence median ~13 vs ~16.7 house."
+    ],
+    "corpus_snapshot": {
+      "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+      "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+      "article_count": 150
+    }
+  },
+  {
+    "profile_id": "CULTURE_FEATURE",
+    "display_name": "Culture feature (long)",
+    "scope": "category Култура, 6+ paras, any period (17 articles)",
+    "status": "PROVISIONAL",
+    "sample_size": 17,
+    "source_authors": [
+      "Черноморие-бг",
+      "Десислава Георгиева"
+    ],
+    "source_categories": [
+      "Култура"
+    ],
+    "preferred_use": "Long culture drafts: festival/concert/theatre reports, results roundups, multi-act programs.",
+    "site_dna_inherited": "CHERNOMORIE_SITE_DNA",
+    "headline": {
+      "typical_length": "Median ~55 chars, ~9 words; longest headlines of the set.",
+      "common_patterns": [
+        "Event + place form: 'Епопея на забравените с премиера през септември в бургаския театър'.",
+        "Edition form: 'Деветото издание на Порт Прим Арт Фест започва на 7 октомври'.",
+        "Occasional quoted title in headline (~6%, only profile where it survives in recent data)."
+      ],
+      "avoid": [
+        "Do not shorten to blotter length.",
+        "Do not strip program/result detail to fit a news template."
+      ]
+    },
+    "opening": {
+      "typical_patterns": [
+        "Scene/result opening (immediate_fact 11/17); quote_first allowed (1/17) - only profile where a quoted-title opening is acceptable.",
+        "Legacy headline-repeat opening appears only in pre-2020 members (3/17); do NOT imitate it in new drafts."
+      ]
+    },
+    "body": {
+      "paragraph_shape": "6+ paragraphs (median 7), median body ~2100 chars; P1 ~300 chars, closing ~150-190.",
+      "sentence_shape": "Longest sentences, median ~17.3 words; list-like cast/program sentences.",
+      "pacing": "Episodic: result -> acts/program -> cast/names -> money/prize -> funders/closing line.",
+      "structure": [
+        "P1: result or premiere fact.",
+        "P2-P4: program/cast/prizes with dense proper names.",
+        "Last: funder/support line ('Проектът е реализиран с подкрепата на ...')."
+      ]
+    },
+    "quotes": {
+      "frequency": "Highest quote density (~8.7/1000): titles, speech, mottos.",
+      "placement": "Titles in P1; speech quotes in P2-P5.",
+      "integration": "Quoted work titles inline with guillemets/curly quotes; speech with 'каза/сподели'."
+    },
+    "tone": {
+      "factual_vs_descriptive": "Factual base with celebratory adjectives ('зрелищно', 'вдъхновяващ', 'вкусна') - only profile where they are conventional.",
+      "narrative_distance": "Closest of the set, but still third person.",
+      "local_specificity": "Venue + town in headline or P1 (theatre/stage/town)."
+    },
+    "numbers_dates": {
+      "conventions": [
+        "Edition numbering ('Деветото издание', '34-ото издание').",
+        "Prize/money lines kept ('премията от 12 000 лева', '6 000 лева получи екипът...').",
+        "Cast lists as comma chains in one paragraph."
+      ]
+    },
+    "lexical_notes": {
+      "recurring_preferences": [
+        "'премиера', 'издание', 'фестивал', 'спектакъл', 'участват', 'програма', 'награда/премия', 'с подкрепата на'."
+      ]
+    },
+    "avoidances": [
+      "Never compress to 3-5 news paras.",
+      "Never drop cast/program/prize detail.",
+      "Never use blotter attribution formula.",
+      "Never imitate pre-2020 headline-repeat opening in new drafts."
+    ],
+    "example_article_ids": [
+      "eb3262c0b6935eb6",
+      "159770f19be306dd",
+      "72b6d5ede6c40f5d",
+      "de1feb5a5c626507",
+      "a2c2e9d34dfc600b"
+    ],
+    "evidence_notes": [
+      "n=17 (PROVISIONAL); longest body (~2100 vs ~1000-1330 house); longest sentences (~17.3); highest quote density (~8.7); celebratory adjectives conventional only here."
+    ],
+    "corpus_snapshot": {
+      "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+      "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+      "article_count": 150
+    }
+  },
+  {
+    "profile_id": "EVENT_PREVIEW",
+    "display_name": "Event preview / announcement",
+    "scope": "future/event-marker articles 2024-2026, 3-8 paras (21 articles)",
+    "status": "PROVEN",
+    "sample_size": 21,
+    "source_authors": [
+      "Черноморие-бг",
+      "Десислава Георгиева"
+    ],
+    "source_categories": [
+      "Култура",
+      "Туризъм",
+      "Образование",
+      "Общество"
+    ],
+    "preferred_use": "Forward-looking drafts: festival/concert/exhibition announcements, program + practical-info items.",
+    "site_dna_inherited": "CHERNOMORIE_SITE_DNA",
+    "headline": {
+      "typical_length": "Median ~53-58 chars, ~9 words.",
+      "common_patterns": [
+        "Future announcement: 'Епопея на забравените с премиера през септември...'.",
+        "Program form: 'Варненско лято продължава със симпозиум, конференция и форум...'.",
+        "Edition + date: 'Деветото издание ... започва на 7 октомври'."
+      ],
+      "avoid": [
+        "Do not write in past-result tense.",
+        "Do not omit date/venue/practical info."
+      ]
+    },
+    "opening": {
+      "typical_patterns": [
+        "Future-tense P1: 'ще има своята премиера на 18-ти септември на сцената...'.",
+        "Date/venue early: day + month + stage/town inside the first 2 sentences.",
+        "'ще' density ~2.2/1000 vs ~0.7 in non-event articles."
+      ]
+    },
+    "body": {
+      "paragraph_shape": "5 paras median (vs 4 non-event); median body ~1580 chars (vs ~1120).",
+      "sentence_shape": "Long sentences, median ~17.1 words (vs ~15.4).",
+      "pacing": "Announcement -> program -> participants -> practical info (dates/tickets/venue).",
+      "structure": [
+        "P1: what + when + where (future tense).",
+        "P2-P3: program/participants.",
+        "Last: practical line (start date, venue, support/funders)."
+      ]
+    },
+    "quotes": {
+      "frequency": "Quote density ~7.4/1000 (titles + organizer speech).",
+      "placement": "Organizer quote in P2-P3.",
+      "integration": "Same inline attribution as house."
+    },
+    "tone": {
+      "factual_vs_descriptive": "Factual but anticipatory; mild promotional adjectives allowed ('емблематичният', 'зрелищно').",
+      "narrative_distance": "Third person; first-person 0%.",
+      "local_specificity": "Venue + town obligatory in P1."
+    },
+    "numbers_dates": {
+      "conventions": [
+        "Future tense + exact date ('ще има своята премиера на 18-ти септември').",
+        "Program enumeration with names.",
+        "Practical closing (start/venue/support)."
+      ]
+    },
+    "lexical_notes": {
+      "recurring_preferences": [
+        "'ще', 'предстои', 'ще се проведе/състои', 'програма', 'премиера', 'издание', 'фестивал/концерт/изложба', 'започва на'."
+      ]
+    },
+    "avoidances": [
+      "Never write the event as already happened.",
+      "Never omit when/where.",
+      "Never use blotter style."
+    ],
+    "example_article_ids": [
+      "11ca6a679e85e3b8",
+      "3c6f88ff87e8fc11",
+      "4866fe30dd8d591d",
+      "e35e924bab9968e4",
+      "a2c2e9d34dfc600b"
+    ],
+    "evidence_notes": [
+      "n=21 (PROVEN); 'ще' density ~2.2 vs ~0.7; longer body (~1580 vs ~1120) and longer sentences (~17.1 vs ~15.4); overlaps CULTURE_FEATURE by design (event previews are often culture) - retrieval prefers EVENT_PREVIEW when the request is forward-looking."
+    ],
+    "corpus_snapshot": {
+      "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+      "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+      "article_count": 150
+    }
+  },
+  {
+    "profile_id": "DESISLAVA_REPORTAGE",
+    "display_name": "Desislava reportage (signed)",
+    "scope": "author Десислава Георгиева, 2024-2026 only (12 articles)",
+    "status": "PROVISIONAL",
+    "sample_size": 12,
+    "source_authors": [
+      "Десислава Георгиева"
+    ],
+    "source_categories": [
+      "Култура",
+      "Туризъм",
+      "Общество",
+      "Образование"
+    ],
+    "preferred_use": "Signed reportage drafts: on-site ceremony/forum coverage with multiple voices; opt-in when the editor wants a named byline.",
+    "site_dna_inherited": "CHERNOMORIE_SITE_DNA",
+    "headline": {
+      "typical_length": "Longest headlines: median ~60 chars, ~9 words (vs ~52 house recent).",
+      "common_patterns": [
+        "Ceremony/forum result: 'В Царево раздадоха годишните награди за туризъм'.",
+        "Institutional meeting: 'НХА и държавният ВУЗ с меморандум...'.",
+        "Video tag form: '... - видео'."
+      ],
+      "avoid": [
+        "Do not use for anonymous blotter items.",
+        "Do not shorten quotes to one-liners."
+      ]
+    },
+    "opening": {
+      "typical_patterns": [
+        "On-scene opening with place + occasion: 'В Царево раздадоха... Морската община стана домакин...'.",
+        "Second voice early: P2 already carries a named quote.",
+        "immediate_fact 9/12; place_first 2/12."
+      ]
+    },
+    "body": {
+      "paragraph_shape": "5-6 paras median (5.5), median body ~1640 chars (longest of recent groups).",
+      "sentence_shape": "Median ~15.6 words; quote paragraphs alternate with narrative.",
+      "pacing": "Scene -> voice -> voice -> detail -> result-list closing.",
+      "structure": [
+        "P1: scene + occasion.",
+        "P2-P4: alternating named quotes (minister, mayor, organizer).",
+        "Last: result list or forward-looking line."
+      ]
+    },
+    "quotes": {
+      "frequency": "Quote density ~6.0/1000 with multiple distinct speakers per article (vs single-source house).",
+      "placement": "Quotes from P2 onward, several speakers.",
+      "integration": "Full-name + role attribution: 'каза зам.-министърът на туризма Павлин Петров', 'каза кметът ... Марин Киров'."
+    },
+    "tone": {
+      "factual_vs_descriptive": "Factual with on-scene color ('Морската община стана домакин', 'в първия ден на лятото').",
+      "narrative_distance": "Closest to the scene; still third person.",
+      "local_specificity": "Place-as-host framing ('Царево става столица на туризма')."
+    },
+    "numbers_dates": {
+      "conventions": [
+        "Motto lines kept ('Мотото на наградите тази година е: ...').",
+        "Role + full name on every quote.",
+        "Result/category lists in closing."
+      ]
+    },
+    "lexical_notes": {
+      "recurring_preferences": [
+        "'домакин', 'церемония', 'форум/семинар', 'мотото', 'връчване на отличията/наградите', 'категории'."
+      ]
+    },
+    "avoidances": [
+      "Never publish under a house signature (requires named byline).",
+      "Never reduce to a single source.",
+      "Never use blotter compression.",
+      "Do not generalize beyond 2024-2026: legacy Desislava (pre-2020) wrote differently (headline-repeat 64%, quoted headlines 24%) and is NOT part of this profile."
+    ],
+    "example_article_ids": [
+      "70af89955d6c6678",
+      "c4cb10ba043547be",
+      "c50b58ea43089f96",
+      "de1feb5a5c626507",
+      "587c9679e21f2c04"
+    ],
+    "evidence_notes": [
+      "n=12 (PROVISIONAL: below 20 but coherent and recent); longest recent body (~1640 vs ~1110 house); most tags (~7.3 vs ~4.4); multi-speaker quotes; legacy pre-2020 Desislava style is documented drift, excluded."
+    ],
+    "corpus_snapshot": {
+      "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+      "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+      "article_count": 150
+    }
+  }
+]

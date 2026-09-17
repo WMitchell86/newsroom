@@ -1,0 +1,38 @@
+{
+  "article_count": 150,
+  "corpus_snapshot": {
+    "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+    "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+    "article_count": 150
+  },
+  "by_author": {
+    "house": 83,
+    "named_desislava": 59,
+    "unknown": 8
+  },
+  "by_band": {
+    "2009-2014": 25,
+    "2015-2019": 30,
+    "2020-2023": 35,
+    "2024-2026": 60
+  },
+  "by_category_primary": {
+    "Бизнес": 12,
+    "Здраве": 1,
+    "Култура": 39,
+    "На път": 16,
+    "Образование": 12,
+    "Общество": 35,
+    "Общините в Европа": 4,
+    "Светски блясък": 1,
+    "Спорт": 17,
+    "Туризъм": 13
+  },
+  "multi_category_memberships": 188,
+  "multi_category_count": 38,
+  "author_eligibility": {
+    "desislava_georgieva_n59": "ELIGIBLE (>=20): dedicated signal allowed but NOT auto-profile; must prove distinct+useful",
+    "house_n83": "HOUSE base (primary source for house profiles)",
+    "unknown_n8": "INSUFFICIENT (<10): no profile"
+  }
+}

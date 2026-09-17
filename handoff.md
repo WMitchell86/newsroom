@@ -1,3 +1,24 @@
+## Handoff — M2R Editorial Readiness Layer (2026-09-17)
+
+Verified: 310 offline tests, Ruff clean. New readiness layer gates drafting:
+rubric v2 (`new_proposition` + semantic veto override numeric eligibility),
+MODE-aware sufficiency (bare announcement never SUFFICIENT; BRIEF cannot bypass
+research), research loop max 2 rounds, hook planner with §17 serious guard and
+§18 playful-only-with-supported-premise, `live-readiness` CLI (rounds/mark-*/
+override), `live-generate --force-draft --force-reason` (recorded). Editor
+assessment at finalize: validated `readiness_outcome` + `readiness_note`
+(LIVE-only, in the scorecard template, aggregated in `workflow_metrics` —
+persisted for future learning, no auto-learning).
+Fixtures A–F pass; LIVE regression read-only: LIV01/04/05 DRAFT_READY,
+LIV03 RESEARCH_MORE, LIV-02 NEEDS_RESEARCH, LIV-06 NO_PUBLISHABLE_ANGLE.
+Report: `m2/review/EDITORIAL_READINESS_REPORT.md`; regression JSON + guidance
+JSON alongside. Prior pilot drafts untouched; committed; STOP for review.
+Incident note: a stray `git checkout -- src/` reverted tracked M2.2 work in
+`style/corpus.py` + `style/extract.py`; both were restored intact from a
+dangling git checkpoint (`deb9653`) and the full suite verifies them.
+
+
+
 # handoff.md — session-to-session state
 
 Last updated: 2026-09-12 (M1.5 DONE — no renderer changes afterwards) · branch `main` · Suite: 135 passed, ruff clean

@@ -1,0 +1,49 @@
+{
+  "profile_version": "m2.2-freeze-1",
+  "composition": "SITE DNA + VOICE + STORY MODE",
+  "voices": [
+    "VOICE_HOUSE",
+    "VOICE_DESISLAVA_RECENT"
+  ],
+  "story_modes": [
+    "MODE_STANDARD_NEWS",
+    "MODE_BRIEF",
+    "MODE_EVENT_PREVIEW",
+    "MODE_CULTURE_FEATURE"
+  ],
+  "default_compositions": {
+    "Story A": [
+      "VOICE_HOUSE",
+      "MODE_STANDARD_NEWS"
+    ],
+    "Story B": [
+      "VOICE_HOUSE",
+      "MODE_BRIEF"
+    ],
+    "Story C": [
+      "VOICE_HOUSE",
+      "MODE_EVENT_PREVIEW"
+    ],
+    "Story D": [
+      "VOICE_HOUSE",
+      "MODE_CULTURE_FEATURE"
+    ],
+    "Story E": [
+      "VOICE_DESISLAVA_RECENT",
+      "MODE_STANDARD_NEWS"
+    ],
+    "Also valid": [
+      "VOICE_DESISLAVA_RECENT + MODE_CULTURE_FEATURE",
+      "VOICE_DESISLAVA_RECENT + MODE_EVENT_PREVIEW",
+      "future AUTHOR_X + any MODE"
+    ]
+  },
+  "retrieval_rule": "M2.3 retrieval filters by STORY MODE + VOICE in that order, then falls back: requested VOICE+MODE -> same MODE other voice -> MODE_STANDARD_NEWS + VOICE_HOUSE. Never mix unrelated voices just to fill context.",
+  "legacy_mapping": {
+    "HOUSE_NEWS": "VOICE_HOUSE + MODE_STANDARD_NEWS",
+    "HOUSE_BRIEF": "MODE_BRIEF (voice-neutral; default VOICE_HOUSE)",
+    "CULTURE_FEATURE": "MODE_CULTURE_FEATURE",
+    "EVENT_PREVIEW": "MODE_EVENT_PREVIEW",
+    "DESISLAVA_REPORTAGE": "VOICE_DESISLAVA_RECENT (reportage traits kept inside this provisional voice)"
+  }
+}

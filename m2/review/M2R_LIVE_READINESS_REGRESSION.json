@@ -1,0 +1,188 @@
+{
+  "generated": "2026-09-17",
+  "note": "M2R §36 regression: stored LIVE artifacts re-run through the readiness layer READ-ONLY (store not mutated). v1 candidates re-judged under the v2 semantic contract from their own stored reasons; judgments would be supplied by research/editor via live-angles in the real flow.",
+  "cases": {
+    "LIV-02-EVIDENCE": {
+      "reassessed_gate": {
+        "status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+        "research_questions": [
+          "Прието ли е финансирането и в какъв обем?",
+          "Какво точно оборудване и за кого?",
+          "Какъв е статусът на докладната?"
+        ],
+        "pending_angle_id": "A-FORENSIC",
+        "candidates": [
+          {
+            "angle_id": "A-FORENSIC",
+            "total": 8,
+            "numeric_eligible": true,
+            "semantic_status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+            "eligible": false,
+            "veto_applied": false
+          },
+          {
+            "angle_id": "A-BUDGET",
+            "total": 7,
+            "numeric_eligible": true,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          },
+          {
+            "angle_id": "A-CHILDREN",
+            "total": 7,
+            "numeric_eligible": true,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          },
+          {
+            "angle_id": "A-OWNERSHIP",
+            "total": 3,
+            "numeric_eligible": false,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          },
+          {
+            "angle_id": "A-OPENING",
+            "total": 1,
+            "numeric_eligible": false,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          }
+        ]
+      },
+      "mode": "MODE_STANDARD_NEWS",
+      "readiness_status": "RESEARCH_MORE",
+      "editorial_value_status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "evidence_sufficiency_status": null,
+      "hook_strategy": null,
+      "reason": "Има потенциална тема, но липсват конкретни факти. Нужни са целенасочени проучвания по въпросите; статия не се създава преди тях.",
+      "missing_dimensions": null,
+      "research_questions": null
+    },
+    "LIV01-EVIDENCE": {
+      "mode": "MODE_EVENT_PREVIEW",
+      "readiness_status": "DRAFT_READY",
+      "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
+      "hook_strategy": "CURIOSITY",
+      "reason": "Подкрепена новост + достатъчно семантично покритие; готово за чернова.",
+      "missing_dimensions": [
+        "program",
+        "admission",
+        "format",
+        "unusual"
+      ],
+      "research_questions": [
+        "Каква е програмата?",
+        "Свободен ли е входът или е с билети, и на каква цена?",
+        "Какъв е форматът/правилата/категориите?",
+        "Има ли отличителен/необичаен елемент този път?"
+      ]
+    },
+    "LIV03-EVIDENCE": {
+      "mode": "MODE_EVENT_PREVIEW",
+      "readiness_status": "RESEARCH_MORE",
+      "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_sufficiency_status": "RESEARCH_MORE",
+      "hook_strategy": "CURIOSITY",
+      "reason": "Има новост, но повърхността е гола новина за замисления MODE.",
+      "missing_dimensions": [
+        "event_schedule",
+        "participants",
+        "program",
+        "admission",
+        "format",
+        "practical",
+        "unusual"
+      ],
+      "research_questions": [
+        "Кога точно (часове, дати) и каква е програмата?",
+        "Кои са участниците/изпълнителите/гостите?",
+        "Каква е програмата?",
+        "Свободен ли е входът или е с билети, и на каква цена?",
+        "Какъв е форматът/правилата/категориите?",
+        "Каква практическа информация е нужна (вход, адрес, записване)?",
+        "Има ли отличителен/необичаен елемент този път?"
+      ]
+    },
+    "LIV04-EVIDENCE": {
+      "mode": "MODE_EVENT_PREVIEW",
+      "readiness_status": "DRAFT_READY",
+      "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
+      "hook_strategy": "PRACTICAL_VALUE",
+      "reason": "Подкрепена новост + достатъчно семантично покритие; готово за чернова.",
+      "missing_dimensions": [
+        "unusual"
+      ],
+      "research_questions": [
+        "Има ли отличителен/необичаен елемент този път?"
+      ]
+    },
+    "LIV05-EVIDENCE": {
+      "mode": "MODE_CULTURE_FEATURE",
+      "readiness_status": "DRAFT_READY",
+      "editorial_value_status": "PUBLISHABLE_ANGLE",
+      "evidence_sufficiency_status": "EVIDENCE_SUFFICIENT",
+      "hook_strategy": "PRACTICAL_VALUE",
+      "reason": "Подкрепена новост + достатъчно семантично покритие; готово за чернова.",
+      "missing_dimensions": [
+        "participants",
+        "program",
+        "scale",
+        "unusual"
+      ],
+      "research_questions": [
+        "Кои са участниците/изпълнителите/гостите?",
+        "Каква е програмата?",
+        "Какъв е обхватът (числа, брой участници/ползватели)?",
+        "Има ли отличителен/необичаен елемент този път?"
+      ]
+    },
+    "LIV-06-EVIDENCE": {
+      "reassessed_gate": {
+        "status": "NO_PUBLISHABLE_ANGLE",
+        "research_questions": null,
+        "pending_angle_id": null,
+        "candidates": [
+          {
+            "angle_id": "A-HELP",
+            "total": 5,
+            "numeric_eligible": true,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          },
+          {
+            "angle_id": "A-BUDGET",
+            "total": 4,
+            "numeric_eligible": false,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          },
+          {
+            "angle_id": "A-PROCEDURAL",
+            "total": 1,
+            "numeric_eligible": false,
+            "semantic_status": "NO_PUBLISHABLE_ANGLE",
+            "eligible": false,
+            "veto_applied": true
+          }
+        ]
+      },
+      "mode": "MODE_STANDARD_NEWS",
+      "readiness_status": "NO_PUBLISHABLE_ANGLE",
+      "editorial_value_status": "NO_PUBLISHABLE_ANGLE",
+      "evidence_sufficiency_status": null,
+      "hook_strategy": null,
+      "reason": "Нито една тема не описва конкретна новост, подкрепена от доказателствата. Вижте аргументите и semantic_status по кандидати; статия не се създава.",
+      "missing_dimensions": null,
+      "research_questions": null
+    }
+  }
+}

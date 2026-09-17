@@ -144,7 +144,7 @@ def strip_leading_subject(text: str, subject: str | None) -> str | None:
     else:
         marker = _LEADING_MARKER_RE.search(text)
         if marker and marker.start() <= _LEADING_PREFIX_LIMIT:
-            taken = pattern.match(text[marker.end():])
+            taken = pattern.match(text[marker.end() :])
             if taken:
                 end = marker.end() + taken.end()
     if end is None:

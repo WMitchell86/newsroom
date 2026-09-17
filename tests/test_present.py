@@ -253,6 +253,7 @@ def test_updated_marker_differs_from_new():
 # M1.5 Step 4 — headline/excerpt de-duplication (§9 required tests)
 # =====================================================================
 
+
 def test_exact_leading_subject_duplication_removed():
     subj = "Даване на съгласие за учредяване на център"
     text = f"{subj}. Допълнителна информация за бюджета."

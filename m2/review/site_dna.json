@@ -1,0 +1,21 @@
+{
+  "profile_id": "CHERNOMORIE_SITE_DNA",
+  "display_name": "Chernomorie site DNA (shared conventions)",
+  "scope": "site-wide: genuinely shared across house + Desislava + unknown-author material, 2020-2026 practice preferred",
+  "corpus_snapshot": {
+    "sha256_bytes": "5b5cd0622b436646d793492baf4b94b45f1bc4dae6ede0e578f12205ed4ef9b6",
+    "sha256_canonical": "d32629ae7e9d3b726a0264056a37c7fa550dfbf6272cf25d34cc51718bfdbcba",
+    "article_count": 150
+  },
+  "conventions": {
+    "language": "Bulgarian; direct informative headline (typical 40-60 chars, 7-9 words), no colon / question / exclamation in headlines (0% in 2020-2026 bands).",
+    "numbers_dates": "Digits in ~26-32% of recent headlines; body number-density ~11-16 per 1000 chars. Bulgarian date forms ('1-ви септември', '16-ти май') and clock forms ('12.30 ч.'). Ordinal '-ти/-ви' style is house-wide, not author-specific.",
+    "local_specificity": "Every group carries Burgas-region anchors (median 1-3 local-name hits per article); institution naming is formal-full ('Областна дирекция на МВР в Бургас', 'Регионален исторически музей - Бургас', 'Община Камено').",
+    "quotation": "Quoted speech stays inline in body (structured blockquote count is 0 across all 150); quote-mark density ~5-8 per 1000 chars; attribution verbs (съобщиха, каза, заяви).",
+    "structure": "No structural lead/subheadline element anywhere in the corpus (subheadline None in 150/150). Caption + tags are CMS-level metadata, not style: caption present ~89-100% everywhere, tags ~2.5-5.6 everywhere - do NOT treat as voice.",
+    "headline_opening": "Headline states the news fact directly; body normally opens with the same fact expanded (immediate_fact 68-70% overall) - never a delayed literary lede."
+  },
+  "evidence_notes": [
+    "hl colon/?/! = 0% in bands 2020-2023 (n=35) and 2024-2026 (n=60); structured quotes 0/150; subheadline None 150/150; caption 89-100% in every group; local-name hits median >=1 in every group."
+  ]
+}

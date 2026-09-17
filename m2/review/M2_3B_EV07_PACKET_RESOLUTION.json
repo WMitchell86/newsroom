@@ -1,0 +1,22 @@
+{
+  "evidence_id": "EV-07",
+  "action": "packet_annotated_in_place",
+  "defect": "source_headline claims 11 countries; fact EV-07-f03 enumerates 12",
+  "resolution": "Contradictory headline number annotated into packet unknowns (ANNOTATION entry); packet_version bumped 1.0 -> 1.1; drafts NOT rerun",
+  "packet_version_after": "1.1",
+  "annotated_numbers": [
+    "11"
+  ],
+  "post_resolution_lexical_audit": {
+    "unsupported": [
+      "Официалното откриване на 18-ия международен фестивал \"Животът е красив\" ще се състои на 29-ти август (събота) от 17.15 ч.",
+      "Награждаването на отличените участници ще се проведе на 1-ви септември (вторник) от 17.15 ч."
+    ],
+    "contradicted": [],
+    "leak_hits": []
+  },
+  "annotation_no_lexical_regression": true,
+  "no_regression_note": "Fresh audit vs frozen generation audit on the primary draft are identical; the ANNOTATION unknowns entry does not affect audit_claims (it does not read packet[\"unknowns\"]).",
+  "draft_recheck_note": "Draft text unchanged; its frozen semantic verdict (PASS, regenerated EV-07-R draft, judge pool in M2_3B_REPORT) remains the authority.",
+  "idempotency": "re-annotation is a no-op (verified twice)"
+}

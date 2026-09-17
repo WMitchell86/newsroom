@@ -145,6 +145,52 @@ def find_duplicates(records: list[ArticleRecord]) -> dict[str, list[list[str]]]:
     }
 
 
+# --- M2.1B stratification -------------------------------------------------
+
+BAND_LABELS = ("2024-2026", "2020-2023", "2015-2019", "2009-2014")
+DEFAULT_BAND_TARGETS = {
+    "2024-2026": 60,
+    "2020-2023": 35,
+    "2015-2019": 30,
+    "2009-2014": 25,
+}
+HOUSE_AUTHORS = frozenset({"Черноморие-бг", "Черноморие-БГ", "chernomorie-bg"})
+
+
+def band_for_date(published_date: str | None) -> str | None:
+    """Deterministic time-band label from YYYY-MM-DD, else None."""
+    text = (published_date or "").strip()
+    if len(text) < 4 or not text[:4].isdigit():
+        return None
+    year = int(text[:4])
+    if year >= 2024:
+        return "2024-2026"
+    if year >= 2020:
+        return "2020-2023"
+    if year >= 2015:
+        return "2015-2019"
+    if year >= 2009:
+        return "2009-2014"
+    return None
+
+
+def author_class(author: str | None) -> str:
+    """house | named | unknown — grouping only, never rewrites author."""
+    text = (author or "").strip()
+    if not text:
+        return "unknown"
+    if text in HOUSE_AUTHORS:
+        return "house"
+    return "named"
+
+
+def author_class_counts(records: list[ArticleRecord]) -> dict[str, int]:
+    counts = {"house": 0, "named": 0, "unknown": 0}
+    for record in records:
+        counts[author_class(record.author)] += 1
+    return counts
+
+
 def build_manifest(
     records: list[ArticleRecord],
     *,
