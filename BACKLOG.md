@@ -22,3 +22,15 @@ Per harness rule §3.3: ideas discovered mid-task go here, not into the current 
 LoRA/fine-tuning, generic NER platform, large gazetteer, CRM, pgvector-by-default,
 enterprise social listening, autonomous hard-news writing, closed-FB-group scraping,
 complicated confidence scoring, 80-source Playwright farm, heavy multi-agent newsroom.
+
+## M2+ deferred by editor decisions (do NOT implement without a new scope decision)
+- [ ] Provider-health/cooldown for repeated same-day DDGS degradation (observed
+      M2S-R3/R3b; for now observable via the failure taxonomy, not a redesign trigger)
+- [ ] TinyFish fetch fallback promotion — only if real cases show it saving pages
+      (current verdict: TINYFISH_FETCH = AVAILABLE / NOT_YET_PROVEN, narrow
+      failure-category trigger only)
+- [ ] Semantic correction CONCRETE_ACTION_NEEDS_RESEARCH vs ROUTINE_REPORT_VETO —
+      FROZEN until the editor V2 sample review (hypotheses + evidence:
+      m2/review/SHADOW_DISAGREEMENT_ENRICHMENT_AUDIT.md)
+- [ ] Monid integration — backlog (explicitly not in the runtime path)
+- [ ] LIVE 6–10 — not yet (gated on the editor V2 sample review)
