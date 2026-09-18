@@ -90,23 +90,40 @@ honest `SOURCE_FETCH_FAILED`), 0/2 opened; the local opener alone was 6/10.
 The fetch column is measured as attempted 2/2, opened 0/2 — not
 capability-unavailable.
 
-## 3. Routing verdict
+## 3. Routing verdict — M2S-R4: ADOPTED (search) / AVAILABLE-NOT-PROVEN (fetch)
 
-Measured state after the keyed re-run:
+Editor routing decision on the §2b measurements:
 
 ```
 TINYFISH_INTEGRATION   = READY
-TINYFISH_EFFECTIVENESS = MEASURED (favored on search: 7/7 vs 6/7 known hits, ~10x latency advantage)
-ROUTING_CHANGE         = DEFERRED (PROVIDER_ORDER unchanged; editor decides with this data)
+TINYFISH_SEARCH        = ADOPTED
+TINYFISH_FETCH         = AVAILABLE / NOT_YET_PROVEN
 ```
 
-The keyless-run caveat (`NOT_EVALUATED` — the 401 probes prove failure
-handling, not search quality) is resolved by §2b. `DEFERRED`, not
-`NOT_JUSTIFIED`: TinyFish measured better on every search cell of this run,
-but default routing is an editor decision; the adapter stays registered and
-pin-addressable. What WOULD change the verdict back: a degraded TinyFish run
-on these same cells, or an editor preference for the keyless chain. No
-threshold, profile, or default-routing change was made.
+Adopted PROVIDER_ORDER (M2S-R4, implemented in `search.py`):
+
+```
+NEWS       -> google_news_rss -> tinyfish -> serper -> ddgs -> brave
+WEB        -> tinyfish -> serper -> ddgs -> brave
+BACKGROUND -> wikipedia -> tinyfish -> serper -> ddgs
+```
+
+Rationale: TinyFish won every measured search cell (20/20 SEARCH_OK, 7/7
+known-answer, avg 0.3 s vs 3.2 s; incumbent DDGS showed repeated same-day
+degradation). RSS stays first for NEWS as the keyless specialist layer for
+Bulgarian media; Wikipedia stays first for BACKGROUND. Serper/Brave remain
+key-gated members (run only with keys). A missing `TINYFISH_API_KEY`
+degrades the chain explicitly (`tinyfish:no-key`), never fabricating results.
+
+Fetch deliberately NOT promoted: on the only two live fallback cases TinyFish
+also returned `page_not_found` — no demonstrated added value. The adapter
+stays available behind `fetch_with_fallback`'s narrow failure-category
+trigger (a candidate rescue path for JS-heavy/parse failures if real cases
+show it saving pages).
+
+History: the keyless-run caveat (`NOT_EVALUATED` — the 401 probes prove
+failure handling, not search quality) was resolved by §2b; §2b itself carried
+`ROUTING_CHANGE = DEFERRED` until this editor decision.
 
 ## 4. Test coverage (23, all offline)
 

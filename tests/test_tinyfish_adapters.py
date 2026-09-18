@@ -94,17 +94,35 @@ def _provider(**kwargs):
 # ---------- capability, not fabrication (harness A2/A8) ----------
 
 
-def test_registered_but_not_in_default_provider_order():
-    assert "tinyfish" in search.PROVIDER_CAPABILITIES
-    for order in search.PROVIDER_ORDER.values():
-        assert "tinyfish" not in order
+def test_default_provider_order_adopts_tinyfish():
+    """M2S-R4: TinyFish ADOPTED as first general WEB provider.
+
+    NEWS keeps the keyless RSS specialist first; BACKGROUND keeps wikipedia
+    first. Serper/Brave remain key-gated members of every chain.
+    """
+    assert search.PROVIDER_ORDER[search.CAP_WEB][0] == "tinyfish"
+    assert search.PROVIDER_ORDER[search.CAP_NEWS][0] == "google_news_rss"
+    assert search.PROVIDER_ORDER[search.CAP_NEWS][1] == "tinyfish"
+    assert search.PROVIDER_ORDER[search.CAP_BACKGROUND][0] == "wikipedia"
+    assert search.PROVIDER_ORDER[search.CAP_BACKGROUND][1] == "tinyfish"
+
+
+def test_keyless_chain_degrades_without_tinyfish(monkeypatch):
+    """Missing TINYFISH_API_KEY: explicit tinyfish:no-key note, chain continues."""
+    monkeypatch.delenv("TINYFISH_API_KEY", raising=False)
+    chain, unavailable = search.provider_chain(search.CAP_WEB, env={})
+    names = [p.name for p in chain]
+    assert "tinyfish" not in names
+    assert "tinyfish:no-key" in unavailable
+    if search._load_ddgs() is not None:
+        assert names and names[0] == "ddgs"
 
 
 def test_missing_key_is_explicit_unavailable(monkeypatch):
     monkeypatch.delenv("TINYFISH_API_KEY", raising=False)
     chain, unavailable = search.provider_chain(search.CAP_WEB, env={"SEARCH_PROVIDER": "tinyfish"})
     assert chain == []
-    assert unavailable == ["tinyfish:unavailable"]
+    assert unavailable == ["tinyfish:no-key"]
     assert search.tinyfish_search_provider(env={}) is None
     assert search.tinyfish_fetch_provider(env={}) is None
 

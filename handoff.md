@@ -1,3 +1,36 @@
+## Handoff — M2S-R4: TinyFish Search ADOPTED — Routing Implemented (2026-09-18)
+
+Editor decision on the M2S-R3b measured benchmark → routing implemented and
+frozen. Verified: 394 offline tests, Ruff clean.
+
+- `PROVIDER_ORDER` (search.py): NEWS -> google_news_rss -> tinyfish -> serper
+  -> ddgs -> brave · WEB -> tinyfish -> serper -> ddgs -> brave · BACKGROUND
+  -> wikipedia -> tinyfish -> serper -> ddgs. TinyFish is the first general
+  WEB provider; RSS/wikipedia keep the keyless specialist slots; serper/brave
+  stay key-gated. Evidence pointer lives in the PROVIDER_ORDER comment block.
+- Keyless degradation: missing `TINYFISH_API_KEY` → explicit
+  `tinyfish:no-key` note, chain continues (e.g. ddgs next for WEB). The
+  `SEARCH_PROVIDER=tinyfish` pin is unchanged; out-of-order pin mismatch stays
+  an explicit unavailability, never a silent fallback.
+- `TINYFISH_FETCH = AVAILABLE / NOT_YET_PROVEN`: NOT promoted to default fetch
+  fallback (0/2 on the only live fallback cases); adapter remains behind
+  `fetch_with_fallback`'s narrow failure-category trigger as a candidate
+  rescue path for JS-heavy/parse failures if real cases show it saving pages.
+- `.gitignore`: `media.zip` ignored specifically (not `*.zip`).
+- Verdicts frozen: SEARCH_EXECUTION_ENGINEERING = PROVEN · TINYFISH_SEARCH =
+  ADOPTED · TINYFISH_FETCH = AVAILABLE/NOT_YET_PROVEN ·
+  TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING+ ·
+  TRANSCRIPT_RESEARCH_ENRICHMENT = PROMISING · EDITORIAL_EFFECTIVENESS = PENDING.
+- The semantic correction (`CONCRETE_ACTION_NEEDS_RESEARCH` vs
+  `ROUTINE_REPORT_VETO`) stays FROZEN until the editor V2 sample review; when
+  it arrives, compare the editor's decisions against the audit's four semantic
+  cases (social aid, school funding, museum refusal, routine budget reports)
+  before any narrow, structure-based correction.
+
+Next: editor — V2 sample review (the only open gate). No thresholds, no
+drafting, no LIVE 6–10, no Monid.
+
+
 ## Handoff — M2S-R3b: TinyFish Keyed Benchmark + Focused Audit (2026-09-18)
 
 Verified: 393 offline tests, Ruff clean. `TINYFISH_API_KEY` provided (the

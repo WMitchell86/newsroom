@@ -1,3 +1,43 @@
+## M2S-R4 TinyFish Search ADOPTED — Routing Implemented — 2026-09-18 — EDITOR DECISION ON MEASURED DATA
+
+Editor routing decision on the M2S-R3b keyed benchmark; implemented and
+frozen. Verdict state:
+
+```text
+SEARCH_EXECUTION_ENGINEERING      = PROVEN
+TINYFISH_SEARCH                   = ADOPTED (first general WEB provider)
+TINYFISH_FETCH                    = AVAILABLE / NOT_YET_PROVEN (not a default fetch fallback)
+TRANSCRIPT_DISCOVERY_ENGINEERING  = PROMISING+ (frozen until editor sample review)
+TRANSCRIPT_RESEARCH_ENRICHMENT    = PROMISING (frozen)
+EDITORIAL_EFFECTIVENESS           = PENDING (human editor is the arbiter)
+```
+
+Implemented (offline-tested, `search.py` + `tests/test_tinyfish_adapters.py`):
+
+- `PROVIDER_ORDER` (M2S-R4): NEWS -> google_news_rss -> tinyfish -> serper ->
+  ddgs -> brave; WEB -> tinyfish -> serper -> ddgs -> brave; BACKGROUND ->
+  wikipedia -> tinyfish -> serper -> ddgs. Rationale: TinyFish won every
+  measured search cell (20/20 SEARCH_OK, 7/7 known-answer, avg 0.3 s vs
+  3.2 s; DDGS showed repeated same-day degradation). RSS keeps the NEWS lead
+  as the keyless specialist layer for Bulgarian media, wikipedia keeps
+  BACKGROUND; serper/brave stay key-gated members (run only with keys).
+- `provider_chain`: tinyfish is default-routed; a missing `TINYFISH_API_KEY`
+  degrades the chain explicitly (`tinyfish:no-key`), never fabricating
+  results. The `SEARCH_PROVIDER=tinyfish` pin is unchanged. TinyFish FETCH
+  deliberately NOT promoted — no added value on the 2 live fallback cases
+  (0/2 opened, `page_not_found` both); the adapter stays behind
+  `fetch_with_fallback`'s narrow failure-category trigger.
+- Tests: the registered-not-default test was replaced by adoption assertions
+  + a keyless-degradation test (23 -> 24 TinyFish tests).
+- `.gitignore`: `media.zip` ignored specifically (not `*.zip`, so future
+  legitimate ZIP fixtures stay trackable) — unknown local upload in root,
+  not part of build/runtime; file itself left on disk, untracked.
+
+Frozen (editor instruction): no `CONCRETE_ACTION_NEEDS_RESEARCH` vs
+`ROUTINE_REPORT_VETO` semantic change until the V2 editor sample review
+arrives; no thresholds; no drafting; no LIVE 6–10; no Monid.
+
+
 ## M2S-R3 TinyFish Adapters + V2 Shadow Judge + Research Enrichment — 2026-09-18 — MEASURED WITH KEY, AWAITING EDITOR
 
 Verdicts: SEARCH_EXECUTION_ENGINEERING = **PROVEN (baseline re-confirmed)** ·

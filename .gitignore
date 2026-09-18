@@ -15,4 +15,8 @@ build/
 .ruff_cache/
 .serena/
 var/
+
+# Local archive upload; not part of the build/runtime. Ignored specifically
+# (not *.zip) so future legitimate ZIP fixtures stay trackable.
+media.zip
 *.sqlite3

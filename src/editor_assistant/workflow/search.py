@@ -9,15 +9,17 @@ This module gives discovery a stable, inspectable, stdlib-only contract:
   information does not exist, and never silently changes the editor request;
 * result snippets are DISCOVERY_ONLY - they name candidate sources, they can
   never back a promoted fact (the SourceBundle provenance rule stays);
-* capability-based provider stack (M2S-R2): NEWS -> Google News RSS / DDGS /
-  Serper / Brave; WEB -> Serper / DDGS / Brave; BACKGROUND -> Wikipedia API.
+* capability-based provider stack (M2S-R2, reordered M2S-R4): NEWS ->
+  Google News RSS / TinyFish / Serper / DDGS / Brave; WEB -> TinyFish /
+  Serper / DDGS / Brave; BACKGROUND -> Wikipedia / TinyFish / Serper / DDGS.
   Every adapter speaks the same SearchProvider contract and the same failure
   taxonomy. Consumer Bing/Google HTML scraping remains NOT a production path;
-* TinyFish Search/Fetch adapters (M2S-R3) are REGISTERED but not in the
-  default PROVIDER_ORDER (harness A8: benchmark before any routing change);
-  reachable via SEARCH_PROVIDER=tinyfish, with a source-failure taxonomy
-  (SOURCE_ACCESS_BLOCKED / SOURCE_FETCH_FAILED / SOURCE_PARSE_FAILED), a
-  public-phrase privacy guard, and a narrow local-first fetch fallback;
+* TinyFish Search/Fetch adapters (M2S-R3) - Search ADOPTED into the default
+  PROVIDER_ORDER (M2S-R4, on measured benchmark data: 20/20 SEARCH_OK,
+  7/7 known-answer, avg ~0.3s); Fetch stays AVAILABLE but NOT a default
+  fetch fallback (narrow failure-category trigger only). Missing key
+  degrades the chain explicitly (tinyfish:no-key), pin still supported via
+  SEARCH_PROVIDER=tinyfish;
 * no secrets in any log or record - keys are read from the environment and
   never persisted.
 
@@ -421,10 +423,20 @@ PROVIDER_CAPABILITIES = {
 
 # Config-driven preference order per capability (Round-2 decision). An explicit
 # SEARCH_PROVIDER env pins a single provider instead of the full chain.
+#
+# M2S-R4 (routing decision on measured benchmark data): TinyFish is ADOPTED
+# as the first general WEB provider and joins NEWS/BACKGROUND behind the
+# keyless specialists (RSS for NEWS, Wikipedia for BACKGROUND). Evidence:
+# var/search_benchmark/tinyfish_eval.json - 20/20 SEARCH_OK, 7/7 known-answer,
+# avg ~0.3s vs the incumbent chain's 18/20 with same-day DDGS degradation.
+# Serper/Brave stay key-gated members of the chain (they run only with keys).
+# TinyFish FETCH is deliberately NOT promoted to a default fetch fallback
+# (benchmark: no added value on the two live fallback cases); the adapter
+# remains available via fetch_with_fallback's narrow failure-category trigger.
 PROVIDER_ORDER = {
-    CAP_NEWS: ["google_news_rss", "serper", "ddgs", "brave"],
-    CAP_WEB: ["serper", "ddgs", "brave"],
-    CAP_BACKGROUND: ["wikipedia", "serper", "ddgs"],
+    CAP_NEWS: ["google_news_rss", "tinyfish", "serper", "ddgs", "brave"],
+    CAP_WEB: ["tinyfish", "serper", "ddgs", "brave"],
+    CAP_BACKGROUND: ["wikipedia", "tinyfish", "serper", "ddgs"],
     CAP_KNOWN_OFFICIAL: ["direct_fetch", "serper", "ddgs"],
 }
 
@@ -717,9 +729,10 @@ def provider_chain(capability=CAP_WEB, env=None):
         raise SearchError(f"unknown capability: {capability!r}")
     forced = (environment.get("SEARCH_PROVIDER") or "").strip().lower()
     if forced and forced not in order:
-        # M2S-R3 harness A8: a registered-but-not-default provider (tinyfish)
-        # stays benchmarkable via an explicit pin, while default routing is
-        # unchanged until the live benchmark justifies a PROVIDER_ORDER change.
+        # A pinned provider missing from this capability's order is either a
+        # typo or a capability mismatch: an explicit unavailability, never a
+        # silent full-chain fallback. The tinyfish branch below stays as a
+        # safety net for capability-specific builds (news -> news index).
         pinned = tinyfish_search_provider(capability, environment) if forced == "tinyfish" else None
         if pinned is not None:
             return [pinned], []
@@ -752,6 +765,14 @@ def provider_chain(capability=CAP_WEB, env=None):
             chain.append(GoogleNewsRSSProvider())
         elif name == "wikipedia":
             chain.append(WikipediaBackgroundProvider())
+        elif name == "tinyfish":
+            # M2S-R4: default-routed. A missing key degrades the chain
+            # explicitly (tinyfish:no-key), never fabricating a result.
+            provider = tinyfish_search_provider(capability, environment)
+            if provider is None:
+                unavailable.append("tinyfish:no-key")
+            else:
+                chain.append(provider)
     return chain, unavailable
 
 
