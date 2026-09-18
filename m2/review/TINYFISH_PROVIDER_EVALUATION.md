@@ -1,7 +1,12 @@
 # TinyFish Provider Evaluation — M2S-R3 Parts A + B
 
-Verdict: **ADAPTERS_LANDED_AND_TESTED · LIVE_COMPARISON_BLOCKED_ON_KEY ·
-ROUTING_CHANGE = NOT_JUSTIFIED (PROVIDER_ORDER unchanged).**
+Verdict (keyed re-run, same day): **ADAPTERS_LANDED_AND_TESTED ·
+TINYFISH_INTEGRATION = READY · TINYFISH_EFFECTIVENESS = MEASURED (favored on
+search: hit-rate + latency) · ROUTING_CHANGE = DEFERRED (PROVIDER_ORDER
+unchanged; the routing decision moves to the editor, now with data).**
+
+The first run below was keyless — recorded honestly as capability-unavailable
+(no numbers fabricated); §2b holds the measured comparison.
 
 Data: `var/search_benchmark/tinyfish_eval.json` (final live run, 2026-09-18) +
 `var/search_benchmark/benchmark_results.json` (M2S-R2 reference baseline).
@@ -62,24 +67,46 @@ fallback would be evaluated once a key exists:
 - 6 opened OK incl. `grao.bg`, `brra.bg` (query-string ASPX state), `fsc.bg`,
   `e-gov.bg`, `moreto.net`
 
+## 2b. Keyed re-run — measured cells (same day)
+
+`TINYFISH_API_KEY` provided; same 20 cases + 10-URL fetch challenge, both
+providers live in one run.
+
+| metric | TinyFish | incumbent chain (same run) |
+|---|---|---|
+| search ops | **20/20 `SEARCH_OK`** | 18/20 `SEARCH_COMPLETE` |
+| known-answer hits | **7/7** | 6/7 |
+| latency avg / med / max | **0.3 s / 0.3 s / 0.9 s** | 3.2 s / 3.1 s / 5.1 s |
+| stability | clean | DDGS degraded on its 5th same-day run (2 honest `SEARCH_INCOMPLETE`) |
+
+TinyFish hit the known answer the degraded chain dropped
+(`Община Бургас бюджет 2026`, needle `бюджет`). Snippets stay DISCOVERY_ONLY —
+nothing is promoted from search output.
+
+Fetch challenge: the fallback was exercised exactly where the design says —
+only the 2 local `FETCH_HTTP_ERROR` cells (narrow triggers held; blocked
+targets never forwarded). TinyFish fetch also failed both (`page_not_found` →
+honest `SOURCE_FETCH_FAILED`), 0/2 opened; the local opener alone was 6/10.
+The fetch column is measured as attempted 2/2, opened 0/2 — not
+capability-unavailable.
+
 ## 3. Routing verdict
 
-Precise tri-state (editor-approved wording):
+Measured state after the keyed re-run:
 
 ```
 TINYFISH_INTEGRATION   = READY
-TINYFISH_EFFECTIVENESS = NOT_EVALUATED
-ROUTING_CHANGE         = NOT_JUSTIFIED (PROVIDER_ORDER unchanged)
+TINYFISH_EFFECTIVENESS = MEASURED (favored on search: 7/7 vs 6/7 known hits, ~10x latency advantage)
+ROUTING_CHANGE         = DEFERRED (PROVIDER_ORDER unchanged; editor decides with this data)
 ```
 
-`NOT_EVALUATED`, not weak: TinyFish did not participate in the benchmark — the
-HTTP 401 probes without credentials prove the failure handling, not search
-quality. The verdicts are recorded in the artifact's `verdicts`. What WOULD
-change the verdict: a keyed
-run filling the same cells for TinyFish (search: hit-rate/latency/official-
-domain-share/dup-ratio on these 20 cases; fetch: the 4 missing cells above).
-No threshold, profile, or default-routing change was made; the adapters stay
-registered and pin-addressable.
+The keyless-run caveat (`NOT_EVALUATED` — the 401 probes prove failure
+handling, not search quality) is resolved by §2b. `DEFERRED`, not
+`NOT_JUSTIFIED`: TinyFish measured better on every search cell of this run,
+but default routing is an editor decision; the adapter stays registered and
+pin-addressable. What WOULD change the verdict back: a degraded TinyFish run
+on these same cells, or an editor preference for the keyless chain. No
+threshold, profile, or default-routing change was made.
 
 ## 4. Test coverage (23, all offline)
 

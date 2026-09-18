@@ -1,3 +1,35 @@
+## Handoff — M2S-R3b: TinyFish Keyed Benchmark + Focused Audit (2026-09-18)
+
+Verified: 393 offline tests, Ruff clean. `TINYFISH_API_KEY` provided (the
+editor's `TINY_FISH_APY_KEY` was renamed to the correct variable name). The
+benchmark was extended to measure TinyFish live on the same cells and re-run —
+no PROVIDER_ORDER change:
+
+- TinyFish search: **20/20 SEARCH_OK, 7/7 known-answer hits, latency avg
+  0.3 s (max 0.9 s)**. Incumbent chain in the same run: 18/20 COMPLETE, 6/7
+  known hits (DDGS degraded on its 5th same-day run; misses honest
+  SEARCH_INCOMPLETE), avg 3.2 s. TinyFish found the needle the degraded chain
+  dropped (`Община Бургас бюджет 2026`).
+- TinyFish fetch fallback: exercised only on the 2 local FETCH_HTTP_ERROR
+  cells (narrow triggers held; blocked targets never forwarded); TinyFish
+  also failed both (`page_not_found` → honest SOURCE_FETCH_FAILED), 0/2
+  opened; local opener alone 6/10.
+- Verdicts: TINYFISH_INTEGRATION = READY · TINYFISH_EFFECTIVENESS = MEASURED
+  (favored on search) · ROUTING_CHANGE = DEFERRED — routing is now an editor
+  decision with data; adapter stays pin-addressable.
+- Focused audit (`m2/review/SHADOW_DISAGREEMENT_ENRICHMENT_AUDIT.md`): no
+  rubric redesign; two semantic hypotheses (CONCRETE_ACTION_NEEDS_RESEARCH vs
+  ROUTINE_REPORT_VETO) await editor calibration;
+  TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING+; enrichment = PROMISING
+  (candidates ≠ confirmations; lexical matcher is a source locator, not a
+  corroboration engine); EDITORIAL_EFFECTIVENESS = PENDING.
+- Harness fix while measuring: verdict logic + fetch-fallback instrumentation
+  corrected (fallback attempted ≠ unexercised); docstring updated. Harness
+  script only — production adapters untouched.
+
+Next: editor — V2 sample review + routing decision on the measured cells.
+No thresholds, no drafting, no LIVE 6–10, no Monid.
+
 ## Handoff — M2S-R3 TinyFish Adapters + V2 Shadow Judge + Enrichment (2026-09-18)
 
 Verified: **393 offline tests, Ruff clean.** Verdicts:

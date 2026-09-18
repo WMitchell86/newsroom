@@ -1,4 +1,4 @@
-## M2S-R3 TinyFish Adapters + V2 Shadow Judge + Research Enrichment — 2026-09-18 — BUILT + MEASURED, AWAITING KEY / EDITOR
+## M2S-R3 TinyFish Adapters + V2 Shadow Judge + Research Enrichment — 2026-09-18 — MEASURED WITH KEY, AWAITING EDITOR
 
 Verdicts: SEARCH_EXECUTION_ENGINEERING = **PROVEN (baseline re-confirmed)** ·
 TRANSCRIPT_DISCOVERY_ENGINEERING = **PROMISING (differentiated, now shadow-judged)** ·
@@ -33,7 +33,8 @@ live TinyFish cells recorded as explicit capability-unavailable):
   `SEARCH_COMPLETE`, 6/7 known-answer hits (chain degraded by 4th same-day
   run; misses recorded `SEARCH_INCOMPLETE`, never collapsed), latency avg
   2.8 s; fetch 6/10 OK. Routing verdict: **NOT_JUSTIFIED** — PROVIDER_ORDER
-  unchanged pending a keyed TinyFish run.
+  unchanged pending a keyed TinyFish run. Superseded same-day by Part B′
+  (keyed re-run below).
 - **Part C — shadow model judge over all 24 Transcript V2 candidates**
   (`tmp/shadow_judge_v2.py` → `var/transcript_analysis_v2/shadow_judge_v2.json`):
   judge blind to the deterministic verdict, production `_model_assess` prompt
@@ -50,11 +51,38 @@ live TinyFish cells recorded as explicit capability-unavailable):
   verbatim, gate-rebuilt assessment) → **both honestly stay RESEARCH_MORE**.
   No drafting.
 
+- **Part B′ — keyed re-run, same day** (`TINYFISH_API_KEY` provided; the
+  editor's `TINY_FISH_APY_KEY` was renamed to the correct variable; the
+  benchmark now measures TinyFish live on the same cells): TinyFish search
+  **20/20 `SEARCH_OK`, 7/7 known-answer hits, latency avg 0.3 s / max 0.9 s**
+  vs the chain in the same run: 18/20 complete, 6/7 known hits, avg 3.2 s
+  (DDGS degraded on its 5th same-day run; both misses honest
+  `SEARCH_INCOMPLETE`). TinyFish found the needle the degraded chain dropped
+  (`Община Бургас бюджет 2026`). Fetch: fallback exercised only on the 2
+  local `FETCH_HTTP_ERROR` cells (narrow triggers held, blocked targets never
+  forwarded); TinyFish fetch also failed both (`page_not_found` → honest
+  `SOURCE_FETCH_FAILED`), 0/2 opened; local opener alone 6/10. Verdicts:
+  `TINYFISH_INTEGRATION = READY · TINYFISH_EFFECTIVENESS = MEASURED (favored
+  on search) · ROUTING_CHANGE = DEFERRED` — still no `PROVIDER_ORDER` change;
+  routing is an editor decision with this evidence.
+- **Focused audit** (`m2/review/SHADOW_DISAGREEMENT_ENRICHMENT_AUDIT.md`,
+  read-only, checkpoint 55b4f5f): no rubric redesign justified; two semantic
+  hypotheses — a concrete-but-incomplete action deserves `NEEDS_RESEARCH`
+  (social aid, school funding, museum refusal) and routine-report/presence
+  candidates should be vetoed (mid-year budget reports, meeting attendance) —
+  await editor calibration before any narrow `CONCRETE_ACTION_NEEDS_RESEARCH`
+  vs `ROUTINE_REPORT_VETO` correction. Enrichment candidates re-read
+  manually: source leads, not confirmations (f002 attendance = lexical false
+  positive). Verdict: TRANSCRIPT_DISCOVERY_ENGINEERING = **PROMISING+**;
+  enrichment = PROMISING (lexical matcher = source locator, not a
+  corroboration engine).
+
 Reports: `m2/review/TINYFISH_PROVIDER_EVALUATION.md`,
 `m2/review/TRANSCRIPT_V2_SHADOW_JUDGE.md`,
-`m2/review/TRANSCRIPT_RESEARCH_ENRICHMENT.md`.
-393 tests, Ruff clean. STOP (harness Part H) — awaiting editor: TINYFISH_API_KEY
-(fills the TinyFish benchmark cells) and the V2 sample review.
+`m2/review/TRANSCRIPT_RESEARCH_ENRICHMENT.md`,
+`m2/review/SHADOW_DISAGREEMENT_ENRICHMENT_AUDIT.md`.
+393 tests, Ruff clean. STOP (harness Part H) — awaiting editor: the V2 sample
+review and the routing decision (TinyFish cells now measured — Part B′).
 
 ## M2S-R2 Provider Stack + Live Search Benchmark — 2026-09-17 — LIVE-PROVEN, AWAITING EDITOR REVIEW
 
