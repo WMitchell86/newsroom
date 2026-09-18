@@ -1,3 +1,70 @@
+## Handoff — M2S-R3 TinyFish Adapters + V2 Shadow Judge + Enrichment (2026-09-18)
+
+Verified: **393 offline tests, Ruff clean.** Verdicts:
+SEARCH_EXECUTION_ENGINEERING = PROVEN (baseline re-confirmed live) ·
+TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING (now also shadow-judged) ·
+EDITORIAL_EFFECTIVENESS still PENDING. **No drafting, no LIVE 6–10, no
+threshold/profile changes, no Monid, PROVIDER_ORDER unchanged** (harness Part H STOP).
+
+Part A (TinyFish adapters in `workflow/search.py`, all offline-tested —
+`tests/test_tinyfish_adapters.py`, 23): `TinyFishSearchProvider` +
+`TinyFishFetchProvider` (stdlib urllib REST; 429→RATE_LIMITED w/ Retry-After,
+402/403/outage→SEARCH_PROVIDER_ERROR never NO_RESULTS; locale/freshness/domain
+mapping; `count_param_ignored=True` — API has page only), source taxonomy
+(SOURCE_ACCESS_BLOCKED/FETCH_FAILED/PARSE_FAILED), privacy guard
+(`guard_public_query` ≤400 chars + cue-clock/[музика]/субтитри markers;
+`guard_public_url` = SSRF guard; fetch `purpose` guarded), `fetch_with_fallback`
+(local first; narrow triggers; **blocked targets never forwarded**). TinyFish is
+in `PROVIDER_CAPABILITIES` but NOT in `PROVIDER_ORDER` (A8); pin via
+`SEARCH_PROVIDER=tinyfish` (no key → explicit `SEARCH_CAPABILITY_UNAVAILABLE`).
+
+Part B (`tmp/tinyfish_benchmark.py` → `var/search_benchmark/tinyfish_eval.json`):
+`TINYFISH_API_KEY` missing → TinyFish cells recorded capability-unavailable
+(endpoint probes: both HTTP 401 without credentials — live, auth missing;
+unavailable ≠ downtime ≠ zeros). Incumbent baseline re-proven live: 20 ops
+(7 KNOWN + 7 UNSEEN + 6 HARD) → 17/20 SEARCH_COMPLETE, 6/7 known hits (chain
+degraded on 4th same-day run; misses stay SEARCH_INCOMPLETE), avg 2.8 s;
+fetch challenge 6/10 OK. Routing verdict: **NOT_JUSTIFIED**.
+
+Part C (`tmp/shadow_judge_v2.py` →
+`var/transcript_analysis_v2/shadow_judge_v2.json`): SHADOW-only model judge,
+blind to the deterministic verdict, production `_model_assess` prompt verbatim,
+all 24 V2 candidates: **17/24 full agreement (0.708)**, 7 disagreements
+(4 model-more-permissive, 3 model-stricter; all on the routine-vs-concrete
+boundary). Deterministic assessor stays authoritative; zero runtime changes.
+
+Part D (`tmp/research_enrichment.py` →
+`var/transcript_analysis_v2/research_enrichment.json`): the 2 RESEARCH_MORE
+recordings enriched with gap-driven public-phrase queries (10/recording,
+keyless chain) + ≤6 official-first fetches (9/9 opened); machine corroboration
+candidates for 7/15 facts; `readiness.assess_readiness()` re-run with the
+candidate verbatim and a gate-rebuilt assessment → **both stay RESEARCH_MORE
+honestly** (lexical overlap is not publication-grade corroboration). No drafting.
+
+Reports: `m2/review/TINYFISH_PROVIDER_EVALUATION.md`,
+`m2/review/TRANSCRIPT_V2_SHADOW_JUDGE.md`,
+`m2/review/TRANSCRIPT_RESEARCH_ENRICHMENT.md`.
+
+Part B verdict, precise: **TINYFISH_INTEGRATION = READY ·
+TINYFISH_EFFECTIVENESS = NOT_EVALUATED** (did not participate — HTTP 401
+without credentials proves failure handling, not search quality) ·
+**ROUTING_CHANGE = NOT_JUSTIFIED**.
+
+Post-R3 state (editor-approved): search execution frozen/proven (TinyFish waits
+only on a live-key benchmark re-run — no new development); transcript V2 =
+PROMISING, no rubric/readiness changes; enrichment = PROMISING, the 2 unresolved
+recordings stay honestly RESEARCH_MORE; editor pilot awaits human evaluation;
+Monid = backlog; LIVE 6–10 = not yet. DDGS same-day degradation and the 6/10
+generic fetch result remain observable via taxonomy — provider-health/cooldown
+is backlog, not a redesign trigger.
+
+Next smallest step (needs editor input): provide `TINYFISH_API_KEY` → re-run
+`tmp/tinyfish_benchmark.py` to fill the TinyFish cells and revisit the routing
+verdict with data. Then: focused read-only audit of the 7 shadow disagreements
+(24 → 7 → which are genuinely contested vs a repeatable blind spot) plus the
+enrichment candidates — no system changes. Otherwise: M2S-R3 is STOPPED; V2
+sample review remains with the editor.
+
 ## Handoff — M2S-R2 Provider Stack + Live Search Benchmark (2026-09-17)
 
 Verified: 355 offline tests, Ruff clean. Verdicts: SEARCH_EXECUTION_ENGINEERING =

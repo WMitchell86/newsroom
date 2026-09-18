@@ -309,6 +309,21 @@ def check_angle_gate(packet):
             "live-angles under editorial-value-2 (semantic viability gate)"
         )
     stored = assessment.get("editor_selection")
+    # M2S opt-in relaxation: `min_candidates` is persisted only when it differs
+    # from the pilot default 3 (see assess_angles). Re-verification must run
+    # under the SAME floor the assessment was judged under - never a looser one
+    # - otherwise a 1-2 candidate transcript assessment would be re-judged
+    # against the 3-candidate pilot floor and the real readiness orchestrator
+    # could never run for it. Scores, grounding and semantic viability are still
+    # fully recomputed here; only the candidate-count floor is restored.
+    recorded_floor = assessment.get("min_candidates", 3)
+    if recorded_floor != 3:
+        return assess_angles(
+            packet,
+            assessment.get("candidates"),
+            editor_selection=stored,
+            min_candidates=recorded_floor,
+        )
     return assess_angles(packet, assessment.get("candidates"), editor_selection=stored)
 
 

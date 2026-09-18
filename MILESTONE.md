@@ -1,3 +1,61 @@
+## M2S-R3 TinyFish Adapters + V2 Shadow Judge + Research Enrichment — 2026-09-18 — BUILT + MEASURED, AWAITING KEY / EDITOR
+
+Verdicts: SEARCH_EXECUTION_ENGINEERING = **PROVEN (baseline re-confirmed)** ·
+TRANSCRIPT_DISCOVERY_ENGINEERING = **PROMISING (differentiated, now shadow-judged)** ·
+EDITORIAL_EFFECTIVENESS still **PENDING** (no drafting, no editor contact, no
+profile/threshold/routing changes).
+
+M2S-R3 (provider-evaluation harness; `TINYFISH_API_KEY` not in environment —
+live TinyFish cells recorded as explicit capability-unavailable):
+
+- **Part A — TinyFish adapters landed in `workflow/search.py`** (stdlib urllib
+  direct REST, no Monid in the runtime path): `TinyFishSearchProvider`
+  (429→`RATE_LIMITED` w/ Retry-After backoff, 402/403/outage→
+  `SEARCH_PROVIDER_ERROR` never `NO_RESULTS`; `country→location`,
+  `search_language→language`, `freshness→recency_minutes`,
+  `domain_types→domain_type`; no `count` param → client-side truncation +
+  `count_param_ignored=True` recorded) and `TinyFishFetchProvider` (batch ≤10
+  URLs, per-URL failure categories, returns the local opened-source record
+  shape). Source taxonomy (`SOURCE_ACCESS_BLOCKED/FETCH_FAILED/PARSE_FAILED`),
+  privacy guard A6 (`guard_public_query`: ≤400 chars + cue clocks/[музика]/
+  субтитри markers; `guard_public_url` reuses the SSRF guard; fetch `purpose`
+  guarded), `fetch_with_fallback` (local first; TinyFish only on
+  HTTP-error/parse/timeout/unreachable or <200-char extractions; a
+  `FETCH_BLOCKED_TARGET` is **never forwarded**). Registered in
+  `PROVIDER_CAPABILITIES` but deliberately **not** in `PROVIDER_ORDER`
+  (harness A8): reachable via `SEARCH_PROVIDER=tinyfish`, missing key →
+  explicit `SEARCH_CAPABILITY_UNAVAILABLE`.
+- **Part B — provider benchmark** (`tmp/tinyfish_benchmark.py` →
+  `var/search_benchmark/tinyfish_eval.json`): 20 live incumbent-chain ops
+  (7 known-answer + 7 unseen from R2 + 6 harder BG queries) + 10-URL fetch
+  challenge, TinyFish cells recorded unavailable with endpoint probes as
+  evidence (search 401 / fetch 401 without credentials). Baseline: 17/20
+  `SEARCH_COMPLETE`, 6/7 known-answer hits (chain degraded by 4th same-day
+  run; misses recorded `SEARCH_INCOMPLETE`, never collapsed), latency avg
+  2.8 s; fetch 6/10 OK. Routing verdict: **NOT_JUSTIFIED** — PROVIDER_ORDER
+  unchanged pending a keyed TinyFish run.
+- **Part C — shadow model judge over all 24 Transcript V2 candidates**
+  (`tmp/shadow_judge_v2.py` → `var/transcript_analysis_v2/shadow_judge_v2.json`):
+  judge blind to the deterministic verdict, production `_model_assess` prompt
+  verbatim, 24/24 judged: **17/24 full agreement (0.708)**, 0 pair, veto
+  17/24, 0 unavailable; 7 disagreements cluster on the routine-vs-concrete
+  boundary and cut both ways (4 model-more-permissive, 3 model-stricter).
+  Deterministic assessor stays authoritative; no runtime status changed.
+- **Part D — gap-driven enrichment for the 2 RESEARCH_MORE recordings**
+  (`tmp/research_enrichment.py` → `var/transcript_analysis_v2/research_enrichment.json`):
+  5 public-phrase queries × 2 capabilities per recording (privacy guard on the
+  outbound surface), ≤6 official-first fetch targets, 9/9 pages opened,
+  machine corroboration *candidates* recorded for 7/15 facts (4/9 CIs4AIKuOiw,
+  3/6 YsqD4T0D850); readiness re-run via the real orchestrator (candidate
+  verbatim, gate-rebuilt assessment) → **both honestly stay RESEARCH_MORE**.
+  No drafting.
+
+Reports: `m2/review/TINYFISH_PROVIDER_EVALUATION.md`,
+`m2/review/TRANSCRIPT_V2_SHADOW_JUDGE.md`,
+`m2/review/TRANSCRIPT_RESEARCH_ENRICHMENT.md`.
+393 tests, Ruff clean. STOP (harness Part H) — awaiting editor: TINYFISH_API_KEY
+(fills the TinyFish benchmark cells) and the V2 sample review.
+
 ## M2S-R2 Provider Stack + Live Search Benchmark — 2026-09-17 — LIVE-PROVEN, AWAITING EDITOR REVIEW
 
 Verdicts: **SEARCH_EXECUTION_ENGINEERING = PROVEN** (live benchmark passed) · **TRANSCRIPT_DISCOVERY_ENGINEERING = PROMISING** (unchanged) ·

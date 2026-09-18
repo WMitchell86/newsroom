@@ -207,9 +207,18 @@ def normalize_overlap(doc):
     to one or more original segments; the document itself is not mutated.
     Non-adjacent overlaps are never merged.
     """
+    return normalize_overlap_segments(doc.segments)
+
+
+def normalize_overlap_segments(segments):
+    """Same merge as normalize_overlap but over an explicit segment list.
+
+    V2 segmentation calls this INSIDE each boundary-first topic group so
+    rolling-caption merging cannot erase agenda boundaries.
+    """
     spans = []
     current = None
-    for seg in doc.segments:
+    for seg in segments:
         text = seg.normalized_text
         if current is not None and seg.start_ms <= current["end_ms"]:
             overlap = _tail_head_overlap(current["text"], text)

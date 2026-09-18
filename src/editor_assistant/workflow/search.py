@@ -13,6 +13,11 @@ This module gives discovery a stable, inspectable, stdlib-only contract:
   Serper / Brave; WEB -> Serper / DDGS / Brave; BACKGROUND -> Wikipedia API.
   Every adapter speaks the same SearchProvider contract and the same failure
   taxonomy. Consumer Bing/Google HTML scraping remains NOT a production path;
+* TinyFish Search/Fetch adapters (M2S-R3) are REGISTERED but not in the
+  default PROVIDER_ORDER (harness A8: benchmark before any routing change);
+  reachable via SEARCH_PROVIDER=tinyfish, with a source-failure taxonomy
+  (SOURCE_ACCESS_BLOCKED / SOURCE_FETCH_FAILED / SOURCE_PARSE_FAILED), a
+  public-phrase privacy guard, and a narrow local-first fetch fallback;
 * no secrets in any log or record - keys are read from the environment and
   never persisted.
 
@@ -408,6 +413,10 @@ PROVIDER_CAPABILITIES = {
     "brave": [CAP_WEB, CAP_NEWS],
     "wikipedia": [CAP_BACKGROUND],
     "direct_fetch": [CAP_KNOWN_OFFICIAL],
+    # M2S-R3: registered and benchmarkable, but deliberately NOT inserted into
+    # PROVIDER_ORDER below until the live benchmark justifies a routing change
+    # (harness A8: do not change routing before benchmarking).
+    "tinyfish": [CAP_WEB, CAP_NEWS],
 }
 
 # Config-driven preference order per capability (Round-2 decision). An explicit
@@ -707,6 +716,14 @@ def provider_chain(capability=CAP_WEB, env=None):
     if order is None:
         raise SearchError(f"unknown capability: {capability!r}")
     forced = (environment.get("SEARCH_PROVIDER") or "").strip().lower()
+    if forced and forced not in order:
+        # M2S-R3 harness A8: a registered-but-not-default provider (tinyfish)
+        # stays benchmarkable via an explicit pin, while default routing is
+        # unchanged until the live benchmark justifies a PROVIDER_ORDER change.
+        pinned = tinyfish_search_provider(capability, environment) if forced == "tinyfish" else None
+        if pinned is not None:
+            return [pinned], []
+        return [], [f"{forced}:unavailable"]
     chain, unavailable = [], []
     for name in order:
         if forced and forced != name:
@@ -736,6 +753,466 @@ def provider_chain(capability=CAP_WEB, env=None):
         elif name == "wikipedia":
             chain.append(WikipediaBackgroundProvider())
     return chain, unavailable
+
+
+# ---------- TinyFish adapters (M2S-R3 Part A) ----------
+
+# Direct REST integration (no broker, no Monid in the runtime path): the
+# SearchProvider contract is satisfied by a stdlib urllib call to the two
+# public TinyFish endpoints. Docs: https://docs.tinyfish.ai
+TINYFISH_SEARCH_ENDPOINT = "https://api.search.tinyfish.ai"
+TINYFISH_FETCH_ENDPOINT = "https://api.fetch.tinyfish.ai"
+TINYFISH_API_KEY_ENV = "TINYFISH_API_KEY"
+
+# Provider metadata (harness A1) - recorded for audits, never treated as an
+# immutable product assumption. Search 30 req/min; Fetch 150 URLs/min.
+TINYFISH_LIMITS = {
+    "search_requests_per_minute": 30,
+    "fetch_urls_per_minute": 150,
+    "fetch_urls_per_request": 10,
+}
+
+# Harness A7: the source-level taxonomy the rest of the product understands.
+SOURCE_ACCESS_BLOCKED = "SOURCE_ACCESS_BLOCKED"
+SOURCE_FETCH_FAILED = "SOURCE_FETCH_FAILED"
+SOURCE_PARSE_FAILED = "SOURCE_PARSE_FAILED"
+
+# web_fetch category -> source taxonomy. Blocked targets are access problems;
+# transport/HTTP/timeout are fetch problems; unusable/empty extraction is a
+# parse problem. Infrastructure failure is NEVER NO_RESULTS.
+_SOURCE_CATEGORY_MAP = {
+    web_fetch.FETCH_BLOCKED_TARGET: SOURCE_ACCESS_BLOCKED,
+    web_fetch.FETCH_HTTP_ERROR: SOURCE_FETCH_FAILED,
+    web_fetch.FETCH_UNREACHABLE: SOURCE_FETCH_FAILED,
+    web_fetch.FETCH_TIMEOUT: SOURCE_FETCH_FAILED,
+    web_fetch.FETCH_UNSUPPORTED_CONTENT: SOURCE_PARSE_FAILED,
+    web_fetch.FETCH_PARSE_FAILED: SOURCE_PARSE_FAILED,
+    web_fetch.FETCH_TOO_LARGE: SOURCE_PARSE_FAILED,
+}
+
+
+def source_failure_category(category):
+    """Map an internal fetch failure into the harness source taxonomy."""
+    return _SOURCE_CATEGORY_MAP.get(category, SOURCE_FETCH_FAILED)
+
+
+# Freshness -> recency_minutes (TinyFish takes minutes, not freshness codes).
+_FRESHNESS_MINUTES = {"pd": 1440, "pw": 10080, "pm": 43200, "py": 525600}
+
+
+class TinyFishSearchProvider(SearchProvider):
+    """TinyFish Search adapter (stdlib urllib, official REST API).
+
+    Free at $0 wallet balance, no card required; `X-API-Key` auth. Key-gated
+    like the other keyed adapters: a missing key is an explicit
+    SEARCH_CAPABILITY_UNAVAILABLE at chain-build time, never a fabricated
+    result. Snippets stay DISCOVERY_ONLY (the caller sets `snippet_authority`;
+    nothing here can promote a snippet to evidence).
+
+    The API exposes no result-count parameter (only `page` 0..10), so `count`
+    is applied to the normalized response and `count_param_ignored` is recorded
+    instead of pretending the provider honoured it.
+    """
+
+    name = "tinyfish"
+
+    def __init__(self, api_key, *, timeout=20, domain_type="web"):
+        if not api_key or not api_key.strip():
+            raise SearchError("TinyFishSearchProvider requires an API key")
+        if domain_type not in ("web", "news", "research_paper"):
+            raise SearchError(f"unsupported domain_type: {domain_type!r}")
+        self._api_key = api_key.strip()
+        self._timeout = timeout
+        self.domain_type = domain_type
+
+    def search(
+        self,
+        query,
+        *,
+        count=10,
+        country="bg",
+        search_language="bg",
+        freshness=None,
+        purpose=None,
+        after_date=None,
+        before_date=None,
+        include_domains=None,
+        exclude_domains=None,
+        page=0,
+    ):
+        record = self._empty(query, count)
+        record["count_param_ignored"] = True  # provider exposes no count param
+        guard_public_query(query)
+        params = {
+            "query": query,
+            "location": (country or "bg").upper(),
+            "language": search_language or "bg",
+            "domain_type": self.domain_type,
+            "page": str(int(page)),
+        }
+        if purpose:
+            params["purpose"] = guard_public_query(purpose)
+        if freshness and _FRESHNESS_MINUTES.get(freshness):
+            params["recency_minutes"] = str(_FRESHNESS_MINUTES[freshness])
+        if after_date:
+            params["after_date"] = after_date
+        if before_date:
+            params["before_date"] = before_date
+        for key, value in (
+            ("include_domains", include_domains),
+            ("exclude_domains", exclude_domains),
+        ):
+            if value:
+                params[key] = value if isinstance(value, str) else ",".join(value)
+        url = TINYFISH_SEARCH_ENDPOINT + "?" + urllib.parse.urlencode(params)
+        record["endpoint"] = TINYFISH_SEARCH_ENDPOINT
+        record["requested_location"] = params["location"]
+        record["requested_language"] = params["language"]
+        record["requested_domain_type"] = self.domain_type
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "X-API-Key": self._api_key,
+                "Accept": "application/json",
+                "User-Agent": web_fetch.USER_AGENT,
+            },
+        )
+
+
+        started = time.monotonic()
+        for attempt in range(1, MAX_PROVIDER_ATTEMPTS + 1):
+            record["attempt"] = attempt
+            try:
+                with urllib.request.urlopen(request, timeout=self._timeout) as resp:
+                    status = resp.status
+                    payload = json.loads(resp.read(2_000_000).decode("utf-8", "replace"))
+                break
+            except urllib.error.HTTPError as exc:
+                retry_after = (exc.headers or {}).get("Retry-After")
+                record["http_status"] = exc.code
+                record["retry_after"] = retry_after
+                record["error_code"] = _tinyfish_error_code(exc)
+                if exc.code == 429 and attempt < MAX_PROVIDER_ATTEMPTS:
+                    time.sleep(min(float(retry_after or 0), 5.0) or 1.0)
+                    continue
+                # 429/402/403/outage is a capability problem - never NO_RESULTS.
+                record["status"] = RATE_LIMITED if exc.code == 429 else SEARCH_PROVIDER_ERROR
+                record["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+                return record
+            except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as exc:
+                record["status"] = SEARCH_PROVIDER_ERROR
+                record["error"] = type(exc).__name__
+                record["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+                return record
+        else:
+            record["status"] = SEARCH_PROVIDER_ERROR
+            return record
+
+        record["http_status"] = status
+        record["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+        results = []
+        for item in (payload.get("results") or [])[:count]:
+            result_url = item.get("url", "")
+            results.append(
+                {
+                    "rank": int(item.get("position") or len(results) + 1),
+                    "title": item.get("title", ""),
+                    "url": result_url,
+                    "snippet": item.get("snippet", ""),
+                    "published_at": item.get("date", "") or "",
+                    "source_name": item.get("site_name")
+                    or urllib.parse.urlparse(result_url).hostname
+                    or "",
+                    "publisher": item.get("publisher", "") or "",
+                }
+            )
+        record["results"] = results
+        record["total_results"] = payload.get("total_results")
+        record["page"] = payload.get("page", page)
+        record["status"] = SEARCH_OK if results else NO_RESULTS
+        return record
+
+
+def _tinyfish_error_code(exc):
+    """Provider error code from an HTTPError body, when present."""
+    try:
+        payload = json.loads(exc.read(200_000).decode("utf-8", "replace"))
+    except (AttributeError, ValueError, OSError):
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    return error.get("code") if isinstance(error, dict) else None
+
+
+def tinyfish_search_provider(capability=CAP_WEB, env=None):
+    """TinyFish search adapter from the environment; None is an explicit state.
+
+    domain_type follows the requested capability (news -> news index), so the
+    benchmark can compare the same query class against the incumbent chain.
+    """
+    import os
+
+    environment = env if env is not None else os.environ
+    key = (environment.get(TINYFISH_API_KEY_ENV) or "").strip()
+    if not key:
+        return None
+    domain_type = "news" if capability == CAP_NEWS else "web"
+    return TinyFishSearchProvider(key, domain_type=domain_type)
+
+
+# ---------- privacy guard (harness A6) ----------
+
+# Anything that looks like raw caption/transcript material must never leave the
+# machine for a third party. TinyFish may receive a public search query and a
+# public URL - never draft text, editor notes, or transcript bodies.
+_TRANSCRIPT_MARKER = re.compile(
+    r"\b\d{1,2}:\d{2}(?::\d{2})?\b|\b\d+\s*(?:seconds?|минути|секунди)\b"
+    r"|\[музика\]|субтитри|auto[- ]?caption|транскрипт",
+    re.IGNORECASE,
+)
+PUBLIC_TEXT_LIMIT = 400  # a public query/purpose is a phrase, not a document
+
+
+class PrivacyGuardError(SearchError):
+    pass
+
+
+def guard_public_query(text, *, limit=PUBLIC_TEXT_LIMIT):
+    """Reject outbound text that is not a public search phrase (harness A6).
+
+    Guards against pasting transcript bodies / draft prose / editor notes into
+    a third-party query or purpose field. Deterministic and cheap: length plus
+    caption-artifact markers (cue clocks, caption vocabulary).
+    """
+    value = str(text or "")
+    if not value.strip():
+        raise PrivacyGuardError("empty public text")
+    if len(value) > limit:
+        raise PrivacyGuardError(
+            f"outbound text exceeds the public-phrase limit ({len(value)} > {limit} chars)"
+        )
+    if _TRANSCRIPT_MARKER.search(value):
+        raise PrivacyGuardError("outbound text looks like transcript/caption material")
+    return value
+
+
+def guard_public_url(url):
+    """Public http(s) URL only; private/loopback targets are never forwarded.
+
+    Reuses the local SSRF guard so a third-party fetcher can never be pointed
+    at internal infrastructure.
+    """
+    web_fetch.guard_target(url)
+    return url
+
+
+# ---------- TinyFish Fetch (harness A5) ----------
+
+# Fallback triggers: only pages the local opener could not deliver. A blocked
+# *target* is a security decision, never a reason to forward the URL.
+FALLBACK_TRIGGER_CATEGORIES = (
+    web_fetch.FETCH_HTTP_ERROR,
+    web_fetch.FETCH_UNSUPPORTED_CONTENT,
+    web_fetch.FETCH_PARSE_FAILED,
+    web_fetch.FETCH_TIMEOUT,
+    web_fetch.FETCH_UNREACHABLE,
+)
+NEVER_FORWARD_CATEGORIES = (web_fetch.FETCH_BLOCKED_TARGET,)
+MIN_USABLE_TEXT = 200  # below this a local extraction counts as parse-empty
+
+
+class TinyFishFetchProvider:
+    """TinyFish Fetch adapter returning the local opened-source contract.
+
+    `fetch(url)` produces the same plain record shape as
+    `web_fetch.fetch_page`, so it is a drop-in fallback opener; failures raise
+    `web_fetch.WebFetchError` with an existing category (or FETCH_PARSE_FAILED
+    for an unusable extraction), so the product's failure taxonomy is unchanged.
+    Free at $0 balance; 150 URLs/minute; up to 10 URLs per request.
+    """
+
+    name = "tinyfish_fetch"
+
+    def __init__(self, api_key, *, timeout=30, format="markdown"):
+        if not api_key or not api_key.strip():
+            raise SearchError("TinyFishFetchProvider requires an API key")
+        self._api_key = api_key.strip()
+        self._timeout = timeout
+        self.format = format
+
+    def fetch(self, url, *, purpose=None, ttl=0, per_url_timeout_ms=None):
+        results, errors = _tinyfish_fetch_request(
+            self, [url], purpose=purpose, ttl=ttl, per_url_timeout_ms=per_url_timeout_ms
+        )
+        if results:
+            return results[0]
+        first = errors[0] if errors else {}
+        detail = first.get("error") or "no result returned"
+        raise web_fetch.WebFetchError(
+            _tinyfish_fetch_category(first), f"tinyfish fetch failed for {url}: {detail}"
+        )
+
+    def fetch_many(self, urls, *, purpose=None, ttl=0):
+        """Batch fetch (max 10 URLs); per-URL failures do not fail the batch."""
+        if not urls:
+            raise SearchError("fetch_many requires at least one URL")
+        if len(urls) > TINYFISH_LIMITS["fetch_urls_per_request"]:
+            raise SearchError(
+                f"tinyfish fetch accepts at most {TINYFISH_LIMITS['fetch_urls_per_request']} URLs"
+            )
+        return _tinyfish_fetch_request(self, list(urls), purpose=purpose, ttl=ttl)
+
+
+def _tinyfish_fetch_request(provider, urls, *, purpose=None, ttl=0, per_url_timeout_ms=None):
+    """POST /fetch for 1..10 public URLs; returns (results, errors)."""
+    for url in urls:
+        guard_public_url(url)
+    body = {"urls": list(urls), "format": provider.format, "ttl": int(ttl)}
+    if purpose:
+        # Only a short public statement ever leaves the machine (A6).
+        body["purpose"] = guard_public_query(purpose)
+    if per_url_timeout_ms:
+        body["per_url_timeout_ms"] = int(per_url_timeout_ms)
+    request = urllib.request.Request(
+        TINYFISH_FETCH_ENDPOINT,
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={
+            "X-API-Key": provider._api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": web_fetch.USER_AGENT,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=provider._timeout) as resp:
+            payload = json.loads(resp.read(4_000_000).decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        raise web_fetch.WebFetchError(
+            web_fetch.FETCH_HTTP_ERROR,
+            f"tinyfish fetch HTTP {exc.code}",
+            status=exc.code,
+            retry_after=(exc.headers or {}).get("Retry-After"),
+        ) from exc
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise web_fetch.WebFetchError(
+            web_fetch.FETCH_UNREACHABLE, f"tinyfish fetch {type(exc).__name__}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise web_fetch.WebFetchError(
+            web_fetch.FETCH_PARSE_FAILED, "tinyfish fetch returned invalid JSON"
+        ) from exc
+    results = []
+    for item in payload.get("results") or []:
+        text = item.get("text") or ""
+        if not isinstance(text, str):
+            text = json.dumps(text, ensure_ascii=False)
+        if item.get("status") == "failed" or not text.strip():
+            continue
+        results.append(
+            {
+                "url": item.get("url", ""),
+                "final_url": item.get("final_url", "") or item.get("url", ""),
+                "status": 200,
+                "content_type": "text/markdown" if provider.format == "markdown" else "text/html",
+                "bytes": len(text.encode("utf-8")),
+                "text": text,
+                "title": item.get("title") or "",
+                "language": item.get("language") or "",
+                "published_at": item.get("published_date") or "",
+                "extractor": provider.name,
+            }
+        )
+    return results, list(payload.get("errors") or [])
+
+
+def _tinyfish_fetch_category(error_entry):
+    """Map a per-URL TinyFish error into an existing WebFetchError category."""
+    text = str((error_entry or {}).get("error", "")).lower()
+    if any(word in text for word in ("block", "forbidden", "403", "captcha", "denied")):
+        return web_fetch.FETCH_HTTP_ERROR
+    if "timeout" in text:
+        return web_fetch.FETCH_TIMEOUT
+    if any(word in text for word in ("empty", "parse", "extract", "content type", "unsupported")):
+        return web_fetch.FETCH_PARSE_FAILED
+    return web_fetch.FETCH_UNREACHABLE
+
+
+def tinyfish_fetch_provider(env=None):
+    """Build the TinyFish fetcher when configured; None is an explicit state."""
+    import os
+
+    environment = env if env is not None else os.environ
+    key = (environment.get(TINYFISH_API_KEY_ENV) or "").strip()
+    return TinyFishFetchProvider(key) if key else None
+
+
+def fetch_with_fallback(
+    url,
+    *,
+    local_opener=None,
+    fallback=None,
+    env=None,
+    purpose=None,
+    min_usable_text=MIN_USABLE_TEXT,
+):
+    """Open one public source: local fetcher first, TinyFish only as a fallback.
+
+    Returns {source, opened, fallback_attempted, local_failure, failure_category}.
+    Routing stays explicit and narrow (harness A5): the fallback runs only for
+    failed/parse-empty local reads, never by default, and never for a blocked
+    *target* (private/loopback stays blocked everywhere - it is a security
+    decision, not a page-quality problem).
+    """
+    opener = local_opener or web_fetch.fetch_page
+    record = {
+        "url": url,
+        "source": "local",
+        "opened": None,
+        "fallback_attempted": False,
+        "local_failure": None,
+        "failure_category": None,
+    }
+    try:
+        page = opener(url)
+        text = page.get("text") or ""
+        if len(text.strip()) >= min_usable_text:
+            record["opened"] = page
+            return record
+        record["local_failure"] = {
+            "status": web_fetch.FETCH_PARSE_FAILED,
+            "detail": f"local extraction near-empty ({len(text.strip())} chars)",
+        }
+    except web_fetch.WebFetchError as exc:
+        record["local_failure"] = {
+            "status": exc.category,
+            "detail": exc.detail,
+            "http_status": exc.status,
+        }
+        if exc.category in NEVER_FORWARD_CATEGORIES:
+            record["failure_category"] = SOURCE_ACCESS_BLOCKED
+            record["reason"] = "blocked target is never forwarded to a third party"
+            return record
+
+    local_status = record["local_failure"]["status"]
+    record["failure_category"] = source_failure_category(local_status)
+    if local_status not in FALLBACK_TRIGGER_CATEGORIES:
+        return record
+    provider = fallback if fallback is not None else tinyfish_fetch_provider(env)
+    if provider is None:
+        record["reason"] = f"no fallback fetcher configured ({TINYFISH_API_KEY_ENV} missing)"
+        return record
+    record["fallback_attempted"] = True
+    try:
+        page = provider.fetch(url, purpose=purpose)
+    except web_fetch.WebFetchError as exc:
+        record["fallback_failure"] = {"status": exc.category, "detail": exc.detail}
+        record["failure_category"] = source_failure_category(exc.category)
+        return record
+    record["source"] = provider.name
+    record["opened"] = page
+    record["failure_category"] = None
+    return record
 
 
 # ---------- legacy single-provider resolution (M2S Track S; kept for compat) ----------
