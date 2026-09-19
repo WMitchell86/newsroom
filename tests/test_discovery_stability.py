@@ -397,6 +397,78 @@ def test_semantic_fact_overlap_greedy_matching():
     assert HARNESS.fact_overlap([], []) == 1.0
 
 
+# ---------- Part P: L4 cache verification on the production path ----------
+
+
+def test_cache_verify_proves_replay_stability_and_force_variance(tmp_path, doc, monkeypatch):
+    """`verify_cache` separates STABILITY (cached replay) from CORRECTNESS
+    visibility (force rerun must still be able to vary)."""
+    calls = {"n": 0}
+
+    def scripted(prompt, **kwargs):
+        calls["n"] += 1
+        if "ID-та" in prompt:  # fact-extraction prompt (unique marker)
+            # Groundable wording that still varies run to run (natural variance).
+            suffix = " днес" if calls["n"] % 2 else ""
+            return (
+                json.dumps(
+                    {
+                        "facts": [
+                            {
+                                "text": f"Общинският съвет прие бюджетът{suffix}",
+                                "segment_ids": ["M3DTEST-s0003"],
+                                "risk_flags": [],
+                                "uncertain": False,
+                            }
+                        ]
+                    }
+                ),
+                {},
+            )
+        # Angle-proposal prompt: a valid proposal bound to the retained fact id.
+        return (
+            json.dumps(
+                {
+                    "angles": [
+                        {
+                            "angle_id": "a1",
+                            "title": "Бюджетно решение",
+                            "new_proposition": f"Съветът прие бюджета{suffix}",
+                            "fact_ids": ["M3DTEST-f001"],
+                            "reason": "решение",
+                        }
+                    ]
+                }
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(D.gen, "call_model", scripted)
+    try:
+        evidence = HARNESS.verify_cache(
+            "V1",
+            doc,
+            SRT,
+            cached_runs=4,
+            forced_runs=3,
+            cache_dir=tmp_path / "cache",
+            out_dir=tmp_path,
+        )
+    finally:
+        D.extract_facts.skipped_topics = []
+        D.extract_facts.dropped = []
+
+    assert evidence["cached_runs"][0]["facts"] >= 1, "the population run must retain facts"
+    assert evidence["first_run_was_population"] is True
+    assert evidence["cached_hits_only_after_first"] is True
+    assert evidence["cached_replay_identical"] is True  # operational reproducibility
+    assert evidence["forced_always_bypassed_cache"] is True
+    assert evidence["forced_rerun_observes_variance"] is True  # not hidden by the cache
+    assert evidence["cache_stores_failures"]["empty_result_refused"] is True
+    assert evidence["cache_stores_failures"]["frozen_failure_entries"] == []
+    assert (tmp_path / "cache_replay_V1.jsonl").exists()
+
+
 # ---------- resume semantics (Part I: never reuse cached model responses) ----------
 
 

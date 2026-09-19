@@ -104,9 +104,13 @@ def load(transcript_hash, *, root=None):
         return None
     if payload.get("success") is not True:
         return None  # a failed/partial result is never a cache hit
-    if not payload.get("facts") or not payload.get("proposals"):
+    if not payload.get("facts"):
         return None
-    for key in ("dropped", "skips"):
+    # NOTE: an EMPTY proposal list is a legitimate successful outcome (the model
+    # proposed no angle for grounded facts) and MUST still be a hit — otherwise
+    # the exact zero-angle class this milestone measures would be recomputed
+    # forever instead of frozen.
+    for key in ("proposals", "dropped", "skips"):
         payload.setdefault(key, [])
     return payload
 

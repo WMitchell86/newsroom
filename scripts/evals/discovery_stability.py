@@ -44,7 +44,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from editor_assistant.workflow import angles as angles_mod
-from editor_assistant.workflow import discovery, transcripts
+from editor_assistant.workflow import discovery, discovery_cache, transcripts
 
 OUT_DIR = ROOT / "var" / "discovery_stability"
 DISCOVERY_VERSION = discovery.PIPELINE_VERSION
@@ -478,7 +478,166 @@ def run_once(
     return row
 
 
-# ---------- deterministic-stage invariant (Part D) ----------
+# ---------- L4 cache verification (Part L4/P; the STABILITY-vs-CORRECTNESS split) ----------
+
+
+def _analysis_digest(analysis):
+    """Digest of the production analysis SURFACE (semantic fields only).
+
+    Deliberately excludes timings/provenance so two equal analyses hash equal;
+    includes the deterministic downstream gate (assessment + readiness) so a
+    cached replay must reproduce the whole editorial state, not just facts.
+    """
+    surface = {
+        "topics": [t.get("topic_id") for t in analysis.get("topics") or []],
+        "facts": [
+            {
+                "fact_id": f.get("fact_id"),
+                "text": f.get("text"),
+                "status": f.get("fact_grounding_status"),
+                "procedural_status": f.get("procedural_status"),
+            }
+            for f in analysis.get("facts") or []
+        ],
+        "dropped": analysis.get("dropped") or [],
+        "skips": analysis.get("skips") or [],
+        "proposals": analysis.get("proposals") or [],
+        "candidates": analysis.get("candidates") or [],
+        "assessment_status": (analysis.get("assessment") or {}).get("status"),
+        "readiness_status": (analysis.get("readiness") or {}).get("status"),
+        "readiness_reason": (analysis.get("readiness") or {}).get("reason"),
+    }
+    return hashlib.sha256(
+        json.dumps(surface, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _cache_stores_failures(*, evidence_dir=None):
+    """Part L4/P proof: a failed/empty result can never be frozen as success.
+
+    Two independent checks:
+    * live refusal — `store()` with no facts returns None and writes nothing;
+    * on-disk audit — every entry in the measured cache dir is `success=True`
+      with a non-empty fact list (a degraded run would have to be absent).
+    """
+    root = (
+        discovery_cache.cache_root(evidence_dir) if evidence_dir else discovery_cache.cache_root()
+    )
+    try:
+        refused_path = discovery_cache.store("0" * 64, facts=[], proposals=[], root=root)
+    except Exception:  # noqa: BLE001 - a crash here is itself a finding
+        refused_path = "EXCEPTION"
+    frozen_failures = []
+    if Path(root).exists():
+        for entry in sorted(Path(root).glob("*.json")):
+            try:
+                payload = json.loads(entry.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if payload.get("cache_format") != discovery_cache.CACHE_FORMAT:
+                continue
+            if payload.get("success") is not True or not payload.get("facts"):
+                frozen_failures.append(entry.name)
+    return {
+        "empty_result_refused": refused_path is None,
+        "frozen_failure_entries": frozen_failures,
+    }
+
+
+def verify_cache(
+    video_id,
+    doc,
+    raw_srt,
+    *,
+    cached_runs=5,
+    forced_runs=3,
+    cache_dir=None,
+    out_dir=None,
+):
+    """Prove the L4 contract on the PRODUCTION intake path (`default_analyze`).
+
+    Two phases, deliberately separated so STABILITY is never confused with
+    CORRECTNESS:
+
+    1. **cached replay** — `cached_runs` runs with the cache enabled. The first
+       must be a MISS (it populates); every later run must be a HIT and must
+       reproduce a byte-identical analysis surface. This is *operational
+       reproducibility*: same evidence + same pipeline version => same accepted
+       snapshot.
+    2. **forced rerun** — `forced_runs` runs with `force=True`, bypassing the
+       cache. Natural model variance must still be observable here; if it is
+       not, the cache would be hiding the phenomenon rather than freezing a
+       choice.
+
+    Runs against an eval-local cache directory (default
+    `var/discovery_stability/cache`) so measurement never mixes with the
+    production cache; the resolution code path is the same production module.
+    """
+    from editor_assistant.workflow import intake as intake_mod
+
+    previous_dir = os.environ.get("DISCOVERY_CACHE_DIR")
+    if cache_dir is not None:
+        os.environ["DISCOVERY_CACHE_DIR"] = str(cache_dir)
+    try:
+        cached = []
+        for _ in range(max(1, cached_runs)):
+            analysis = intake_mod.default_analyze(doc, raw_srt=raw_srt)
+            cached.append(
+                {
+                    "cache_status": analysis.get("cache_status"),
+                    "outcome": intake_mod._outcome_from(analysis),
+                    "digest": _analysis_digest(analysis),
+                    "facts": len(analysis.get("facts") or []),
+                    "angles": len(analysis.get("candidates") or []),
+                }
+            )
+        forced = []
+        for _ in range(max(1, forced_runs)):
+            analysis = intake_mod.default_analyze(doc, raw_srt=raw_srt, force=True)
+            forced.append(
+                {
+                    "cache_status": analysis.get("cache_status"),
+                    "outcome": intake_mod._outcome_from(analysis),
+                    "digest": _analysis_digest(analysis),
+                    "facts": len(analysis.get("facts") or []),
+                    "angles": len(analysis.get("candidates") or []),
+                }
+            )
+    finally:
+        if cache_dir is not None:
+            if previous_dir is None:
+                os.environ.pop("DISCOVERY_CACHE_DIR", None)
+            else:
+                os.environ["DISCOVERY_CACHE_DIR"] = previous_dir
+
+    evidence = {
+        "video_id": video_id,
+        "transcript_hash": hashlib.sha256(raw_srt.encode("utf-8")).hexdigest(),
+        "discovery_version": DISCOVERY_VERSION,
+        "prompt_fp": prompt_fingerprint(),
+        "stability_config_fp": stability_version(),
+        "cache_dir": str(cache_dir) if cache_dir else str(discovery_cache.cache_root()),
+        "cache_key": discovery_cache.cache_key(discovery_cache.transcript_hash(raw_srt)),
+        "stage_version": discovery_cache.STAGE_VERSION,
+        "model_config_fp": discovery_cache.model_config_fingerprint(),
+        "cached_runs": cached,
+        "forced_runs": forced,
+        "cached_outcomes": sorted({c["outcome"] for c in cached}),
+        "forced_outcomes": sorted({f["outcome"] for f in forced}),
+        # STABILITY: every cached replay after the first must be identical.
+        "cached_replay_identical": len({c["digest"] for c in cached[1:]}) <= 1,
+        "cached_hits_only_after_first": all(
+            str(c["cache_status"]).startswith("HIT") for c in cached[1:]
+        ),
+        "first_run_was_population": str(cached[0]["cache_status"]) == "MISS",
+        # CORRECTNESS visibility: force must be able to re-open the question.
+        "forced_rerun_observes_variance": len({f["digest"] for f in forced}) > 1,
+        "forced_always_bypassed_cache": all(f["cache_status"] == "FORCED_RERUN" for f in forced),
+        "cache_stores_failures": _cache_stores_failures(evidence_dir=cache_dir),
+        "production_cache_dir_resolution": str(discovery_cache.cache_root()),
+    }
+    _append(Path(out_dir or OUT_DIR) / f"cache_replay_{video_id}.jsonl", evidence)
+    return evidence
 
 
 def check_determinism(out_dir=None):
@@ -886,6 +1045,13 @@ def main(argv=None):
     parser.add_argument("--summary", action="store_true", help="aggregate existing runs and exit")
     parser.add_argument("--out", default=str(OUT_DIR))
     parser.add_argument("--jev-shadow", action="store_true", help="optional Jev SHADOW comparison")
+    parser.add_argument(
+        "--cache-verify",
+        action="store_true",
+        help="L4 proof: cached replay must be 100%% reproducible, force must still vary",
+    )
+    parser.add_argument("--cached-runs", type=int, default=5)
+    parser.add_argument("--forced-runs", type=int, default=3)
     args = parser.parse_args(argv)
     out_dir = Path(args.out)
 
@@ -905,6 +1071,30 @@ def main(argv=None):
 
     if args.summary:
         print_summary(corpus_summary(out_dir))
+        return 0
+
+    if args.cache_verify:
+        if args.suite:
+            targets = [
+                (vid, Path(e["path"])) for vid, e in CORPUS.items() if Path(e["path"]).exists()
+            ]
+        elif args.input:
+            vid, path, _character = resolve_input(args.input)
+            targets = [(vid, path)]
+        else:
+            parser.error("--cache-verify needs --input or --suite")
+        for video_id, path in targets:
+            raw_srt, doc = load_document(video_id, path)
+            evidence = verify_cache(
+                video_id,
+                doc,
+                raw_srt,
+                cached_runs=args.cached_runs,
+                forced_runs=args.forced_runs,
+                cache_dir=out_dir / "cache",
+                out_dir=out_dir,
+            )
+            print(json.dumps(evidence, ensure_ascii=False, indent=1))
         return 0
 
     if not args.runs or args.runs < 1:

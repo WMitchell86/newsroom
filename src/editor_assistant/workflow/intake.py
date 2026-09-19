@@ -112,6 +112,15 @@ def default_analyze(doc, *, raw_srt=None, force=False):
             else ("FORCED_RERUN" if raw_srt is not None else "DISABLED_NO_RAW_SRT")
         )
 
+    # Fact identity (M3D regression fix): `extract_facts` labels RETAINED facts
+    # itself, but grounding-REJECTED candidates carry no id, and the support-text
+    # map below keys on it. Restored verbatim from the M3B.1 behaviour so a
+    # transcript with at least one rejected fact cannot crash the intake path.
+    for position, fact in enumerate(facts):
+        fact["fact_id"] = f"{doc.transcript_id}-f{position + 1:03d}"
+    for position, fact in enumerate(dropped):
+        fact.setdefault("fact_id", f"{doc.transcript_id}-d{position + 1:03d}")
+
     candidates, diagnostics = discovery.assess_candidates(
         proposals, facts, repeated={}, use_model_judge=False
     )

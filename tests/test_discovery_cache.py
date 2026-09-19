@@ -261,6 +261,56 @@ def test_force_rerun_bypasses_cache_and_revalidates(env, monkeypatch):
         intake_mod.discovery.extract_facts.dropped = []
 
 
+def test_grounding_rejected_facts_do_not_crash_intake_and_get_ids(env, monkeypatch):
+    """Regression (M3D refactor): the production path must survive a transcript
+    whose grounding gate REJECTS a fact. Rejected candidates carry no fact_id
+    from `extract_facts`, and the support-text map keys on it, so the id
+    assignment must stay in `default_analyze` (M3B.1 behaviour)."""
+
+    def scripted(prompt, **kwargs):
+        # A statement the deterministic gate cannot ground in the support text.
+        return (
+            json.dumps(
+                {
+                    "facts": [
+                        {
+                            "text": "Бюджетът за 2035 година предвижда увеличение със 100 милиона.",
+                            "segment_ids": ["M3DTEST-s0003"],
+                            "risk_flags": [],
+                            "uncertain": False,
+                        }
+                    ]
+                }
+            ),
+            {},
+        )
+
+    monkeypatch.setattr(intake_mod.discovery.gen, "call_model", scripted)
+    try:
+        analysis = intake_mod.default_analyze(_doc(), raw_srt=SRT)
+    finally:
+        intake_mod.discovery.extract_facts.skipped_topics = []
+        intake_mod.discovery.extract_facts.dropped = []
+    for fact in list(analysis["facts"]) + list(analysis["dropped"]):
+        assert fact.get("fact_id"), "every retained AND rejected fact needs a stable id"
+    # Support texts are keyed on those ids (the map that used to KeyError).
+    for fact in list(analysis["facts"]) + list(analysis["dropped"]):
+        assert fact["fact_id"] in analysis["support_texts"]
+
+
+def test_zero_proposal_success_is_still_a_hit(env):
+    """Grounded facts with an EMPTY proposal list is a successful outcome and
+    must be replayable — not recomputed forever (M3D zero-angle class)."""
+    C.store(C.transcript_hash(SRT), facts=FACTS, proposals=[])
+    cached = C.load(C.transcript_hash(SRT))
+    assert cached is not None
+    assert cached["proposals"] == []
+    analysis = intake_mod.default_analyze(_doc(), raw_srt=SRT)
+    assert analysis["cache_status"].startswith("HIT")
+    assert analysis["facts"] == FACTS
+    assert analysis["proposals"] == []
+
+
 def test_cache_hit_preserves_dropped_and_skips_provenance(env):
     """A replayed hit keeps dropped/skips audit rows instead of blanking them."""
     skips = [{"topic_id": "M3DTEST-t01", "reason": "VALID_EMPTY_FACT_LIST"}]
