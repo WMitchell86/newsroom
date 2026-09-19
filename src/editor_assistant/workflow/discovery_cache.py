@@ -89,6 +89,37 @@ def _path(transcript_hash, root=None):
     return cache_root(root) / f"{cache_key(transcript_hash)}.json"
 
 
+def _execution_failure_skips(skips):
+    """Skips whose reason names a MODEL EXECUTION failure (never editorial zero)."""
+    from editor_assistant.workflow import discovery
+
+    failed = set(discovery.EXECUTION_FAILURE_REASONS)
+    out = []
+    for skip in skips or []:
+        reason = str((skip or {}).get("reason") or "")
+        if reason.split(":", 1)[0].strip() in failed:
+            out.append(skip)
+    return out
+
+
+def unfreezeable_reason(facts, skips):
+    """Why this run must NOT become the frozen snapshot (Part L4/P contract).
+
+    An empty result is not a success. Neither is a PARTIAL one: if any topic
+    ended on a model-execution surface (timeout, rate limit, unparsable or
+    empty completion), the run measured the provider, not the transcript, and
+    freezing it would silently promote an infrastructure accident into the
+    canonical editorial snapshot for those bytes.
+    """
+    if not facts:
+        return "NO_FACTS"
+    hard = _execution_failure_skips(skips)
+    if hard:
+        reasons = sorted({str(s.get("reason") or "") for s in hard})
+        return f"PARTIAL_EXECUTION_FAILURE({len(hard)} topics: {', '.join(reasons)})"
+    return ""
+
+
 def load(transcript_hash, *, root=None):
     """Return the cached successful stages or None. Key mismatch = miss."""
     path = _path(transcript_hash, root)
@@ -105,6 +136,11 @@ def load(transcript_hash, *, root=None):
     if payload.get("success") is not True:
         return None  # a failed/partial result is never a cache hit
     if not payload.get("facts"):
+        return None
+    # Partial entries written before this guard existed (or by an older stage
+    # version) are treated as a miss too, so a degraded snapshot can never be
+    # replayed just because it reached the disk.
+    if unfreezeable_reason(payload.get("facts"), payload.get("skips")):
         return None
     # NOTE: an EMPTY proposal list is a legitimate successful outcome (the model
     # proposed no angle for grounded facts) and MUST still be a hit — otherwise
@@ -129,8 +165,10 @@ def store(transcript_hash, *, facts, proposals, dropped=None, skips=None, source
     payload is kept next to the new one as `<key>.<created_at>.prev.json`,
     so the frozen snapshot and its replacement stay comparable.
     """
-    if not facts:
-        return None  # nothing successful to remember
+    refusal = unfreezeable_reason(facts, skips)
+    store.last_refusal = refusal
+    if refusal:
+        return None  # nothing successful to remember (empty or PARTIAL)
     path = _path(transcript_hash, root)
     if path.exists():
         try:
@@ -177,3 +215,8 @@ def cached_result_status(cached):
         f"model_config={cached.get('model_config_fp')} "
         f"created_at={cached.get('created_at')}"
     )
+
+
+# Last refusal reason, so the caller can report *why* a run was not frozen
+# instead of silently recomputing (mirrors discovery's `.last_status` style).
+store.last_refusal = ""

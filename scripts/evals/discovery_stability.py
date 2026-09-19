@@ -688,7 +688,6 @@ SEMANTIC = "SEMANTIC_VARIATION"
 FLIP = "OUTCOME_FLIP"
 CATASTROPHIC = "CATASTROPHIC_ZERO_YIELD"
 
-_READINESS_OUTCOMES = ("DRAFT_READY", "RESEARCH_MORE", "EDITOR_DECISION_REQUIRED")
 _EDITORIAL_ZERO = ("NO_EXTRACTED_FACTS", "NO_PUBLISHABLE_ANGLE")
 
 
@@ -758,8 +757,11 @@ def classify_pair(run_a, run_b):
         # model_failure_frequency, so the root cause stays visible.
         return CATASTROPHIC
     if outcome_a != outcome_b:
-        if {outcome_a, outcome_b} <= set(_READINESS_OUTCOMES):
-            return SEMANTIC
+        # Part F: a difference in the final editorial state IS an outcome flip —
+        # its own examples are `DRAFT_READY <-> RESEARCH_MORE` and
+        # `RESEARCH_MORE <-> NO_PUBLISHABLE_ANGLE`. SEMANTIC_VARIATION is
+        # reserved for "different claims/angles, materially similar state",
+        # i.e. the same final outcome with lower semantic overlap (branch below).
         return FLIP
     fa = sa["fact_extraction"]["fact_texts"]
     fb = sb["fact_extraction"]["fact_texts"]

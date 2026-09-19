@@ -298,6 +298,39 @@ def test_grounding_rejected_facts_do_not_crash_intake_and_get_ids(env, monkeypat
         assert fact["fact_id"] in analysis["support_texts"]
 
 
+def test_partial_execution_failure_is_never_frozen(env):
+    """L4/P: a run where some topics ended on a model-execution surface is
+    PARTIAL evidence — it must not become the canonical snapshot."""
+    skips = [
+        {"topic_id": "M3DTEST-t01", "reason": "OK"},
+        {"topic_id": "M3DTEST-t02", "reason": "MODEL_CALL_FAILED: HTTPError"},
+    ]
+    path = C.store(C.transcript_hash(SRT), facts=FACTS, proposals=PROPOSALS, skips=skips)
+    assert path is None
+    assert C.store.last_refusal.startswith("PARTIAL_EXECUTION_FAILURE")
+    assert C.load(C.transcript_hash(SRT)) is None
+
+
+def test_pre_existing_partial_entry_is_a_miss_not_a_replay(env):
+    """A partial entry already on disk (older build/stage version) is ignored
+    on read too, so a degraded snapshot can never be replayed."""
+    path = C.store(C.transcript_hash(SRT), facts=FACTS, proposals=PROPOSALS)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["skips"] = [{"topic_id": "t", "reason": "RATE_LIMITED: HTTPError"}]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert C.load(C.transcript_hash(SRT)) is None
+
+
+def test_legit_model_zero_skips_do_not_block_freezing(env):
+    """VALID_EMPTY_FACT_LIST is an editorial (model) zero, not an execution
+    failure: the run is still a successful snapshot and must be frozen."""
+    skips = [{"topic_id": "M3DTEST-t01", "reason": "VALID_EMPTY_FACT_LIST"}]
+    path = C.store(C.transcript_hash(SRT), facts=FACTS, proposals=PROPOSALS, skips=skips)
+    assert path is not None
+    cached = C.load(C.transcript_hash(SRT))
+    assert cached is not None and cached["skips"] == skips
+
+
 def test_zero_proposal_success_is_still_a_hit(env):
     """Grounded facts with an EMPTY proposal list is a successful outcome and
     must be replayable — not recomputed forever (M3D zero-angle class)."""

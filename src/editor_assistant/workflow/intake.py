@@ -74,6 +74,7 @@ def default_analyze(doc, *, raw_srt=None, force=False):
     facts, dropped, skips = [], [], []
     proposals = []
     cache = None
+    cache_status = None
     if raw_srt is not None and not force:
         cache = discovery_cache.load(discovery_cache.transcript_hash(raw_srt))
     if cache is not None:
@@ -98,7 +99,7 @@ def default_analyze(doc, *, raw_srt=None, force=False):
             except Exception:  # noqa: BLE001 - proposal failure is not a hard intake failure
                 proposals = []
         if raw_srt is not None and facts:
-            discovery_cache.store(
+            stored = discovery_cache.store(
                 discovery_cache.transcript_hash(raw_srt),
                 facts=facts,
                 proposals=proposals,
@@ -106,11 +107,14 @@ def default_analyze(doc, *, raw_srt=None, force=False):
                 skips=skips,
                 source={"transcript_id": doc.transcript_id},
             )
-        cache_status = (
-            ("MISS" if raw_srt is not None else "DISABLED_NO_RAW_SRT")
-            if not force
-            else ("FORCED_RERUN" if raw_srt is not None else "DISABLED_NO_RAW_SRT")
-        )
+            if stored is None:
+                # Part L4/P: never freeze a failure or a PARTIAL run. The reason
+                # stays visible on the analysis instead of silently recomputing.
+                cache_status = f"MISS_NOT_CACHED:{discovery_cache.store.last_refusal}"
+        if cache_status is None:
+            cache_status = "MISS" if raw_srt is not None else "DISABLED_NO_RAW_SRT"
+        if force and raw_srt is not None:
+            cache_status = "FORCED_RERUN"
 
     # Fact identity (M3D regression fix): `extract_facts` labels RETAINED facts
     # itself, but grounding-REJECTED candidates carry no id, and the support-text

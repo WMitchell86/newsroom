@@ -225,6 +225,28 @@ def test_harness_zero_yield_execution_surface_is_discovery_degraded(doc, no_mode
     assert stages["zero_yield"] is False
 
 
+def test_model_failure_reason_distinguishes_quota_from_generic_failure():
+    """Part E: an exhausted provider budget must not look like a generic call
+    failure. Measured: after the free tier was spent the surfacing error carried
+    `HTTP Error 400`, while the transport had recorded every pool model as
+    quota-exhausted."""
+    from editor_assistant.drafting import generate as gen
+
+    saved = set(getattr(gen, "_GEMINI_EXHAUSTED", set()))
+    try:
+        gen._GEMINI_EXHAUSTED = set()
+        assert D._model_failure_reason(RuntimeError("boom")).startswith("MODEL_CALL_FAILED")
+        assert D._model_failure_reason(RuntimeError("429 quota")).startswith("RATE_LIMITED")
+        assert D._model_failure_reason(TimeoutError("timed out")).startswith("MODEL_TIMEOUT")
+        # Every judge-pool bucket known exhausted -> the 400-shaped error is a
+        # rate limit, not an unexplained failure.
+        gen._GEMINI_EXHAUSTED = set(gen.JUDGE_MODEL_POOL)
+        reason = D._model_failure_reason(RuntimeError("HTTP Error 400: Bad Request"))
+        assert reason.startswith("RATE_LIMITED"), reason
+    finally:
+        gen._GEMINI_EXHAUSTED = saved
+
+
 def test_model_output_unusable_when_model_fails_mid_run(doc, monkeypatch):
     """A live-run model outage must surface as DISCOVERY_DEGRADED, not as
     NO_EXTRACTED_FACTS (Part E: infrastructure failure ≠ editorial evidence).
@@ -353,7 +375,9 @@ def test_classify_pair_taxonomy():
     assert HARNESS.classify_pair(cat, both_zero) == HARNESS.STABLE
 
     diff_ready = _row_with_outcome("b", "DRAFT_READY", ["Общинският съвет прие бюджета 2026"])
-    assert HARNESS.classify_pair(same, diff_ready) == HARNESS.SEMANTIC
+    # Part F names DRAFT_READY <-> RESEARCH_MORE as an OUTCOME_FLIP: the editor
+    # either gets a draftable story or is told to research more.
+    assert HARNESS.classify_pair(same, diff_ready) == HARNESS.FLIP
 
 
 def test_zero_yield_is_flagged_by_the_row_not_recomputed():

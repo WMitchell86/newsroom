@@ -268,6 +268,21 @@ def _model_failure_reason(exc):
         return f"MODEL_TIMEOUT: {type(exc).__name__}"
     if "429" in text or "quota" in text or "rate limit" in text or "resource_exhausted" in text:
         return f"RATE_LIMITED: {type(exc).__name__}"
+    # Measured (M3D corpus, 2026-09-19): once the free-tier daily budget was
+    # spent, the first models in the judge pool answered 429 "exceeded your
+    # current quota" and the transport recorded each as an exhausted bucket; the
+    # error that finally surfaced could carry a DIFFERENT status (observed:
+    # `HTTP Error 400: Bad Request` with an empty body). The transport's own
+    # exhausted-bucket set is the reliable signal, so consult it instead of
+    # mislabelling a provider quota wall as a generic call failure.
+    try:
+        pool = set(getattr(gen, "JUDGE_MODEL_POOL", ()) or ())
+        exhausted = set(getattr(gen, "_GEMINI_EXHAUSTED", ()) or ())
+        all_exhausted = bool(pool) and pool <= exhausted
+    except Exception:  # noqa: BLE001 - classification must never raise
+        all_exhausted = False
+    if all_exhausted:
+        return f"RATE_LIMITED: {type(exc).__name__} (all pool models exhausted)"
     return f"MODEL_CALL_FAILED: {type(exc).__name__}"
 
 
