@@ -544,6 +544,52 @@ def _cache_stores_failures(*, evidence_dir=None):
     }
 
 
+def _seed_cache_from_row(transcript_hash, run_id, rows_dir, cache_dir):
+    """Freeze a REAL measured run's stages, then replay them.
+
+    The editor's distinction: cached replay proves STABILITY (operational
+    reproducibility), not CORRECTNESS. To prove stability without depending on
+    provider availability, the snapshot can be seeded from a run already
+    measured on disk — its facts/proposals are real model output for these exact
+    bytes, and every later replay must reproduce them exactly with zero calls.
+    """
+    path = _runs_path(rows_dir)
+    if not path.exists():
+        return {"seeded_from": run_id, "status": "ROWS_NOT_FOUND"}
+    for line in path.open(encoding="utf-8"):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("run_id") != run_id:
+            continue
+        stages = row.get("stages") or {}
+        facts = (stages.get("fact_extraction") or {}).get("facts") or []
+        proposals = (stages.get("angles") or {}).get("proposals") or []
+        skips = (stages.get("fact_extraction") or {}).get("skips") or []
+        # The measured rows store a trimmed fact projection; restore the keys the
+        # production path reads so the replay is faithful.
+        restored = [{"fact_id": f.get("fact_id"), **f} for f in facts]
+        stored = discovery_cache.store(
+            transcript_hash,
+            facts=restored,
+            proposals=proposals,
+            skips=skips,
+            source={"seeded_from": run_id},
+            root=cache_dir,
+        )
+        return {
+            "seeded_from": run_id,
+            "status": "SEEDED" if stored else f"REFUSED:{discovery_cache.store.last_refusal}",
+            "facts": len(restored),
+            "proposals": len(proposals),
+            "outcome": stages.get("outcome"),
+        }
+    return {"seeded_from": run_id, "status": "RUN_NOT_FOUND"}
+
+
 def verify_cache(
     video_id,
     doc,
@@ -553,21 +599,27 @@ def verify_cache(
     forced_runs=3,
     cache_dir=None,
     out_dir=None,
+    seed_from=None,
+    rows_dir=None,
 ):
     """Prove the L4 contract on the PRODUCTION intake path (`default_analyze`).
 
     Two phases, deliberately separated so STABILITY is never confused with
     CORRECTNESS:
 
-    1. **cached replay** — `cached_runs` runs with the cache enabled. The first
-       must be a MISS (it populates); every later run must be a HIT and must
-       reproduce a byte-identical analysis surface. This is *operational
-       reproducibility*: same evidence + same pipeline version => same accepted
-       snapshot.
+    1. **cached replay** — `cached_runs` runs with the cache enabled. Without
+       `seed_from` the first must be a MISS (it populates); every later run must
+       be a HIT and must reproduce a byte-identical analysis surface. This is
+       *operational reproducibility*: same evidence + same pipeline version =>
+       same accepted snapshot.
     2. **forced rerun** — `forced_runs` runs with `force=True`, bypassing the
        cache. Natural model variance must still be observable here; if it is
        not, the cache would be hiding the phenomenon rather than freezing a
        choice.
+
+    With `seed_from=<run_id>` phase 1 replays a snapshot already measured on
+    disk, so the stability proof does not depend on provider availability; the
+    forced phase then still measures live model behaviour.
 
     Runs against an eval-local cache directory (default
     `var/discovery_stability/cache`) so measurement never mixes with the
@@ -578,7 +630,12 @@ def verify_cache(
     previous_dir = os.environ.get("DISCOVERY_CACHE_DIR")
     if cache_dir is not None:
         os.environ["DISCOVERY_CACHE_DIR"] = str(cache_dir)
+    seeded = None
     try:
+        if seed_from:
+            seeded = _seed_cache_from_row(
+                discovery_cache.transcript_hash(raw_srt), seed_from, rows_dir, cache_dir
+            )
         cached = []
         for _ in range(max(1, cached_runs)):
             analysis = intake_mod.default_analyze(doc, raw_srt=raw_srt)
@@ -620,16 +677,24 @@ def verify_cache(
         "cache_key": discovery_cache.cache_key(discovery_cache.transcript_hash(raw_srt)),
         "stage_version": discovery_cache.STAGE_VERSION,
         "model_config_fp": discovery_cache.model_config_fingerprint(),
+        "seeded_snapshot": seeded,
         "cached_runs": cached,
         "forced_runs": forced,
         "cached_outcomes": sorted({c["outcome"] for c in cached}),
         "forced_outcomes": sorted({f["outcome"] for f in forced}),
-        # STABILITY: every cached replay after the first must be identical.
-        "cached_replay_identical": len({c["digest"] for c in cached[1:]}) <= 1,
-        "cached_hits_only_after_first": all(
-            str(c["cache_status"]).startswith("HIT") for c in cached[1:]
+        # STABILITY: every cached replay must be identical (all of them when the
+        # entry was seeded, otherwise every run after the population run).
+        "replay_scope": "ALL" if seed_from else "AFTER_POPULATION",
+        "cached_replay_identical": len({c["digest"] for c in (cached if seed_from else cached[1:])})
+        <= 1,
+        "cached_hits_only_after_first": (
+            all(str(c["cache_status"]).startswith("HIT") for c in cached)
+            if seed_from
+            else all(str(c["cache_status"]).startswith("HIT") for c in cached[1:])
         ),
-        "first_run_was_population": str(cached[0]["cache_status"]) == "MISS",
+        "first_run_was_population": (
+            None if seed_from else str(cached[0]["cache_status"]) == "MISS"
+        ),
         # CORRECTNESS visibility: force must be able to re-open the question.
         "forced_rerun_observes_variance": len({f["digest"] for f in forced}) > 1,
         "forced_always_bypassed_cache": all(f["cache_status"] == "FORCED_RERUN" for f in forced),
@@ -1054,6 +1119,15 @@ def main(argv=None):
     )
     parser.add_argument("--cached-runs", type=int, default=5)
     parser.add_argument("--forced-runs", type=int, default=3)
+    parser.add_argument(
+        "--cache-seed",
+        help="freeze a REAL measured run (run_id) as the snapshot, then replay it",
+    )
+    parser.add_argument(
+        "--cache-rows-dir",
+        default=None,
+        help="directory holding runs.jsonl for --cache-seed (defaults to --out)",
+    )
     args = parser.parse_args(argv)
     out_dir = Path(args.out)
 
@@ -1095,6 +1169,8 @@ def main(argv=None):
                 forced_runs=args.forced_runs,
                 cache_dir=out_dir / "cache",
                 out_dir=out_dir,
+                seed_from=args.cache_seed,
+                rows_dir=Path(args.cache_rows_dir) if args.cache_rows_dir else out_dir,
             )
             print(json.dumps(evidence, ensure_ascii=False, indent=1))
         return 0

@@ -56,7 +56,42 @@ complicated confidence scoring, 80-source Playwright farm, heavy multi-agent new
 - [ ] **Discovery nondeterminism is promoted to M3D** (see below) — it is the
       next milestone, not a leftover M3B.1 item.
 
-## M3D — Discovery Reproducibility & Stability (NEXT MILESTONE, not yet scoped)
+## M3D — Discovery Reproducibility & Stability (BUILT 2026-09-19; measured; residual decision open)
+
+**Status:** built and measured. Report:
+`m3/review/M3D_DISCOVERY_STABILITY_REPORT.md`. Harness
+`scripts/evals/discovery_stability.py`; L4 successful-stage cache
+`workflow/discovery_cache.py` + `--force-discovery` on `youtube-intake`.
+
+```text
+DISCOVERY_REPLAY_HARNESS         = PROVEN     (79 live runs, 4 recordings)
+DETERMINISTIC_STAGE_STABILITY    = PROVEN     (segmentation byte-identical)
+MODEL_EXECUTION_RELIABILITY      = PROMISING  (0/40 spontaneous failures; 17/40 quota-blocked)
+FACT_EXTRACTION_STABILITY        = PROMISING  (overlap 0.955–0.977; 0 catastrophic)
+ANGLE_STABILITY                  = PROMISING  (overlap 0.389–0.789 — the flip source)
+READINESS_STABILITY              = PROVEN with versioned cache (6/6 identical replays)
+CATASTROPHIC_ZERO_YIELD          = RESOLVED   (0/79)
+DISCOVERY_REPRODUCIBILITY        = PROVEN (operational, L4)
+UNSEEN_VALIDATION                = PENDING (provider quota)
+```
+
+**Measured root cause of OUTCOME_FLIP (22.2–31.6% on the flaky recording, 0% on
+the stable one):** identical fact sets, divergent angle-proposition wording →
+different cited-fact counts → ±1 rubric point around the threshold → outcome
+flip. Not extraction, not grounding, not parsing. Jev shadow agrees
+(same-fact paraphrase `SAME_CLAIM` p=1.00; competing candidates
+`OVERLAPPING_CLAIM` p=0.77).
+
+**Open (needs the editor or a quota reset):**
+
+- [ ] Re-run the two provider-blocked recordings (`b13U-N_Vk9c`, `xvsdi_j7s5c`)
+      to complete the corpus and prove forced-rerun variance **live**.
+- [ ] Editor decision: accept `OUTCOME_FLIP` as residual risk under the L4
+      cache, or scope a mitigation (fact-id-stable prompt / less threshold-fragile
+      readiness rubric).
+- [ ] Bounded execution retries for discovery model calls (L1) — still open.
+
+## M3D — Discovery Reproducibility & Stability (original scope, decided 2026-09-19)
 
 **Status:** first-class next milestone, decided 2026-09-19. Do not start it
 without a harness prompt; this entry only records *why* it outranks M3C.

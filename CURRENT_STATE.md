@@ -6,14 +6,15 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-Last updated: 2026-09-19 (M3B.1 intake hardening: anti-ban, pacing, cron queue, review fixes).
+Last updated: 2026-09-19 (M3D Discovery Reproducibility & Stability: harness built, 79 live
+runs, flip root-caused, L4 cache verified; provider quota blocked the rest).
 
 ## Checkpoint
 
-- Base commit: `c12ce2b` (M3B) + the M3B.1 working tree (uncommitted at time of writing).
-- Test baseline: **653 passed**, full suite, offline (was 553).
+- Base commit: `860f582` (frozen M3B.1) + the M3D harness commits.
+- Test baseline: **695 passed**, full suite, offline (was 653).
 - Gates: `ruff check src tests scripts` + `ruff format --check src tests scripts`
-  clean; M3A smoke **25/25**.
+  clean; M3A smoke passes.
 
 ## Verdicts
 
@@ -41,6 +42,15 @@ JEV_ANGLE_SEMANTICS                 = PROMISING
 JEV_CORROBORATION                   = NOT_SUITABLE_AS_STANDALONE_VERIFIER
 JEV_PRODUCTION_AUTHORITY            = NONE
 EDITORIAL_EFFECTIVENESS             = PENDING
+DISCOVERY_REPLAY_HARNESS            = PROVEN
+DETERMINISTIC_STAGE_STABILITY       = PROVEN
+MODEL_EXECUTION_RELIABILITY         = PROMISING
+FACT_EXTRACTION_STABILITY           = PROMISING
+ANGLE_STABILITY                     = PROMISING
+READINESS_STABILITY                 = PROVEN with versioned cache
+CATASTROPHIC_ZERO_YIELD             = RESOLVED
+DISCOVERY_REPRODUCIBILITY           = PROVEN (operational, L4)
+UNSEEN_VALIDATION                   = PENDING (provider quota)
 ```
 
 Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,
@@ -74,22 +84,50 @@ BACKGROUND -> wikipedia -> tinyfish -> serper -> ddgs
 
 Key-gated members degrade explicitly (`<name>:no-key`), never fabricate.
 
+## M3D outcome (2026-09-19)
+
+`m3/review/M3D_DISCOVERY_STABILITY_REPORT.md` is the authoritative report. Headline:
+
+- **Not "fact extraction collapses"**: across **79 live runs** on 4 recordings, 0
+  `CATASTROPHIC_ZERO_YIELD`, fact overlap 0.955–0.977, segmentation byte-identical.
+- **Flip root cause (measured):** same facts → divergent angle-proposition wording → different
+  cited-fact counts → ±1 rubric point around the threshold → `RESEARCH_MORE` ↔
+  `NO_PUBLISHABLE_ANGLE`. 22.2–31.6% OUTCOME_FLIP on the flaky recording, 0% on the stable one.
+- **L4 cache verified on the production intake path** (`--cache-verify`): 6/6 seeded replays
+  byte-identical, forced reruns always bypass and keep `*.prev.json`, failures/partial runs are
+  never frozen. Live verification caught the partial-freeze bug (now fixed).
+- **STABILITY ≠ CORRECTNESS**: the cache pins operational reproducibility; it does not certify
+  the pinned facts. Forced reruns keep the variance observable.
+- Provider quota (Gemini free tier 500/day, then OpenRouter HTTP 402) left recordings
+  `b13U-N_Vk9c` / `xvsdi_j7s5c` without a completed baseline; all 17 blocked runs classified as
+  `DISCOVERY_DEGRADED`, never editorial zero.
+
 ## Commands
 
 ```bash
-PYTHONPATH=src python3 -m pytest -q                 # full suite, offline (653)
+PYTHONPATH=src python3 -m pytest -q                 # full suite, offline (691)
 ruff check src tests scripts
 ruff format --check src tests scripts
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # M3A UI (127.0.0.1:8123)
 PYTHONPATH=src python3 scripts/m3a_smoke.py         # M3A scripted smoke: 25/25
 PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --all       # M3J shadow eval (no authority)
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake "<URL>"  # M3B intake (no drafting)
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake "<URL>" --force-discovery  # rerun model stages (keeps *.prev.json)
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench                # + GET /intake displays results
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch add "<URL>"   # M3B.1 queue
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch status         # queue + cooldown
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch run --cron     # cron entry point
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch reset          # revive parked entries
+# M3D measurement harness
+PYTHONPATH=src python3 scripts/evals/discovery_stability.py --summarize --out var/discovery_stability_corpus
+PYTHONPATH=src python3 scripts/evals/discovery_stability.py --check-determinism
+PYTHONPATH=src python3 scripts/evals/discovery_stability.py --cache-verify --input YsqD4T0D850 \
+  --cached-runs 6 --forced-runs 4 --cache-seed YsqD4T0D850__r003 \
+  --cache-rows-dir var/discovery_stability_corpus --out var/discovery_stability_cache
 ```
+
+The discovery stage cache lives in `var/discovery_stage_cache/` (git-ignored);
+deleting a `*.json` entry forces a fresh model run on the next intake.
 
 Exit codes for `youtube-batch run`: `0` ok · `1` systemic abort (consecutive
 failures with zero successes) · `2` breaker tripped or a cooldown is active ·
@@ -115,11 +153,15 @@ awaiting the human editor. No rubric/threshold change is justified yet.
 
 ## Allowed next work
 
-- **M3D — Discovery Reproducibility & Stability is the decided next milestone**
-  (see `BACKLOG.md`). Do not start it without a harness prompt: it is scoped as a
-  *measurement* milestone (same transcript → N runs → topic/fact/angle/readiness
-  stability), then a decision on which stages to freeze/cache after the first
-  successful extraction. Discovery semantics, prompts and thresholds stay frozen.
+- **Finish the provider-blocked M3D measurements** once quota resets (Gemini free tier resets
+  daily): re-run recordings `b13U-N_Vk9c` and `xvsdi_j7s5c`
+  (`--runs 10 --out var/discovery_stability_corpus2`), then repeat `--cache-verify` with live
+  forced runs so `forced_rerun_observes_variance` is proven live, not only by unit test.
+- **M3D residual-risk decision (editor):** accept `OUTCOME_FLIP` (22–32% on the flaky recording)
+  as residual risk under the L4 cache, or scope a mitigation (fact-id-stable prompt, or a
+  readiness rubric less sensitive to ±1 point). Discovery semantics and thresholds stay frozen
+  until then.
+- Bounded execution retries for discovery model calls (L1 of the plan) — still open.
 - Run M3B intake on **2 genuinely unseen recordings** to complete Part M
   (real transcript discovery is `PROMISING` until then).
 - Tune pacing via `YOUTUBE_*` env values only (never by editing the policy
@@ -161,6 +203,7 @@ Never commit secrets. Missing keys must always degrade explicitly, never fabrica
 
 ## Authoritative reports
 
+- `m3/review/M3D_DISCOVERY_STABILITY_REPORT.md` — discovery stability, flip root cause, L4 cache
 - `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md` — workbench (frozen)
 - `m3/review/M3A_STABILIZATION_REPORT.md` — M3A Part A
 - `m3/review/M3J_JEV_SHADOW_EVALUATION.md` — Jev shadow evaluation

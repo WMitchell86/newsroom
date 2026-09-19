@@ -237,6 +237,7 @@ def intake_youtube(
     *,
     language=None,
     force_retranscribe=False,
+    force_discovery=False,
     jev_shadow_enabled=True,
     transcriber_fn=None,
     metadata_fn=None,
@@ -376,7 +377,7 @@ def intake_youtube(
     analyze_fn = analyze_fn or default_analyze
     try:
         if analyze_fn is default_analyze:
-            analysis = analyze_fn(doc, raw_srt=raw_srt)
+            analysis = analyze_fn(doc, raw_srt=raw_srt, force=force_discovery)
         else:
             analysis = analyze_fn(doc)
     except Exception as exc:  # noqa: BLE001 - name the stage

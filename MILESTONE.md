@@ -1,3 +1,42 @@
+## M3D Discovery Reproducibility & Stability — 2026-09-19 — BUILT, MEASURED, PARTIALLY VERIFIED (provider quota)
+
+Goal: prove replay stability across runs, verify the L4 successful-stage cache on the production
+intake path, and root-cause the 22–32% OUTCOME_FLIP rate. Report:
+`m3/review/M3D_DISCOVERY_STABILITY_REPORT.md`.
+
+```text
+DISCOVERY_REPLAY_HARNESS         = PROVEN     (79 live runs across 4 recordings)
+DETERMINISTIC_STAGE_STABILITY    = PROVEN     (--check-determinism IDENTICAL, 4/4 SRTs)
+MODEL_EXECUTION_RELIABILITY      = PROMISING  (0/40 spontaneous failures; 17/40 quota-blocked)
+FACT_EXTRACTION_STABILITY        = PROMISING  (overlap 0.955–0.977; 0 catastrophic)
+ANGLE_STABILITY                  = PROMISING  (overlap 0.389–0.789 — the flip source)
+READINESS_STABILITY              = PROVEN with versioned cache (6/6 byte-identical replays)
+CATASTROPHIC_ZERO_YIELD          = RESOLVED   (0/79; failures classify to DISCOVERY_DEGRADED)
+DISCOVERY_REPRODUCIBILITY        = PROVEN     (operational, L4 cache contract)
+JEV_PRODUCTION_AUTHORITY         = NONE
+EDITORIAL_EFFECTIVENESS          = PENDING    (Gemini free tier exhausted; OpenRouter 402)
+UNSEEN_VALIDATION                = PENDING    (recording D never completed a run)
+```
+
+- Harness: `scripts/evals/discovery_stability.py` (replay runs, failure taxonomy, Part F flip
+  semantics, `--check-determinism`, `--cache-verify` with `--cache-seed` for provider-independent
+  replay proofs).
+- L4 cache (`workflow/discovery_cache.py`): only the two model stages are frozen; failures,
+  empty and PARTIAL runs are never stored; `--force-discovery` re-runs and keeps the previous
+  snapshot as `*.prev.json`; hits record their provenance.
+- **Flip root cause (measured):** identical fact sets, divergent angle-proposition wording →
+  different cited-fact counts → ±1 rubric point around the threshold → outcome flip. Not
+  extraction, not grounding, not parsing. Jev shadow agrees (same-fact paraphrase = `SAME_CLAIM`
+  p=1.00; competing candidates `OVERLAPPING_CLAIM` p=0.77).
+- **Live cache verification caught a real bug:** the cache had frozen a PARTIAL run (4/5 topics
+  execution-failed) as a success. Fixed: partial/degraded runs are never frozen.
+- Tests 653 → **695 passed**, ruff check/format clean, M3A smoke passes.
+- **Blocked by provider quota:** recordings `b13U-N_Vk9c` and `xvsdi_j7s5c` have no completed
+  10-run baseline; live forced-rerun variance could not be observed (all forced runs degraded).
+  Re-run when quota resets (`Next smallest step` in `CURRENT_STATE.md`).
+
+---
+
 ## M3B.1 YouTube Intake Operational Hardening — 2026-09-19 — BUILT, REAL-RUN, REVIEWED, FROZEN
 
 Borrowed the usable operational lessons from the sibling project

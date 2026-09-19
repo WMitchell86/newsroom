@@ -1,3 +1,32 @@
+## Handoff — M3D Discovery Reproducibility & Stability (2026-09-19)
+
+Verified: **695 offline tests**, ruff/format clean, M3A smoke passes. Report:
+`m3/review/M3D_DISCOVERY_STABILITY_REPORT.md`.
+
+- **What was built:** replay harness `scripts/evals/discovery_stability.py`
+  (replay runs, failure taxonomy with `STABLE`/`OUTCOME_FLIP` semantics,
+  `--check-determinism`, `--cache-verify [--cache-seed]`) and the L4
+  successful-stage cache `workflow/discovery_cache.py` (model stages only;
+  failures/empty/**partial** runs never frozen; `--force-discovery` bypasses and
+  keeps `*.prev.json`; version/config change = automatic miss).
+- **Measured:** 79 live runs on 4 recordings; 0 `CATASTROPHIC_ZERO_YIELD`; flip
+  rate 22.2–31.6% on the flaky recording, 0% on the stable one. **Root cause:**
+  angle-proposition wording on identical facts (±1 rubric point flips the
+  outcome), not extraction/grounding/parsing. `--cache-verify` on the real flaky
+  recording: 6/6 seeded replays byte-identical.
+- **Live bug caught by the harness:** the cache froze a PARTIAL run (4/5 topics
+  execution-failed) as a success. Fixed in both directions (refuse at write,
+  ignore at read).
+- **Blocked:** Gemini free tier exhausted (500/day; surfaced 429 then a
+  misleading `HTTP 400`), OpenRouter has no balance (HTTP 402). 17/40 corpus
+  runs classified `DISCOVERY_DEGRADED` — correct behaviour, but recordings
+  `b13U-N_Vk9c` / `xvsdi_j7s5c` still need their 10-run baselines, and
+  forced-rerun variance is only unit-proven (all live forced runs degraded).
+- **Next:** after quota reset re-run the two blocked recordings
+  (`--out var/discovery_stability_corpus2`) and re-run `--cache-verify` with live
+  forced runs; then the editor decides whether `OUTCOME_FLIP` is accepted as
+  residual risk under the cache (recommended) or gets a mitigation scope.
+
 ## Handoff — M3B.1 YouTube Intake Operational Hardening (2026-09-19)
 
 Verified: **653 offline tests**, ruff/format clean, M3A smoke 25/25, plus live

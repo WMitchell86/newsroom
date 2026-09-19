@@ -692,6 +692,7 @@ def cmd_youtube_intake(args):
             args.url,
             language=args.language,
             force_retranscribe=args.force_retranscribe,
+            force_discovery=args.force_discovery,
             jev_shadow_enabled=not args.skip_jev_shadow,
             jev_evaluate_fn=evaluate_fn,
         )
@@ -1032,6 +1033,14 @@ def main(argv=None):
     p.add_argument("url", help="YouTube URL (watch/youtu.be/live/shorts/embed forms)")
     p.add_argument("--language", default=None, help="subtitle language code (e.g. bg)")
     p.add_argument("--force-retranscribe", action="store_true", help="ignore the cached transcript")
+    p.add_argument(
+        "--force-discovery",
+        action="store_true",
+        help=(
+            "rerun the model discovery stages instead of replaying the cached "
+            "facts/proposals; the previous snapshot is kept as *.prev.json"
+        ),
+    )
     p.add_argument(
         "--skip-jev-shadow", action="store_true", help="do not run the optional Jev shadow"
     )
