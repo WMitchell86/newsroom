@@ -203,6 +203,37 @@ def _live_evidence_save(row):
     live_store.save_live_evidence_row(row, live_evidence_path())
 
 
+def intake_registry():
+    """M3B intake registry (display only; writes are CLI-only)."""
+    from editor_assistant.workflow import intake_store
+
+    return intake_store.read_registry()
+
+
+def intake_view(video_id, record):
+    """Flatten one registry row + its discovery artifact for display."""
+    record = record or {}
+    artifact = {}
+    path = record.get("discovery_artifact")
+    if path and Path(path).exists():
+        try:
+            artifact = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            artifact = {}
+    return {
+        "video_id": video_id,
+        "canonical_url": record.get("canonical_url") or artifact.get("canonical_url"),
+        "title": artifact.get("title") or record.get("title"),
+        "outcome": artifact.get("outcome"),
+        "generated_at": artifact.get("generated_at") or record.get("last_checked_at"),
+        "topics": artifact.get("topics", 0),
+        "facts": artifact.get("facts", 0),
+        "dropped_facts": artifact.get("dropped_facts", 0),
+        "assessment_status": artifact.get("assessment_status"),
+        "readiness_status": artifact.get("readiness_status"),
+    }
+
+
 def load_cases():
     return cases_mod.read_cases(cases_path()) if cases_path().exists() else []
 

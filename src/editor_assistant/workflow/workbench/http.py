@@ -2,6 +2,7 @@
 
 Routing (paths only; query params parsed in handlers):
   GET  /                 queue (filtered by ?filter=...)
+  GET  /intake           M3B YouTube intake results (display only; initiation is CLI)
   GET  /case/{case_id}   case detail
   POST /case/{case_id}/save
   POST /case/{case_id}/finalize
@@ -62,6 +63,8 @@ def _route(path: str) -> tuple[str, str | None]:
         return "root", None
     if parts == ["healthz"]:
         return "healthz", None
+    if parts == ["intake"]:
+        return "intake", None
     if parts == ["quit"]:
         return "quit", None
     if len(parts) == 2 and parts[0] == "case":
@@ -137,6 +140,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         try:
             if route == "root":
                 self._get_root()
+            elif route == "intake":
+                self._get_intake()
             elif route == "case":
                 self._get_case(case_id)
             elif route == "healthz":
@@ -186,6 +191,42 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             urllib.parse.urlparse(self.path).query, keep_blank_values=True
         )
         body = html_mod.render_case(view, message=_first(params, "message", ""))
+        _respond(self, 200, body)
+
+    def _get_intake(self):
+        """Display completed M3B intakes. Initiation is CLI-only (M3B Part J).
+
+        Transcription + discovery are long and model-driven, so the local
+        threaded server does not run them synchronously and no job queue was
+        added; the Workbench only displays results written by
+        `workflow.cli youtube-intake`.
+        """
+        registry = wb_state.intake_registry()
+        rows = [wb_state.intake_view(video_id, record) for video_id, record in registry.items()]
+        rows.sort(
+            key=lambda r: (r.get("generated_at") or "", r.get("video_id") or ""), reverse=True
+        )
+        cards = []
+        for row in rows:
+            outcome = row.get("outcome") or "—"
+            cards.append(
+                "<div class='card'>"
+                f"<h3>{html_mod.esc(row.get('title') or row.get('video_id') or '')}</h3>"
+                f"<p class='muted'>{html_mod.esc(row.get('canonical_url') or '')}</p>"
+                f"<p><b>Резултат:</b> {html_mod.esc(outcome)} · "
+                f"теми {row.get('topics', 0)} · факти {row.get('facts', 0)} · "
+                f"отхвърлени {row.get('dropped_facts', 0)}</p>"
+                f"<p class='muted'>ъгъл: {html_mod.esc(row.get('assessment_status') or '—')} · "
+                f"готовност: {html_mod.esc(row.get('readiness_status') or '—')}</p>"
+                "</div>"
+            )
+        body = html_mod.page(
+            "YouTube източници (M3B)",
+            "<p class='muted'>Нов запис се добавя с командата "
+            "<code>youtube-intake &lt;URL&gt;</code> (транскрипцията е дълга и се пуска от CLI). "
+            "Тук се показват готовите резултати.</p>"
+            + ("".join(cards) if cards else "<p>Няма добавени YouTube източници.</p>"),
+        )
         _respond(self, 200, body)
 
     def _notfound(self, path):

@@ -53,11 +53,15 @@ def save_live_evidence_row(row, path=None):
         for r in sorted(rows.values(), key=lambda r: r["evidence_id"])
     ]
     payload = "\n".join(lines) + "\n"
-    _atomic_write(store, payload)
+    atomic_write(store, payload)
 
 
-def _atomic_write(path, data):
-    """Same-directory temp file + os.replace (no partial writes)."""
+def atomic_write(path, data):
+    """Same-directory temp file + os.replace (no partial writes).
+
+    Shared low-level helper for the deterministic file stores in this package
+    (live evidence, YouTube intake registry) - not a database abstraction.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))

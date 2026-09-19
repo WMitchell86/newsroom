@@ -28,26 +28,11 @@ import statistics
 import sys
 from pathlib import Path
 
-from editor_assistant.workflow import jev
+from editor_assistant.workflow import jev, jev_shadow
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES_DIR = ROOT / "fixtures" / "evals" / "jev"
 DEFAULT_OUT_DIR = ROOT / "var" / "jev_eval"
-
-SUPPORT_RELATIONS = ("EXACT_SUPPORT", "PARTIAL_SUPPORT", "NOT_ADDRESSED", "CONTRADICTED")
-EVENT_RELATIONS = ("SAME_EVENT", "RELATED_BACKGROUND", "DIFFERENT_EVENT", "UNCLEAR")
-PROCEDURAL_RELATIONS = ("SAME_STAGE", "DIFFERENT_STAGE", "NOT_STATED", "UNCLEAR")
-
-OVERALL_SUPPORT = ("EXACT_SUPPORT", "PARTIAL_SUPPORT", "NOT_SUPPORTED", "CONTRADICTED")
-ACTOR_RELATIONS = ("SUPPORTED", "WRONG", "NOT_STATED")
-NUMBER_RELATIONS = ("SUPPORTED", "CONFLICT", "NOT_APPLICABLE", "NOT_STATED")
-NEGATION_RELATIONS = ("PRESERVED", "REVERSED", "NOT_APPLICABLE", "UNCLEAR")
-DECISION_STATUS = ("SUPPORTED", "OVERSTATED", "UNDERSTATED", "NOT_APPLICABLE", "UNCLEAR")
-
-DEVELOPMENT_TYPES = ("CONCRETE_ACTION", "ROUTINE_PROCESS", "STATIC_BACKGROUND", "UNCLEAR")
-EVIDENCE_COMPLETENESS = ("SUFFICIENT", "NEEDS_MORE", "INSUFFICIENT")
-PROCEDURAL_SCOPES = ("SUPPORTED", "OVERSTATED", "UNCLEAR")
-PRESENCE = ("PRESENT", "ABSENT", "UNCLEAR")
 
 EXPERIMENTS = {
     "corroboration": "corroboration_candidates_v2.jsonl",
@@ -66,121 +51,10 @@ def load_fixture(experiment, fixtures_dir=None):
     for line in path.open(encoding="utf-8"):
         if line.strip():
             rows.append(json.loads(line))
-    return rows
+    return rows  # ---------- typed requests (shared with the YouTube intake, M3B) ----------
 
 
-# ---------- typed requests per experiment ----------
-
-
-def corroboration_request(case):
-    state = {
-        "claim": case.get("claim"),
-        "source_passage": case.get("source_excerpt"),
-        "source_authority": case.get("source_authority"),
-        "claim_procedural_status": case.get("claim_procedural_status"),
-        "source_context": case.get("source_context"),
-    }
-    questions = {
-        "support_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Does the source passage support the claim (exactly, partially, not at all, or contradict it)?",
-            SUPPORT_RELATIONS,
-        ),
-        "event_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Does the source describe the same event as the claim?",
-            EVENT_RELATIONS,
-        ),
-        "procedural_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Is the claimed procedural stage the same as the source's stage?",
-            PROCEDURAL_RELATIONS,
-        ),
-    }
-    return state, questions
-
-
-def grounding_request(case):
-    state = {
-        "claim": case.get("claim_text"),
-        "support_passage": case.get("support_text"),
-        "claim_procedural_status": case.get("procedural_status"),
-    }
-    questions = {
-        "overall_support": jev.question(
-            jev.QUESTION_CHOICE,
-            "Do the transcript segments support the claim?",
-            OVERALL_SUPPORT,
-        ),
-        "actor_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Is the claimed actor supported by the segments?",
-            ACTOR_RELATIONS,
-        ),
-        "number_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Are the claimed numbers supported by the segments?",
-            NUMBER_RELATIONS,
-        ),
-        "negation_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Is any negation in the claim preserved by the segments?",
-            NEGATION_RELATIONS,
-        ),
-        "decision_status_relation": jev.question(
-            jev.QUESTION_CHOICE,
-            "Is the claimed decision/procedural status supported?",
-            DECISION_STATUS,
-        ),
-    }
-    return state, questions
-
-
-def angles_request(case):
-    state = {
-        "proposition": case.get("proposition"),
-        "supporting_facts": case.get("supporting_facts"),
-        "deterministic_assessment": case.get("deterministic_assessment"),
-    }
-    questions = {
-        "development_type": jev.question(
-            jev.QUESTION_CHOICE,
-            "What kind of development does the proposition describe?",
-            DEVELOPMENT_TYPES,
-        ),
-        "evidence_completeness": jev.question(
-            jev.QUESTION_CHOICE,
-            "Is the evidence in state sufficient to report the proposition?",
-            EVIDENCE_COMPLETENESS,
-        ),
-        "procedural_scope": jev.question(
-            jev.QUESTION_CHOICE,
-            "Does the proposition overstate the procedural scope of its facts?",
-            PROCEDURAL_SCOPES,
-        ),
-        "affected_party": jev.question(
-            jev.QUESTION_CHOICE,
-            "Is a concrete affected party present in the facts?",
-            PRESENCE,
-        ),
-        "current_change": jev.question(
-            jev.QUESTION_CHOICE,
-            "Does the proposition describe a current change (not only background)?",
-            PRESENCE,
-        ),
-    }
-    return state, questions
-
-
-REQUEST_BUILDERS = {
-    "corroboration": corroboration_request,
-    "grounding": grounding_request,
-    "angles": angles_request,
-}
-
-
-def build_request(experiment, case):
-    return REQUEST_BUILDERS[experiment](case)
+build_request = jev_shadow.build_request
 
 
 # ---------- append-only, resumable result store ----------

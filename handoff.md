@@ -1,3 +1,22 @@
+## Handoff — M3B YouTube URL Intake + Real-World Jev Shadow Collection (2026-09-19)
+
+Verified: **553 offline tests**, ruff clean, M3A smoke 25/25, plus a real
+end-to-end intake on a known recording. Verdicts: `YOUTUBE_INTAKE_ENGINEERING =
+PROVEN` · `TRANSCRIBER_INTEGRATION = PROVEN` · `REAL_TRANSCRIPT_DISCOVERY =
+PROMISING` (unseen recordings pending) · `JEV_REAL_WORLD_SHADOW_COLLECTION =
+ACTIVE` · `JEV_PRODUCTION_AUTHORITY = NONE` · `EDITORIAL_EFFECTIVENESS = PENDING`.
+
+- `youtube-intake <URL>`: normalize → metadata → transcribe/reuse → raw SRT →
+  discovery V2 → readiness (+ optional Jev shadow). `yt-dlp` is the transcriber;
+  raw SRT cached content-addressed under `var/youtube_intake/`.
+- No drafting, no scheduler/monitoring, no publish, no rubric/routing change.
+- Workbench displays completed intakes at `/intake` (initiation CLI-only).
+- Real run: YsqD4T0D850 → 184 segments, 12 topics, RESEARCH_MORE; 7
+  semantic-rescue candidates (`DETERMINISTIC_REJECT__JEV_SUPPORTS`).
+- STOP: no M3C automatic enrichment, no story monitoring, no LIVE 6–10.
+
+Report: `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md`.
+
 ## Handoff — M3A Stabilization + M3J Jev Shadow Evaluation (2026-09-19)
 
 **Current state lives in `CURRENT_STATE.md`.** This file is chronological history.

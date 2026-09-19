@@ -6,7 +6,7 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-Last updated: 2026-09-19 (M3A stabilization + M3J Jev shadow evaluation, live).
+Last updated: 2026-09-19 (M3B YouTube URL intake + real-world Jev shadow).
 
 ## Checkpoint
 
@@ -25,7 +25,12 @@ TINYFISH_SEARCH                     = ADOPTED
 TINYFISH_FETCH                      = AVAILABLE / NOT_YET_PROVEN
 TRANSCRIPT_DISCOVERY_ENGINEERING    = PROMISING+
 TRANSCRIPT_RESEARCH_ENRICHMENT      = PROMISING
+EDITOR_WORKBENCH_ENGINEERING        = PROVEN
 M3A_STABILIZATION                   = PROVEN
+YOUTUBE_INTAKE_ENGINEERING          = PROVEN
+TRANSCRIBER_INTEGRATION             = PROVEN
+REAL_TRANSCRIPT_DISCOVERY           = PROMISING
+JEV_REAL_WORLD_SHADOW_COLLECTION    = ACTIVE
 JEV_INTEGRATION                     = PROVEN
 JEV_GROUNDING                       = PROMISING_STRONG
 JEV_ANGLE_SEMANTICS                 = PROMISING
@@ -71,6 +76,8 @@ ruff format --check src tests scripts
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # M3A UI (127.0.0.1:8123)
 PYTHONPATH=src python3 scripts/m3a_smoke.py         # M3A scripted smoke: 25/25
 PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --all       # M3J shadow eval (no authority)
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake "<URL>"  # M3B intake (no drafting)
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench                # + GET /intake displays results
 ```
 
 ## Editor feedback state
@@ -81,8 +88,8 @@ awaiting the human editor. No rubric/threshold change is justified yet.
 
 ## Allowed next work
 
-- **M3B — YouTube URL → transcript pipeline** (recommended next milestone; Jev
-  stays a shadow measurement layer over real new recordings).
+- Run M3B intake on **2 genuinely unseen recordings** to complete Part M
+  (real transcript discovery is `PROMISING` until then).
 - M3C automatic research enrichment — one milestone at a time, any live-evidence
   write only via the canonical `workflow/live_store.py` writer.
 - A future `M3J.1 — Semantic Rescue Evaluation`
@@ -109,6 +116,7 @@ Never commit secrets. Missing keys must always degrade explicitly, never fabrica
 ## Authoritative reports
 
 - `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md` — workbench (frozen)
-- `m3/review/M3A_STABILIZATION_REPORT.md` — this pass's Part A
+- `m3/review/M3A_STABILIZATION_REPORT.md` — M3A Part A
 - `m3/review/M3J_JEV_SHADOW_EVALUATION.md` — Jev shadow evaluation
+- `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md` — YouTube intake + real-world Jev shadow
 - `m2/review/*` — M2S history (TinyFish, transcripts, enrichment audit)

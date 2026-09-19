@@ -656,6 +656,84 @@ def cmd_finalize(args):
     sys.exit(f"unknown case_id: {args.case_id}")
 
 
+def cmd_youtube_intake(args):
+    """M3B: YouTube URL -> transcript -> discovery V2 -> readiness (no drafting)."""
+    from editor_assistant.workflow import intake as intake_mod
+    from editor_assistant.workflow import jev as jev_mod
+
+    evaluate_fn = None
+    if not args.skip_jev_shadow:
+        available, reason = jev_mod.capability_status()
+        if available:
+            evaluate_fn = jev_mod.evaluate
+        else:
+            print(f"jev shadow: {jev_mod.JEV_CAPABILITY_UNAVAILABLE}: {reason}")
+
+    result = intake_mod.intake_youtube(
+        args.url,
+        language=args.language,
+        force_retranscribe=args.force_retranscribe,
+        jev_shadow_enabled=not args.skip_jev_shadow,
+        jev_evaluate_fn=evaluate_fn,
+    )
+    _print_intake(result)
+    if result.get("outcome") in (
+        intake_mod.OUTCOME_INVALID_URL,
+        intake_mod.OUTCOME_TRANSCRIPTION_FAILED,
+        intake_mod.OUTCOME_DISCOVERY_FAILED,
+    ):
+        sys.exit(1)
+
+
+def _print_intake(result):
+    stages = result.get("stages") or {}
+    video = result.get("video") or {}
+    analysis = result.get("analysis") or {}
+    print(f"outcome: {result.get('outcome')}")
+    print(f"original_url: {result.get('original_url')}")
+    print(
+        f"video: {video.get('video_id')} | {video.get('title') or '(title unresolved)'} | "
+        f"trust {video.get('transcript_trust_level')}"
+    )
+    print(f"canonical: {video.get('canonical_url')}")
+    for name in ("normalize", "metadata", "transcription", "validate", "persist", "discovery"):
+        stage = stages.get(name)
+        if stage:
+            detail = ", ".join(f"{k}={v}" for k, v in stage.items() if k != "status")
+            print(f"  {name:13s} {stage['status']:8s} {detail}")
+    shadow = stages.get("jev_shadow")
+    if shadow:
+        detail = shadow.get("reason") or (
+            f"grounding={shadow.get('grounding_cases')} angles={shadow.get('angle_cases')} "
+            f"rescue_candidates={shadow.get('rescue_candidates')}"
+        )
+        print(f"  jev_shadow    {shadow.get('status'):8s} {detail}")
+    assessment = analysis.get("assessment") or {}
+    readiness = analysis.get("readiness") or {}
+    print(
+        f"topics: {len(analysis.get('topics') or [])} | facts: {len(analysis.get('facts') or [])}"
+    )
+    print(f"angle assessment: {assessment.get('status')} | readiness: {readiness.get('status')}")
+    strongest = _strongest_angle(assessment)
+    if strongest:
+        print(
+            f"strongest candidate: {strongest.get('angle_id')} — {strongest.get('new_proposition')}"
+        )
+    elif assessment.get("reason"):
+        print(f"no viable candidate: {str(assessment['reason'])[:200]}")
+    for key, value in (result.get("artifacts") or {}).items():
+        print(f"artifact {key}: {value}")
+
+
+def _strongest_angle(assessment):
+    candidates = assessment.get("candidates") or []
+    selected = assessment.get("selected_angle_id")
+    if selected:
+        return next((c for c in candidates if c.get("angle_id") == selected), None)
+    viable = [c for c in candidates if c.get("eligible")]
+    return viable[0] if viable else (candidates[0] if candidates else None)
+
+
 def cmd_report(_args):
     cases = cases_mod.read_cases(CASES_PATH) if CASES_PATH.exists() else []
     m = cases_mod.workflow_metrics(cases)
@@ -777,6 +855,19 @@ def main(argv=None):
     p.add_argument("file")
     p.set_defaults(func=cmd_finalize)
     sub.add_parser("report", help="real-world workflow metrics").set_defaults(func=cmd_report)
+
+    # M3B YouTube URL intake
+    p = sub.add_parser(
+        "youtube-intake",
+        help="YouTube URL -> transcript -> discovery V2 -> readiness (no drafting)",
+    )
+    p.add_argument("url", help="YouTube URL (watch/youtu.be/live/shorts/embed forms)")
+    p.add_argument("--language", default=None, help="subtitle language code (e.g. bg)")
+    p.add_argument("--force-retranscribe", action="store_true", help="ignore the cached transcript")
+    p.add_argument(
+        "--skip-jev-shadow", action="store_true", help="do not run the optional Jev shadow"
+    )
+    p.set_defaults(func=cmd_youtube_intake)
 
     # M3A Editor Workbench
     from editor_assistant.workflow.workbench.cli import add_workbench_subcommand

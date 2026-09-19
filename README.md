@@ -73,6 +73,24 @@ Without `TYPESAFE_API_KEY` the runner reports `JEV_CAPABILITY_UNAVAILABLE` and
 changes nothing. Frozen fixtures + method: `fixtures/evals/jev/README.md`.
 Adapter: `workflow/jev.py`. Report: `m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
 
+## M3B YouTube URL intake (no drafting)
+
+One YouTube URL → canonical identity → raw timestamped SRT → discovery V2 →
+readiness, with an optional Jev **shadow** layer. Requires `yt-dlp` on PATH for
+transcription (metadata + subtitles only; no media download).
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake \
+  "https://www.youtube.com/watch?v=<id>" [--language bg] [--skip-jev-shadow]
+```
+
+Raw SRT is authoritative (`AUTO_CAPTION`); transcripts are content-addressed and
+cached under `var/youtube_intake/` (re-runs reuse; a changed transcript is never
+silently overwritten). `NO_PUBLISHABLE_ANGLE` is a valid outcome, not a failure.
+The Workbench **displays** completed intakes at `/intake` (initiation stays CLI).
+There is no drafting, no scheduler, no monitoring, no publish path.
+See `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md`.
+
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 
 Enqueue intents while ingesting, then deliver to the **test** chat by hand:
@@ -117,6 +135,7 @@ tests/                 offline tests; HTTP mocked where present
 fixtures/              RSS fixtures (Burgas council, HTML description)
   evals/jev/           frozen M3J Jev shadow-evaluation corpus (public-source only)
 scripts/               tracked verification/eval tools (m3a_smoke.py, evals/jev_shadow_eval.py)
+var/youtube_intake/    M3B intake registry + raw transcripts + summaries (git-ignored)
 .ai/skills/            harness skill files
 var/                   runtime SQLite (git-ignored, never committed)
 ```

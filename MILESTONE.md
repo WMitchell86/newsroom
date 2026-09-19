@@ -1,3 +1,36 @@
+## M3B YouTube URL Intake + Real-World Jev Shadow — 2026-09-19 — BUILT, REAL-RUN, AWAITING REVIEW
+
+One YouTube URL becomes a real intake: canonical identity → raw timestamped SRT
+→ discovery V2 → readiness, with optional Jev shadow. No drafting, no
+scheduling, no publishing.
+
+```text
+YOUTUBE_INTAKE_ENGINEERING          = PROVEN
+TRANSCRIBER_INTEGRATION             = PROVEN
+REAL_TRANSCRIPT_DISCOVERY           = PROMISING   (unseen recordings pending)
+JEV_REAL_WORLD_SHADOW_COLLECTION    = ACTIVE
+JEV_PRODUCTION_AUTHORITY            = NONE
+EDITORIAL_EFFECTIVENESS             = PENDING
+```
+
+- No in-repo transcriber existed; `workflow/transcriber.py` is a thin adapter
+  over the available `yt-dlp` (auto-subs → SRT), with an explicit failure
+  taxonomy and raw SRT kept authoritative (`AUTO_CAPTION`).
+- `workflow/youtube.py` (canonical identity, no invented metadata),
+  `workflow/intake_store.py` (content-addressed transcripts + atomic registry
+  with version history), `workflow/intake.py` (staged orchestrator; distinct
+  outcomes; no-story is valid), `workflow/jev_shadow.py` (shared specs +
+  semantic-rescue collection). CLI: `youtube-intake`. Workbench displays
+  completed intakes at `/intake` (initiation CLI-only; no job queue).
+- Real run on known `YsqD4T0D850`: 184 segments, 12 topics, 10–11 facts,
+  readiness RESEARCH_MORE; 17 grounding + 3 angle Jev shadow cases; **7
+  semantic-rescue candidates** collected. Unseen-recording validation pending.
+- Tests 512 → **553 passed**, ruff clean, M3A smoke 25/25. No rubric, threshold,
+  routing or discovery semantic change; Jev has no authority.
+
+Report: `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md`. **STOP** — no M3C, no
+monitoring/scheduler, no drafting, no CMS, no Jev authority, no LIVE 6–10.
+
 ## M3A Stabilization + M3J Jev Shadow Evaluation — 2026-09-19 — BUILT, OFFLINE-TESTED, AWAITING REVIEW
 
 Reliability + evaluation-only milestone. No editorial logic, rubric, routing,

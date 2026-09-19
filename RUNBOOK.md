@@ -63,6 +63,34 @@ make a result look better; add a new fixture version instead.
 
 See `m3/review/M3J_JEV_SHADOW_EVALUATION.md` and `fixtures/evals/jev/README.md`.
 
+## 0c. YouTube intake (M3B)
+
+Add one recording to the transcript pipeline (no drafting):
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake \
+  "https://www.youtube.com/watch?v=<id>"            # add --skip-jev-shadow to skip Jev
+```
+
+Stages print in order (`normalize → metadata → transcription → validate →
+persist → discovery → jev_shadow`) with an `outcome`:
+`DRAFT_READY` / `RESEARCH_MORE` / `EDITOR_DECISION_REQUIRED` /
+`NO_PUBLISHABLE_ANGLE` are **editorial results**; `INVALID_YOUTUBE_URL` /
+`TRANSCRIPTION_FAILED` / `DISCOVERY_FAILED` are infrastructure failures.
+No-story is not a failed intake.
+
+- Raw timestamped SRT is authoritative and cached under `var/youtube_intake/`;
+  re-running the same video reuses it, and a changed transcript is kept as a new
+  version (never silently overwritten). Use `--force-retranscribe` to refetch.
+- YouTube may rate-limit subtitle bursts (HTTP 429) — retry later; the failure is
+  explicit, never an empty transcript.
+- Completed intakes are visible in the Workbench at `http://127.0.0.1:8123/intake`
+  (transcription itself is CLI-only; there is no scheduler or background worker).
+- Jev shadow observations and semantic-rescue candidates go to ignored
+  `var/jev_eval/`; **no automatic rescue**.
+
+See `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md`.
+
 ## 1. Normal manual cycle
 
 ```text
