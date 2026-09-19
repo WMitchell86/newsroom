@@ -188,6 +188,12 @@ def _extract_facts_for_topic(topic, doc=None, *, api_key=None, timeout=120):
         "{blocks}", f"{blocks}\n\nID-та: {id_line}"
     )
     raw, _meta = gen.call_model(prompt, api_key=api_key, timeout=timeout, role="judge")
+    # Per-topic failure taxonomy (M3D Part E): a truly empty completion, prose
+    # without JSON, and unparsable JSON are three different execution outcomes
+    # and none of them is evidence that the topic has no facts.
+    if not (raw or "").strip():
+        _extract_facts_for_topic.last_status = "EMPTY_MODEL_OUTPUT"
+        return []
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if not match:
         _extract_facts_for_topic.last_status = "NO_JSON"
@@ -197,9 +203,17 @@ def _extract_facts_for_topic(topic, doc=None, *, api_key=None, timeout=120):
     except json.JSONDecodeError:
         _extract_facts_for_topic.last_status = "INVALID_JSON"
         return []
+    raw_facts = payload.get("facts")
+    if not isinstance(raw_facts, list):
+        # Parsable JSON with a wrong-shaped payload: an execution surface, not
+        # editorial zero — and never an AttributeError that would kill the batch.
+        _extract_facts_for_topic.last_status = "INVALID_JSON"
+        return []
     valid_ids = set(topic["segment_ids"])
     facts = []
-    for item in (payload.get("facts") or [])[:5]:
+    for item in raw_facts[:5]:
+        if not isinstance(item, dict):
+            continue
         text = (item.get("text") or "").strip()
         ids = [i for i in (item.get("segment_ids") or []) if i in valid_ids]
         if not text or not ids:
@@ -214,15 +228,47 @@ def _extract_facts_for_topic(topic, doc=None, *, api_key=None, timeout=120):
                 "span": None,
             }
         )
-    _extract_facts_for_topic.last_status = "OK" if facts else "EMPTY_MODEL_OUTPUT"
+    if facts:
+        _extract_facts_for_topic.last_status = "OK"
+    elif payload.get("facts"):
+        # The model proposed items but none bound to the topic's labeled ids.
+        _extract_facts_for_topic.last_status = "NO_BINDABLE_FACT"
+    else:
+        # Valid JSON that honestly lists zero facts for this topic.
+        _extract_facts_for_topic.last_status = "VALID_EMPTY_FACT_LIST"
     return facts
 
 
 # Last per-topic outcome, so extract_facts can record *why* a topic produced no
 # facts instead of silently reporting zero. "OK" means the model returned a
-# usable JSON payload; NO_JSON/INVALID_JSON mean unusable output;
-# EMPTY_MODEL_OUTPUT means valid JSON with no fact that binds to the topic.
+# usable JSON payload with at least one bindable fact. Execution surfaces:
+# EMPTY_MODEL_OUTPUT (empty completion), NO_JSON (prose only), INVALID_JSON
+# (unparsable). Legitimate model-zero surfaces: VALID_EMPTY_FACT_LIST,
+# NO_BINDABLE_FACT. Never collapse these (M3D Part E).
 _extract_facts_for_topic.last_status = "OK"
+
+
+# Zero-yield reasons that mean the MODEL EXECUTION failed, not that the topic
+# lacks facts. Used by extract_facts (via skipped_topics) and by intake's
+# DISCOVERY_DEGRADED guard (M3D Part M).
+EXECUTION_FAILURE_REASONS = (
+    "MODEL_CALL_FAILED",
+    "RATE_LIMITED",
+    "MODEL_TIMEOUT",
+    "EMPTY_MODEL_OUTPUT",
+    "NO_JSON",
+    "INVALID_JSON",
+)
+
+
+def _model_failure_reason(exc):
+    """Classify a model-call exception without exposing any provider detail."""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if isinstance(exc, TimeoutError) or "timed out" in text or "timeout" in text:
+        return f"MODEL_TIMEOUT: {type(exc).__name__}"
+    if "429" in text or "quota" in text or "rate limit" in text or "resource_exhausted" in text:
+        return f"RATE_LIMITED: {type(exc).__name__}"
+    return f"MODEL_CALL_FAILED: {type(exc).__name__}"
 
 
 _NUM_WORDS = {
@@ -496,8 +542,10 @@ def extract_facts(doc, topics, *, api_key=None, use_model_judge=True):
     candidates are DROPPED (never repaired); recorded on extract_facts.dropped.
     Topics that produced nothing are NOT silently reported as zero facts: every
     one is recorded on extract_facts.skipped_topics with its reason
-    (MODEL_CALL_FAILED / NO_JSON / INVALID_JSON / EMPTY_MODEL_OUTPUT /
-    EMPTY_TOPIC_TEXT), so a quota outage is distinguishable from an empty topic.
+    (MODEL_CALL_FAILED / RATE_LIMITED / MODEL_TIMEOUT / NO_JSON /
+    INVALID_JSON / EMPTY_MODEL_OUTPUT / VALID_EMPTY_FACT_LIST / NO_BINDABLE_FACT /
+    EMPTY_TOPIC_TEXT), so a quota outage is distinguishable from an empty topic
+    and both are distinguishable from a legitimate model-zero (M3D Part E).
     """
     facts = []
     dropped = []
@@ -516,7 +564,7 @@ def extract_facts(doc, topics, *, api_key=None, use_model_judge=True):
             skipped.append(
                 {
                     "topic_id": topic["topic_id"],
-                    "reason": f"MODEL_CALL_FAILED: {type(exc).__name__}",
+                    "reason": _model_failure_reason(exc),
                 }
             )
             continue

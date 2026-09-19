@@ -614,14 +614,15 @@ def test_v2_zero_fact_topics_are_attributed_not_silently_empty():
         return "няма json тук", {}
 
     def empty_call(prompt, **kwargs):
-        return '{"facts": []}', {}
+        return "", {}
 
     try:
         D.gen.call_model = failing_call
         assert D.extract_facts(doc, topics) == []
         outage = D.extract_facts.skipped_topics
         assert {s["topic_id"] for s in outage} == topic_ids
-        assert all(s["reason"].startswith("MODEL_CALL_FAILED") for s in outage)
+        # M3D Part E: 429 is a rate limit, not a generic call failure.
+        assert all(s["reason"].startswith("RATE_LIMITED") for s in outage)
 
         D.gen.call_model = unparsable_call
         assert D.extract_facts(doc, topics) == []
@@ -629,6 +630,7 @@ def test_v2_zero_fact_topics_are_attributed_not_silently_empty():
 
         D.gen.call_model = empty_call
         assert D.extract_facts(doc, topics) == []
+        # M3D Part E: a truly empty completion is distinct from valid-but-empty.
         assert {s["reason"] for s in D.extract_facts.skipped_topics} == {"EMPTY_MODEL_OUTPUT"}
     finally:
         D.gen.call_model = original

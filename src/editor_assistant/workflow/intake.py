@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 
 from editor_assistant.workflow import angles as angles_mod
-from editor_assistant.workflow import discovery, intake_store, jev_shadow
+from editor_assistant.workflow import discovery, discovery_cache, intake_store, jev_shadow
 from editor_assistant.workflow import transcriber as transcriber_mod
 from editor_assistant.workflow import youtube as youtube_mod
 from editor_assistant.workflow.live_store import atomic_write
@@ -39,6 +39,7 @@ OUTCOME_RESEARCH_MORE = "RESEARCH_MORE"
 OUTCOME_EDITOR_DECISION_REQUIRED = "EDITOR_DECISION_REQUIRED"
 OUTCOME_NO_PUBLISHABLE_ANGLE = "NO_PUBLISHABLE_ANGLE"
 OUTCOME_NO_FACTS = "NO_EXTRACTED_FACTS"
+OUTCOME_DISCOVERY_DEGRADED = "DISCOVERY_DEGRADED"
 OUTCOME_INVALID_URL = "INVALID_YOUTUBE_URL"
 OUTCOME_TRANSCRIPTION_FAILED = "TRANSCRIPTION_FAILED"
 OUTCOME_DISCOVERY_FAILED = "DISCOVERY_FAILED"
@@ -54,33 +55,62 @@ def _segment_support(doc, segment_ids):
     return " ".join(s.raw_text for s in doc.segments if s.segment_id in wanted).strip()
 
 
-def default_analyze(doc):
+def default_analyze(doc, *, raw_srt=None, force=False):
     """Run the unchanged discovery V2 chain for one TranscriptDocument.
 
     Mirrors the V2 batch flow exactly: topics -> facts (+dropped) ->
     proposals -> deterministic assessment -> angles.assess_angles -> readiness.
     No editorial logic lives here.
+
+    M3D Part L4: the two MODEL stages (fact extraction + angle proposals) are
+    cached after their first SUCCESSFUL run, keyed by transcript hash + stage
+    version + model config. Same SRT bytes -> same cached semantic inputs ->
+    the deterministic downstream gate (assessment, angles, readiness) becomes
+    reproducible. The cache never stores a failure, and `force=True` bypasses
+    it. With `raw_srt=None` (legacy callers/tests) the cache is skipped —
+    caching requires the input-bytes identity to key on.
     """
     topics = discovery.segment_topics(doc)
     facts, dropped, skips = [], [], []
-    if topics:
-        try:
-            facts = list(discovery.extract_facts(doc, topics))
-        except Exception as exc:  # name the stage, never fake facts
-            raise DiscoveryError(f"fact extraction failed: {type(exc).__name__}: {exc}") from exc
-        dropped = list(getattr(discovery.extract_facts, "dropped", []))
-        skips = list(getattr(discovery.extract_facts, "skipped_topics", []))
-    for position, fact in enumerate(facts):
-        fact["fact_id"] = f"{doc.transcript_id}-f{position + 1:03d}"
-    for position, fact in enumerate(dropped):
-        fact.setdefault("fact_id", f"{doc.transcript_id}-d{position + 1:03d}")
-
     proposals = []
-    if facts:
-        try:
-            proposals = discovery.propose_angles(facts)
-        except Exception:  # noqa: BLE001 - proposal failure is not a hard intake failure
-            proposals = []
+    cache = None
+    if raw_srt is not None and not force:
+        cache = discovery_cache.load(discovery_cache.transcript_hash(raw_srt))
+    if cache is not None:
+        facts = list(cache["facts"])
+        dropped = list(cache.get("dropped") or [])
+        skips = list(cache.get("skips") or [])
+        proposals = list(cache["proposals"])
+        cache_status = discovery_cache.cached_result_status(cache)
+    else:
+        if topics:
+            try:
+                facts = list(discovery.extract_facts(doc, topics))
+            except Exception as exc:  # name the stage, never fake facts
+                raise DiscoveryError(
+                    f"fact extraction failed: {type(exc).__name__}: {exc}"
+                ) from exc
+            dropped = list(getattr(discovery.extract_facts, "dropped", []))
+            skips = list(getattr(discovery.extract_facts, "skipped_topics", []))
+        if facts:
+            try:
+                proposals = discovery.propose_angles(facts)
+            except Exception:  # noqa: BLE001 - proposal failure is not a hard intake failure
+                proposals = []
+        if raw_srt is not None and facts:
+            discovery_cache.store(
+                discovery_cache.transcript_hash(raw_srt),
+                facts=facts,
+                proposals=proposals,
+                dropped=dropped,
+                skips=skips,
+                source={"transcript_id": doc.transcript_id},
+            )
+        cache_status = (
+            ("MISS" if raw_srt is not None else "DISABLED_NO_RAW_SRT")
+            if not force
+            else ("FORCED_RERUN" if raw_srt is not None else "DISABLED_NO_RAW_SRT")
+        )
 
     candidates, diagnostics = discovery.assess_candidates(
         proposals, facts, repeated={}, use_model_judge=False
@@ -145,7 +175,27 @@ def default_analyze(doc):
         "assessment": assessment,
         "readiness": readiness,
         "support_texts": support_texts,
+        "cache_status": cache_status,
     }
+
+
+def _model_zero_execution_surfaces(analysis):
+    """Zero-yield reasons that mean model EXECUTION failed, not 'no facts'.
+
+    M3D Part M: if a transcript produced valid grounded facts before under the
+    same discovery version/config, a later zero-yield run with an execution
+    failure must not silently become editorial no-story evidence. The reasons
+    live in discovery (single taxonomy owner); this maps them to topics.
+    """
+    from editor_assistant.workflow import discovery as discovery_mod
+
+    failed = set(discovery_mod.EXECUTION_FAILURE_REASONS)
+    surfaces = []
+    for skip in analysis.get("skips") or []:
+        reason = str(skip.get("reason") or "")
+        if reason.split(":", 1)[0].strip() in failed:
+            surfaces.append({"topic_id": skip.get("topic_id"), "reason": reason})
+    return surfaces
 
 
 def _outcome_from(analysis):
@@ -159,6 +209,11 @@ def _outcome_from(analysis):
     assessment_status = (analysis.get("assessment") or {}).get("status")
     if assessment_status in (angles_mod.NO_ANGLE, angles_mod.NOT_VIABLE):
         return OUTCOME_NO_PUBLISHABLE_ANGLE
+    if assessment_status == OUTCOME_NO_FACTS and _model_zero_execution_surfaces(analysis):
+        # Zero yield WITH an execution surface: report degraded, not no-story.
+        # A historical-facts lookup is deliberately NOT used to flip this back
+        # to a positive outcome (no caching/versioning exists yet; M3D Part M).
+        return OUTCOME_DISCOVERY_DEGRADED
     if assessment_status == OUTCOME_NO_FACTS:
         return OUTCOME_NO_FACTS
     return OUTCOME_UNKNOWN
@@ -304,10 +359,13 @@ def intake_youtube(
     result["video"] = video
     result["artifacts"]["transcript_file"] = str(file_path)
 
-    # 6. discovery V2 (unchanged)
+    # 6. discovery V2 (deterministic gate unchanged; model stages L4-cached)
     analyze_fn = analyze_fn or default_analyze
     try:
-        analysis = analyze_fn(doc)
+        if analyze_fn is default_analyze:
+            analysis = analyze_fn(doc, raw_srt=raw_srt)
+        else:
+            analysis = analyze_fn(doc)
     except Exception as exc:  # noqa: BLE001 - name the stage
         stages["discovery"] = {
             "status": "FAILED",
