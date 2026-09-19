@@ -8,9 +8,9 @@ Verdicts:
 ```text
 M3A_STABILIZATION         = PROVEN
 JEV_INTEGRATION           = READY
-JEV_CORROBORATION         = NOT_EVALUATED    (no TYPESAFE_API_KEY)
-JEV_GROUNDING             = NOT_EVALUATED
-JEV_ANGLE_SIGNALS         = NOT_EVALUATED
+JEV_CORROBORATION         = NOT_PROMISING    (standalone decision; this sample)
+JEV_GROUNDING             = PROMISING
+JEV_ANGLE_SIGNALS         = PROMISING
 JEV_PRODUCTION_AUTHORITY  = NONE
 EDITORIAL_EFFECTIVENESS   = PENDING
 ```
@@ -32,8 +32,16 @@ zero editorial authority); frozen public-source fixtures under
 `fixtures/evals/jev/` (24 angles incl. the 7 disagreements, 109 fact-grounding
 rows retained+dropped, 16 corroboration candidates with honest manual labels);
 resumable runner `scripts/evals/jev_shadow_eval.py` writing to ignored
-`var/jev_eval/`; +31 offline tests. No live Jev call was possible (no key), so
-effectiveness stays `NOT_EVALUATED`.
+`var/jev_eval/`; +31 offline tests.
+
+Live run (TypeSafe SDK 0.6.0, effective `jev-1.13.0`, 149/149 calls OK, avg
+~650 ms): **grounding = PROMISING** (Jev corrects deterministic lexical false
+negatives on number morphology/abbreviated years/decision-status; 87/93 retained
+agree), **angle signals = PROMISING** (`development_type` matches the audit
+hypothesis on 6/7 known disagreements — the CONCRETE_ACTION vs ROUTINE_PROCESS
+boundary), **corroboration = NOT_PROMISING** on this small sample (3/4 hard
+negatives still called support; the head-of-page fixture passage was replaced
+with a relevance window and the run redone). No Jev authority; no thresholds.
 
 Tests: 481 → **512 passed** (offline, DNS-unavailable-safe). Reports:
 `m3/review/M3A_STABILIZATION_REPORT.md`, `m3/review/M3J_JEV_SHADOW_EVALUATION.md`.

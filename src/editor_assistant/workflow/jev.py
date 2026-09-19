@@ -136,10 +136,15 @@ def build_sdk_questions(specs, sdk):
 
 def build_client(sdk=None, env=None):
     """Construct the SDK client when configured; None when not available."""
-    available, _ = capability_status(env=env, sdk=sdk)
+    environment = env if env is not None else os.environ
+    available, _ = capability_status(env=environment, sdk=sdk)
     if not available:
         return None
-    return sdk.TypeSafeClient()
+    key = (environment.get(TYPESAFE_API_KEY_ENV) or "").strip()
+    try:
+        return sdk.TypeSafeClient(api_key=key)
+    except TypeError:  # older/newer SDK without an explicit api_key kwarg
+        return sdk.TypeSafeClient()
 
 
 def _get(response, key, default=None):
@@ -147,6 +152,26 @@ def _get(response, key, default=None):
     if isinstance(response, dict):
         return response.get(key, default)
     return getattr(response, key, default)
+
+
+def _plain(value):
+    """Convert an SDK value into plain JSON-serializable data (stdlib only).
+
+    The official SDK returns msgspec structs (e.g. `Usage`); the eval runner
+    persists results as JSON, so no non-stdlib object may leak into a record.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    fields = getattr(type(value), "__struct_fields__", None)
+    if fields:
+        return {name: _plain(getattr(value, name)) for name in fields}
+    if hasattr(value, "_asdict"):  # namedtuple fallback
+        return {k: _plain(v) for k, v in value._asdict().items()}
+    return value if isinstance(value, (int, float)) else str(value)
 
 
 def _normalize_primitive(kind, name, response):
@@ -167,14 +192,14 @@ def _normalize_primitive(kind, name, response):
     if answer is None:
         return normalized
     if kind == QUESTION_CHOICE:
-        normalized["answer"] = _get(answer, "choice")
+        normalized["answer"] = _plain(_get(answer, "choice"))
     elif kind == QUESTION_NOUL:
-        normalized["answer"] = _get(answer, "noul")
+        normalized["answer"] = _plain(_get(answer, "noul"))
     else:
-        normalized["answer"] = _get(answer, "score")
+        normalized["answer"] = _plain(_get(answer, "score"))
     probabilities = _get(answer, "probabilities")
     if probabilities is not None:
-        normalized["probabilities"] = dict(probabilities)
+        normalized["probabilities"] = _plain(probabilities)
     confidence = _get(answer, "confidence")
     if confidence is not None:
         normalized["confidence"] = float(confidence)
@@ -195,7 +220,7 @@ def normalize_response(response, questions, *, model_requested, latency_ms):
         "model_requested": model_requested,
         "model_effective": effective,
         "latency_ms": round(latency_ms),
-        "usage": dict(usage) if isinstance(usage, dict) else usage,
+        "usage": _plain(usage),
         "answers": {
             name: _normalize_primitive(spec["kind"], name, response)
             for name, spec in questions.items()

@@ -24,6 +24,12 @@ and `var/youtube_transcripts/raw/*.bg-orig.srt` (7 recordings). The corroboratio
 candidates reproduce the deterministic lexical matcher from
 `tmp/research_enrichment.py`; the fixtures do **not** introduce a new rule.
 
+`source_excerpt` in `corroboration_candidates_v2.jsonl` is a **relevance window**
+(~350 words) selected from the opened page around the claim's significant tokens.
+It is *not* the first 500 chars of the page — that earlier head-of-page snapshot
+was HTML boilerplate and made the semantic judge see nothing (the 2026-09-19
+corroboration run on it was discarded and re-run).
+
 **Do not regenerate these blindly.** Re-running the (scratch) generator against a
 changed `var/` would silently move the evaluation baseline. Treat the fixtures as
 immutable; add new versions as new files instead.

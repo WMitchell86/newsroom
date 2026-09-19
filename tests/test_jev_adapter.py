@@ -163,9 +163,10 @@ def test_provider_failure_is_mapped_and_key_redacted():
     assert "<redacted>" in str(exc.value)
 
 
-def test_build_client_returns_none_without_key_or_sdk():
-    assert jev.build_client(sdk=FakeSDK(), env={}) is None
+def test_build_client_returns_none_without_key_or_sdk(monkeypatch):
+    monkeypatch.setattr(jev, "load_sdk", lambda: None)  # SDK present or not
     assert jev.build_client(sdk=None, env={"TYPESAFE_API_KEY": "k"}) is None
+    assert jev.build_client(sdk=FakeSDK(), env={}) is None
     assert jev.build_client(sdk=FakeSDK(), env={"TYPESAFE_API_KEY": "k"}) is not None
 
 

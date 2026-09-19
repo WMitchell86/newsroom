@@ -6,7 +6,7 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-Last updated: 2026-09-19 (M3A stabilization + M3J Jev shadow evaluation).
+Last updated: 2026-09-19 (M3A stabilization + M3J Jev shadow evaluation, live).
 
 ## Checkpoint
 
@@ -25,14 +25,19 @@ TINYFISH_SEARCH                     = ADOPTED
 TINYFISH_FETCH                      = AVAILABLE / NOT_YET_PROVEN
 TRANSCRIPT_DISCOVERY_ENGINEERING    = PROMISING+
 TRANSCRIPT_RESEARCH_ENRICHMENT      = PROMISING
-M3A_STABILIZATION                   = (see m3/review/M3A_STABILIZATION_REPORT.md)
-JEV_INTEGRATION                     = (see m3/review/M3J_JEV_SHADOW_EVALUATION.md)
+M3A_STABILIZATION                   = PROVEN
+JEV_INTEGRATION                     = READY
+JEV_CORROBORATION                   = NOT_PROMISING  (standalone decision; this sample)
+JEV_GROUNDING                       = PROMISING
+JEV_ANGLE_SIGNALS                   = PROMISING
 JEV_PRODUCTION_AUTHORITY            = NONE
 EDITORIAL_EFFECTIVENESS             = PENDING
 ```
 
-Jev effectiveness verdicts are `NOT_EVALUATED` until a `TYPESAFE_API_KEY` is
-available (the adapter, fixtures and runner are complete and offline-tested).
+Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,
+149/149 calls OK). Shadow results live under the ignored `var/jev_eval/`.
+No Jev threshold or production authority exists. Details:
+`m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
 
 ## Frozen boundaries (do not change without an approved scope change)
 
@@ -77,8 +82,10 @@ awaiting the human editor. No rubric/threshold change is justified yet.
 
 - M3B YouTube URL intake, **or** M3C automatic research enrichment — one at a
   time, only via the canonical `workflow/live_store.py` writer.
-- A live M3J run once `TYPESAFE_API_KEY` exists (then produce real effectiveness
-  verdicts; still no production authority).
+- A larger, editor-labeled corroboration set and manual review of the grounding
+disagreements (the open question) — then decide whether Jev earns a place.
+- Re-run the M3J shadow eval after any fixture or prompt change (results are
+  under `var/jev_eval/`; delete a file to force a fresh run for that experiment).
 - Anything else goes to `BACKLOG.md`, never into a change.
 
 Not allowed now: CMS publishing, LIVE 6–10, rubric/threshold changes, Jev
