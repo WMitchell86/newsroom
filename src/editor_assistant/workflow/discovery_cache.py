@@ -120,10 +120,30 @@ def store(transcript_hash, *, facts, proposals, dropped=None, skips=None, source
     provenance as a fresh run. Refuses to store an unsuccessful outcome (no
     facts) so a model outage or a legitimate zero can never freeze itself as
     "the answer".
+
+    A `force=True` rerun never silently replaces the previous entry: the old
+    payload is kept next to the new one as `<key>.<created_at>.prev.json`,
+    so the frozen snapshot and its replacement stay comparable.
     """
     if not facts:
         return None  # nothing successful to remember
     path = _path(transcript_hash, root)
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            previous = None
+        if isinstance(previous, dict) and previous.get("success") is True:
+            stamp = str(previous.get("created_at") or "unknown").replace(":", "-")
+            backup = path.with_name(f"{path.stem}.{stamp}.prev.json")
+            if not backup.exists():
+                try:
+                    backup.write_text(
+                        json.dumps(previous, ensure_ascii=False, sort_keys=True, indent=1) + "\n",
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass  # the new entry still lands; provenance is best-effort
     payload = {
         "cache_format": CACHE_FORMAT,
         "cache_key": cache_key(transcript_hash),

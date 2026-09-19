@@ -251,6 +251,11 @@ def test_force_rerun_bypasses_cache_and_revalidates(env, monkeypatch):
         assert rerun["cache_status"] == "FORCED_RERUN"
         assert calls["n"] > frozen  # the model really ran again
         assert rerun["facts"] == first["facts"]
+        # Never silently replace: the frozen snapshot survives next to the new entry.
+        prev = list((C._path(C.transcript_hash(SRT)).parent).glob("*.prev.json"))
+        assert len(prev) == 1
+        old = json.loads(prev[0].read_text(encoding="utf-8"))
+        assert old["facts"] == first["facts"]
     finally:
         intake_mod.discovery.extract_facts.skipped_topics = []
         intake_mod.discovery.extract_facts.dropped = []
