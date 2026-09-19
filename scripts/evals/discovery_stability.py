@@ -613,8 +613,15 @@ def classify_pair(run_a, run_b):
 
 
 def baseline_angle_props(row):
-    """Candidate proposition list for one run (semantic angle overlap input)."""
-    return [c.get("new_proposition") or "" for c in row["stages"]["angle_assessment"]["candidates"]]
+    """Candidate proposition list for one run (semantic angle overlap input).
+
+    Pre-L4 rows and unit fixtures lack new_proposition on the stub
+    candidates; fall back to angle_id so old rows stay aggregatable.
+    """
+    out = []
+    for c in row["stages"]["angle_assessment"]["candidates"]:
+        out.append(c.get("new_proposition") or c.get("angle_id") or "")
+    return out
 
 
 def aggregate_video(rows):
@@ -624,8 +631,11 @@ def aggregate_video(rows):
         o = r["stages"]["outcome"]
         outcomes[o] = outcomes.get(o, 0) + 1
     fact_counts = [len(r["stages"]["fact_extraction"]["facts"]) for r in rows]
-    dropped_counts = [len(r["stages"]["fact_extraction"]["dropped"]) for r in rows]
-    retained_counts = [len(r["stages"]["fact_extraction"]["retained_facts"]) for r in rows]
+    # Pre-L4 rows (before/after dirs) lack retained_facts; fall back to facts
+    # so the already-measured evidence stays readable.
+    fx = [r["stages"]["fact_extraction"] for r in rows]
+    dropped_counts = [len(f.get("dropped", [])) for f in fx]
+    retained_counts = [len(f.get("retained_facts", f.get("facts", []))) for f in fx]
     topic_ids = [tuple(r["stages"]["segmentation"]["topic_ids"]) for r in rows]
     seg_stable = all(t == topic_ids[0] for t in topic_ids)
     topic_counts = [len(r["stages"]["segmentation"]["topic_ids"]) for r in rows]
