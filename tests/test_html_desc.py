@@ -100,6 +100,24 @@ def test_script_style_text_excluded():
     assert text == "видимо"
 
 
+def test_self_closing_script_does_not_suppress_later_text():
+    """A self-closed <script/> has no end tag, so it must not open a skip region.
+
+    Regression: it used to leave the skip depth permanently raised, silently
+    dropping every remaining text chunk in the description.
+    """
+    text, _ = normalize_description(
+        "<p>Преди</p><script/>ВАЖЕН ТЕКСТ<p>Край</p>", base_url=ITEM_URL
+    )
+    assert "ВАЖЕН ТЕКСТ" in text
+    assert "Край" in text
+
+
+def test_self_closing_style_does_not_suppress_later_text():
+    text, _ = normalize_description("<p>Преди</p><style/>ВАЖЕН ТЕКСТ", base_url=ITEM_URL)
+    assert "ВАЖЕН ТЕКСТ" in text
+
+
 def test_repeated_parsing_equivalent():
     assert item_to_dict(_parse_one()) == item_to_dict(_parse_one())
 

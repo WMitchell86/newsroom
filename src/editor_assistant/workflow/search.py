@@ -900,7 +900,6 @@ class TinyFishSearchProvider(SearchProvider):
             },
         )
 
-
         started = time.monotonic()
         for attempt in range(1, MAX_PROVIDER_ATTEMPTS + 1):
             record["attempt"] = attempt

@@ -1,3 +1,179 @@
+## Handoff — M3A Stabilization + M3J Jev Shadow Evaluation (2026-09-19)
+
+**Current state lives in `CURRENT_STATE.md`.** This file is chronological history.
+
+Verified: **512 offline tests** (was 481), `ruff check`/`format --check` clean on
+`src tests scripts`, M3A smoke **25/25**. Verdicts: `M3A_STABILIZATION = PROVEN` ·
+`JEV_INTEGRATION = READY` · Jev effectiveness `NOT_EVALUATED` (no
+`TYPESAFE_API_KEY`) · `JEV_PRODUCTION_AUTHORITY = NONE` · `EDITORIAL_EFFECTIVENESS
+= PENDING`.
+
+- Part A: hermetic test DNS (`tests/conftest.py`); one canonical live store
+  `workflow/live_store.py` (CLI + Workbench); new root `CURRENT_STATE.md`;
+  `scripts/m3a_smoke.py` promoted from `tmp/`. No M3A style refactor.
+- Part B–J: optional `typesafe-sdk` extra + thin `workflow/jev.py` adapter;
+  frozen `fixtures/evals/jev/`; resumable `scripts/evals/jev_shadow_eval.py`
+  (`--experiment corroboration|grounding|angles`, `--all`) writing ignored
+  `var/jev_eval/`; +31 offline tests; Jev has zero authority.
+- STOP: no M3B YouTube intake, no M3C enrichment, no CMS, no LIVE 6–10, no
+  rubric/threshold change, no Jev production authority.
+
+Reports: `m3/review/M3A_STABILIZATION_REPORT.md`,
+`m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
+
+## Handoff — M3A: Editor Workbench MVP (2026-09-18)
+
+Verified: **468 offline tests, Ruff clean** (check + format on the new files),
+scripted end-to-end smoke **25/25**. Verdicts: `EDITOR_WORKBENCH_ENGINEERING =
+PROVEN` · `EDITOR_WORKBENCH_EDITORIAL_EFFECTIVENESS = PENDING` (no real editor
+has used it) · `EDITORIAL_EFFECTIVENESS = PENDING` (unchanged).
+
+M3A is a product/UX milestone: a Bulgarian-first browser workbench over the
+unchanged frozen contracts. No rubric/threshold/profile/hook/routing change, no
+drafting, no LIVE 6–10, no publishing.
+
+- Run: `PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench`
+  (≡ `python3 -m editor_assistant.workflow.workbench`). Defaults to
+  **127.0.0.1:8123**; `--host` opt-in with a warning; no auth (local MVP);
+  `--allow-quit` / `WB_ALLOW_QUIT` for the test-only `/quit`.
+- Modules: `workflow/workbench/{state,html,http,labels,cli,__main__}.py`.
+  Canonical writes only through `cases.record_editor_final` + `save_cases`;
+  decisions through `readiness.apply_editor_override` on the live evidence row.
+  Working copy: `var/editorial_workflow/editor_working/{CASE}.json` (atomic,
+  `base_draft_id` staleness). Audit: `workbench_actions.jsonl`.
+- Save ≠ finalize (separate POST endpoints). Stale generation → 409 with
+  „Междувременно е генерирана по-нова AI версия…“ — checked against both the
+  working copy's recorded base *and* the submitted `base_draft_id`, so
+  resubmitting the current id cannot bypass it. The workspace then offers the
+  explicit **„Приемам новата AI версия за основа“** re-base (a plain save never
+  re-bases), so the guard is not a dead end. Dry-run benchmark cases refuse
+  effort metrics. Invalid enums → 400 via the contract's own errors.
+- Immutability guards: a finalized case renders no editor workspace and refuses
+  working-copy saves; finalization requires a non-empty headline and body (a
+  no-story case uses the decision endpoint instead); a corrupt/truncated
+  working-copy file is read as “no working copy” instead of erroring.
+- Evidence-only special cases (e.g. `LIV-06-EVIDENCE`,
+  `NO_PUBLISHABLE_ANGLE`, no case row) are now listed in the queue and open a
+  decision-only page with no article editor; ids are derived from stored
+  readiness status, never hardcoded.
+- Tests: `tests/test_workbench.py` (+74) — queue/filters (bucket vs. page
+  surfaces agree), BG labels vs the canonical vocabularies, immutable draft
+  (bytes unchanged), safe source
+  rendering, working-copy save/load + atomicity, save-never-final, stale block
+  + the re-base path through real HTTP, validated finalization (diff metrics +
+  audit + AI draft untouched), empty-final refusal, invalid enums, the special
+  cases (incl. a recorded decision staying out of «За редакция»), HTML escaping,
+  transcript trust label + humanized locators, localhost default, and real-HTTP
+  routing/400/404/409. HTTP tests use a private opener because
+  `tests/test_search_foundation.py` used to leak a global
+  `urllib.request.urlopen` (it assigns the module global directly instead of
+  going through monkeypatch) — **fixed in the review pass below**.
+- Smoke: `PYTHONPATH=src python3 tmp/m3a_smoke.py` runs against a copy
+  (`var/wb_smoke/`) and asserts the real store is sha256-identical afterwards.
+  25 checks, incl. the stale-generation guard (409) and the re-base → finalize
+  path end-to-end through the browser flow.
+- Note: `ruff format --check src tests` still flags two **pre-existing** files
+  (`workflow/search.py`, `tests/test_tinyfish_adapters.py`) — left untouched
+  (scope lock).
+
+Report: `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md`. **STOP for review** — no M3B
+YouTube adapter, no M3C automatic enrichment, no LIVE 6–10, no CMS publishing,
+no editorial-rule changes.
+
+## Review pass — pipeline (M0/M1) + workflow (M2) modules (2026-09-18)
+
+Read-only review of the modules outside the M3A workbench, with the confirmed
+bugs fixed. Verified: **475 offline tests, Ruff clean**, workbench smoke 25/25,
+real store untouched. No frozen contract changed (no rubric/threshold/profile/
+ranking/semantics change); all fixes preserve existing output bytes.
+
+Fixed (each reproduced before the fix):
+
+- `notify/outbox.py` — `enqueue_notification` reported a **stale row id** for a
+  duplicate intent instead of `None`: SQLite does not reset `lastrowid` for an
+  `INSERT OR IGNORE`, so it returned the id of an unrelated earlier insert. The
+  "did we insert?" signal is now `rowcount`.
+- `sources/html_desc.py` — a self-closing `<script/>`/`<style/>` left the skip
+  depth permanently raised and **silently dropped every remaining text chunk**
+  in the description. Reachable from real feeds: ElementTree re-serializes an
+  empty `<script></script>` as `<script />`. It corrupted the stored body and
+  therefore the fingerprint.
+- `workflow/cases.py` — `save_cases` truncated the case store in place; a crash
+  or unserializable case mid-rewrite destroyed **every finalized article in it**.
+  Now serializes first and publishes via same-directory temp file + `os.replace`.
+- `notify/telegram.py` — an unexpected exception type (e.g.
+  `http.client.InvalidURL`) escaped un-redacted and would have surfaced the
+  request URL, which contains the bot token. All transport failures now fail
+  closed with a type-only redacted error.
+- `sources/web_fetch.py` — research page fetches never closed the response
+  (socket held until GC); now closed in a `finally` (compatible with injected
+  test openers that have no `close`).
+- `tests/test_search_foundation.py` — two test-hygiene leaks: default-path
+  audits appended fixture runs to the **real** `var/editorial_workflow/
+  search_runs` (61 such files removed), and `_provider_with` left a fake
+  `urlopen` installed for the rest of the session. Both contained by an autouse
+  fixture; the suite no longer writes the real store at all.
+- `notify/render.py` — the legacy `format_published_bg` comment claimed a
+  UTC/`%Z` format it no longer returns (it delegates to the Europe/Sofia §6
+  formatter).
+
+Second pass — `workflow/readiness.py`, `notify/present.py`,
+`drafting/generate.py`, plus the cross-module readiness/evidence contracts.
+Verified: **481 offline tests**, Ruff clean, smoke 25/25.
+
+- `drafting/generate.py` — **the semantic factual gate auto-passed with no
+  verdicts.** `verify_claims_semantic` computed
+  `pass = no unsupported and no parse errors`, so a judge reply of prose, an
+  empty body, or a refusal yielded zero claims and zero errors → `pass: True`
+  → the case was stamped `FACTUAL_GATE_PASS` with nothing checked. Reproduced
+  for all four reply shapes. Now fails closed (`bool(claims) and …`), so an
+  empty verdict set becomes `FACTUAL_GATE_REVIEW`.
+- `notify/present.py` — `attachment_summary` counted every non-attachment link
+  as hidden, so a fully displayed attachment list still rendered "+N още"
+  under "📎 Документи:" (reproduced: `+2 още` with zero documents hidden). It
+  now counts only further labeled attachments.
+- `notify/present.py` — `attachment_label` read the extension from the full URL,
+  so a real document served as `doklad.pdf?download=1` was silently dropped
+  from the alert. Query/fragment are now stripped before the extension is read
+  (still never guessed from the query: `…/download?file=doc.pdf` stays
+  unlabeled).
+- Verified as correct (no change needed): the real evidence rows use the nested
+  `readiness_rounds.research_rounds` shape the workbench reads, and stored
+  angle assessments keep `selected_angle_id` inside `candidates`.
+
+Reported, NOT changed (owner decision — each touches a frozen contract or a
+cross-cutting pattern beyond a review's remit):
+
+- `poll.py` reports `new_outbox_intents` as `NEW + UPDATED` rather than the
+  intents actually created; the outbox is first-intent-wins, so the number is
+  assumed, not measured.
+- 8 more canonical JSONL writers still truncate in place (`workflow/ideas.py`,
+  `workflow/cli.py::_save_live_row`, `drafting/evidence.py`, `style/*`). The
+  same atomic-write treatment should be applied project-wide.
+- `workflow/cases.record_editor_final` validates `editor_outcome` only when
+  `final_text` is non-empty (the CLI published-reference path), so an empty
+  final with a bogus outcome enum is stored as-is. The workbench service layer
+  now refuses empty finals; the contract itself is unchanged (frozen).
+- `sources/fetcher.py`'s redirect guard runs after `urlopen` has already
+  followed the redirect — it discards the payload but does not prevent the
+  request to the foreign host.
+- `workflow/live.py::live_readiness` accepts only 3 of the 4 override actions
+  `readiness.apply_editor_override` supports (no `CHANGE_ANGLE`) and synthesizes
+  a generic reason instead of the editor's.
+- `workflow/readiness.py::assess_readiness` returns an inconsistent shape: the
+  NO_ANGLE and NEEDS_RESEARCH branches omit `sufficiency` and `reader_interest`,
+  which the other two branches always carry. Consumers currently use
+  `.get(...)` guards, so nothing breaks today.
+- `workflow/readiness.py` selects the chosen angle with a bare
+  `next(c for c in candidates if …)`: an inconsistent stored assessment would
+  surface as `StopIteration` rather than a `ReadinessError`. Its sibling in
+  `angles.py` uses the safe `next((…), None)` + explicit-error form. Not
+  demonstrably reachable, so left alone.
+- Two shapes exist for research rounds: the CLI writes nested
+  `readiness_rounds.research_rounds` (which the workbench reads, and which the
+  real store uses), while `readiness.register_research_round` writes a flat
+  top-level `research_rounds` list on whatever record it is handed.
+
 ## Handoff — M2S-R4: TinyFish Search ADOPTED — Routing Implemented (2026-09-18)
 
 Editor decision on the M2S-R3b measured benchmark → routing implemented and

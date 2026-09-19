@@ -71,7 +71,13 @@ def enqueue_notification(
 ) -> int | None:
     """Insert one intent; same (destination, source, url, version) → keep first.
 
-    Returns the row id, or None if this version was already queued.
+    Returns the id of the row THIS call created, or None when the intent was
+    already queued (first intent wins).
+
+    `cursor.lastrowid` is not a usable "did we insert?" signal: SQLite does not
+    reset it for an ignored insert — it keeps the rowid of the last successful
+    insert on the connection — so an ignored duplicate would report an unrelated
+    row's id. `rowcount` is the reliable signal (1 inserted, 0 ignored).
     """
     cursor = conn.execute(
         "INSERT OR IGNORE INTO notification_outbox "
@@ -89,14 +95,9 @@ def enqueue_notification(
             created_at_iso,
         ),
     )
-    if cursor.lastrowid:
+    if cursor.rowcount == 1:
         return cursor.lastrowid
-    row = conn.execute(
-        "SELECT id FROM notification_outbox WHERE destination = ? AND source_id = ?"
-        " AND item_url = ? AND version_no = ?",
-        (destination, source_id, item_url, version_no),
-    ).fetchone()
-    return row[0] if row else None
+    return None
 
 
 def _row_to_outbox(row: tuple) -> OutboxRow:

@@ -12,6 +12,28 @@ import pytest
 from editor_assistant.sources import web_fetch
 from editor_assistant.workflow import search
 
+# Captured at import (before any test swaps it) so the test below can prove the
+# autouse fixture restores the real opener.
+_REAL_URLOPEN = search.urllib.request.urlopen
+
+
+@pytest.fixture(autouse=True)
+def _isolated_search_state(tmp_path, monkeypatch):
+    """Contain this module's global side effects.
+
+    * `search._audit(path=None)` falls back to `SEARCH_RUNS_DIR`, which points
+      at the real `var/editorial_workflow/search_runs`: default-path tests used
+      to append fixture runs to the real runtime store.
+    * `_provider_with` assigns the `urlopen` module global directly (it does not
+      use monkeypatch), so a fake provider used to leak into every later test in
+      the session. Restore it here.
+    """
+    runs = tmp_path / "search_runs"
+    monkeypatch.setattr(search, "SEARCH_RUNS_DIR", runs)
+    real_urlopen = search.urllib.request.urlopen
+    yield runs
+    search.urllib.request.urlopen = real_urlopen
+
 
 def _brave_payload(n=2):
     return {
@@ -182,6 +204,20 @@ def test_page_fetch_success_and_oversize_rejection(tmp_path):
     assert exc.value.category == web_fetch.FETCH_TOO_LARGE
 
 
+def test_hermetic_resolver_maps_public_fixture_hosts_offline():
+    """A2: public fixture hostnames resolve deterministically without real DNS."""
+    infos = web_fetch.socket.getaddrinfo("example.org", None)
+    assert infos and infos[0][4][0] == "93.184.216.34"
+    web_fetch.guard_target("https://example.org/page")  # public: must not raise
+
+
+def test_unresolvable_host_fails_closed():
+    """A2: the guard stays fail-closed for hosts outside the test map."""
+    with pytest.raises(web_fetch.WebFetchError) as exc:
+        web_fetch.guard_target("https://does-not-resolve.invalid/x")
+    assert exc.value.category == web_fetch.FETCH_BLOCKED_TARGET
+
+
 def test_private_and_local_targets_rejected():
     for bad in (
         "http://127.0.0.1/x",
@@ -258,6 +294,13 @@ def test_provider_chain_unknown_capability_raises():
         search.provider_chain(capability="TELEPATHY", env={})
 
 
+def _offline_page_opener(url):
+    """Hermetic stand-in: candidate opening must never touch the network (A2)."""
+    raise web_fetch.WebFetchError(
+        web_fetch.FETCH_HTTP_ERROR, f"offline test opener: {url}", status=503
+    )
+
+
 def test_operation_falls_back_along_the_chain(monkeypatch):
     """A failing provider is skipped; its status stays visible in the audit."""
 
@@ -287,6 +330,7 @@ def test_operation_falls_back_along_the_chain(monkeypatch):
         topic="тема",
         constraints=search.make_constraints(description="описание"),
         provider=None,
+        page_opener=_offline_page_opener,
         audit_path=None,
     )
     assert [q["provider"] for q in operation["queries"]] == ["fail", "ok"]
@@ -321,6 +365,7 @@ def test_operation_survives_provider_raising_searcherror(monkeypatch):
     operation = search.run_search_operation(
         topic="тема",
         constraints=search.make_constraints(description="описание"),
+        page_opener=_offline_page_opener,
         audit_path=None,
     )
     assert operation["chain_fallbacks"] == ["broken:SEARCH_CAPABILITY_UNAVAILABLE"]
@@ -500,3 +545,12 @@ def test_resolve_provider_still_supports_new_names():
     assert provider is None and status == search.SEARCH_CAPABILITY_UNAVAILABLE
     with pytest.raises(search.SearchError):
         search.resolve_provider(env={"SEARCH_PROVIDER": "altavista"})
+
+
+def test_global_urlopen_is_restored_after_provider_tests():
+    """The autouse fixture must undo `_provider_with`'s direct global swap.
+
+    Otherwise every later test in the session runs against a fake opener that
+    never touches the network.
+    """
+    assert search.urllib.request.urlopen is _REAL_URLOPEN

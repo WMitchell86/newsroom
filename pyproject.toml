@@ -11,6 +11,10 @@ dev = ["pytest>=8"]
 # Approved scope change (M2S-R2): zero-signup fallback search backend.
 # Everything else in the provider stack remains stdlib-only.
 search = ["ddgs>=9"]
+# M3J: TypeSafe Jev used ONLY as a shadow semantic judge (no production
+# authority). Optional by design: a missing package/key must never break the
+# project's normal functionality.
+jev = ["typesafe-sdk>=0.6,<0.7"]
 
 [build-system]
 requires = ["setuptools>=61"]

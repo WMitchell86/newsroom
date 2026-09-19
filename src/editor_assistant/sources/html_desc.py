@@ -67,6 +67,12 @@ class _DescriptionParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         # Self-closing tags (<br/>, <img/>) — same handling without end tag.
+        # A self-closing <script/> / <style/> has no content, and no end tag will
+        # arrive to close it: incrementing the skip depth here would suppress
+        # every remaining text chunk in the description. (Reachable in practice:
+        # ElementTree re-serializes an empty <script></script> as <script />.)
+        if tag.lower() in _SKIP_TAGS:
+            return
         self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:

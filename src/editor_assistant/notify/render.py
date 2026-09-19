@@ -123,7 +123,9 @@ def format_published_bg_display(published_at: datetime | str | None) -> str | No
     return published_at.astimezone(_SOFIA_TZ).strftime("%d.%m.%Y, %H:%M")
 
 
-# Kept for backwards compatibility with the M1.4A name (UTC, %Z suffix).
+# Legacy M1.4A name, kept so old callers keep working. It delegates to the §6
+# display formatter, so it returns Europe/Sofia local time, NOT the old
+# UTC/%Z string the name originally produced.
 def format_published_bg(published_at: datetime | None) -> str | None:
     return format_published_bg_display(published_at)
 

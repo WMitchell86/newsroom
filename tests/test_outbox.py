@@ -10,7 +10,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from editor_assistant.models import SourceDef
-from editor_assistant.notify.outbox import count_all, list_pending, mark_delivered
+from editor_assistant.notify.outbox import (
+    count_all,
+    enqueue_notification,
+    init_outbox,
+    list_pending,
+    mark_delivered,
+)
 from editor_assistant.notify.render import (
     BODY_EXCERPT_LIMIT,
     build_payload,
@@ -36,6 +42,57 @@ def _items():
 
 def _pending(db):
     return list_pending(db, destination=TELEGRAM_TEST_DESTINATION)
+
+
+def test_enqueue_reports_not_created_for_a_duplicate(tmp_path):
+    """A duplicate intent must report "this call created nothing".
+
+    Regression: `cursor.lastrowid` is NOT reset by an INSERT OR IGNORE, so the
+    previous check (`if cursor.lastrowid`) returned the id of an unrelated
+    earlier insert instead of None after a successful insert on the same
+    connection.
+    """
+    db = tmp_path / "state.sqlite3"
+    (item,) = _items()[:1]
+    call = {
+        "destination": TELEGRAM_TEST_DESTINATION,
+        "source_id": item.source_id,
+        "item_url": item.item_url,
+        "version_no": 1,
+        "event_type": "NEW",
+        "content_hash": "hash-1",
+        "payload": build_payload(item, event_type="NEW", version_no=1),
+        "created_at_iso": T0.isoformat(),
+    }
+    with sqlite3.connect(db) as conn:
+        init_outbox(conn)
+        first = enqueue_notification(conn, **call)
+        duplicate = enqueue_notification(conn, **call)
+        second_version = enqueue_notification(
+            conn,
+            **{
+                **call,
+                "version_no": 2,
+                "event_type": "UPDATED",
+                "content_hash": "hash-2",
+                "payload": build_payload(item, event_type="UPDATED", version_no=2),
+            },
+        )
+        duplicate_v2 = enqueue_notification(
+            conn,
+            **{
+                **call,
+                "version_no": 2,
+                "event_type": "UPDATED",
+                "content_hash": "hash-2",
+                "payload": build_payload(item, event_type="UPDATED", version_no=2),
+            },
+        )
+    assert isinstance(first, int)
+    assert duplicate is None
+    assert isinstance(second_version, int) and second_version != first
+    assert duplicate_v2 is None
+    assert len(_pending(db)) == 2
 
 
 def test_generic_processing_creates_no_intent(tmp_path):

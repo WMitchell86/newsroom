@@ -18,6 +18,29 @@ from editor_assistant.workflow.ideas import (
 )
 from editor_assistant.workflow.modes import suggest_mode
 
+
+def test_save_cases_never_truncates_the_store_on_a_failure(tmp_path):
+    """The case store holds the only copy of an editor's final article.
+
+    Regression: it used to be truncated in place, so a failure part-way through
+    the rewrite left the store holding only the cases written before it.
+    """
+    path = tmp_path / "cases.jsonl"
+    cases_mod.save_cases([{"case_id": "LIV-01"}, {"case_id": "LIV-02"}], path)
+    before = path.read_text(encoding="utf-8")
+    with pytest.raises(TypeError):
+        cases_mod.save_cases([{"case_id": "LIV-03"}, {"boom": object()}], path)
+    assert path.read_text(encoding="utf-8") == before
+    assert json.loads(before.splitlines()[0])["case_id"] == "LIV-01"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_cases_round_trips(tmp_path):
+    path = tmp_path / "cases.jsonl"
+    cases_mod.save_cases([{"case_id": "LIV-01", "final_text": "Кирилица"}], path)
+    assert cases_mod.read_cases(path) == [{"case_id": "LIV-01", "final_text": "Кирилица"}]
+
+
 # ---------- fixtures ----------
 
 

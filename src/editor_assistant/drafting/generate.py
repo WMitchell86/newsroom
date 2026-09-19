@@ -604,6 +604,10 @@ def verify_claims_semantic(packet, draft_text, *, api_key=None, timeout=240, mod
         "claims": claims,
         "unsupported": unsupported,
         "parse_errors": errors,
-        "pass": len(unsupported) == 0 and errors == 0,
+        # Fail closed: a reply that yielded NO verdict at all (prose, an empty
+        # body, a refusal) is not a pass - nothing was actually checked, and
+        # reporting FACTUAL_GATE_PASS would claim factual verification that
+        # never happened. Tolerant of stray non-JSON lines around real verdicts.
+        "pass": bool(claims) and not unsupported and errors == 0,
         "model": (model or meta.get("model", MODEL_ID)),
     }

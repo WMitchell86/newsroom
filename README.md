@@ -6,10 +6,10 @@ write added since is the M1.4B Telegram **TEST-channel** alert, which stays
 dry-run by default (see below).
 
 Full harness rules: [`AI_HARNESS_EDITOR_ASSISTANT.md`](./AI_HARNESS_EDITOR_ASSISTANT.md).
-Current status: [`MILESTONE.md`](./MILESTONE.md). Deferred ideas: [`BACKLOG.md`](./BACKLOG.md).
+**Current state: [`CURRENT_STATE.md`](./CURRENT_STATE.md).** (`MILESTONE.md` and
+`handoff.md` are chronological history.) Deferred ideas: [`BACKLOG.md`](./BACKLOG.md).
 Alert format calibration (editor decisions pending): [`UX_AUDIT.md`](./UX_AUDIT.md).
-Session guides for AI agents: [`agents.md`](./agents.md) (how to work in this repo) ·
-[`handoff.md`](./handoff.md) (current state at session start).
+Session guides for AI agents: [`agents.md`](./agents.md) (how to work in this repo).
 
 ## Safety defaults
 
@@ -29,6 +29,49 @@ Note: `pip install -e .` is blocked on this machine (PEP 668 externally-managed
 environment) — always run tests and CLIs with `PYTHONPATH=src`.
 
 Expected: smoke + safety tests pass, no network calls, no external side effects.
+
+## M3A Editor Workbench (local browser UI)
+
+The editor-facing surface over the frozen workflow: review LIVE cases, inspect
+sources/warnings, edit, answer the structured review questions and finalize —
+in a browser instead of Markdown files.
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127.0.0.1:8123/
+PYTHONPATH=src python3 -m editor_assistant.workflow.workbench       # equivalent
+```
+
+Binds `127.0.0.1` by default; `--host`/`--port` exist, and `--host` is opt-in
+(there is **no auth** on this local MVP). Stdlib only — no framework, no build
+chain, no JavaScript required.
+
+The workbench lives under `workflow/`, which the M0 smoke guard's token scan
+`src/editor_assistant/{*.py,sources,notify}` does not cover — so it adds **no**
+new allow-listed exceptions to that guard. There is no publish capability in it.
+
+Safety: the AI draft is immutable; **Запази работно копие** is never
+finalization; **Финализирай редакторската версия** is an explicit, validated
+action that goes through `cases.record_editor_final`. If a newer AI draft landed
+since the working copy was started, finalization is refused (409) until the
+editor explicitly accepts the new version as the base. There is no publish path.
+See `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md`. Scripted smoke (against a copy of
+the store, never the live one): `PYTHONPATH=src python3 scripts/m3a_smoke.py` (25/25).
+
+## M3J Jev shadow evaluation (optional, no production authority)
+
+TypeSafe **Jev** is integrated only as a *shadow semantic judge* for evaluation:
+it answers narrow typed questions over public-source material and never decides
+newsworthiness, readiness, factual validity or publication. The SDK is an
+optional extra, so normal functionality is untouched when it (or the key) is absent.
+
+```bash
+pip install 'editor-assistant[jev]'                      # optional: typesafe-sdk
+PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --all
+```
+
+Without `TYPESAFE_API_KEY` the runner reports `JEV_CAPABILITY_UNAVAILABLE` and
+changes nothing. Frozen fixtures + method: `fixtures/evals/jev/README.md`.
+Adapter: `workflow/jev.py`. Report: `m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
 
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 
@@ -68,9 +111,12 @@ src/editor_assistant/  package (stdlib only)
   sources/             RSS fetch + parse + HTML description normalization
   state/               fingerprint, SQLite item_state, process_items
   notify/              outbox, renderer, telegram transport
+  workflow/            editorial workflow contracts + CLIs (incl. workbench/)
   *.py                 CLIs: check_state, fetch_live, send_telegram
 tests/                 offline tests; HTTP mocked where present
 fixtures/              RSS fixtures (Burgas council, HTML description)
+  evals/jev/           frozen M3J Jev shadow-evaluation corpus (public-source only)
+scripts/               tracked verification/eval tools (m3a_smoke.py, evals/jev_shadow_eval.py)
 .ai/skills/            harness skill files
 var/                   runtime SQLite (git-ignored, never committed)
 ```

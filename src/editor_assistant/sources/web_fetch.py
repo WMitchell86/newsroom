@@ -129,10 +129,17 @@ def fetch_page(
     )
     try:
         response = (opener or urllib.request.urlopen)(request, timeout=timeout)
-        status = getattr(response, "status", None) or 200
-        headers = response.headers or {}
-        content_type = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        body = response.read(max_bytes + 1)
+        try:
+            status = getattr(response, "status", None) or 200
+            headers = response.headers or {}
+            content_type = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            body = response.read(max_bytes + 1)
+        finally:
+            # Release the socket promptly instead of waiting for GC. Injected
+            # test openers may be plain stubs, so close only if offered.
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
     except WebFetchError:
         raise
     except urllib.error.HTTPError as exc:

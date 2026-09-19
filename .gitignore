@@ -14,6 +14,7 @@ build/
 .mypy_cache/
 .ruff_cache/
 .serena/
+.freebuff/
 var/
 
 # Local archive upload; not part of the build/runtime. Ignored specifically

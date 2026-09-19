@@ -181,8 +181,15 @@ def clean_excerpt(
 
 
 def attachment_label(url: str) -> str | None:
-    """§7 neutral extension label; None when no extension (never guessed)."""
-    last = url.rstrip("/").rsplit("/", 1)[-1]
+    """§7 neutral extension label; None when no extension (never guessed).
+
+    Query/fragment are dropped before the extension is read, so a real
+    document served as `doklad.pdf?download=1` is still labeled. The extension
+    must be in the last path segment: `…/download?file=doc.pdf` stays unlabeled
+    rather than guessing from the query.
+    """
+    path = url.split("?", 1)[0].split("#", 1)[0]
+    last = path.rstrip("/").rsplit("/", 1)[-1]
     if "." not in last:
         return None
     ext = last.rsplit(".", 1)[1].lower()
@@ -193,15 +200,18 @@ def attachment_summary(links: tuple[str, ...] | list[str]) -> tuple[list[tuple[s
     """§8/§9 first `MAX_ATTACHMENTS_SHOWN` labeled attachments, order preserved.
 
     Links without a known extension are skipped from the visible list (they
-    cannot be neutrally labeled), never reordered or renamed. Returns
-    (visible [(label, url)], hidden_count).
+    cannot be neutrally labeled), never reordered or renamed.
+
+    `hidden` counts only further LABELED attachments. It is rendered as "+N
+    още" under "📎 Документи:", so counting unlabeled links (pages, pictures)
+    as well would promise the editor documents that do not exist.
+
+    Returns (visible [(label, url)], hidden_count).
     """
-    visible: list[tuple[str, str]] = []
+    labeled: list[tuple[str, str]] = []
     for link in links:
         label = attachment_label(link)
         if label is not None:
-            visible.append((label, link))
-        if len(visible) == MAX_ATTACHMENTS_SHOWN:
-            break
-    hidden = len(links) - len(visible)
-    return visible, hidden
+            labeled.append((label, link))
+    visible = labeled[:MAX_ATTACHMENTS_SHOWN]
+    return visible, len(labeled) - len(visible)

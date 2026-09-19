@@ -4,6 +4,65 @@ Operational-verification milestone only. No code changes in this step:
 no ingestion, renderer, Telegram transport, state, or polling-code changes.
 No scheduling. No automatic delivery.
 
+## 0. Editor Workbench (M3A, local browser UI)
+
+For editorial review of LIVE workflow cases (draft → sources → editor final)
+without editing Markdown files:
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127.0.0.1:8123/
+```
+
+Binds **127.0.0.1** by default; `--host` is opt-in and there is **no auth** on
+this local MVP. `POST /quit` is refused unless `WB_ALLOW_QUIT=1` (test-only).
+
+Editor rules:
+
+- **Запази работно копие** stores a non-authoritative working copy only
+  (`var/editorial_workflow/editor_working/`); it never finalizes, publishes,
+  changes readiness or touches the AI draft.
+- **Финализирай редакторската версия** is the explicit, validated finalization
+  (`cases.record_editor_final`). It is refused if the case is already final
+  (409) or if a newer AI draft was generated since the working copy was started
+  (409: „Междувременно е генерирана по-нова AI версия…“). To move past it,
+  tick **„Приемам новата AI версия за основа“** in the workspace and save
+  (an explicit editor action; a plain save never re-bases).
+- A **finalized** case shows the immutable final result and its editor metrics:
+  no editor workspace, and saving a working copy against it is refused.
+- No-draft cases (`NO_PUBLISHABLE_ANGLE`, `RESEARCH_MORE`,
+  `EDITOR_DECISION_REQUIRED`) show no article editor; only a decision can be
+  recorded. M3A does not execute research.
+- Actions are appended to `var/editorial_workflow/workbench_actions.jsonl`
+  (`{action, case_id, timestamp}`).
+
+Smoke check against a copy of the store (never the live one):
+
+```bash
+PYTHONPATH=src python3 scripts/m3a_smoke.py   # 25/25, writes only var/wb_smoke/
+```
+
+See `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md`.
+
+## 0b. Jev shadow evaluation (M3J, no production authority)
+
+Jev is an **evaluation-only** semantic judge. It does not touch the editorial
+workflow, drafts, readiness or any runtime state; it reads frozen public-source
+fixtures and appends its own results under the ignored `var/jev_eval/`.
+
+```bash
+set -a; . ./.env; set +a                    # only if TYPESAFE_API_KEY lives in .env
+PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --experiment corroboration
+PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --all
+PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --summary --all
+```
+
+Without `TYPESAFE_API_KEY` (or the optional `typesafe-sdk` extra) the run
+reports `JEV_CAPABILITY_UNAVAILABLE` and changes nothing. The runner is
+resumable: re-running skips cases already evaluated. Never edit the fixtures to
+make a result look better; add a new fixture version instead.
+
+See `m3/review/M3J_JEV_SHADOW_EVALUATION.md` and `fixtures/evals/jev/README.md`.
+
 ## 1. Normal manual cycle
 
 ```text

@@ -38,6 +38,28 @@ def _parse() -> list:
     return parse_rss_feed(FIXTURE.read_bytes(), source=SOURCE, fetched_at=FETCHED_AT)
 
 
+def test_empty_script_element_does_not_truncate_the_body():
+    """End-to-end regression for the self-closing <script/> description bug.
+
+    A description carrying real child markup has its children re-serialized by
+    ElementTree, which renders an empty <script></script> as `<script />`.
+    That used to put the HTML normalizer's skip depth out of balance and drop
+    every following text chunk, so the stored body (and therefore the
+    fingerprint) was silently truncated.
+    """
+    feed = (
+        '<rss version="2.0"><channel><item>'
+        "<title>Заглавие</title><link>https://example.bg/1</link>"
+        "<description><p>Първи абзац.</p><script></script><p>ВТОРИ АБЗАЦ.</p></description>"
+        "<pubDate>Fri, 11 Sep 2026 08:30:00 +0300</pubDate>"
+        "</item></channel></rss>"
+    )
+    (item,) = parse_rss_feed(feed, source=SOURCE, fetched_at=FETCHED_AT)
+    assert item.body_text is not None
+    assert "Първи абзац." in item.body_text
+    assert "ВТОРИ АБЗАЦ." in item.body_text
+
+
 def test_valid_fixture_parses_successfully():
     items = _parse()
     assert len(items) == 2

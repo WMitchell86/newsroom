@@ -23,6 +23,26 @@ T0 = datetime(2026, 9, 12, 10, 0, 0, tzinfo=timezone.utc)
 CFG = tg.TelegramConfig(bot_token="TESTTOKEN123", chat_id="999")
 
 
+def test_unexpected_transport_failure_never_leaks_the_token():
+    """Any failure — not just the expected urllib ones — must be redacted.
+
+    An unhandled exception type (e.g. http.client.InvalidURL) would stringify
+    the request URL, and the bot token lives in that URL's path.
+    """
+
+    class _Boom(Exception):
+        pass
+
+    def opener(request, timeout=None):
+        raise _Boom(f"cannot open {request.full_url}")
+
+    with pytest.raises(tg.TelegramSendError) as exc:
+        tg.send_message(CFG, "здравей", opener=opener)
+    message = str(exc.value)
+    assert CFG.bot_token not in message
+    assert "_Boom" in message
+
+
 class _Resp:
     def __init__(self, payload: bytes):
         self._payload = payload

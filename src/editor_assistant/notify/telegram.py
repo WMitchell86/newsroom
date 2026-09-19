@@ -80,6 +80,11 @@ def send_message(
         raise _redacted_error(f"HTTP {exc.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise _redacted_error(f"{type(exc).__name__}") from None
+    except Exception as exc:  # noqa: BLE001 - no failure may leak the token
+        # Any other failure (e.g. http.client.InvalidURL / ValueError) would
+        # stringify the request URL, which contains the token. Fail closed:
+        # report the exception type only.
+        raise _redacted_error(type(exc).__name__) from None
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):

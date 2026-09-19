@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from editor_assistant.drafting import generate as gen
 from editor_assistant.drafting.evidence import (
     _sentences,
     classify_scope,
@@ -16,7 +17,12 @@ from editor_assistant.drafting.evidence import (
     read_packets,
     validate_packet,
 )
-from editor_assistant.drafting.generate import _parse_semantic, _semantic_judge_prompt, draft_id_for
+from editor_assistant.drafting.generate import (
+    _parse_semantic,
+    _semantic_judge_prompt,
+    draft_id_for,
+    verify_claims_semantic,
+)
 from editor_assistant.drafting.prompt import PROMPT_VERSION, _sanitize_style_rule, build_prompt
 from editor_assistant.style.profiles import validate_profile
 from editor_assistant.style.store import read_jsonl
@@ -127,6 +133,46 @@ def test_semantic_judge_prompt_and_parse():
     claims, _errs = _parse_semantic(raw)
     assert claims[0]["verdict"] == "UNSUPPORTED" and claims[0]["issue"] == "temporal_rebinding"
     assert claims[1]["verdict"] == "SUPPORTED" and claims[1]["issue"] == "none"
+
+
+def _mini_packet():
+    fact = make_fact("EV-T-f1", "В него ще участват 60 деца.", scope="current_event")
+    return {
+        "evidence_id": "EV-T",
+        "source_url": "u",
+        "source_type": "t",
+        "observed_at": "2026-09-14",
+        "source_headline": "h",
+        "facts": [fact],
+        "people": [],
+        "organizations": [],
+        "places": [],
+        "dates": [],
+        "numbers": [],
+        "quotes": [],
+        "unknowns": [],
+        "source_text": "В него ще участват 60 деца.",
+    }
+
+
+def test_semantic_gate_fails_closed_when_the_judge_returns_no_verdicts(monkeypatch):
+    """No verdicts parsed must never be reported as a factual pass.
+
+    Regression: a judge reply of prose / an empty body / a refusal yielded zero
+    claims and zero parse errors, so `pass` was True and the case was stamped
+    FACTUAL_GATE_PASS with nothing actually verified.
+    """
+    for raw in ("Изглежда всичко е подкрепено.", "", "   \n  ", "Не мога да проверя това."):
+        monkeypatch.setattr(gen, "call_model", lambda *a, _raw=raw, **k: (_raw, {"model": "m"}))
+        result = verify_claims_semantic(_mini_packet(), "Едно изречение.")
+        assert result["claims"] == []
+        assert result["pass"] is False
+
+
+def test_semantic_gate_passes_with_real_supported_verdicts(monkeypatch):
+    raw = '{"sentence": "Едно изречение.", "verdict": "SUPPORTED", "issue": "none"}'
+    monkeypatch.setattr(gen, "call_model", lambda *a, **k: (raw, {"model": "m"}))
+    assert verify_claims_semantic(_mini_packet(), "Едно изречение.")["pass"] is True
 
 
 # 5. regenerated artifacts

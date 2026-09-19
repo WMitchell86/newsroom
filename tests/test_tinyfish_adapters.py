@@ -273,8 +273,12 @@ def test_guard_allows_public_phrase_and_guards_purpose(patch_urlopen):
     def fake(request, timeout=None):
         seen["body"] = json.loads(request.data.decode("utf-8"))
         return _FakeOK(
-            {"results": [{"url": "https://burgas.bg/report.pdf", "title": "Отчет", "text": "бюджет"}],
-             "errors": []}
+            {
+                "results": [
+                    {"url": "https://burgas.bg/report.pdf", "title": "Отчет", "text": "бюджет"}
+                ],
+                "errors": [],
+            }
         )
 
     patch_urlopen(fake)
@@ -329,7 +333,9 @@ def test_fetch_batch_limit_and_errors_are_explicit(patch_urlopen):
         fetcher.fetch_many([])
 
     def fake(request, timeout=None):
-        return _FakeOK({"results": [], "errors": [{"url": "https://example.com/x", "error": "timeout"}]})
+        return _FakeOK(
+            {"results": [], "errors": [{"url": "https://example.com/x", "error": "timeout"}]}
+        )
 
     patch_urlopen(fake)
     with pytest.raises(web_fetch.WebFetchError) as excinfo:
@@ -461,6 +467,3 @@ def test_benchmark_helpers_shape_and_derivation():
     assert dup["dup_ratio"] == "6/7"
     empty = BENCH.derive_cells({"results": []}, 7)
     assert empty["results_total"] == 0 and empty["results_used"] == 0
-
-
-

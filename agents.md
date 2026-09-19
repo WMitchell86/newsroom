@@ -7,7 +7,7 @@ Deterministic RSS-monitoring assistant for the editor-in-chief of chernomorie-bg
 (Burgas Municipal Council feed): parse → normalize → fingerprint → SQLite state →
 durable notification outbox → Telegram TEST-channel delivery. Milestone-driven,
 stdlib-only. Normative harness rules: `AI_HARNESS_EDITOR_ASSISTANT.md` (Bulgarian).
-Current state: `handoff.md`. Current gate: `MILESTONE.md` (top section).
+**Current state: `CURRENT_STATE.md`** (authoritative).
 
 ## Non-negotiables
 - `AUTO_PUBLISH=false`, `DRY_RUN=true` are hard defaults; `config.py` forces
@@ -69,8 +69,11 @@ var/            runtime SQLite (git-ignored, never committed)
 - Tests must never touch the network — mock the transport (see `tests/test_telegram*.py`).
 
 ## Session workflow
-1. Read `handoff.md` (current state) and the top section of `MILESTONE.md` (current gate).
-2. Run the full suite before changing anything; confirm 95+ green.
+1. Read, in order: **`CURRENT_STATE.md`** → `agents.md` → the current
+   milestone/report. Read `handoff.md` / `MILESTONE.md` **only for history** —
+   their older sections and any old `HARNESS_PROMPT_*.md` are not current
+   instructions.
+2. Run the full suite before changing anything; confirm 500+ green.
 3. Implement the smallest next step; keep scope locked; keep conventions above.
 4. Gate: `ruff check` + full `pytest` + a manual end-to-end proof of the change (CLI or script).
 5. Update `MILESTONE.md` and `handoff.md`, commit with the repo identity, STOP for review.

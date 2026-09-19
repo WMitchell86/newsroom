@@ -1,3 +1,108 @@
+## M3A Stabilization + M3J Jev Shadow Evaluation — 2026-09-19 — BUILT, OFFLINE-TESTED, AWAITING REVIEW
+
+Reliability + evaluation-only milestone. No editorial logic, rubric, routing,
+drafting or publishing changed.
+
+Verdicts:
+
+```text
+M3A_STABILIZATION         = PROVEN
+JEV_INTEGRATION           = READY
+JEV_CORROBORATION         = NOT_EVALUATED    (no TYPESAFE_API_KEY)
+JEV_GROUNDING             = NOT_EVALUATED
+JEV_ANGLE_SIGNALS         = NOT_EVALUATED
+JEV_PRODUCTION_AUTHORITY  = NONE
+EDITORIAL_EFFECTIVENESS   = PENDING
+```
+
+Part A (stabilization): hermetic offline tests — `tests/conftest.py` installs an
+in-test DNS resolver so `web_fetch.guard_target()` never touches real DNS while
+the SSRF guard itself is unchanged (suite now passes with DNS forced to fail);
+one canonical live-evidence store `workflow/live_store.py` (atomic,
+deterministic, same schema) now used by both the CLI and the Workbench;
+root-level `CURRENT_STATE.md` added as the authoritative state doc with
+`agents.md` read order updated; `tmp/m3a_smoke.py` promoted to tracked
+`scripts/m3a_smoke.py` (25/25, live store byte-identical). M3A files not
+style-refactored.
+
+Part B–J (M3J, shadow only): optional `typesafe-sdk` extra + thin adapter
+`workflow/jev.py` (typed questions, probability/confidence preservation,
+explicit `JEV_CAPABILITY_UNAVAILABLE` / `JEV_PROVIDER_ERROR` with key redaction,
+zero editorial authority); frozen public-source fixtures under
+`fixtures/evals/jev/` (24 angles incl. the 7 disagreements, 109 fact-grounding
+rows retained+dropped, 16 corroboration candidates with honest manual labels);
+resumable runner `scripts/evals/jev_shadow_eval.py` writing to ignored
+`var/jev_eval/`; +31 offline tests. No live Jev call was possible (no key), so
+effectiveness stays `NOT_EVALUATED`.
+
+Tests: 481 → **512 passed** (offline, DNS-unavailable-safe). Reports:
+`m3/review/M3A_STABILIZATION_REPORT.md`, `m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
+**STOP** — awaiting review; no M3B/M3C/CMS/LIVE 6–10/rule changes.
+
+## M3A Editor Workbench MVP — 2026-09-18 — BUILT, TESTED, AWAITING REVIEW
+
+Product/UX milestone (not another AI-quality milestone): a minimal **Editor
+Workbench** so the editor can review and finalize articles in a browser instead
+of editing Markdown files.
+
+Verdict:
+
+```text
+EDITOR_WORKBENCH_ENGINEERING        = PROVEN (offline tests + scripted smoke)
+EDITOR_WORKBENCH_EDITORIAL_EFFECTIVENESS = PENDING (no real editor has used it)
+EDITORIAL_EFFECTIVENESS             = PENDING (unchanged)
+```
+
+Architecture: a thin service layer (`workflow/workbench/`) over the **unchanged**
+frozen contracts. Every canonical write goes through the validated functions the
+CLI already uses (`cases.record_editor_final` + `save_cases`;
+`readiness.apply_editor_override` for decisions); the UI reimplements no
+ewsworthiness, factual gate, readiness or case state. Stdlib `http.server` +
+hand-rolled escaped HTML — no framework, no build chain, no JS required.
+
+- One command: `PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench`
+  (or `python3 -m editor_assistant.workflow.workbench`); `--host` defaults to
+  **127.0.0.1** and is opt-in with a warning (no auth on this local MVP).
+- Pages: queue (`/`, filters Всички · За редакция · Нужна информация · Нужно
+  решение · Без достатъчна новина · Финализирани), case detail (`/case/{id}`)
+  with four surfaces (immutable draft / sources / status+warnings / editor
+  workspace), and POST `save` · `finalize` · `decision`. Bulgarian-first: every
+  stored enum id stays visible next to its Bulgarian label.
+- Non-authoritative editor working copy in
+  `var/editorial_workflow/editor_working/{CASE}.json` (atomic writes,
+  `base_draft_id` staleness binding). **Save ≠ Finalize** (separate endpoints;
+  save can never finalize, publish, change readiness or mutate the AI draft).
+  Stale finalization → HTTP 409 with the Bulgarian „по-нова AI версия“ banner,
+  and the workspace offers the explicit **„Приемам новата AI версия за основа“**
+  re-base so staleness is never a dead end (no silent re-base, no locking).
+- Special no-draft cases are rendered generically from stored readiness status
+  (never hardcoded ids), including the evidence-only `NO_PUBLISHABLE_ANGLE` lead
+  (`LIV-06-EVIDENCE`, no case row): no article editor, decision-only recording.
+- Append-only minimal audit: `var/editorial_workflow/workbench_actions.jsonl`.
+- Tests: `tests/test_workbench.py` (+74; suite 394 → **468 passed**), offline,
+  env-isolated, plus a real localhost HTTP server on an ephemeral port. Ruff
+  check + format clean on the new files. Scripted smoke `tmp/m3a_smoke.py`:
+  **25/25**, run against a copy of the store; the live store stays byte-identical.
+- Bugs found and fixed while finishing (all in the new surface): dead case
+  routing (`/case/{id}` returned 404 for everything), queue-filter 500, redirects
+  losing `Location`, an unsubmittable finalize form (missing required
+  `editor_outcome`/`editing_weight`), a working-copy answer-prefix mismatch,
+  `prefer_ai_start` leaking into `readiness_answers`, invisible evidence-only
+  special cases, and a missing `threading` import.
+- Adversarial review pass on the finished surface fixed eight more: a **stale
+  guard bypass reachable through the UI** (only the submitted `base_draft_id`
+  was compared), a re-base action that existed in the service layer but had no
+  caller (permanently blocked finalization), a corrupt working copy that 500'd
+  every page for its case, a recorded „не публикувай“ decision bouncing the case
+  back into «За редакция», empty-body finalization, a finalized case still
+  offering an editor workspace, the half-built §16/§17 rendering (raw
+  `seg1@t=08:42.250` locators, unused `TRUST_LABELS`), and a queue bucket that
+  contradicted the surfaces its case page offered.
+
+Report: `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md`. Pre-implementation plan:
+`m3/review/M3A_PLAN.md`. **STOP** — no M3B YouTube adapter, no M3C automatic
+enrichment, no LIVE 6–10, no CMS publishing, no editorial-rule changes.
+
 ## M2S-R4 TinyFish Search ADOPTED — Routing Implemented — 2026-09-18 — EDITOR DECISION ON MEASURED DATA
 
 Editor routing decision on the M2S-R3b keyed benchmark; implemented and

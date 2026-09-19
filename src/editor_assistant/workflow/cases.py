@@ -15,6 +15,8 @@ GROUND_TRUTH_DRYRUN cases and is aggregated only for LIVE cases
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from editor_assistant.workflow.diff import classify_diff, diff_draft_final
@@ -295,12 +297,33 @@ def lineage_problems(cases, ideas, evidence_rows=()):
 
 
 def save_cases(cases, path):
+    """Rewrite the case store durably.
+
+    This file holds the only copy of an editor's finalized article. The previous
+    implementation truncated it in place, so a crash or an unserializable case
+    mid-rewrite destroyed every case in it. Serialize first, then publish with a
+    same-directory temp file + `os.replace`, so readers see either the old file
+    or the complete new one - never a partial one.
+    """
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", encoding="utf-8") as fh:
-        for case in cases:
-            fh.write(json.dumps(case, ensure_ascii=False, sort_keys=True) + "\n")
+    payload = "".join(json.dumps(case, ensure_ascii=False, sort_keys=True) + "\n" for case in cases)
+    _atomic_write_text(out, payload)
     return out
+
+
+def _atomic_write_text(path, data):
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def read_cases(path):

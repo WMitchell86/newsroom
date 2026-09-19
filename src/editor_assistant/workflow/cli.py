@@ -15,6 +15,7 @@ Commands:
   review [outdir]                write editor review files (draft + scorecard)
   finalize <case_id> FILE        record the editor final from a JSON file
   report                         real-world metrics (LIVE cases only)
+  workbench                      M3A: local browser Editor Workbench (127.0.0.1)
 
 There is deliberately NO publish command: the workflow ends at the editor.
 Track A (dry-run vs published articles) never feeds time/weight/adoption.
@@ -27,7 +28,7 @@ import json
 import sys
 from pathlib import Path
 
-from editor_assistant.workflow import angles
+from editor_assistant.workflow import angles, live_store
 from editor_assistant.workflow import cases as cases_mod
 from editor_assistant.workflow import live as live_mod
 from editor_assistant.workflow import readiness as readiness_mod
@@ -142,24 +143,13 @@ def cmd_request_draft(args):
 
 
 def _live_rows():
-    if not LIVE_EVIDENCE_PATH.exists():
-        return {}
-    rows = {}
-    for line in LIVE_EVIDENCE_PATH.open(encoding="utf-8"):
-        if line.strip():
-            p = json.loads(line)
-            rows[p["evidence_id"]] = p
-    return rows
+    """Canonical store reader (workflow/live_store.py)."""
+    return live_store.read_live_evidence(LIVE_EVIDENCE_PATH)
 
 
 def _save_live_row(row):
-    rows = _live_rows()
-    rows[row["evidence_id"]] = row
-    out = LIVE_EVIDENCE_PATH
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", encoding="utf-8") as fh:
-        for p in sorted(rows.values(), key=lambda r: r["evidence_id"]):
-            fh.write(json.dumps(p, ensure_ascii=False, sort_keys=True) + "\n")
+    """Canonical store writer (workflow/live_store.py): atomic, deterministic."""
+    live_store.save_live_evidence_row(row, LIVE_EVIDENCE_PATH)
 
 
 def _idea_by_id(idea_id, ideas):
@@ -787,6 +777,12 @@ def main(argv=None):
     p.add_argument("file")
     p.set_defaults(func=cmd_finalize)
     sub.add_parser("report", help="real-world workflow metrics").set_defaults(func=cmd_report)
+
+    # M3A Editor Workbench
+    from editor_assistant.workflow.workbench.cli import add_workbench_subcommand
+
+    add_workbench_subcommand(sub)
+
     args = parser.parse_args(argv)
     args.func(args)
 

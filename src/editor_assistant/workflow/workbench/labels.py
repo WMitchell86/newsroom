@@ -1,0 +1,156 @@
+"""M3A: Bulgarian UI labels for stored internal statuses.
+
+Storage keeps the existing stable enum vocabulary (harness §9); the UI
+translates. Nothing here mutates any stored value.
+"""
+
+from __future__ import annotations
+
+import re
+
+READINESS_LABELS = {
+    "DRAFT_READY": "Готово за редакторски преглед",
+    "RESEARCH_MORE": "Нужна е още информация",
+    "NO_PUBLISHABLE_ANGLE": "Няма достатъчно силна новина",
+    "EDITOR_DECISION_REQUIRED": "Нужно е редакторско решение",
+}
+
+GATE_LABELS = {
+    "FACTUAL_GATE_PASS": "Фактологичната проверка е премината",
+    "FACTUAL_GATE_REVIEW": "Нужна е проверка на фактите",
+}
+
+READINESS_OUTCOME_LABELS = {
+    "ANGLE_ACCEPTED": "Ъгълът е приет",
+    "ANGLE_CHANGED": "Ъгълът е променен",
+    "NO_STORY_CONFIRMED": "Потвърдено: няма новина",
+    "RESEARCH_REQUESTED": "Поискано е още проучване",
+}
+
+# The four `readiness_answers` keys the canonical contract accepts
+# (cases.READINESS_ANSWER_KEYS). `prefer_ai_start` is a separate contract field
+# (`record_editor_final(prefer_ai_start=...)`) and must NOT be sent inside
+# `readiness_answers`, so it lives in its own label block below.
+ANSWER_LABELS = {
+    "would_publish": "Бихте ли публикували материал по тази тема?",
+    "angle_right": "Правилен ли е избраният ъгъл?",
+    "headline_strong": "Достатъчно силно ли е заглавието?",
+    "opening_engaging": "Грабва ли началото вниманието?",
+}
+
+PREFER_AI_START_LABEL = "Бихте ли предпочели да започнете от AI текста?"
+
+# (stored enum value, Bulgarian label) — YES | MIXED | NO per the contract.
+PREFER_AI_START_VALUES = (
+    ("YES", "Да"),
+    ("MIXED", "Частично"),
+    ("NO", "Не"),
+)
+
+PREFER_AI_START_LABELS = dict(PREFER_AI_START_VALUES)
+
+VALUE_LABELS = {
+    "YES": "Да",
+    "NO": "Не",
+    "CHANGE": "Друг ъгъл",
+}
+
+EDITING_WEIGHT_LABELS = {
+    "LIGHT": "Лека",
+    "MODERATE": "Умерена",
+    "HEAVY": "Сериозна",
+    "REWRITE": "Пренаписване",
+    "REJECTED": "Отхвърлен материал",
+}
+
+TIME_BUCKET_LABELS = {
+    "<5 min": "под 5 мин",
+    "5-15 min": "5–15 мин",
+    "15-30 min": "15–30 мин",
+    ">30 min": "над 30 мин",
+}
+
+EDITOR_OUTCOME_LABELS = {
+    "ACCEPTED_FOR_EDIT": "Приет за редакция",
+    "REJECTED": "Отхвърлен",
+    "MIXED": "Частично",
+}
+
+MODE_LABELS = {
+    "MODE_STANDARD_NEWS": "Стандартна новина",
+    "MODE_BRIEF": "Кратка бележка",
+    "MODE_EVENT_PREVIEW": "Преглед на събитие",
+    "MODE_CULTURE_FEATURE": "Културен материал",
+}
+
+VOICE_LABELS = {
+    "VOICE_HOUSE": "Глас на сайта (HOUSE)",
+    "VOICE_DESISLAVA_RECENT": "Глас Десислава (експериментален)",
+}
+
+TRACK_LABELS = {
+    "LIVE_EDITORIAL_PILOT": "LIVE пилотен случай",
+    "GROUND_TRUTH_DRYRUN": "Сравнителен еталон (без усилийни показатели)",
+}
+
+AUTHORITY_LABELS = {
+    "PRIMARY": "Основен източник",
+    "CORROBORATING": "Потвърждаващ източник",
+    "DISCOVERY_ONLY": "Само за откриване (не доказателство)",
+}
+
+TRUST_LABELS = {
+    "AUTO_CAPTION": "Автоматичен YouTube транскрипт",
+    "HUMAN_TRANSCRIPT": "Човешка транскрипция",
+    "HUMAN_VERIFIED": "Проверена транскрипция",
+    "OFFICIAL_VERBATIM": "Официален дословен запис",
+}
+
+DECISION_LABELS = {
+    "FORCE_BRIEF_FROM_VERIFIED": "Продължи с наличното (кратка бележка от проверените данни)",
+    "REQUEST_MORE_RESEARCH": "Поискай още проучване",
+    "REJECT_STORY": "Не публикувай",
+}
+
+FILTERS = (
+    ("all", "Всички"),
+    ("edit", "За редакция"),
+    ("research", "Нужна информация"),
+    ("decision", "Нужно решение"),
+    ("nostory", "Без достатъчна новина"),
+    ("finalized", "Финализирани"),
+)
+
+
+def readiness_label(status):
+    return READINESS_LABELS.get(status or "", status or "—")
+
+
+def gate_label(gate):
+    return GATE_LABELS.get(gate or "", gate or "—")
+
+
+def trust_label(trust):
+    return TRUST_LABELS.get(trust or "", trust or "")
+
+
+# ---------- display formatting (harness §16: human time, never milliseconds) ----------
+
+_LOCATOR_TIME = re.compile(
+    r"@t=(\d{1,2}:\d{2})(?::\d{2})?(?:\.\d+)?(?:[-\u2013](\d{1,2}:\d{2})(?::\d{2})?(?:\.\d+)?)?"
+)
+
+
+def fmt_locator(locator):
+    """'seg1@t=08:42' -> '08:42'; 'seg1@t=08:42.250-09:17' -> '08:42–09:17'.
+
+    Internal `segN@t=` wrappers and millisecond values stay hidden; anything
+    unrecognized is returned unchanged.
+    """
+    text = str(locator if locator is not None else "")
+    match = _LOCATOR_TIME.search(text)
+    if not match:
+        return text
+    if match.group(2):
+        return f"{match.group(1)}\u2013{match.group(2)}"
+    return match.group(1)

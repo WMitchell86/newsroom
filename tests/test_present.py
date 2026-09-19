@@ -16,6 +16,7 @@ from editor_assistant.notify.present import (
     DISPLAY_EXCERPT_LIMIT,
     MAX_ATTACHMENTS_SHOWN,
     SOURCE_DISPLAY_NAMES,
+    attachment_label,
     attachment_summary,
     clean_body_text,
     clean_excerpt,
@@ -188,6 +189,45 @@ def test_fourteen_attachments_compact():
     assert "+11 още" in msg
     assert "prilozhenie-1.xls" in msg
     assert "prilozhenie-2.xls" not in msg
+
+
+def test_hidden_count_only_counts_real_attachments():
+    """ "+N още" must not promise documents that do not exist.
+
+    Regression: every non-attachment link (a page, a picture) was counted as
+    hidden, so a fully displayed attachment list still claimed more documents.
+    """
+    links = (
+        "https://x.org/a/doc1.pdf",
+        "https://x.org/news/2026/story",
+        "https://x.org/b/doc2.docx",
+        "https://x.org/c/photo.jpg",
+    )
+    visible, hidden = attachment_summary(links)
+    assert [label for label, _ in visible] == ["PDF", "DOCX"]
+    assert hidden == 0
+    msg = render_message(build_payload(_item(body_links=links), event_type="NEW", version_no=1))
+    assert "още" not in msg
+
+
+def test_more_labeled_attachments_than_shown_are_reported():
+    links = (
+        "https://x.org/a.pdf",
+        "https://x.org/news/2026/story",
+        "https://x.org/b.pdf",
+        "https://x.org/c.pdf",
+        "https://x.org/d.pdf",
+    )
+    visible, hidden = attachment_summary(links)
+    assert len(visible) == 3
+    assert hidden == 1
+
+
+def test_attachment_with_query_string_is_still_labeled():
+    assert attachment_label("https://x.org/uploads/doklad.pdf?download=1") == "PDF"
+    assert attachment_label("https://x.org/uploads/doklad.pdf#page=2") == "PDF"
+    # The extension must come from the path, never guessed from the query.
+    assert attachment_label("https://x.org/download?file=doc.pdf") is None
 
 
 def test_attachment_order_preserved():
