@@ -4,13 +4,16 @@ Parts B–L of `m3/HARNESS_PROMPT_M3A_STABILIZE_M3J_JEV.md`, now with a **live**
 run against TypeSafe Jev.
 
 ```text
-JEV_INTEGRATION          = READY
-JEV_CORROBORATION        = NOT_PROMISING   (as a standalone corroboration decision on this sample)
-JEV_GROUNDING            = PROMISING
-JEV_ANGLE_SIGNALS        = PROMISING
+JEV_INTEGRATION          = PROVEN           (149/149 calls, stable SDK, probabilities, resume, 0 errors)
+JEV_GROUNDING            = PROMISING_STRONG (corrects deterministic false negatives)
+JEV_ANGLE_SEMANTICS      = PROMISING        (CONCRETE_ACTION vs ROUTINE_PROCESS boundary)
+JEV_CORROBORATION        = NOT_SUITABLE_AS_STANDALONE_VERIFIER
 JEV_PRODUCTION_AUTHORITY = NONE
 EDITORIAL_EFFECTIVENESS  = PENDING
 ```
+
+`JEV_INTEGRATION = PROVEN` means the integration is proven, **not** that the
+model is proven for production.
 
 No production authority is granted from one benchmark run. No rubric, threshold,
 routing or drafting behaviour changed. All results are shadow artifacts under
@@ -112,11 +115,10 @@ mostly **right** where the deterministic lexical gate was wrong —
 decision-status phrasing. These are deterministic **false negatives**, not Jev
 false accepts.
 
-One retained fact (`xvsdi_j7s5c-f007`, confidence 0.53) was rejected by Jev —
-a possible false negative worth manual review. Conclusion: Jev is a promising
-shadow of the expensive borderline LLM judge and a useful second opinion on the
-number/morphology/decision-status cases the lexical gate mishandles. Still no
-authority.
+One retained fact (`xvsdi_j7s5c-f007`) was rejected by Jev — adjudicated below.
+Conclusion: Jev is a promising shadow of the expensive borderline LLM judge and
+a useful second opinion on the number/morphology/decision-status cases the
+lexical gate mishandles. Still no authority.
 
 ### Experiment C — angle signals: PROMISING
 
@@ -141,6 +143,30 @@ question — is therefore a real, measurable Jev signal. The “concrete-but-
 incomplete” hypothesis shows up as `CONCRETE_ACTION` + `evidence_completeness
 INSUFFICIENT` + `affected_party PRESENT`. Treat as a **supplemental** signal
 only; labels are hypotheses, not ground truth.
+
+### Manual label audit (editor-requested)
+
+Two cases were inspected by hand, not to tune Jev but to test **our own labels**:
+
+**`xvsdi_j7s5c-f007`** — claim `„Гласувано е за предложения дневен ред.“`, support
+`„така предложения дневен ред, моля да гласува за“`. Deterministic gate:
+`GROUNDED` (lexical coverage 1.0). Jev: `NOT_SUPPORTED` (0.65),
+`decision_status_relation = OVERSTATED`.
+→ The passage is the chair **inviting** a vote, not a record that it happened.
+**Jev is right; the deterministic gate produced a lexical false positive.**
+
+**`7k-FZXrcmq8:concessions_funding`** — proposition about concession-fund
+distribution (`Приложение 12`, 50%). Deterministic `NO_PUBLISHABLE_ANGLE`; LLM
+shadow `PUBLISHABLE_ANGLE`; manual hypothesis `NEEDS_RESEARCH`. Jev:
+`STATIC_BACKGROUND` (0.63), `evidence_completeness INSUFFICIENT`,
+`current_change ABSENT`, `affected_party ABSENT`.
+→ The supporting facts describe a **standing financial mechanism**, not a
+concrete action; Jev's `STATIC_BACKGROUND + INSUFFICIENT` reads better than the
+manual `NEEDS_RESEARCH`. **Our own manual label is doubtful here.**
+
+Both flips favour Jev. The practical lesson is not “trust Jev” but that the
+deterministic gate is a **comparison baseline, not ground truth**, and the
+manual-set quality must be re-checked before any threshold is calibrated.
 
 ## I/J — Runner + tests
 
@@ -172,8 +198,14 @@ No thresholds set; no production authority
 
 ## STOP
 
-Do not continue into M3B YouTube intake, M3C automatic enrichment, CMS
-publishing, LIVE 6–10, rubric/threshold changes, Jev production authority, or
-editor-profile learning. The next natural step is a larger labeled corroboration
-set and manual review of the grounding disagreements — but that is an editor
-decision.
+**M3J is frozen.** Jev stays a shadow measurement layer; it is not built around
+any further. No M3B YouTube intake, M3C automatic enrichment, CMS publishing,
+LIVE 6–10, rubric/threshold changes, Jev production authority, or editor-profile
+learning happens without a new milestone decision.
+
+Recommended next direction (editor decision): freeze Jev, then start **M3B
+(YouTube URL → transcript)** and let Jev keep measuring real semantic-rescue
+cases on new recordings rather than adding further synthetic evals. A future
+`M3J.1 — Semantic Rescue Evaluation` would test
+`deterministic borderline/reject → Jev grounding → manual adjudication` on
+~100–200 borderline cases before Jev could become a second-stage verifier.

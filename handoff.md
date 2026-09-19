@@ -4,15 +4,17 @@
 
 Verified: **512 offline tests** (was 481), `ruff check`/`format --check` clean on
 `src tests scripts`, M3A smoke **25/25**. Verdicts: `M3A_STABILIZATION = PROVEN` ·
-`JEV_INTEGRATION = READY` · `JEV_GROUNDING = PROMISING` · `JEV_ANGLE_SIGNALS =
-PROMISING` · `JEV_CORROBORATION = NOT_PROMISING` (this sample) ·
-`JEV_PRODUCTION_AUTHORITY = NONE` · `EDITORIAL_EFFECTIVENESS = PENDING`.
+`JEV_INTEGRATION = PROVEN` · `JEV_GROUNDING = PROMISING_STRONG` ·
+`JEV_ANGLE_SEMANTICS = PROMISING` · `JEV_CORROBORATION =
+NOT_SUITABLE_AS_STANDALONE_VERIFIER` · `JEV_PRODUCTION_AUTHORITY = NONE` ·
+`EDITORIAL_EFFECTIVENESS = PENDING`. **M3J frozen.**
 
 Live Jev (SDK 0.6.0, `jev-1.13.0`, 149/149 calls OK): grounding corrects
 deterministic lexical false negatives (numbers/morphology/abbreviated years);
 angle `development_type` matches the audit hypothesis on 6/7 known disagreements.
-Corroboration fixture passage was fixed (relevance window, not head HTML) and
-re-run. Shadow results under ignored `var/jev_eval/`; no thresholds, no authority.
+Manual label audit flipped both reviewed cases in Jev's favour. Corroboration
+fixture passage was fixed (relevance window, not head HTML) and re-run. Shadow
+results under ignored `var/jev_eval/`; no thresholds, no authority.
 
 - Part A: hermetic test DNS (`tests/conftest.py`); one canonical live store
   `workflow/live_store.py` (CLI + Workbench); new root `CURRENT_STATE.md`;

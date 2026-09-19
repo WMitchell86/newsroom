@@ -7,13 +7,16 @@ Verdicts:
 
 ```text
 M3A_STABILIZATION         = PROVEN
-JEV_INTEGRATION           = READY
-JEV_CORROBORATION         = NOT_PROMISING    (standalone decision; this sample)
-JEV_GROUNDING             = PROMISING
-JEV_ANGLE_SIGNALS         = PROMISING
+JEV_INTEGRATION           = PROVEN
+JEV_GROUNDING             = PROMISING_STRONG
+JEV_ANGLE_SEMANTICS       = PROMISING
+JEV_CORROBORATION         = NOT_SUITABLE_AS_STANDALONE_VERIFIER
 JEV_PRODUCTION_AUTHORITY  = NONE
 EDITORIAL_EFFECTIVENESS   = PENDING
 ```
+
+M3J is frozen. `JEV_INTEGRATION = PROVEN` means the integration, not the model
+for production.
 
 Part A (stabilization): hermetic offline tests — `tests/conftest.py` installs an
 in-test DNS resolver so `web_fetch.guard_target()` never touches real DNS while
@@ -35,13 +38,15 @@ resumable runner `scripts/evals/jev_shadow_eval.py` writing to ignored
 `var/jev_eval/`; +31 offline tests.
 
 Live run (TypeSafe SDK 0.6.0, effective `jev-1.13.0`, 149/149 calls OK, avg
-~650 ms): **grounding = PROMISING** (Jev corrects deterministic lexical false
-negatives on number morphology/abbreviated years/decision-status; 87/93 retained
-agree), **angle signals = PROMISING** (`development_type` matches the audit
-hypothesis on 6/7 known disagreements — the CONCRETE_ACTION vs ROUTINE_PROCESS
-boundary), **corroboration = NOT_PROMISING** on this small sample (3/4 hard
-negatives still called support; the head-of-page fixture passage was replaced
-with a relevance window and the run redone). No Jev authority; no thresholds.
+~650 ms): **grounding = PROMISING_STRONG** (Jev corrects deterministic lexical
+false negatives on number morphology/abbreviated years/decision-status; 87/93
+retained agree), **angle semantics = PROMISING** (`development_type` matches the
+audit hypothesis on 6/7 known disagreements — the CONCRETE_ACTION vs
+ROUTINE_PROCESS boundary), **corroboration = NOT_SUITABLE_AS_STANDALONE_VERIFIER**
+(3/4 hard negatives still called support; head-of-page fixture passage replaced
+with a relevance window and the run redone). Manual label audit of
+`xvsdi_j7s5c-f007` and `concessions_funding` flipped both in Jev's favour — the
+deterministic gate is a baseline, not ground truth. No Jev authority; no thresholds.
 
 Tests: 481 → **512 passed** (offline, DNS-unavailable-safe). Reports:
 `m3/review/M3A_STABILIZATION_REPORT.md`, `m3/review/M3J_JEV_SHADOW_EVALUATION.md`.

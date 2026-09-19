@@ -26,18 +26,19 @@ TINYFISH_FETCH                      = AVAILABLE / NOT_YET_PROVEN
 TRANSCRIPT_DISCOVERY_ENGINEERING    = PROMISING+
 TRANSCRIPT_RESEARCH_ENRICHMENT      = PROMISING
 M3A_STABILIZATION                   = PROVEN
-JEV_INTEGRATION                     = READY
-JEV_CORROBORATION                   = NOT_PROMISING  (standalone decision; this sample)
-JEV_GROUNDING                       = PROMISING
-JEV_ANGLE_SIGNALS                   = PROMISING
+JEV_INTEGRATION                     = PROVEN
+JEV_GROUNDING                       = PROMISING_STRONG
+JEV_ANGLE_SEMANTICS                 = PROMISING
+JEV_CORROBORATION                   = NOT_SUITABLE_AS_STANDALONE_VERIFIER
 JEV_PRODUCTION_AUTHORITY            = NONE
 EDITORIAL_EFFECTIVENESS             = PENDING
 ```
 
 Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,
-149/149 calls OK). Shadow results live under the ignored `var/jev_eval/`.
-No Jev threshold or production authority exists. Details:
-`m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
+149/149 calls OK). `JEV_INTEGRATION = PROVEN` means the integration is proven,
+not the model for production. Shadow results live under the ignored
+`var/jev_eval/`. No Jev threshold or production authority exists. **M3J is
+frozen.** Details: `m3/review/M3J_JEV_SHADOW_EVALUATION.md`.
 
 ## Frozen boundaries (do not change without an approved scope change)
 
@@ -80,12 +81,15 @@ awaiting the human editor. No rubric/threshold change is justified yet.
 
 ## Allowed next work
 
-- M3B YouTube URL intake, **or** M3C automatic research enrichment — one at a
-  time, only via the canonical `workflow/live_store.py` writer.
-- A larger, editor-labeled corroboration set and manual review of the grounding
-disagreements (the open question) — then decide whether Jev earns a place.
-- Re-run the M3J shadow eval after any fixture or prompt change (results are
-  under `var/jev_eval/`; delete a file to force a fresh run for that experiment).
+- **M3B — YouTube URL → transcript pipeline** (recommended next milestone; Jev
+  stays a shadow measurement layer over real new recordings).
+- M3C automatic research enrichment — one milestone at a time, any live-evidence
+  write only via the canonical `workflow/live_store.py` writer.
+- A future `M3J.1 — Semantic Rescue Evaluation`
+  (`deterministic borderline/reject → Jev grounding → manual adjudication`) on
+  ~100–200 borderline cases **before** Jev could become a second-stage verifier.
+- Re-running a frozen M3J experiment is fine (delete that file under
+  `var/jev_eval/` to force a fresh run); the fixtures themselves stay frozen.
 - Anything else goes to `BACKLOG.md`, never into a change.
 
 Not allowed now: CMS publishing, LIVE 6–10, rubric/threshold changes, Jev
