@@ -15,6 +15,11 @@ search = ["ddgs>=9"]
 # authority). Optional by design: a missing package/key must never break the
 # project's normal functionality.
 jev = ["typesafe-sdk>=0.6,<0.7"]
+# M3B.1 anti-ban: Chrome TLS impersonation via curl-cffi. OFF by default and
+# only used when YOUTUBE_IMPERSONATE is set - without it yt-dlp sends a Python
+# TLS fingerprint that YouTube bot-checks sooner. Everything else in the intake
+# keeps working (disabled, with an explicit warning), so this stays optional.
+youtube = ["curl-cffi>=0.7"]
 
 [build-system]
 requires = ["setuptools>=61"]

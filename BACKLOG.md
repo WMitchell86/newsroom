@@ -34,3 +34,86 @@ complicated confidence scoring, 80-source Playwright farm, heavy multi-agent new
       m2/review/SHADOW_DISAGREEMENT_ENRICHMENT_AUDIT.md)
 - [ ] Monid integration — backlog (explicitly not in the runtime path)
 - [ ] LIVE 6–10 — not yet (gated on the editor V2 sample review)
+
+## M3B.1 deferred (do NOT implement without a new scope decision)
+- [ ] **Invidious bypass is `NOT_AVAILABLE`** — 9 public instances probed live on
+      2026-09-19, none served captions. The integration is ready; re-probe before
+      trusting it. A self-hosted Invidious instance would be a new scope decision
+      (new infrastructure, not a code change).
+- [ ] **Cookies + TLS impersonation are OFF by default.** Enabling them is an
+      operator decision (`YOUTUBE_COOKIES_FILE`, `YOUTUBE_IMPERSONATE`, optional
+      `curl-cffi` extra) and needs a *logged-out* cookies export. No code change
+      pending — the knobs exist.
+- [ ] **Cookies/proxy for the bypass engine.** `invidious.py` uses plain
+      `urllib` and ignores `YOUTUBE_PROXY`; only the yt-dlp path honours it.
+      Add only if the bypass ever starts serving and needs a proxy.
+- [ ] **M1.7 scheduled polling** (see M1.x above) is still deferred for the *RSS*
+      radar. M3B.1 added a cron entry point for **YouTube transcripts only**;
+      that is not a precedent for the radar or for any other source.
+- [ ] **Bounded run log.** `var/youtube_intake/runs.jsonl` is append-only and
+      never rotated. Rotate only if a real run history becomes long enough to
+      matter.
+- [ ] **Discovery nondeterminism is promoted to M3D** (see below) — it is the
+      next milestone, not a leftover M3B.1 item.
+
+## M3D — Discovery Reproducibility & Stability (NEXT MILESTONE, not yet scoped)
+
+**Status:** first-class next milestone, decided 2026-09-19. Do not start it
+without a harness prompt; this entry only records *why* it outranks M3C.
+
+**Evidence.** The transport layer is now more reliable than the semantic layer.
+The same cached transcript, byte-identical raw SRT, produced different editorial
+outcomes on repeat runs:
+
+```text
+same raw SRT, run A -> RESEARCH_MORE
+same raw SRT, run B -> NO_EXTRACTED_FACTS / NO_PUBLISHABLE_ANGLE
+```
+
+This is not cosmetic variance: it changes whether the editor sees a story at all.
+It is a pre-existing model-driven property of transcript discovery V2 (M3B), not
+a regression introduced by M3B.1, and it is the reason
+`EDITORIAL_EFFECTIVENESS` cannot leave `PENDING`.
+
+**Goal (to be scoped).** Measure and bound the variance rather than make an LLM
+trivially deterministic:
+
+```text
+same transcript -> N repeated runs -> topic stability
+                                   -> fact stability
+                                   -> angle stability
+                                   -> readiness stability
+```
+
+then decide which stages should be **frozen/cached after the first successful
+extraction** (a frozen artifact is not a semantic change — it is reuse).
+
+**Explicitly out of scope until scoped:** changing discovery semantics, prompt
+tuning, new thresholds, LLM-judge authority. Those stay frozen.
+
+**Preferred over:** M3C automatic research enrichment.
+
+## M3B.1 settled decisions (2026-09-19 review — do not re-litigate)
+
+Decided by the repo owner after the M3B.1 code review; all are implemented.
+
+- **Q1 two stores stay split.** `registry.json` is evidence/history;
+  `queue.json` is disposable operational state. Deleting the queue loses no
+  transcript or evidence — that boundary is intentional, do not merge them.
+- **Q2 fallback defaults OFF.** `YOUTUBE_FALLBACK` is opt-in (third-party
+  contact + 0/9 live instances).
+- **Q3 stop-on-block, not rotate-on-block.** A block is IP-level; extra client
+  attempts escalate it. Rotation stays for ordinary client-specific failures.
+- **Q4 the yt-dlp default client stays last in the rotation** (a client can lack
+  captions while the default client succeeds).
+- **Q5 interactive `youtube-intake` takes the same run lock as cron** (exit `3`
+  if held) — but does **not** go through retry/backoff lifecycle.
+- **Q6 out-of-range policy values are clamped *and* reported**
+  (`policy warning:` line); never silent.
+- **Q7 the failure fuse stays the constant `CONSECUTIVE_FAILURE_FUSE = 5`.**
+  Not an env knob; parameterize only if real use demands it.
+- **Q9 `youtube-batch doctor`** — optional P2/P3 operational feature, not a
+  blocker (yt-dlp version, cookies path, curl-cffi, lock/cooldown, fallback
+  state).
+- **Q10 no origin-string migration.** Historical `var/` records keep the old
+  origin string; the newer origin is more informative, not a correction.

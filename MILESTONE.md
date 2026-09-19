@@ -1,3 +1,56 @@
+## M3B.1 YouTube Intake Operational Hardening — 2026-09-19 — BUILT, REAL-RUN, REVIEWED, FROZEN
+
+Borrowed the usable operational lessons from the sibling project
+`../youtube scripts downloader` (ytvault) and implemented them here: pacing,
+browser identity, stopping, and a real queue with a cron entry point.
+
+```text
+YOUTUBE_INTAKE_ENGINEERING        = PROVEN
+ANTIBAN_HARDENING_ENGINEERING     = PROVEN
+PLAYER_CLIENT_ROTATION            = PROVEN   (live: rescued a failing client)
+CRON_ENTRY_POINT                  = PROVEN   (one-shot; nothing scheduled by the repo)
+YOUTUBE_QUEUE_ENGINEERING         = PROVEN
+INVIDIOUS_FALLBACK                = NOT_AVAILABLE (integrated; 0/9 instances served)
+JEV_PRODUCTION_AUTHORITY          = NONE
+EDITORIAL_EFFECTIVENESS           = PENDING
+```
+
+- New: `workflow/youtube_policy.py` (env-tunable pacing/identity knobs),
+  `workflow/invidious.py` (bypass caption engine), `workflow/intake_queue.py`
+  (operational queue, separate from the evidence registry),
+  `workflow/intake_run.py` (lock, cooldown breaker, jitter, cap, exit codes).
+- Hardened: `workflow/transcriber.py` (player-client rotation, block taxonomy,
+  cookies/proxy/impersonation, bypass latch), `workflow/intake.py` (trust
+  pass-through, transcriber kwargs), `workflow/cli.py` (`youtube-batch`).
+- **A live run caught a real regression before commit:** the rotated clients fail
+  yt-dlp's format selection even with `--skip-download`;
+  `--ignore-no-formats-error` fixes it (the CLI form of ytvault's
+  `process=False` insight). yt-dlp's own default client is always kept as the
+  last attempt.
+- Live: `youtube-batch` dedupe + cache reuse 2.5 s; fresh transcription 3.1 s
+  (184 cues, `tv_simply`, `bg-orig`); a second fresh recording ran the whole
+  pipeline to `RESEARCH_MORE`. Rotation proven by forcing a failing client.
+- Invidious fallback: 9 public instances probed live, none served captions. The
+  engine is correct; the service is not. Its per-instance reasons now surface in
+  the error instead of being swallowed.
+- Code review found 9 issues (2 of them live-caught, would-have-shipped bugs);
+  all fixed. `m3/review/M3B1_CODE_REVIEW.md`.
+- Review decisions now implemented (settled, see `BACKLOG.md`):
+  `YOUTUBE_FALLBACK` defaults **off** (opt-in third-party contact); the
+  interactive `youtube-intake` takes the **same run lock** as cron (exit `3`);
+  out-of-range `YOUTUBE_*` values are **clamped and reported**
+  (`policy warning:`), never silent; stop-on-block and the registry/queue split
+  stay as built.
+- Tests 553 → 646 → **653 passed**, ruff/format clean, M3A smoke 25/25. No
+  rubric, threshold, readiness, discovery, profile or Jev-authority change.
+- **Next milestone decided: M3D Discovery Reproducibility & Stability** — the
+  same cached transcript produced `RESEARCH_MORE` once and `NO_EXTRACTED_FACTS`
+  another time, so the semantic layer is now the weak link, not the transport.
+  Scoped in `BACKLOG.md`; not started here.
+
+Details: `m3/review/M3B1_CODE_REVIEW.md` (findings + settled decisions); design
+and live evidence: `m3/review/M3B1_INTAKE_HARDENING_REPORT.md`.
+
 ## M3B YouTube URL Intake + Real-World Jev Shadow — 2026-09-19 — BUILT, REAL-RUN, AWAITING REVIEW
 
 One YouTube URL becomes a real intake: canonical identity → raw timestamped SRT

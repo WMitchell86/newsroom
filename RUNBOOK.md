@@ -91,6 +91,82 @@ No-story is not a failed intake.
 
 See `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md`.
 
+## 0d. YouTube intake queue + cron (M3B.1)
+
+`youtube-intake` is the interactive, one-URL path. `youtube-batch` is the slow,
+paced path — and it is the **only** cron entry point. Both paths take the *same*
+run lock (`var/youtube_intake/run.lock`), so an editor pasting a URL while the
+nightly run is working gets exit `3` instead of putting two concurrent requests
+on the same IP.
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch add "<URL>" ["<URL>" …]
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch status
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch run --cron
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch reset [--include-nocaps]
+```
+
+`add` normalizes the URL; equivalent forms (watch/youtu.be/live/shorts/embed)
+deduplicate to one entry by video id, and a non-YouTube URL is recorded as
+`invalid_url` without ever becoming a request.
+
+### Installing the nightly run (the operator does this, not the repo)
+
+Nothing in the repository schedules anything: `run` is a one-shot process that
+works a bounded number of entries and exits. Add this line yourself:
+
+```bash
+crontab -e
+# 02:30 nightly; `--cron` sleeps a random 10-40 min first, so there is no
+# fixed request signature night after night.
+30 2 * * * cd /home/test/media && PYTHONPATH=src /usr/bin/python3 -m editor_assistant.workflow.cli youtube-batch run --cron >> var/youtube_intake/cron.log 2>&1
+```
+
+Exit codes: `0` ok · `1` systemic abort (many failures in a row with zero
+successes — the setup is broken, read the log before retrying) · `2` circuit
+breaker tripped **or** a cooldown is still active (do not retry tonight) ·
+`3` another run holds the lock.
+
+### Anti-ban guardrails (all defaults live in `workflow/youtube_policy.py`)
+
+| Guard | Default | Why |
+|---|---|---|
+| One video at a time | always | parallel bursts are the #1 block trigger |
+| Random pause between entries | 60–120 s | human-ish pacing |
+| Nightly cap | 5 | a backfill is paced over weeks on purpose |
+| Random startup jitter (`--cron`) | 10–40 min | no fixed signature |
+| Player-client rotation | `tv_simply`, `web_safari`, then yt-dlp default | clears checks the default client fails |
+| Circuit breaker | first explicit block stops the run | pushing through a soft block is how it becomes a ban |
+| Cooldown after a block | 12 h | the flag is on the IP, not the video |
+| Exponential backoff | 15 m → 1 h → 6 h → 24 h, then parked | retrying a dead video is just extra requests |
+| Lock file | 6 h stale window | overlapping cron runs (and interactive intake) would double the request rate |
+| Invidious bypass | **off** — set `YOUTUBE_FALLBACK=on` to opt in | it contacts an unrelated third party and sends it the video id; enable only if you accept that trade |
+| TLS impersonation + cookies | **off** | needs the optional `curl-cffi` extra; cookies must be a *logged-out* export |
+
+Operational rules:
+
+- **Never lower the cap or the delays to "catch up".** If a run trips the
+  breaker, stop for the cooldown and halve the cap before retrying.
+- A hand-edited `YOUTUBE_*` value outside its safety bound is **clamped, not
+  applied**. The run prints `policy warning: YOUTUBE_NIGHTLY_CAP=99999 is above
+  the safety maximum 50 -> clamped to 50`; if you see no warning, your value was
+  used as written.
+- A `TRANSCRIBER_BLOCKED` result writes `var/youtube_intake/cooldown.json`; every
+  later run exits `2` until it expires. `youtube-batch status` shows it.
+- `INVIDIOUS_FALLBACK` is currently `NOT_AVAILABLE` (0/9 public instances served
+  captions when probed). `TRANSCRIBER_FALLBACK_FAILED` carries the per-instance
+  reason; do not treat it as a YouTube block.
+- `youtube-batch reset` revives `blocked`/`retry` entries only. `no_captions` and
+  `unavailable` need `--include-nocaps`; those are deliberately not retried.
+- Keep `yt-dlp` current (`pip install -U yt-dlp`): an outdated extractor produces
+  errors that look like blocks.
+
+Shows: queue counts, active cooldown, the effective policy line
+(cookies/proxy/clients/impersonate/fallback — never credentials), any
+`policy warning:` clamp, and the last 5 runs from `var/youtube_intake/runs.jsonl`.
+
+See `m3/review/M3B1_INTAKE_HARDENING_REPORT.md`.
+
 ## 1. Normal manual cycle
 
 ```text

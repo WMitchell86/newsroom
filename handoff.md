@@ -1,3 +1,45 @@
+## Handoff — M3B.1 YouTube Intake Operational Hardening (2026-09-19)
+
+Verified: **653 offline tests**, ruff/format clean, M3A smoke 25/25, plus live
+runs on two real recordings. Verdicts: `ANTIBAN_HARDENING_ENGINEERING = PROVEN` ·
+`PLAYER_CLIENT_ROTATION = PROVEN` · `CRON_ENTRY_POINT = PROVEN` ·
+`YOUTUBE_QUEUE_ENGINEERING = PROVEN` · `INVIDIOUS_FALLBACK = NOT_AVAILABLE` ·
+`JEV_PRODUCTION_AUTHORITY = NONE` · `EDITORIAL_EFFECTIVENESS = PENDING`.
+
+- Source of the ideas: sibling project `../youtube scripts downloader` (ytvault).
+  Adopted pacing, browser identity, circuit breaker + cooldown, exponential
+  backoff with parking, lock file, player-client rotation, bypass latch. Not
+  copied: `rich`/`curl-cffi` as hard deps, the channel-catalog model, and the
+  scheduler concept (the run stays a one-shot process).
+- New: `youtube_policy.py`, `invidious.py`, `intake_queue.py`, `intake_run.py`.
+  Hardened: `transcriber.py`, `intake.py`, `cli.py` (`youtube-batch`).
+- Live evidence: `youtube-batch` dedupe + cache reuse 2.5 s; fresh transcription
+  3.1 s / 184 cues; a second fresh recording ran end to end to `RESEARCH_MORE`;
+  rotation rescued a deliberately failing client.
+- Two real bugs were caught by the live runs and fixed before commit:
+  rotated clients failing format selection (fixed with
+  `--ignore-no-formats-error`), and the bypass producing a bare `None` that threw
+  away every per-instance reason.
+- Review also fixed: a temp-dir leak on every failed transcription, a racy
+  lock, a block consuming the 15-minute backoff rung instead of the cooldown, an
+  unmapped permanent failure category, and config warnings vanishing on the
+  failure path.
+- Post-review decisions (settled at review, 2026-09-19): `YOUTUBE_FALLBACK`
+  defaults **off**; interactive `youtube-intake` takes the **same lock** as cron
+  (exit `3`) without entering the retry/backoff lifecycle; clamped out-of-range
+  `YOUTUBE_*` values now print a `policy warning:` line; stop-on-block, the
+  registry/queue split, the rotation budget, fuse=5 and the historical origin
+  strings all stay as built.
+- **Next milestone decided: M3D Discovery Reproducibility & Stability** (see
+  `BACKLOG.md`) — `same raw SRT` gave `RESEARCH_MORE` once and
+  `NO_EXTRACTED_FACTS` another time, so the model-driven semantic layer is now
+  the weak link. Not started here.
+- STOP: no M3D yet, no M3C automatic enrichment, no story monitoring, no
+  scheduler daemon, no article drafting, no publishing, no LIVE 6–10.
+
+Reports: `m3/review/M3B1_CODE_REVIEW.md` (findings + settled decisions),
+`m3/review/M3B1_INTAKE_HARDENING_REPORT.md` (design + live evidence).
+
 ## Handoff — M3B YouTube URL Intake + Real-World Jev Shadow Collection (2026-09-19)
 
 Verified: **553 offline tests**, ruff clean, M3A smoke 25/25, plus a real

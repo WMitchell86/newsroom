@@ -91,6 +91,38 @@ The Workbench **displays** completed intakes at `/intake` (initiation stays CLI)
 There is no drafting, no scheduler, no monitoring, no publish path.
 See `m3/review/M3B_YOUTUBE_INTAKE_REPORT.md`.
 
+## M3B.1 YouTube intake queue + nightly run (anti-ban)
+
+`youtube-intake` is the interactive one-URL path. `youtube-batch` is the slow,
+paced path and the **only** cron entry point (a one-shot process — the repo
+contains no scheduler and installs no timer):
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch add "<URL>"
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch status
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch run --cron
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-batch reset
+```
+
+Guardrails (defaults in `workflow/youtube_policy.py`, all env-tunable): one video
+at a time, a random pause between entries, a nightly cap, random startup jitter
+in `--cron` mode, player-client rotation, a lock file, an exponential backoff
+ladder, and a **circuit breaker** that stops the run and cools the IP down on the
+first explicit block. Interactive `youtube-intake` takes the same lock. Exit
+codes: `0` ok · `1` systemic abort · `2` breaker / cooldown active · `3` locked.
+
+The Invidious bypass is **off by default** (`YOUTUBE_FALLBACK=on` opts in: it
+sends the video id to an unrelated third party). A hand-edited value outside its
+safety bound is clamped, and the run prints which value it clamped.
+
+Pacing/jitter are the *only* scheduling-adjacent surface: cron installs nothing
+by itself and there is no daemon, retry thread or background worker.
+
+See `m3/review/M3B1_INTAKE_HARDENING_REPORT.md` (design) and
+`m3/review/M3B1_CODE_REVIEW.md` (review + settled decisions), plus `RUNBOOK.md`
+§0d. **Next milestone: M3D Discovery Reproducibility & Stability** — see
+`BACKLOG.md`.
+
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 
 Enqueue intents while ingesting, then deliver to the **test** chat by hand:

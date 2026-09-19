@@ -15,6 +15,10 @@ Commands:
   review [outdir]                write editor review files (draft + scorecard)
   finalize <case_id> FILE        record the editor final from a JSON file
   report                         real-world metrics (LIVE cases only)
+  youtube-intake <url>           M3B: one YouTube URL -> transcript -> discovery
+  youtube-batch add|run|status|reset
+                                 M3B.1: the queue + the cron entry point
+                                 (`run` is invoked by cron; no daemon here)
   workbench                      M3A: local browser Editor Workbench (127.0.0.1)
 
 There is deliberately NO publish command: the workflow ends at the editor.
@@ -32,6 +36,7 @@ from editor_assistant.workflow import angles, live_store
 from editor_assistant.workflow import cases as cases_mod
 from editor_assistant.workflow import live as live_mod
 from editor_assistant.workflow import readiness as readiness_mod
+from editor_assistant.workflow import transcriber as transcriber_mod
 from editor_assistant.workflow.benchmark import benchmark_report
 from editor_assistant.workflow.cases import TRACK_DRYRUN, TRACK_LIVE
 from editor_assistant.workflow.ideas import (
@@ -657,32 +662,195 @@ def cmd_finalize(args):
 
 
 def cmd_youtube_intake(args):
-    """M3B: YouTube URL -> transcript -> discovery V2 -> readiness (no drafting)."""
-    from editor_assistant.workflow import intake as intake_mod
-    from editor_assistant.workflow import jev as jev_mod
+    """M3B: YouTube URL -> transcript -> discovery V2 -> readiness (no drafting).
 
+    Shares the run lock with the cron queue: an editor pasting a URL while the
+    nightly run is working would otherwise put two concurrent requests on the
+    same IP, which is exactly what the anti-ban policy exists to prevent.
+    """
+    from editor_assistant.workflow import intake as intake_mod
+    from editor_assistant.workflow import intake_run as run_mod
+    from editor_assistant.workflow import jev as jev_mod
+    from editor_assistant.workflow import youtube_policy as policy_mod
+
+    policy = policy_mod.load_policy()
+    _print_policy(policy)
+    if not run_mod.acquire_lock(stale_after_s=policy.lock_stale_s):
+        print("another intake run holds the lock - try again when it finishes")
+        sys.exit(run_mod.EXIT_LOCKED)
+
+    try:
+        evaluate_fn = None
+        if not args.skip_jev_shadow:
+            available, reason = jev_mod.capability_status()
+            if available:
+                evaluate_fn = jev_mod.evaluate
+            else:
+                print(f"jev shadow: {jev_mod.JEV_CAPABILITY_UNAVAILABLE}: {reason}")
+
+        result = intake_mod.intake_youtube(
+            args.url,
+            language=args.language,
+            force_retranscribe=args.force_retranscribe,
+            jev_shadow_enabled=not args.skip_jev_shadow,
+            jev_evaluate_fn=evaluate_fn,
+        )
+        _print_intake(result)
+        stages = result.get("stages") or {}
+        category = (stages.get("transcription") or {}).get("category")
+        if category == transcriber_mod.TRANSCRIBER_BLOCKED:
+            # A flag is about the IP, not about this video: record the cooldown so
+            # the nightly run does not immediately re-poke YouTube.
+            record = run_mod.write_cooldown(
+                (stages.get("transcription") or {}).get("reason") or "blocked",
+                hours=policy.block_cooldown_h,
+            )
+            print(
+                f"circuit breaker: YouTube pushed back - cooling down until "
+                f"{record['blocked_until']}"
+            )
+        if result.get("outcome") in (
+            intake_mod.OUTCOME_INVALID_URL,
+            intake_mod.OUTCOME_TRANSCRIPTION_FAILED,
+            intake_mod.OUTCOME_DISCOVERY_FAILED,
+        ):
+            sys.exit(1)
+    finally:
+        run_mod.release_lock()
+
+
+def cmd_youtube_batch(args):
+    """M3B.1: the cron-facing queue (add / run / status / reset). No daemon."""
+    from editor_assistant.workflow import intake_queue as queue_mod
+    from editor_assistant.workflow import intake_run as run_mod
+    from editor_assistant.workflow import youtube_policy as policy_mod
+
+    action = args.action
+    if action == "add":
+        queue = queue_mod.read_queue()
+        for url in args.urls:
+            entry, added = queue_mod.add_url(queue, url)
+            label = entry.get("video_id") or entry.get("url")
+            print(f"{'queued ' if added else 'known  '} {entry['status']:12s} {label}")
+        queue_mod.save_queue(queue)
+        _print_queue_summary(queue_mod.summarize(queue))
+        return
+
+    if action == "status":
+        queue = queue_mod.read_queue()
+        _print_queue_summary(queue_mod.summarize(queue))
+        cooldown = run_mod.active_cooldown()
+        if cooldown:
+            print(
+                f"cooldown: ACTIVE until {cooldown.get('blocked_until')} ({cooldown.get('reason')})"
+            )
+        else:
+            print("cooldown: none")
+        _print_policy(policy_mod.load_policy())
+        runs = queue_mod.recent_runs(limit=5)
+        if runs:
+            print("last runs:")
+            for record in runs:
+                print(
+                    f"  {record.get('finished_at')} exit={record.get('exit_code')} "
+                    f"breaker={record.get('breaker')} {record.get('note')}"
+                )
+        else:
+            print("last runs: none")
+        return
+
+    if action == "reset":
+        queue = queue_mod.read_queue()
+        revived = queue_mod.reset(queue, include_no_captions=args.include_nocaps)
+        queue_mod.save_queue(queue)
+        print(f"revived {len(revived)} entr(y/ies) -> pending")
+        _print_queue_summary(queue_mod.summarize(queue))
+        return
+
+    # action == "run": the cron entry point
+    policy = policy_mod.load_policy()
     evaluate_fn = None
-    if not args.skip_jev_shadow:
+    if args.jev_shadow:
+        from editor_assistant.workflow import jev as jev_mod
+
         available, reason = jev_mod.capability_status()
         if available:
             evaluate_fn = jev_mod.evaluate
         else:
             print(f"jev shadow: {jev_mod.JEV_CAPABILITY_UNAVAILABLE}: {reason}")
-
-    result = intake_mod.intake_youtube(
-        args.url,
-        language=args.language,
-        force_retranscribe=args.force_retranscribe,
-        jev_shadow_enabled=not args.skip_jev_shadow,
+    _print_policy(policy)
+    result = run_mod.run_once(
+        policy=policy,
+        cap=args.cap,
+        cron=args.cron and not args.no_jitter,
+        jev_shadow_enabled=args.jev_shadow,
         jev_evaluate_fn=evaluate_fn,
     )
-    _print_intake(result)
-    if result.get("outcome") in (
-        intake_mod.OUTCOME_INVALID_URL,
-        intake_mod.OUTCOME_TRANSCRIPTION_FAILED,
-        intake_mod.OUTCOME_DISCOVERY_FAILED,
-    ):
-        sys.exit(1)
+    run_mod.finish_run(result)
+    if result.get("jitter_slept_s"):
+        print(f"startup jitter: slept {result['jitter_slept_s']}s")
+    for entry in result.get("entries") or []:
+        print(
+            f"  {entry.get('kind'):9s} {entry.get('transcription_status') or '-':8s} "
+            f"{entry.get('video_id') or entry.get('url')} "
+            f"outcome={entry.get('outcome')} readiness={entry.get('readiness')}"
+        )
+    stats = result.get("stats") or {}
+    print(
+        f"processed={stats.get('processed')} reused={stats.get('reused')} "
+        f"done={stats.get('done')} retry={stats.get('retry')} "
+        f"parked={stats.get('permanent')} blocked={stats.get('blocked')}"
+    )
+    print(f"{result.get('note')}")
+    sys.exit(result.get("exit_code", 0))
+
+
+def _print_policy(policy):
+    """One line of effective policy, then any silent clamp made while loading it."""
+    print(f"policy: {policy.describe()}")
+    for warning in policy.warnings:
+        print(f"policy warning: {warning}")
+
+
+def _print_queue_summary(counts):
+    print(
+        "queue: "
+        f"pending={counts.get('pending')} retry={counts.get('retry')} "
+        f"done={counts.get('done')} blocked={counts.get('blocked')} "
+        f"no_captions={counts.get('no_captions')} unavailable={counts.get('unavailable')} "
+        f"invalid_url={counts.get('invalid_url')} total={counts.get('total')}"
+    )
+
+
+def _add_youtube_batch_subcommands(sub):
+    """M3B.1: queue actions. The run action is what cron calls."""
+    p = sub.add_parser(
+        "youtube-batch",
+        help="queue YouTube URLs and work them slowly (cron entry point; no daemon)",
+    )
+    actions = p.add_subparsers(dest="action", required=True)
+
+    add = actions.add_parser("add", help="queue one or more YouTube URLs")
+    add.add_argument("urls", nargs="+", help="YouTube URLs (any normalizable form)")
+
+    run = actions.add_parser("run", help="work due queue entries once (cron entry point)")
+    run.add_argument("--cron", action="store_true", help="sleep a random startup jitter first")
+    run.add_argument("--cap", type=int, default=None, help="max entries this run")
+    run.add_argument("--no-jitter", action="store_true", help="skip the startup jitter")
+    run.add_argument(
+        "--jev-shadow",
+        action="store_true",
+        help="also collect Jev shadow observations (no authority)",
+    )
+
+    actions.add_parser("status", help="queue counts, cooldown, recent runs")
+
+    reset = actions.add_parser("reset", help="revive blocked/retry entries -> pending")
+    reset.add_argument(
+        "--include-nocaps", action="store_true", help="also retry no_captions entries"
+    )
+
+    p.set_defaults(func=cmd_youtube_batch)
 
 
 def _print_intake(result):
@@ -868,6 +1036,7 @@ def main(argv=None):
         "--skip-jev-shadow", action="store_true", help="do not run the optional Jev shadow"
     )
     p.set_defaults(func=cmd_youtube_intake)
+    _add_youtube_batch_subcommands(sub)
 
     # M3A Editor Workbench
     from editor_assistant.workflow.workbench.cli import add_workbench_subcommand

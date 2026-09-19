@@ -28,7 +28,11 @@ from editor_assistant.workflow import discovery, intake_store, jev_shadow
 from editor_assistant.workflow import transcriber as transcriber_mod
 from editor_assistant.workflow import youtube as youtube_mod
 from editor_assistant.workflow.live_store import atomic_write
-from editor_assistant.workflow.transcripts import TranscriptError, load_srt
+from editor_assistant.workflow.transcripts import (
+    TRUST_AUTO_CAPTION,
+    TranscriptError,
+    load_srt,
+)
 
 OUTCOME_DRAFT_READY = "DRAFT_READY"
 OUTCOME_RESEARCH_MORE = "RESEARCH_MORE"
@@ -170,6 +174,7 @@ def intake_youtube(
     metadata_fn=None,
     analyze_fn=None,
     jev_evaluate_fn=None,
+    transcriber_kwargs=None,
     root=None,
     retrieved_at=None,
 ):
@@ -217,12 +222,14 @@ def intake_youtube(
             "transcript_hash": cached.get("transcript_hash"),
             "transcript_file": cached.get("transcript_file"),
             "origin": cached.get("transcriber_identity"),
+            "trust_level": cached.get("trust_level"),
         }
         transcript_language = cached.get("language")
+        trust_level = cached.get("trust_level") or TRUST_AUTO_CAPTION
     else:
         transcriber_fn = transcriber_fn or transcriber_mod.transcribe_youtube
         try:
-            transcription = transcriber_fn(source, language=language)
+            transcription = transcriber_fn(source, language=language, **(transcriber_kwargs or {}))
         except transcriber_mod.TranscriberError as exc:
             stages["transcription"] = {
                 "status": "FAILED",
@@ -233,11 +240,17 @@ def intake_youtube(
             return result
         raw_srt = transcription.raw_srt
         transcript_language = transcription.language
+        # Trust is never silently upgraded: the transcriber reports the level it
+        # has evidence for (ASR vs a creator-uploaded track) and nothing here
+        # can raise it further.
+        trust_level = getattr(transcription, "trust_level", None) or TRUST_AUTO_CAPTION
         stages["transcription"] = {
             "status": "OK",
             "language": transcription.language,
             "origin": transcription.origin,
             "provider": transcription.provider_or_command,
+            "trust_level": trust_level,
+            "fallback_used": bool(getattr(transcription, "fallback_used", False)),
         }
 
     # 4. validate raw SRT -> TranscriptDocument
@@ -249,6 +262,7 @@ def intake_youtube(
             title=source.title or "",
             language=transcript_language or "bg",
             origin=stages["transcription"].get("origin") or transcriber_mod.ORIGIN_YTDLP,
+            trust_level=trust_level,
         )
     except TranscriptError as exc:
         stages["validate"] = {
