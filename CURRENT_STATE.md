@@ -7,8 +7,22 @@
 > When they disagree with this file, this file wins.
 
 Last updated: 2026-09-20 (**M3D closed and the YouTube pipeline is FROZEN**; angle-layer
-model A/B measured; next major milestone is **M4 — Daily Newsroom Operations & Source
-Management**, scoped in `BACKLOG.md`).
+model A/B measured; active work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
+
+## Primary project objective (read before choosing any task)
+
+> **Make the system usable every day by a non-technical editor.**
+>
+> Score every candidate task with one question: *will this make tomorrow's work
+> faster and easier for the editor?* If not → `BACKLOG.md`, not into the change.
+>
+> **Do not reopen YouTube / M3D unless observed production pain requires it.**
+> No `player_client`, semantic-variance or transcript-engine work; no
+> `ANGLE_STABILITY = PROVEN` chase. Real use is the source of truth.
+>
+> M4 is a **product/operations** milestone, not another AI milestone. The only new
+> semantic capability admitted is *story identity / new development* (M4C), and
+> only after the registry and the inbox exist.
 
 ## Checkpoint
 
@@ -361,14 +375,19 @@ awaiting the human editor. No rubric/threshold change is justified yet.
 
 ## Allowed next work
 
-**The next major milestone is M4 — Daily Newsroom Operations & Source Management**
-(scope recorded in `BACKLOG.md`). Its point is that the largest remaining gap is
-not intelligence: *the editor has no daily system that simply opens in the morning
-and works*. M4 = scheduled collection · default source registry (add / disable /
-mute / priority / monitoring-only vs factual-authority) · a real story inbox
-(`NEW STORY` / `NEW DEVELOPMENT` / `RELATED` / `DUPLICATE`) · research when needed ·
-a non-technical editor workbench UX · a Telegram **editorial notification** channel ·
-operational status/failures. One milestone at a time, smallest next step first.
+**Active work: M4 — Daily Newsroom**, sliced M4A–M4E in `BACKLOG.md` (M4A = Source
+Registry + Scheduled Collection). M4 is a product/operations milestone: the largest
+remaining gap is not intelligence, it is that *the editor has no daily system that
+simply opens in the morning and works*. Slice order: **M4A** source registry +
+collection → **M4B** story inbox + source/status UX → **M4C** story identity /
+new development → **M4D** Telegram editorial alerts → **M4E** workflow polish. One
+slice at a time, reviewed and frozen before the next; plan: `m4/review/M4A_PLAN.md`.
+
+M4A state (2026-09-20): **registry core built** — `workflow/sources_registry.py`
+(closed schema, time-boxed mute, priority/cadence, monitoring-only vs factual
+authority, one atomic writer) + `sources` CLI + 15 offline tests. Next inside M4A:
+Workbench «Източници» page, default seed, the one-shot collection runner and the
+inbox skeleton (zero-network dry-run first).
 
 YouTube (frozen) — **maintenance only**, and only on observed production pain:
 

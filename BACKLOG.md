@@ -56,7 +56,76 @@ complicated confidence scoring, 80-source Playwright farm, heavy multi-agent new
 - [ ] **Discovery nondeterminism is promoted to M3D** (see below) — it is the
       next milestone, not a leftover M3B.1 item.
 
-## M4 — Daily Newsroom Operations & Source Management (NEXT major milestone; scope recorded 2026-09-20, NOT started)
+## M4 — Daily Newsroom (ACTIVE; sliced 2026-09-20, decided by the repo owner)
+
+M4 is a **product / operations** milestone, not another AI milestone. Slices, in
+order — each one is done, reviewed and frozen before the next starts:
+
+```text
+M3D  FROZEN            YouTube  GOOD ENOUGH (maintenance only)
+
+M4A  Source Registry + Scheduled Collection        <-- in progress
+M4B  Story Inbox + Source/Status UX
+M4C  Story Identity / New Development
+M4D  Telegram Editorial Alerts
+M4E  Editorial workflow polish
+```
+
+Scoring rule for every task in this milestone: *will this make tomorrow's work
+faster and easier for the editor?* If not → this file, not into the change.
+The only new semantic capability admitted anywhere in M4 is **story identity /
+new development** (M4C), and only after the registry and the inbox exist.
+
+### M4A — Source Registry + Scheduled Collection (IN PROGRESS)
+
+- [x] **Registry core** `workflow/sources_registry.py` + `tests/test_sources_registry.py`
+      (15 offline tests): closed schema, time-boxed mute, priority, cadence,
+      monitoring-only vs factual authority, one atomic writer, deterministic bytes.
+- [x] **CLI** `sources list|add|enable|disable|mute|remove|priority|cadence|authority`.
+- [ ] **Workbench page «Източници»** — the editor manages the registry from the UI
+      (this is the actual deliverable; the CLI is the scripting fallback).
+- [ ] **Default registry seed** — declared sources only (never invented outlets);
+      the operator adds the rest from the UI.
+- [ ] **Scheduled collection** — one-shot cron entry point (`newsroom collect`) that
+      reads `sources_registry.collectable()`, reuses the existing RSS/News/YouTube
+      collectors, writes through the canonical stores, and prints one run summary.
+      The repo installs **no timer**; the schedule is the operator's (same rule as
+      `youtube-batch run --cron`).
+- [ ] **First inbox skeleton** — the collected items land in a story inbox view
+      (see M4B) rather than in `cases`.
+
+### M4B — Story Inbox + Source/Status UX
+
+- [ ] Inbox is the **start screen**, not `cases`: `НОВИ` / `ВАЖНИ` / `ЗА ПРОВЕРКА` /
+      `СЛЕДЕНИ` / `ИГНОРИРАНИ`.
+- [ ] Each item shows: title/topic · where it came from · how many sources · when it
+      was found · why it is interesting · which facts are missing.
+- [ ] Workbench answers «Какво трябва да направя сега?», not «какъв е internal
+      readiness enum-ът?» (raw enum ids stay visible next to Bulgarian labels).
+
+### M4C — Story Identity / New Development
+
+- [ ] `NEW_STORY` / `NEW_DEVELOPMENT` / `RELATED_BACKGROUND` / `DUPLICATE`
+      (Newsjack-inspired starting point, not a spec).
+- [ ] Why it matters now: with cron collection the same event arrives from many
+      sources; this is what stops the inbox becoming noise. Deliberately **after**
+      M4A + M4B, never before them.
+
+### M4D — Telegram Editorial Alerts
+
+- [ ] Notification layer only (the Workbench stays the place to work):
+      🔴 new important story · 🟡 research needed · 🔵 new development on a followed
+      topic — with a reason and a Workbench link, not 40 signals a day.
+- [ ] One-way in v1; the `👍 / 🔎 / 🗑` actions are a later increment.
+- [ ] Reuses the existing gated TEST transport (`--send` + `DRY_RUN=false`), never
+      a publishing channel.
+
+### M4E — Editorial workflow polish
+
+- [ ] Whatever real daily use shows is missing (article workspace, sources panel,
+      missing-facts panel). Nothing here is designed speculatively.
+
+## M4 (original scoping note, kept for context)
 
 **Why this outranks any further semantic work.** The transport, the discovery
 layer and the YouTube module are good enough for v1 (`YOUTUBE_PIPELINE_V1 =
@@ -79,30 +148,10 @@ control.
 repeat runs at 12:00 / 16:00 / 20:00 (plain cron; adaptive monitoring NOT required)
 ```
 
-Components, in the order they are worth building:
-
-1. **Scheduled collection** — plain cron over the existing intake/radar
-   primitives. The repo still installs no timer itself (`youtube-batch run --cron`
-   stays a one-shot entry point); the schedule is operator-owned.
-2. **Default source registry** — per-source type (official / media / national /
-   regional), status (active / disabled / muted), priority, and the
-   *monitoring-only vs factual-authority* flag. The editor must be able to add,
-   disable, mute and re-prioritise sources themselves from the Workbench.
-3. **Story inbox** — replaces case-ids and developer artifacts with
-   `NEW STORY / NEW DEVELOPMENT / RELATED / DUPLICATE` (`NEW_DEVELOPMENT` vs
-   `DUPLICATE` is the part that carries the value; borrow the Newsjack taxonomy
-   as a starting point, not as a spec) plus an interest label and source count.
-4. **Research when needed** — the existing bounded research loop, triggered from
-   the inbox rather than by a developer.
-5. **Editor workbench UX** — a non-technical editor must be able to work without
-   knowing what an EvidencePacket, JSONL, readiness or grounding is. Bulgarian
-   first, labels never raw enum ids alone.
-6. **Telegram editorial channel** — a *notification* channel (new strong story /
-   new development on a followed story, with a reason and a Workbench link), not
-   a publishing channel and not 40 signals a day. One-way in v1; the
-   `👍 преглед / 🔎 проучи още / 🗑 игнорирай` actions are a later increment.
-7. **Operational status / failures** — what ran, what failed, what is degraded,
-   visible without reading logs.
+Mapping of the original components onto the slices above: source registry → M4A;
+story inbox → M4B; story identity / new development → M4C; Telegram editorial
+channel → M4D; workbench UX + operational status/failures → M4B/M4E (every run
+prints a summary; the UI surfaces what is degraded).
 
 **Hard boundaries that stay in force:** `AUTO_PUBLISH=false`, `DRY_RUN=true`, no
 CMS publishing, no LIVE 6–10, Jev keeps zero production authority, no rubric or

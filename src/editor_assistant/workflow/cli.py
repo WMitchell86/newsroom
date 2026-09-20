@@ -823,6 +823,135 @@ def _print_queue_summary(counts):
     )
 
 
+def cmd_sources(args):
+    """M4A: manage the editor-owned source registry.
+
+    The Workbench has the editor-facing UI; this is the same registry from the
+    command line (scripting, ops, review). Nothing here collects or fetches.
+    """
+    from editor_assistant.workflow import sources_registry as reg
+
+    action = args.action
+    try:
+        if action == "list":
+            rows = reg.describe_all()
+            counts = reg.summary()
+            print(
+                f"sources: {counts['total']} total · {counts['active']} active · "
+                f"{counts['muted']} muted · {counts['disabled']} disabled · "
+                f"{counts['monitoring_only']} monitoring-only"
+            )
+            for row in rows:
+                flags = []
+                if not row["factual_authority"]:
+                    flags.append("monitoring-only")
+                if row["mute_expired"]:
+                    flags.append(f"mute expired {row['muted_until']}")
+                elif row["status"] == "muted":
+                    flags.append(f"muted until {row['muted_until']}")
+                print(
+                    f"{row['effective_status']:<9} {row['priority']:<6} {row['kind']:<10} "
+                    f"{row['source_id']:<26} {row['name']}"
+                    + (f"  [{', '.join(flags)}]" if flags else "")
+                )
+            if not rows:
+                print("(empty — add one with: cli sources add --id ... --name ...)")
+            return
+        if action == "add":
+            entry = reg.add_source(
+                source_id=args.source_id,
+                name=args.name,
+                kind=args.kind,
+                collector=args.collector,
+                url=args.url or "",
+                query=args.query or "",
+                priority=args.priority,
+                cadence=args.cadence,
+                factual_authority=not args.monitoring_only,
+                note=args.note or "",
+            )
+            print(f"added {entry['source_id']} ({entry['kind']}, {entry['collector']})")
+            return
+        if action == "remove":
+            reg.remove_source(args.source_id)
+            print(f"removed {args.source_id} (collected evidence is untouched)")
+            return
+        if action == "mute":
+            reg.set_status(args.source_id, "muted", muted_until=args.until)
+            print(f"muted {args.source_id} until {args.until}")
+            return
+        if action in ("enable", "disable"):
+            status = "active" if action == "enable" else "disabled"
+            reg.set_status(args.source_id, status)
+            print(f"{args.source_id}: {status}")
+            return
+        if action == "priority":
+            reg.set_priority(args.source_id, args.value)
+            print(f"{args.source_id}: priority={args.value}")
+            return
+        if action == "cadence":
+            reg.set_cadence(args.source_id, args.value)
+            print(f"{args.source_id}: cadence={args.value}")
+            return
+        if action == "authority":
+            reg.set_factual_authority(args.source_id, args.value == "yes")
+            print(
+                f"{args.source_id}: factual_authority={args.value == 'yes'}"
+                + ("" if args.value == "yes" else " (monitoring only)")
+            )
+            return
+        raise SystemExit(f"unknown sources action: {action}")
+    except reg.RegistryError as exc:
+        raise SystemExit(f"sources: {exc}") from exc
+
+
+def _add_sources_subcommands(sub):
+    """M4A: source registry actions (the Workbench exposes the same store)."""
+    from editor_assistant.workflow import sources_registry as reg
+
+    p = sub.add_parser("sources", help="manage the editor-owned source registry")
+    actions = p.add_subparsers(dest="action", required=True)
+    actions.add_parser("list", help="show every source with its effective status")
+
+    add = actions.add_parser("add", help="add a source")
+    add.add_argument("--id", dest="source_id", required=True, help="slug, e.g. bnr-burgas")
+    add.add_argument("--name", required=True)
+    add.add_argument("--kind", required=True, choices=reg.KINDS)
+    add.add_argument("--collector", required=True, choices=reg.COLLECTORS)
+    add.add_argument("--url", default="", help="feed/page URL (rss, web, youtube)")
+    add.add_argument("--query", default="", help="search query (google_news_rss)")
+    add.add_argument("--priority", default="normal", choices=reg.PRIORITIES)
+    add.add_argument("--cadence", default="each_run", choices=reg.CADENCES)
+    add.add_argument(
+        "--monitoring-only",
+        action="store_true",
+        help="collect it, but never treat it as a factual authority",
+    )
+    add.add_argument("--note", default="")
+
+    for name, help_text in (
+        ("enable", "collect this source again"),
+        ("disable", "stop collecting this source"),
+        ("remove", "delete the source entry (evidence is kept)"),
+    ):
+        actions.add_parser(name, help=help_text).add_argument("source_id")
+
+    mute = actions.add_parser("mute", help="pause until a date, then resume automatically")
+    mute.add_argument("source_id")
+    mute.add_argument("--until", required=True, help="YYYY-MM-DD (UTC)")
+
+    for name, choices, help_text in (
+        ("priority", reg.PRIORITIES, "high / normal / low"),
+        ("cadence", reg.CADENCES, "each_run / daily / weekly"),
+        ("authority", ("yes", "no"), "is this a factual authority?"),
+    ):
+        setter = actions.add_parser(name, help=help_text)
+        setter.add_argument("source_id")
+        setter.add_argument("value", choices=choices)
+
+    p.set_defaults(func=cmd_sources)
+
+
 def _add_youtube_batch_subcommands(sub):
     """M3B.1: queue actions. The run action is what cron calls."""
     p = sub.add_parser(
@@ -1046,6 +1175,9 @@ def main(argv=None):
     )
     p.set_defaults(func=cmd_youtube_intake)
     _add_youtube_batch_subcommands(sub)
+
+    # M4A source registry (editor-owned configuration)
+    _add_sources_subcommands(sub)
 
     # M3A Editor Workbench
     from editor_assistant.workflow.workbench.cli import add_workbench_subcommand
