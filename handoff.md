@@ -1,3 +1,26 @@
+## Handoff — M4A Source Registry + Scheduled Collection (2026-09-20)
+
+Verified: **737 offline tests**, ruff check/format clean, M3A smoke 25/25, plus a
+live end-to-end collection. Plan + proof: `m4/review/M4A_PLAN.md`.
+
+- **What the editor can now do:** open the Workbench → «Източници», see the table
+  (Източник · Тип · Статус · Приоритет · Следващо събиране) and add / edit /
+  enable / disable / mute-to-date / re-prioritise / monitoring-only /
+  factual-authority. Nothing else changed for them yet.
+- **What cron can now do:** `newsroom collect` (one-shot; `--dry-run` = zero
+  network) reads the same registry and writes inbox items. The repo installs **no
+  timer**; a broken source is isolated and reported, partial failure → exit 1.
+- **Live proof:** seed → collect gave **60 real items, 0 failures**; a second run
+  added 0 and reported 60 already known (identity holds); `GET /sources` and
+  `GET /inbox` render. Real defect caught and fixed by reading the live render:
+  Google News snippets are HTML → normalized with the frozen
+  `sources/html_desc.normalize_description` (+1 regression test).
+- **Boundary held:** no angles, no research, no drafting, no story identity, no
+  alerts in M4A. An inbox item is a candidate, never evidence.
+- **Next:** freeze M4A, then **M4B** (story inbox as the start screen: НОВИ /
+  ВАЖНИ / ЗА ПРОВЕРКА / СЛЕДЕНИ / ИГНОРИРАНИ + the «Какво трябва да направя
+  сега?» workbench question). M4C story identity stays after M4B.
+
 ## Handoff — M3D closure + YouTube freeze (2026-09-20)
 
 Verified: **700 offline tests**, ruff check/format clean, M3A smoke 25/25,

@@ -1,8 +1,10 @@
 # M4A — Source Registry + Scheduled Collection (plan)
 
-**Status:** registry core + CLI built 2026-09-20; Workbench page, default seed and
-the collection runner are the next steps in this slice. This file is the design
-contract for the slice, so the work stays inside the milestone.
+**Status 2026-09-20: BUILT, LIVE-PROVEN, awaiting review.** Every success
+criterion below is demonstrated (see §8). No new scope was added.
+
+This file is the design contract for the slice, so the work stays inside the
+milestone.
 
 **Why M4A is first.** M4's object is *a daily system that opens in the morning and
 works* for a non-technical editor. Nothing else in M4 can be built before the
@@ -51,7 +53,7 @@ Design decisions worth keeping:
   not silently stop collection).
 - **No collection, no network, no scheduling in this module.** It is configuration.
 
-## 3. Scheduled collection (next)
+## 3. Scheduled collection (built)
 
 `workflow/newsroom_run.py` + `cli newsroom collect`:
 
@@ -77,7 +79,7 @@ Rules:
 - Reuse, don't rebuild: `sources/rss.py`, `workflow/search.py` (News RSS provider),
   `workflow/intake.py` for YouTube, `state/fingerprint.py` for identity.
 
-## 4. First inbox skeleton (next)
+## 4. First inbox skeleton (built)
 
 The minimum that makes collection useful: an append-only inbox store with one row
 per collected item (`source_id`, `url`, `title`, `published_at`, `collected_at`,
@@ -85,7 +87,7 @@ per collected item (`source_id`, `url`, `title`, `published_at`, `collected_at`,
 (`НОВИ` / `ВАЖНИ` / `ЗА ПРОВЕРКА` / `СЛЕДЕНИ` / `ИГНОРИРАНИ`) is M4B and reads
 this store; M4A only needs the store + a readable list so nothing is invisible.
 
-## 5. Workbench page «Източници» (next)
+## 5. Workbench page «Източници» (built)
 
 `GET /sources` (list + status counts) and POST actions `add` · `enable` ·
 `disable` · `mute` · `unmute` · `priority` · `authority` · `remove`, through the
@@ -108,10 +110,39 @@ message, never a 500.
 ## 7. Definition of done
 
 ```text
-[ ] editor can add / disable / mute / re-prioritise sources from the Workbench
-[ ] one cron entry point collects from those sources and prints a run summary
-[ ] collected items are visible in the Workbench (inbox skeleton)
-[ ] every refusal is a readable Bulgarian message, never a traceback/500
-[ ] offline tests + ruff + M3A smoke green; no scheduler installed by the repo
-[ ] docs updated (MILESTONE/handoff/CURRENT_STATE); STOP for review
+[x] editor can add / disable / mute / re-prioritise sources from the Workbench
+[x] one cron entry point collects from those sources and prints a run summary
+[x] collected items are visible in the Workbench (inbox skeleton)
+[x] every refusal is a readable Bulgarian message, never a traceback/500
+[x] offline tests + ruff + M3A smoke green; no scheduler installed by the repo
+[x] docs updated (MILESTONE/handoff/CURRENT_STATE); STOP for review
 ```
+
+## 8. Live proof (2026-09-20)
+
+Ran end to end on an isolated runtime dir (`/tmp`, never the real `var/`):
+
+```text
+sources seed            -> 3 declared sources (1 official RSS + 2 monitoring queries)
+sources list            -> 3 total · 3 active · 2 monitoring-only
+newsroom collect --dry-run
+                        -> "ПРОБЕН (без мрежа): 3 източника · очаквани мрежови заявки: 3"
+newsroom collect        -> 60 items collected, 0 failures, exit 0
+                           burgas-municipal-council OK (20) · both queries OK (20 each)
+newsroom collect again  -> 0 new, 60 already known (idempotent, item identity holds)
+GET /sources            -> 200: table with type/status/priority/next-collection,
+                           inline edit, mute-to-date, priority and authority actions
+GET /inbox              -> 200: 60 candidates with source name, kind, priority,
+                           timestamp and Прегледан/Игнорирай actions
+```
+
+One real defect was caught by looking at the live render: Google News descriptions
+are HTML, so the inbox showed markup. Fixed at the collector boundary by reusing
+the frozen `sources/html_desc.normalize_description` (the same normalizer the RSS
+path uses), with a regression test.
+
+**Deliberate limits of the seed** (owner's rule: only sources already used or
+explicitly approved): the seed is **3**, not 10, because the repository has exactly
+one verified feed URL (`sources/live.py`). The rest are monitoring queries through
+the adopted News RSS provider. No outlet and no feed URL was invented; the editor
+adds БНР / BTA / Флагман etc. from the UI once their URL or query is decided.

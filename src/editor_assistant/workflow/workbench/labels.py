@@ -122,6 +122,60 @@ FILTERS = (
 )
 
 
+# ---------- M4A: editor-owned sources + story inbox ----------
+
+SOURCE_KIND_LABELS = {
+    "official": "Официален",
+    "media": "Медия",
+    "national": "Национален",
+    "regional": "Регионален",
+    "aggregator": "Агрегатор",
+}
+
+SOURCE_STATUS_LABELS = {
+    "active": "Активен",
+    "disabled": "Изключен",
+    "muted": "Заглушен",
+}
+
+SOURCE_PRIORITY_LABELS = {"high": "Висок", "normal": "Нормален", "low": "Нисък"}
+
+SOURCE_CADENCE_LABELS = {
+    "each_run": "при всяко събиране",
+    "daily": "всеки ден",
+    "weekly": "седмично",
+}
+
+SOURCE_COLLECTOR_LABELS = {
+    "rss": "RSS емисия",
+    "google_news_rss": "Търсене в Google News",
+    "youtube": "YouTube (още не се събира)",
+    "web": "Уеб страница (още не се събира)",
+}
+
+INBOX_STATUS_LABELS = {"NEW": "Нов", "SEEN": "Прегледан", "IGNORED": "Игнориран"}
+
+
+def source_kind_label(kind):
+    return SOURCE_KIND_LABELS.get(kind or "", kind or "—")
+
+
+def source_status_label(status):
+    return SOURCE_STATUS_LABELS.get(status or "", status or "—")
+
+
+def source_priority_label(priority):
+    return SOURCE_PRIORITY_LABELS.get(priority or "", priority or "—")
+
+
+def source_collector_label(collector):
+    return SOURCE_COLLECTOR_LABELS.get(collector or "", collector or "—")
+
+
+def inbox_status_label(status):
+    return INBOX_STATUS_LABELS.get(status or "", status or "—")
+
+
 def readiness_label(status):
     return READINESS_LABELS.get(status or "", status or "—")
 

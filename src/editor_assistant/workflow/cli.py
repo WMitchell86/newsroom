@@ -872,6 +872,13 @@ def cmd_sources(args):
             )
             print(f"added {entry['source_id']} ({entry['kind']}, {entry['collector']})")
             return
+        if action == "seed":
+            result = reg.seed_defaults(dry_run=args.dry_run)
+            verb = "would add" if args.dry_run else "added"
+            print(f"{verb}: {', '.join(result['added']) or '(nothing)'}")
+            if result["skipped"]:
+                print(f"kept as-is (already present): {', '.join(result['skipped'])}")
+            return
         if action == "remove":
             reg.remove_source(args.source_id)
             print(f"removed {args.source_id} (collected evidence is untouched)")
@@ -905,6 +912,46 @@ def cmd_sources(args):
         raise SystemExit(f"sources: {exc}") from exc
 
 
+def cmd_newsroom(args):
+    """M4A: one-shot collection run (cron calls this; the repo schedules nothing).
+
+    Reads the editor-owned registry and writes the story-inbox store. Collection
+    only READS public sources; the only write is to our own inbox. `--dry-run`
+    makes no network call at all.
+    """
+    from editor_assistant.workflow import newsroom_run
+
+    if args.action != "collect":
+        raise SystemExit(f"unknown newsroom action: {args.action}")
+    summary = newsroom_run.collect(
+        dry_run=args.dry_run,
+        source_ids=args.source or None,
+        limit=args.limit,
+    )
+    newsroom_run.print_summary(summary)
+    if summary["failed"]:
+        # Partial failure is visible in the exit code so cron mail surfaces it,
+        # while the successful sources still keep their items.
+        raise SystemExit(1)
+
+
+def _add_newsroom_subcommands(sub):
+    """M4A: the cron entry point for daily collection."""
+    p = sub.add_parser("newsroom", help="daily newsroom operations (source collection)")
+    actions = p.add_subparsers(dest="action", required=True)
+    collect = actions.add_parser(
+        "collect", help="collect from the registered sources once (cron entry point)"
+    )
+    collect.add_argument(
+        "--dry-run", action="store_true", help="show what would be collected, with no network"
+    )
+    collect.add_argument(
+        "--source", action="append", default=None, help="only this source_id (repeatable)"
+    )
+    collect.add_argument("--limit", type=int, default=None, help="collect at most N sources")
+    p.set_defaults(func=cmd_newsroom)
+
+
 def _add_sources_subcommands(sub):
     """M4A: source registry actions (the Workbench exposes the same store)."""
     from editor_assistant.workflow import sources_registry as reg
@@ -912,6 +959,11 @@ def _add_sources_subcommands(sub):
     p = sub.add_parser("sources", help="manage the editor-owned source registry")
     actions = p.add_subparsers(dest="action", required=True)
     actions.add_parser("list", help="show every source with its effective status")
+
+    seed = actions.add_parser(
+        "seed", help="add the default seed (declared sources only; never overwrites)"
+    )
+    seed.add_argument("--dry-run", action="store_true", help="show what would be added")
 
     add = actions.add_parser("add", help="add a source")
     add.add_argument("--id", dest="source_id", required=True, help="slug, e.g. bnr-burgas")
@@ -1176,8 +1228,9 @@ def main(argv=None):
     p.set_defaults(func=cmd_youtube_intake)
     _add_youtube_batch_subcommands(sub)
 
-    # M4A source registry (editor-owned configuration)
+    # M4A source registry (editor-owned configuration) + cron collection entry point
     _add_sources_subcommands(sub)
+    _add_newsroom_subcommands(sub)
 
     # M3A Editor Workbench
     from editor_assistant.workflow.workbench.cli import add_workbench_subcommand

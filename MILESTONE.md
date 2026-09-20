@@ -1,3 +1,53 @@
+## M4A Source Registry + Scheduled Collection — 2026-09-20 — BUILT, LIVE-PROVEN, AWAITING REVIEW
+
+First slice of M4 (Daily Newsroom). No new AI capability: this is the editor's
+control over sources plus the daily collection entry point. Plan + live proof:
+`m4/review/M4A_PLAN.md`.
+
+```text
+SOURCE_REGISTRY_ENGINEERING      = PROVEN  (closed schema, time-boxed mute, atomic writer)
+SOURCE_REGISTRY_UX               = PROVEN  (Workbench «Източници»: table + inline actions)
+SCHEDULED_COLLECTION             = PROVEN  (one-shot cron entry point, live 60 items)
+COLLECTION_FAILURE_ISOLATION     = PROVEN  (broken source reported, run continues)
+INBOX_SKELETON                   = PROVEN  (NEW/SEEN/IGNORED, no story identity yet)
+SCHEDULER_INSTALLED_BY_REPO      = NONE
+EDITORIAL_EFFECTIVENESS          = PENDING (human editor)
+```
+
+- **Registry** (`workflow/sources_registry.py`, store `var/newsroom/sources.json`):
+  `kind` / `collector` / `status` / `priority` / `cadence` / `muted_until` /
+  `factual_authority`, closed schema, one atomic writer, deterministic bytes.
+  Fails closed: unknown fields/enums, an open-ended mute and a malformed entry are
+  refused and the existing store stays byte-identical. A mute is **time-boxed** —
+  the expiry is computed, never written back, so a source is never silently
+  silenced forever.
+- **CLI**: `sources list|seed|add|enable|disable|mute|remove|priority|cadence|authority`.
+- **Workbench «Източници»** (`GET /sources`, POST actions) — the deliverable the
+  editor touches; it delegates to the same registry functions as the CLI, so the
+  UI cannot drift from the store contract. Every refusal renders as a readable
+  Bulgarian message with the typed values echoed back, never a 500.
+- **Collection** (`workflow/newsroom_run.py`, `cli newsroom collect`): reads
+  `collectable()`, one request per source, one-shot process (no daemon, no timer —
+  the M3B.1 anti-ban guards still pass). `--dry-run` makes **zero** network calls
+  and prints what would happen.
+- **Inbox skeleton** (`workflow/inbox_store.py`, `GET /inbox`): deterministic item
+  identity, so re-collecting is a no-op rather than a duplicate; statuses
+  `NEW`/`SEEN`/`IGNORED` only. An item is a **candidate, never evidence**.
+- **Default seed = 3** (official council feed from `sources/live.py` + two
+  monitoring queries). Deliberately short: no outlet and no feed URL invented.
+- **Live proof** (isolated runtime dir): `sources seed` → `newsroom collect` →
+  **60 real items, 0 failures, exit 0**; a second run → 0 new / 60 already known;
+  `GET /sources` and `GET /inbox` render. One defect was caught by reading the live
+  render: Google News snippets are HTML and appeared as markup in the inbox — fixed
+  at the collector boundary with the frozen `normalize_description`, +1 regression test.
+- Tests 715 → **737 passed**, ruff check/format clean, M3A smoke 25/25.
+- **Boundary held:** no AI angle generation, no research, no drafting, no story
+  identity, no alerts. `SOURCE → normalized INBOX ITEM` and stop.
+- **Next:** freeze M4A after review, then **M4B — Story Inbox + Source/Status UX**
+  (the start screen, «Какво трябва да направя сега?»).
+
+---
+
 ## M3D closure + YouTube freeze — 2026-09-20 — CLOSED, FROZEN
 
 Closes M3D and freezes the YouTube module. No new engine work; the next major

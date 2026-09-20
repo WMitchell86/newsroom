@@ -20,7 +20,10 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from editor_assistant.workflow import inbox_store as inbox_mod
+from editor_assistant.workflow import sources_registry as sources_mod
 from editor_assistant.workflow.workbench import html as html_mod
+from editor_assistant.workflow.workbench import newsroom as wb_newsroom
 from editor_assistant.workflow.workbench import state as wb_state
 
 ENABLE_QUIT = os.environ.get("WB_ALLOW_QUIT", "0") not in ("0", "", "no", "false", "False")
@@ -65,6 +68,10 @@ def _route(path: str) -> tuple[str, str | None]:
         return "healthz", None
     if parts == ["intake"]:
         return "intake", None
+    if parts == ["sources"]:
+        return "sources", None
+    if parts == ["inbox"]:
+        return "inbox", None
     if parts == ["quit"]:
         return "quit", None
     if len(parts) == 2 and parts[0] == "case":
@@ -144,6 +151,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._get_intake()
             elif route == "case":
                 self._get_case(case_id)
+            elif route == "sources":
+                self._get_sources()
+            elif route == "inbox":
+                self._get_inbox()
             elif route == "healthz":
                 self._healthz()
             else:
@@ -161,6 +172,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._post_finalize(case_id)
             elif route == "decision":
                 self._post_decision(case_id)
+            elif route == "sources":
+                self._post_sources()
+            elif route == "inbox":
+                self._post_inbox()
             elif route == "quit":
                 self._quit()
             else:
@@ -226,8 +241,115 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             "<code>youtube-intake &lt;URL&gt;</code> (транскрипцията е дълга и се пуска от CLI). "
             "Тук се показват готовите резултати.</p>"
             + ("".join(cards) if cards else "<p>Няма добавени YouTube източници.</p>"),
+            active="intake",
         )
         _respond(self, 200, body)
+
+    # ---------- M4A: sources + inbox ----------
+
+    def _query(self):
+        return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
+
+    def _get_sources(self):
+        params = self._query()
+        body = html_mod.render_sources(
+            wb_newsroom.sources_view(),
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
+        )
+        _respond(self, 200, body)
+
+    def _get_inbox(self):
+        params = self._query()
+        body = html_mod.render_inbox(
+            wb_newsroom.inbox_view(),
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
+        )
+        _respond(self, 200, body)
+
+    @staticmethod
+    def _source_values(form):
+        """Echo the submitted add-form so a refusal never loses typing."""
+        return {
+            key: _first(form, key, "")
+            for key in ("source_id", "name", "kind", "collector", "url", "query", "note")
+        }
+
+    def _post_sources(self):
+        form = _post_form(self)
+        action = _first(form, "action", "")
+        source_id = _first(form, "source_id", "")
+        try:
+            message = self._apply_source_action(action, form, source_id)
+        except (sources_mod.RegistryError, inbox_mod.InboxError) as exc:
+            # A refusal is a readable message on the page, never a 500/traceback.
+            body = html_mod.render_sources(
+                wb_newsroom.sources_view(), error=str(exc), values=self._source_values(form)
+            )
+            _respond(self, 400, body)
+            return
+        _redirect(self, "/sources?" + urllib.parse.urlencode({"message": message}))
+
+    def _apply_source_action(self, action, form, source_id):
+        if action == "add":
+            entry = wb_newsroom.add_source(
+                source_id=_first(form, "source_id", ""),
+                name=_first(form, "name", ""),
+                kind=_first(form, "kind", ""),
+                collector=_first(form, "collector", ""),
+                url=_first(form, "url", ""),
+                query=_first(form, "query", ""),
+                priority=_first(form, "priority", "normal") or "normal",
+                cadence=_first(form, "cadence", "each_run") or "each_run",
+                monitoring_only=bool(_first(form, "monitoring_only", "")),
+                note=_first(form, "note", ""),
+            )
+            return f"Източникът {entry['name']} е добавен."
+        if not source_id:
+            raise sources_mod.RegistryError("липсва източник за действието")
+        if action == "edit":
+            changes = {}
+            for key in sources_mod.EDITABLE_FIELDS:
+                if key in form:
+                    changes[key] = _first(form, key, "")
+            wb_newsroom.update_source(source_id, **changes)
+            return f"Промените по {source_id} са запазени."
+        if action in ("enable", "disable", "unmute"):
+            status = "active" if action in ("enable", "unmute") else "disabled"
+            wb_newsroom.set_status(source_id, status)
+            return f"{source_id}: {html_mod.lb.SOURCE_STATUS_LABELS.get(status, status)}"
+        if action == "mute":
+            until = _first(form, "muted_until", "")
+            wb_newsroom.set_status(source_id, "muted", muted_until=until)
+            return f"{source_id} е заглушен до {until}."
+        if action == "priority":
+            value = _first(form, "value", "")
+            wb_newsroom.set_priority(source_id, value)
+            return f"{source_id}: приоритет {value}."
+        if action in ("authority", "monitoring_only"):
+            wb_newsroom.set_authority(source_id, action == "authority")
+            return (
+                f"{source_id}: фактологичен авторитет."
+                if action == "authority"
+                else f"{source_id}: само наблюдение."
+            )
+        if action == "remove":
+            wb_newsroom.remove_source(source_id)
+            return f"{source_id} е премахнат (събраното остава)."
+        raise sources_mod.RegistryError(f"непознато действие: {action!r}")
+
+    def _post_inbox(self):
+        form = _post_form(self)
+        item_id = _first(form, "item_id", "")
+        status = _first(form, "status", "")
+        try:
+            wb_newsroom.set_inbox_status(item_id, status)
+        except inbox_mod.InboxError as exc:
+            body = html_mod.render_inbox(wb_newsroom.inbox_view(), error=str(exc))
+            _respond(self, 400, body)
+            return
+        _redirect(self, "/inbox?" + urllib.parse.urlencode({"message": "Отбелязано."}))
 
     def _notfound(self, path):
         body = html_mod.page(

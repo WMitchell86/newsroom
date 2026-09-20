@@ -76,23 +76,39 @@ faster and easier for the editor?* If not → this file, not into the change.
 The only new semantic capability admitted anywhere in M4 is **story identity /
 new development** (M4C), and only after the registry and the inbox exist.
 
-### M4A — Source Registry + Scheduled Collection (IN PROGRESS)
+### M4A — Source Registry + Scheduled Collection (BUILT, LIVE-PROVEN 2026-09-20; awaiting review/freeze)
+
+Success criteria, all demonstrated live (`m4/review/M4A_PLAN.md` §8):
+
+```text
+[x] editor opens the Workbench and sees/manages the sources          -> GET /sources
+[x] can enable / disable / mute-to-date / re-prioritise              -> POST /sources
+[x] a cron-ready collector uses the SAME registry                    -> newsroom collect
+[x] the collector writes real inbox items                            -> 60 items, live
+[x] the Workbench shows those items                                  -> GET /inbox
+[x] one-shot, no daemon; the repo installs no timer                  -> guard tests green
+```
 
 - [x] **Registry core** `workflow/sources_registry.py` + `tests/test_sources_registry.py`
       (15 offline tests): closed schema, time-boxed mute, priority, cadence,
       monitoring-only vs factual authority, one atomic writer, deterministic bytes.
-- [x] **CLI** `sources list|add|enable|disable|mute|remove|priority|cadence|authority`.
-- [ ] **Workbench page «Източници»** — the editor manages the registry from the UI
-      (this is the actual deliverable; the CLI is the scripting fallback).
-- [ ] **Default registry seed** — declared sources only (never invented outlets);
-      the operator adds the rest from the UI.
-- [ ] **Scheduled collection** — one-shot cron entry point (`newsroom collect`) that
-      reads `sources_registry.collectable()`, reuses the existing RSS/News/YouTube
-      collectors, writes through the canonical stores, and prints one run summary.
-      The repo installs **no timer**; the schedule is the operator's (same rule as
-      `youtube-batch run --cron`).
-- [ ] **First inbox skeleton** — the collected items land in a story inbox view
-      (see M4B) rather than in `cases`.
+- [x] **CLI** `sources list|seed|add|enable|disable|mute|remove|priority|cadence|authority`.
+- [x] **Workbench page «Източници»** with a table (Източник · Тип · Статус ·
+      Приоритет · Следващо събиране) and inline actions (Добави, Редактирай,
+      Активирай/Изключи, Заглуши до..., Промени приоритет, Monitoring only,
+      Factual authority). No JSON in the UI, no advanced config editor.
+- [x] **Default registry seed** — 3 entries, declared sources only: the one verified
+      official feed in `sources/live.py` plus two monitoring queries via the adopted
+      News RSS provider. Deliberately short; no outlet or feed URL invented.
+- [x] **Scheduled collection** — `workflow/newsroom_run.py` + `cli newsroom collect`
+      (`--dry-run` = zero network, `--source`, `--limit`). One-shot; a broken source
+      is isolated and reported; exit 1 on partial failure so cron mail surfaces it.
+- [x] **Inbox skeleton** — `workflow/inbox_store.py` (`NEW`/`SEEN`/`IGNORED`, no story
+      identity yet — that is M4C) + `GET /inbox` with Прегледан/Игнорирай actions.
+
+Explicitly **not** done in M4A (owner's boundary): AI angle generation, full
+research, drafting, `NEW_DEVELOPMENT`/`DUPLICATE` story identity, Telegram alerts.
+The shape is `SOURCE -> RAW/normalized INBOX ITEM` and stop.
 
 ### M4B — Story Inbox + Source/Status UX
 

@@ -383,11 +383,26 @@ collection → **M4B** story inbox + source/status UX → **M4C** story identity
 new development → **M4D** Telegram editorial alerts → **M4E** workflow polish. One
 slice at a time, reviewed and frozen before the next; plan: `m4/review/M4A_PLAN.md`.
 
-M4A state (2026-09-20): **registry core built** — `workflow/sources_registry.py`
-(closed schema, time-boxed mute, priority/cadence, monitoring-only vs factual
-authority, one atomic writer) + `sources` CLI + 15 offline tests. Next inside M4A:
-Workbench «Източници» page, default seed, the one-shot collection runner and the
-inbox skeleton (zero-network dry-run first).
+M4A state (2026-09-20): **BUILT, LIVE-PROVEN, awaiting review/freeze.**
+`workflow/sources_registry.py` (closed schema, time-boxed mute, priority/cadence,
+monitoring-only vs factual authority, one atomic writer) + `sources` CLI +
+Workbench «Източници» (`GET /sources` + inline actions) + `workflow/newsroom_run.py`
+(`cli newsroom collect`, `--dry-run` = zero network, one broken source never stops
+the run) + `workflow/inbox_store.py` (`GET /inbox`, `NEW`/`SEEN`/`IGNORED`).
+Default seed = **3 declared sources** (one verified official feed + two monitoring
+queries) — no outlet or feed URL invented. None of it is scheduled by the repo:
+the cron entry point is a one-shot process.
+
+```text
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources seed      # first install
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources list
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --dry-run   # no network
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect             # cron calls this
+```
+
+Boundary held in M4A: no AI angles, no research, no drafting, no story identity,
+no alerts — `SOURCE -> normalized INBOX ITEM` and stop (M4B/M4C/M4D). Details:
+`m4/review/M4A_PLAN.md` §8.
 
 YouTube (frozen) — **maintenance only**, and only on observed production pain:
 

@@ -64,6 +64,48 @@ FIELDS = (
 #: Query length limit, matching the public-query privacy guard in `search.py`.
 MAX_QUERY_CHARS = 400
 
+#: Default seed — DELIBERATELY SHORT, and only sources this repository already
+#: uses or that the editor approved explicitly. No outlet is invented, and no
+#: feed URL is guessed: `rss` entries carry a URL that exists in the repo
+#: (`sources/live.py`), the rest are monitoring queries through the adopted News
+#: RSS provider. The editor adds more from the Workbench; a guessed URL would be
+#: worse than a missing one.
+DEFAULT_SEED = (
+    {
+        "source_id": "burgas-municipal-council",
+        "name": "Общински съвет Бургас",
+        "kind": "official",
+        "collector": "rss",
+        "url": "https://burgascouncil.org/last-update.xml",
+        "priority": "high",
+        "cadence": "each_run",
+        "factual_authority": True,
+        "note": "Официалната емисия, вече използвана от системата (sources/live.py).",
+    },
+    {
+        "source_id": "burgas-news-watch",
+        "name": "Бургас (наблюдение в Google News)",
+        "kind": "aggregator",
+        "collector": "google_news_rss",
+        "query": "Бургас",
+        "priority": "normal",
+        "cadence": "each_run",
+        "factual_authority": False,
+        "note": "Само за наблюдение: резултатите са за откриване, не са доказателство.",
+    },
+    {
+        "source_id": "council-news-watch",
+        "name": "Общински съвет Бургас (наблюдение)",
+        "kind": "aggregator",
+        "collector": "google_news_rss",
+        "query": "Общински съвет Бургас",
+        "priority": "normal",
+        "cadence": "each_run",
+        "factual_authority": False,
+        "note": "Само за наблюдение: показва кой още пише по темата.",
+    },
+)
+
 
 class RegistryError(ValueError):
     """A registry entry or action that must not be stored."""
@@ -259,6 +301,43 @@ def set_factual_authority(source_id, authority, *, path=None):
     return _update(source_id, path, factual_authority=authority)
 
 
+#: Fields an editor may change after creation. `source_id` is the key: it is
+#: never editable, so evidence and inbox rows keep pointing at the same source.
+EDITABLE_FIELDS = ("name", "kind", "collector", "url", "query", "note")
+
+
+def update_source(source_id, *, path=None, **changes):
+    """Change an existing source's editable fields (the UI's "Редактирай")."""
+    illegal = sorted(set(changes) - set(EDITABLE_FIELDS))
+    if illegal:
+        raise RegistryError(
+            f"{source_id}: fields not editable: {illegal} (editable: {list(EDITABLE_FIELDS)})"
+        )
+    if not changes:
+        raise RegistryError(f"{source_id}: nothing to change")
+    return _update(source_id, path, **changes)
+
+
+def seed_defaults(*, path=None, dry_run=False):
+    """Write the default seed, adding only what is missing.
+
+    Never overwrites an existing entry: once the editor has touched a source,
+    its configuration is theirs, and re-running the seed must not undo edits.
+    """
+    registry = read_registry(path)
+    added, skipped = [], []
+    for entry in DEFAULT_SEED:
+        if entry["source_id"] in registry:
+            skipped.append(entry["source_id"])
+            continue
+        added.append(validate_entry(entry))
+    if not dry_run and added:
+        for entry in added:
+            registry[entry["source_id"]] = entry
+        save_registry(registry, path)
+    return {"added": [e["source_id"] for e in added], "skipped": skipped}
+
+
 def remove_source(source_id, *, path=None):
     """Delete a source. Never deletes collected evidence — registry only."""
     registry = read_registry(path)
@@ -301,6 +380,26 @@ def collectable(path=None, *, today=None):
     """Active sources, highest priority first — the collection runner's input."""
     rows = [e for e in describe_all(path, today=today) if e["effective_status"] == "active"]
     return sorted(rows, key=lambda e: (PRIORITY_RANK.get(e["priority"], 9), e["source_id"]))
+
+
+def next_collection_label(entry, *, today=None):
+    """What the editor sees in the «Следващо събиране» column.
+
+    Deliberately does NOT invent a clock time: the repo installs no timer, so the
+    operator owns the cron times. It reports the cadence, and for a live mute the
+    date the source resumes.
+    """
+    status = effective_status(entry, today=today)
+    if status == "disabled":
+        return "—"
+    if status == "muted":
+        until = entry.get("muted_until") or ""
+        return f"след {until[8:10]}.{until[5:7]}" if _DATE_RX.match(until) else "—"
+    return {
+        "each_run": "при всяко събиране",
+        "daily": "всеки ден",
+        "weekly": "седмично",
+    }.get(entry.get("cadence"), "—")
 
 
 def summary(path=None, *, today=None):
