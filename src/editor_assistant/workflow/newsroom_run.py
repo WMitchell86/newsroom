@@ -305,8 +305,72 @@ def select_candidates(entry, candidates, *, bootstrap, now):
     return kept, dropped
 
 
-def _to_inbox_item(entry, candidate, discovered_at):
-    """Raw candidate -> the inbox row shape (candidate, never evidence)."""
+def authority_by_domain(path=None, *, today=None):
+    """Publisher domain -> registry row: the *real publisher's* authority policy.
+
+    Built from every registry entry's declared `domain` plus the host of its own
+    `url` (so a direct feed is its own publisher without any extra configuration).
+    Ordered by `source_id`, so a shared domain resolves deterministically.
+    """
+    out = {}
+    for row in sources_registry.describe_all(path, today=today):
+        for domain in (row.get("domain") or "", blocked_domains.host_of(row.get("url")) or ""):
+            if domain:
+                out.setdefault(domain, row)
+    return out
+
+
+def publisher_domain(candidate):
+    """The real publisher of one candidate (never the discovery definition).
+
+    Google News results carry the publisher on `source_url` because their `url` is
+    an opaque `news.google.com` redirect; a direct feed's item link already lives
+    on the publisher's own host.
+    """
+    return (
+        blocked_domains.host_of(candidate.get("source_url"))
+        or blocked_domains.host_of(candidate.get("url"))
+        or ""
+    )
+
+
+def resolve_authority(candidate, registry_by_domain):
+    """Publisher identity + authority for one candidate.
+
+    Strict rule (M4A.1 correction): an item inherits authority from whoever
+    **published** it, never from the monitoring definition that surfaced it. An
+    unknown or unapproved publisher is monitoring-only — a query that merely
+    mentions an institution must not lend that institution's authority to a
+    third-party article.
+    """
+    domain = publisher_domain(candidate)
+    match = registry_by_domain.get(domain) if domain else None
+    if match is None and domain:
+        for known, row in registry_by_domain.items():
+            if domain.endswith("." + known):
+                match = row
+                break
+    if match is None:
+        return {"publisher_domain": domain, "publisher_kind": "", "factual_authority": False}
+    return {
+        "publisher_domain": domain,
+        "publisher_kind": match["kind"],
+        "factual_authority": bool(match["factual_authority"]),
+    }
+
+
+def _to_inbox_item(entry, candidate, discovered_at, authority=None):
+    """Raw candidate -> the inbox row shape (candidate, never evidence).
+
+    `source_id`/`source_kind` describe **how the item was discovered**;
+    `publisher_domain`/`publisher_kind`/`factual_authority` describe **who
+    published it**. The two are deliberately separate fields.
+    """
+    authority = authority or {
+        "publisher_domain": publisher_domain(candidate),
+        "publisher_kind": "",
+        "factual_authority": False,
+    }
     return {
         "source_id": entry["source_id"],
         "source_item_id": candidate.get("source_item_id") or candidate.get("url") or "",
@@ -317,6 +381,9 @@ def _to_inbox_item(entry, candidate, discovered_at):
         "summary": candidate.get("snippet") or "",
         "source_kind": entry["kind"],
         "priority": entry["priority"],
+        "publisher_domain": authority["publisher_domain"],
+        "publisher_kind": authority["publisher_kind"],
+        "factual_authority": authority["factual_authority"],
         "status": "NEW",
     }
 
@@ -415,6 +482,7 @@ def collect(
     try:
         health = source_health.read_health(health_path)
         policy = blocked_domains.effective_domains(blocked_path)
+        registry_by_domain = authority_by_domain(path, today=None)
         existing_ids = {item["item_id"] for item in inbox_store.read_items(store)}
         results = []
         collected = []
@@ -471,7 +539,12 @@ def collect(
                     entry_result["blocked_filtered"] += 1
                     blocked_filtered_total += 1
                     continue
-                item = _to_inbox_item(entry, candidate, discovered_at)
+                item = _to_inbox_item(
+                    entry,
+                    candidate,
+                    discovered_at,
+                    resolve_authority(candidate, registry_by_domain),
+                )
                 try:
                     normalized = inbox_store.validate_item(item)
                 except inbox_store.InboxError:

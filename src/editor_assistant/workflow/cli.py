@@ -862,6 +862,7 @@ def cmd_sources(args):
                 source_id=args.source_id,
                 name=args.name,
                 kind=args.kind,
+                domain=args.domain or "",
                 collector=args.collector,
                 url=args.url or "",
                 query=args.query or "",
@@ -1001,6 +1002,9 @@ def _add_sources_subcommands(sub):
     add.add_argument("--id", dest="source_id", required=True, help="slug, e.g. bnr-burgas")
     add.add_argument("--name", required=True)
     add.add_argument("--kind", required=True, choices=reg.KINDS)
+    add.add_argument(
+        "--domain", default="", help="publisher domain (the authority key for its articles)"
+    )
     add.add_argument("--collector", required=True, choices=reg.COLLECTORS)
     add.add_argument("--url", default="", help="feed/page URL (rss, web, youtube)")
     add.add_argument("--query", default="", help="search query (google_news_rss)")

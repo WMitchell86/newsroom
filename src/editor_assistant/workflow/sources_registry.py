@@ -27,7 +27,7 @@ import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from editor_assistant.workflow import default_sources, live_store
+from editor_assistant.workflow import blocked_domains, default_sources, live_store
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -48,6 +48,7 @@ FIELDS = (
     "source_id",
     "name",
     "kind",
+    "domain",
     "collector",
     "url",
     "query",
@@ -161,10 +162,23 @@ def validate_entry(entry):
     if not isinstance(calendar, bool):
         raise RegistryError(f"{source_id}: calendar must be true or false")
 
+    # The publisher's real domain. It is the key allowed to inherit this source's
+    # authority (M4A.1 correction): a monitoring query's *results* are attributed
+    # to whoever actually published them, not to this definition.
+    raw_domain = str(entry.get("domain", "")).strip()
+    if raw_domain:
+        try:
+            domain = blocked_domains.canonical_host(raw_domain)
+        except blocked_domains.BlockedDomainError as exc:
+            raise RegistryError(f"{source_id}: domain is not a plain host: {exc}") from exc
+    else:
+        domain = ""
+
     return {
         "source_id": source_id,
         "name": name,
         "kind": kind,
+        "domain": domain,
         "collector": collector,
         "url": url,
         "query": query,
@@ -275,7 +289,7 @@ def set_factual_authority(source_id, authority, *, path=None):
 
 #: Fields an editor may change after creation. `source_id` is the key: it is
 #: never editable, so evidence and inbox rows keep pointing at the same source.
-EDITABLE_FIELDS = ("name", "kind", "collector", "url", "query", "note")
+EDITABLE_FIELDS = ("name", "kind", "domain", "collector", "url", "query", "note")
 
 
 def update_source(source_id, *, path=None, **changes):

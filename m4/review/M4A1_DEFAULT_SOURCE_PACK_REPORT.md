@@ -162,10 +162,73 @@ SOURCE_EXCLUSION_POLICY = PROVEN   (default in force, suffix match, publisher-do
                                     direct source refused; live 20+46 filtered)
 SOURCE_CADENCE_ENGINEERING = PROVEN (each_run/daily/weekly on the Europe/Sofia day; live 21 skipped)
 SAFE_BOOTSTRAP          = PROVEN   (72 h / 10 newest, ±45-day calendar window, 20-item cap)
+PUBLISHER_AUTHORITY_INHERITANCE = PROVEN (§10)
 EDITORIAL_EFFECTIVENESS = PENDING
 ```
 
-## 10. Deliberate limits
+## 10. Correction before freeze — publisher authority is never inherited
+
+The reviewer flagged a real semantic mixing risk that predated this report: the
+registry stores `factual_authority` on the **monitoring definition** (e.g. "Община
+Бургас", official), while almost every collector actually runs a *Google News
+query*. The old inbox resolved authority by looking the item's `source_id` back up
+in the registry, so an article written by `news.bg` or a Facebook post — merely
+surfaced by the "Прокуратура Бургас" query — would have been presented as an
+official-authority item. The object identity and the returned publisher are not
+the same thing.
+
+**Fix (strict, and the reason it is safe):**
+
+* a registry entry gains an editor-owned `domain` field — the source's **real
+  publisher domain** (the catalogue sets it from the research doc's canonical
+  pages; the aggregator deliberately has none);
+* `authority_by_domain()` builds `publisher domain -> registry row` from each
+  entry's `domain` **plus** the host of its own `url`, so a direct feed is its own
+  publisher with no extra configuration;
+* every inbox item now stores **`publisher_domain`**, **`publisher_kind`** and
+  **`factual_authority`**, resolved from whoever actually published it;
+  `source_id` / `source_kind` keep meaning "**how it was discovered**";
+* an unknown or unapproved publisher gets **no** authority (fail closed — a query
+  that merely mentions an institution can never lend it that institution's
+  standing);
+* the Workbench inbox shows both identities (`открит от: …` + `издател: <domain>`
+  with an authority badge) and the authority filter now reads the item's
+  publisher, not the discovery source.
+
+**Live evidence (fresh isolated run, `--limit 6`, 48 items):**
+
+```text
+discovered_by=burgas-municipality  publisher=www.burgas.bg  kind=official authority=True   (10)
+discovered_by=bta-burgas           publisher=www.bta.bg     kind=media    authority=True   (10)
+discovered_by=bnr-burgas           publisher=bnr.bg         kind=media    authority=True    (8)
+discovered_by=burgas-municipal-council publisher=burgascouncil.org kind=official authority=True (7)
+discovered_by=burgas-prosecution   publisher=www.bgonair.bg kind=-        authority=False   (1)
+discovered_by=burgas-prosecution   publisher=news.bg        kind=-        authority=False   (1)
+discovered_by=burgas-prosecution   publisher=www.facebook.com kind=-      authority=False   (1)
+discovered_by=burgas-prosecution   publisher=www.bta.bg     kind=media    authority=True    (1)
+…
+```
+
+Every "Прокуратура Бургас" item keeps its **own** publisher's standing: the one
+written by БТА carries media authority, the ones written by `news.bg`,
+`bgonair.bg`, `utroruse.com`, `kanal6.tv`, `clubz.bg` and Facebook carry **none**.
+`www.burgas.bg` / `www.bta.bg` / `www.faragency.bg` correctly resolve by suffix to
+their declared domains. Workbench: 17 items with an official publisher, 12 with a
+publisher that has no authority.
+
+One accepted limitation, in the safe direction: `bnrnews.bg` is not declared, so
+those two БНР items are treated as unknown (no authority) rather than assumed to
+be БНР. Under-attribution is the correct failure mode; the editor can declare
+another source if they want it recognised.
+
+Acceptance tests: `tests/test_newsroom_collect.py`
+(`test_item_authority_comes_from_the_publisher_not_the_monitoring_source`,
+`test_resolve_authority_is_suffix_aware_and_defaults_to_monitoring_only`,
+`test_a_direct_feed_is_its_own_publisher_without_a_domain_field`) and
+`tests/test_workbench_newsroom.py`
+(`test_inbox_authority_filter_uses_the_publisher_not_the_discovery_source`).
+
+## 11. Deliberate limits
 
 * No custom scraper per source: sources that would need one are not seeded.
 * No automatic scheduling: cron is the operator's, documented in `RUNBOOK.md`.

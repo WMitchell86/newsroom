@@ -76,6 +76,7 @@ DEFAULT_SOURCE_PACK                 = PROVEN (M4A.1, live: 30 active / 5 disable
 SOURCE_EXCLUSION_POLICY             = PROVEN (M4A.1, live)
 SOURCE_CADENCE_ENGINEERING          = PROVEN (M4A.1, live: 21 skipped on run 2)
 SAFE_BOOTSTRAP                      = PROVEN (M4A.1)
+PUBLISHER_AUTHORITY_INHERITANCE     = PROVEN (M4A.1 correction, live)
 DAILY_INBOX_ENGINEERING             = PROVEN (M4B, live)
 ```
 
@@ -411,6 +412,13 @@ M4A (`sources_registry.py` + `sources` CLI + Workbench «Източници» +
 - Safe bootstrap (≤72 h / 10 newest for news, ±45-day window for calendars,
   20 items per source per run) and one shared collection lock between cron and
   the Workbench button.
+- **Publisher authority is never inherited** (post-review correction): a registry
+  entry has its own `domain`, each inbox item stores `publisher_domain` /
+  `publisher_kind` / `factual_authority` resolved from the **real publisher**, and
+  `source_id`/`source_kind` mean "how it was discovered". An unapproved publisher
+  gets no authority. Live: a "Прокуратура Бургас" item published by `news.bg` or
+  Facebook carries no authority, while one published by БТА carries media
+  authority.
 - M4B daily inbox: default **NEW** view, summary counts, practical filters,
   pagination, per-item actions, «Събери новите сега» / «Пробен преглед» (both via
   the same one-shot service) and a readable source-problem list.

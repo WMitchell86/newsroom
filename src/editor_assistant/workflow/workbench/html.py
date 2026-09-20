@@ -810,6 +810,7 @@ def _source_edit_form(row):
         f'<input type="hidden" name="action" value="edit">'
         f'<input type="hidden" name="source_id" value="{esc(row["source_id"])}">'
         f'<label>Име <input name="name" value="{esc(row["name"])}" required></label>'
+        f'<label>Домейн на издателя <input name="domain" value="{esc(row["domain"])}"></label>'
         f'<label>URL <input name="url" value="{esc(row["url"])}"></label>'
         f'<label>Заявка <input name="query" value="{esc(row["query"])}"></label>'
         f'<label>Бележка <input name="note" value="{esc(row["note"])}"></label>'
@@ -870,6 +871,7 @@ def add_source_form(values=None):
         f'<label>Име <input name="name" value="{esc(values.get("name", ""))}" required></label>'
         f'<label>Тип <select name="kind">{kinds}</select></label>'
         f'<label>Начин на събиране <select name="collector">{collectors}</select></label>'
+        f'<label>Домейн на издателя <input name="domain" value="{esc(values.get("domain", ""))}"></label>'
         f'<label>URL <input name="url" value="{esc(values.get("url", ""))}"></label>'
         f'<label>Заявка (за търсене) <input name="query" value="{esc(values.get("query", ""))}"></label>'
         f'<label>Приоритет <select name="priority">{priorities}</select></label>'
@@ -1002,7 +1004,7 @@ def _inbox_filter_form(view):
     return (
         '<form method="get" action="/inbox" class="card" style="margin:.6rem 0">'
         '<input type="hidden" name="status" value="' + esc(filters["status"]) + '">'
-        '<label>Източник <select name="source">' + "".join(source_opts) + "</select></label>"
+        '<label>Открит от <select name="source">' + "".join(source_opts) + "</select></label>"
         '<label>Тип <select name="kind">' + "".join(kind_opts) + "</select></label>"
         '<label>Приоритет <select name="priority">' + "".join(prio_opts) + "</select></label>"
         '<label>Авторитет <select name="authority">' + auth_opts + "</select></label>"
@@ -1090,14 +1092,31 @@ def _inbox_item(item):
         when.append(f"публикувано: {esc(published)}")
     if discovered:
         when.append(f"открито: {esc(discovered)}")
+    # Publisher identity is shown separately from the discovery definition: an
+    # article found by an official source's monitoring query is still published
+    # by whoever wrote it.
+    publisher_kind = item.get("publisher_kind") or ""
+    publisher_badge = _badge(
+        lb.publisher_kind_label(publisher_kind),
+        "ok" if publisher_kind == "official" else "info" if publisher_kind else "warn",
+    )
+    if item.get("factual_authority"):
+        publisher_badge += " " + _badge("фактологичен авторитет", "ok")
+    else:
+        publisher_badge += " " + _badge("без авторитет", "warn")
+    publisher_line = (
+        f'<p>{publisher_badge} <span class="muted">издател: '
+        f"{esc(item.get('publisher_domain') or 'неизвестен домейн')}</span></p>"
+    )
     return (
         '<section class="card">'
         f'<h3><a href="{esc(item["url"])}" target="_blank" rel="noopener noreferrer">'
         f"{esc(item['title'])}</a></h3>"
-        f'<p class="muted">{esc(item["source_name"])} · '
+        f'<p class="muted">открит от: {esc(item["source_name"])} · '
         f"{esc(lb.source_kind_label(item['source_kind']))} · "
         f"{esc(lb.source_priority_label(item['priority']))} приоритет</p>"
-        f'<p class="muted">{" · ".join(when)}</p>'
+        + publisher_line
+        + f'<p class="muted">{" · ".join(when)}</p>'
         + (f"<p>{esc(item['summary'][:300])}</p>" if item["summary"] else "")
         + f"<p>{_badge(lb.inbox_status_label(item['status']), status_cls)} "
         + " ".join(actions)

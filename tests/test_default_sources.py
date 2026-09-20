@@ -98,6 +98,20 @@ def test_catalogue_entries_validate_against_the_registry_schema():
         R.validate_entry(entry)  # raises on any schema drift
 
 
+def test_required_sources_declare_their_publisher_domain():
+    """Authority is keyed by the real publisher domain, so the core/daily sources
+    must declare one (the broad aggregator deliberately does not)."""
+    by_id = D.catalog_by_id()
+    aggregators = {sid for sid, entry in by_id.items() if entry["kind"] == "aggregator"}
+    missing = [
+        sid for sid in D.required_ids() if sid not in aggregators and not by_id[sid].get("domain")
+    ]
+    assert missing == []
+    assert by_id["google-news-burgas-region"]["domain"] == ""  # aggregator, no publisher
+    assert by_id["bnr-burgas"]["domain"] == "bnr.bg"
+    assert by_id["burgas-municipality"]["domain"] == "burgas.bg"
+
+
 def test_preview_writes_nothing_and_apply_is_additive_and_idempotent(store):
     preview = R.apply_defaults(path=store, preview=True)
     assert preview["preview"] is True

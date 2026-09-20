@@ -432,3 +432,45 @@ def test_inbox_shows_source_problems_and_last_run(seeded):
     assert any(p["source_id"] == "news-search" for p in view["problems"])
     body = http.html_mod.render_inbox(view)
     assert "Източници с проблем" in body and "RATE_LIMITED" in body
+
+
+def test_inbox_authority_filter_uses_the_publisher_not_the_discovery_source(seeded):
+    """An item found by an official source's monitor is filtered by its publisher."""
+    inbox_store.add_items(
+        [
+            {
+                "source_id": "council-feed",  # official, but the publisher is a blog
+                "title": "Блог публикация",
+                "url": "https://unknown-blog.example/a",
+                "discovered_at": "2026-09-20T09:00:00Z",
+                "source_kind": "official",
+                "priority": "high",
+                "publisher_domain": "unknown-blog.example",
+                "publisher_kind": "",
+                "factual_authority": False,
+            },
+            {
+                "source_id": "news-search",
+                "title": "Общинско съобщение",
+                "url": "https://news.google.com/rss/articles/x",
+                "discovered_at": "2026-09-20T10:00:00Z",
+                "source_kind": "aggregator",
+                "priority": "normal",
+                "publisher_domain": "burgas.bg",
+                "publisher_kind": "official",
+                "factual_authority": True,
+            },
+        ],
+        path=newsroom.inbox_store_path(),
+    )
+    official = newsroom.inbox_view(status="all", authority="official")
+    titles = {item["title"] for item in official["items"]}
+    assert titles == {"Общинско съобщение"}
+
+    monitoring = newsroom.inbox_view(status="all", authority="monitoring")
+    monitor_titles = {item["title"] for item in monitoring["items"]}
+    assert "Блог публикация" in monitor_titles
+    assert "Общинско съобщение" not in monitor_titles
+
+    body = http.html_mod.render_inbox(newsroom.inbox_view(status="all"))
+    assert "издател: burgas.bg" in body and "без авторитет" in body

@@ -133,6 +133,14 @@ Owner-authorized correction of M4A before scaling the source count. Report:
 - [x] **Safe bootstrap + caps** — first collection keeps ≤72 h / 10 newest (news) or
       a ±45-day window (calendars), 20 items per source per run.
 - [x] **One shared collection lock** between cron and the Workbench button.
+- [x] **Publisher authority is never inherited** (post-review correction): every
+      source declares its real publisher `domain`, every item stores
+      `publisher_domain` / `publisher_kind` / `factual_authority` from the publisher
+      (direct feeds are their own publisher; unknown publishers get none), and the
+      inbox shows and filters both identities separately.
+- [ ] (accepted limitation) A publisher that is the same newsroom under another host
+      (e.g. `bnrnews.bg` vs `bnr.bg`) is treated as unknown rather than assumed. Add a
+      second source or an alias field only if real use shows the editor needs it.
 
 ### M4B — Daily Inbox UX (BUILT, LIVE-PROVEN 2026-09-20)
 

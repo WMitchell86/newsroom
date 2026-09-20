@@ -24,7 +24,13 @@ from __future__ import annotations
 
 #: Entry defaults shared by every catalogue row (`added_at`/`updated_at` are
 #: filled by the registry so the store stays byte-stable between applies).
+#:
+#: `domain` is the source's **real publisher domain**, and it is what makes the
+#: configured identity distinguishable from the returned publisher identity: an
+#: item found by this source's monitoring query inherits authority only when the
+#: item's *publisher* domain resolves here (see `newsroom_run`).
 _BASE = {
+    "domain": "",
     "collector": "google_news_rss",
     "status": "active",
     "priority": "normal",
@@ -40,6 +46,7 @@ CORE = (
     {
         "source_id": "burgas-municipal-council",
         "name": "Общински съвет Бургас",
+        "domain": "burgascouncil.org",
         "kind": "official",
         "collector": "rss",
         "url": "https://burgascouncil.org/last-update.xml",
@@ -49,6 +56,7 @@ CORE = (
     {
         "source_id": "burgas-municipality",
         "name": "Община Бургас",
+        "domain": "burgas.bg",
         "kind": "official",
         "query": "Община Бургас",
         "priority": "high",
@@ -57,6 +65,7 @@ CORE = (
     {
         "source_id": "pomorie-municipality",
         "name": "Община Поморие",
+        "domain": "pomorie.bg",
         "kind": "official",
         "query": "Община Поморие",
         "priority": "high",
@@ -65,6 +74,7 @@ CORE = (
     {
         "source_id": "odmvr-burgas",
         "name": "ОДМВР Бургас",
+        "domain": "mvr.bg",
         "kind": "official",
         "query": "ОДМВР Бургас",
         "priority": "high",
@@ -73,6 +83,7 @@ CORE = (
     {
         "source_id": "bnr-burgas",
         "name": "БНР Бургас",
+        "domain": "bnr.bg",
         "kind": "media",
         "query": "БНР Бургас",
         "priority": "high",
@@ -81,6 +92,7 @@ CORE = (
     {
         "source_id": "bta-burgas",
         "name": "БТА — област Бургас",
+        "domain": "bta.bg",
         "kind": "media",
         "query": "БТА Бургас",
         "priority": "high",
@@ -98,6 +110,7 @@ CORE = (
     {
         "source_id": "chernomorski-far",
         "name": "Черноморски фар",
+        "domain": "faragency.bg",
         "kind": "regional",
         "query": "Черноморски фар",
         "priority": "normal",
@@ -107,6 +120,7 @@ CORE = (
     {
         "source_id": "darik-burgas",
         "name": "DarikNews Бургас",
+        "domain": "dariknews.bg",
         "kind": "regional",
         "query": "DarikNews Бургас",
         "priority": "normal",
@@ -120,6 +134,7 @@ DAILY = (
     {
         "source_id": "pomorie-council",
         "name": "Общински съвет Поморие",
+        "domain": "ospomorie.bg",
         "kind": "official",
         "query": "Общински съвет Поморие",
         "priority": "high",
@@ -128,6 +143,7 @@ DAILY = (
     {
         "source_id": "burgas-regional-administration",
         "name": "Областна администрация Бургас",
+        "domain": "bs.gov.bg",
         "kind": "official",
         "query": "Областна администрация Бургас",
         "note": "Регион, институции, инфраструктура.",
@@ -135,6 +151,7 @@ DAILY = (
     {
         "source_id": "burgas-prosecution",
         "name": "Прокуратура Бургас",
+        "domain": "prb.bg",
         "kind": "official",
         "query": "Прокуратура Бургас",
         "priority": "high",
@@ -143,6 +160,7 @@ DAILY = (
     {
         "source_id": "burgas-district-court",
         "name": "Окръжен съд Бургас",
+        "domain": "burgas-os.justice.bg",
         "kind": "official",
         "query": "Окръжен съд Бургас",
         "priority": "high",
@@ -151,6 +169,7 @@ DAILY = (
     {
         "source_id": "riosv-burgas",
         "name": "РИОСВ Бургас",
+        "domain": "riosv-burgas.bg",
         "kind": "official",
         "query": "РИОСВ Бургас",
         "priority": "high",
@@ -159,6 +178,7 @@ DAILY = (
     {
         "source_id": "rzi-burgas",
         "name": "РЗИ Бургас",
+        "domain": "rzi-burgas.bg",
         "kind": "official",
         "query": "РЗИ Бургас",
         "note": "Здравни сигнали, вода, епидемиология.",
@@ -166,6 +186,7 @@ DAILY = (
     {
         "source_id": "ruo-burgas",
         "name": "РУО Бургас",
+        "domain": "ruoburgas.bg",
         "kind": "official",
         "query": "РУО Бургас",
         "note": "Училища и образование.",
@@ -173,6 +194,7 @@ DAILY = (
     {
         "source_id": "umbal-burgas",
         "name": "УМБАЛ Бургас",
+        "domain": "mbalburgas.com",
         "kind": "official",
         "query": "УМБАЛ Бургас",
         "note": "Болница: авторитет за собствените си съобщения.",
@@ -180,6 +202,7 @@ DAILY = (
     {
         "source_id": "burgas-state-university",
         "name": "Университет „Проф. д-р Асен Златаров“",
+        "domain": "uniburgas.bg",
         "kind": "official",
         "query": "Университет Асен Златаров Бургас",
         "note": "Образование, наука, медицина.",
@@ -187,6 +210,7 @@ DAILY = (
     {
         "source_id": "burgas-free-university",
         "name": "Бургаски свободен университет",
+        "domain": "bfu.bg",
         "kind": "official",
         "query": "Бургаски свободен университет",
         "note": "Образование, бизнес, публични събития.",
@@ -194,6 +218,7 @@ DAILY = (
     {
         "source_id": "burgas-cultural-program",
         "name": "Културна програма — Бургас",
+        "domain": "burgas.bg",
         "kind": "official",
         "query": "Културна програма Бургас",
         "calendar": True,
@@ -202,6 +227,7 @@ DAILY = (
     {
         "source_id": "burgas-sport-program",
         "name": "Спортна програма — Бургас",
+        "domain": "burgas.bg",
         "kind": "official",
         "query": "Спортна програма Бургас",
         "calendar": True,
@@ -210,6 +236,7 @@ DAILY = (
     {
         "source_id": "gotoburgas-events",
         "name": "GoToBurgas — събития",
+        "domain": "gotoburgas.com",
         "kind": "official",
         "query": "GoToBurgas събития",
         "calendar": True,
@@ -218,6 +245,7 @@ DAILY = (
     {
         "source_id": "rim-burgas",
         "name": "Регионален исторически музей Бургас",
+        "domain": "burgasmuseums.bg",
         "kind": "official",
         "query": "Регионален исторически музей Бургас",
         "calendar": True,
@@ -226,6 +254,7 @@ DAILY = (
     {
         "source_id": "port-burgas",
         "name": "Пристанище Бургас ЕАД",
+        "domain": "port-burgas.bg",
         "kind": "official",
         "query": "Пристанище Бургас",
         "note": "Морска икономика, инфраструктура.",
@@ -233,6 +262,7 @@ DAILY = (
     {
         "source_id": "burgas-airport-fraport",
         "name": "Летище Бургас / Fraport",
+        "domain": "fraport-bulgaria.com",
         "kind": "official",
         "query": "Летище Бургас Fraport",
         "note": "Авиация, туризъм, маршрути.",
@@ -240,6 +270,7 @@ DAILY = (
     {
         "source_id": "nessebar-municipality",
         "name": "Община Несебър",
+        "domain": "nesebar.bg",
         "kind": "official",
         "query": "Община Несебър",
         "priority": "low",
@@ -248,6 +279,7 @@ DAILY = (
     {
         "source_id": "sozopol-municipality",
         "name": "Община Созопол",
+        "domain": "sozopol.org",
         "kind": "official",
         "query": "Община Созопол",
         "priority": "low",
@@ -256,6 +288,7 @@ DAILY = (
     {
         "source_id": "sozopol-council",
         "name": "Общински съвет Созопол",
+        "domain": "obs-savet.eu",
         "kind": "official",
         "query": "Общински съвет Созопол",
         "priority": "low",
@@ -264,6 +297,7 @@ DAILY = (
     {
         "source_id": "tsarevo-municipality",
         "name": "Община Царево",
+        "domain": "tsarevo.bg",
         "kind": "official",
         "query": "Община Царево",
         "priority": "low",
@@ -272,6 +306,7 @@ DAILY = (
     {
         "source_id": "primorsko-municipality",
         "name": "Община Приморско",
+        "domain": "primorsko.bg",
         "kind": "official",
         "query": "Община Приморско",
         "priority": "low",
@@ -285,6 +320,7 @@ OPTIONAL = (
     {
         "source_id": "burgasinfo",
         "name": "BurgasInfo",
+        "domain": "burgasinfo.com",
         "kind": "regional",
         "query": "BurgasInfo",
         "priority": "low",
@@ -315,6 +351,7 @@ OPTIONAL = (
     {
         "source_id": "aytos-municipality",
         "name": "Община Айтос",
+        "domain": "aytos.bg",
         "kind": "official",
         "query": "Община Айтос",
         "priority": "low",
@@ -324,6 +361,7 @@ OPTIONAL = (
     {
         "source_id": "karnobat-municipality",
         "name": "Община Карнобат",
+        "domain": "karnobat.bg",
         "kind": "official",
         "query": "Община Карнобат",
         "priority": "low",

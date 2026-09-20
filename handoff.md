@@ -1,6 +1,6 @@
 ## Handoff — M4A.1 Default Source Pack + M4B Daily Inbox (2026-09-20)
 
-Verified: **793 offline tests**, ruff check/format clean, M3A smoke 25/25, plus an
+Verified: **805 offline tests**, ruff check/format clean, M3A smoke 25/25, plus an
 isolated live source-pack run and Workbench proof. Reports:
 `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`, `m4/review/M4B_DAILY_INBOX_REPORT.md`.
 
@@ -19,6 +19,13 @@ isolated live source-pack run and Workbench proof. Reports:
   `news.google.com` redirects, so host-matching item URLs blocks nothing. The publisher
   domain now comes from the item's `<source url>` attribute (provider + runner updated,
   with a fixture test).
+- **Second correction before freeze (reviewer-flagged): publisher authority is no
+  longer inherited from the monitoring definition.** Each source declares its real
+  publisher `domain`; each item stores `publisher_domain` / `publisher_kind` /
+  `factual_authority` from the **publisher**, unknown publishers fail closed, and the
+  inbox shows/discovery-filters both identities separately. Live: a prosecution-query
+  item published by `news.bg` or Facebook carries no authority; the one published by
+  БТА keeps media authority. `PUBLISHER_AUTHORITY_INHERITANCE = PROVEN`.
 - **Boundary held:** no AI ranking, no story clustering, no `NEW_DEVELOPMENT`, no
   Telegram, no drafting — a structural test fails if those tokens appear as identifiers
   in the newsroom modules.

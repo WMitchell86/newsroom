@@ -21,11 +21,20 @@ Still no new AI capability (that is M4C). Reports:
 - **M4B daily inbox:** default **NEW** view, summary counts, practical filters,
   pagination, per-item actions, «Събери новите сега» / «Пробен преглед» delegating to
   the same one-shot service, readable source-problem list.
+- **Post-review correction before freeze — publisher authority is never inherited:**
+  the inbox used to resolve authority from the *discovery source*, so an article by
+  `news.bg` surfaced by the official "Прокуратура Бургас" query was presented as
+  official-authority material. Registry entries now carry the real publisher
+  `domain`; every item stores `publisher_domain` / `publisher_kind` /
+  `factual_authority` from the **publisher** (direct feeds are their own publisher),
+  unknown publishers get none, and the inbox shows/discovery-filters both identities
+  separately. Live: the БТА-written prosecution item keeps media authority while the
+  `news.bg` / `bgonair.bg` / Facebook ones get none.
 - **Live proof (isolated `/tmp` runtime):** 30 sources → 29 OK / 1 EMPTY / 0 failed,
   204 items; re-run added 100 new + 80 already-known and auto-skipped 21 daily sources
   by cadence; `GET /sources` and `GET /inbox` render; a blocked publisher was filtered
   live; a direct blocked source was refused.
-- **Gate:** 793 offline tests (was 738), ruff check/format clean, M3A smoke 25/25.
+- **Gate:** 805 offline tests (was 738), ruff check/format clean, M3A smoke 25/25.
 
 ## M4A Source Registry + Scheduled Collection — 2026-09-20 — BUILT, LIVE-PROVEN, AWAITING REVIEW
 

@@ -28,6 +28,10 @@ ROOT = Path(__file__).resolve().parents[3]
 ITEM_STATUSES = ("NEW", "SEEN", "IGNORED")
 
 #: A closed schema: unknown keys are refused, so a typo cannot be stored silently.
+#:
+#: `source_id`/`source_kind` = **how it was discovered**; `publisher_domain` /
+#: `publisher_kind` / `factual_authority` = **who published it**. The latter are
+#: computed from the real publisher, never inherited from the discovery source.
 FIELDS = (
     "item_id",
     "source_id",
@@ -39,6 +43,9 @@ FIELDS = (
     "summary",
     "source_kind",
     "priority",
+    "publisher_domain",
+    "publisher_kind",
+    "factual_authority",
     "status",
 )
 
@@ -88,6 +95,9 @@ def validate_item(item):
     if status not in ITEM_STATUSES:
         raise InboxError(f"{source_id}: status must be one of {ITEM_STATUSES}")
     source_item_id = str(item.get("source_item_id") or url)
+    authority = item.get("factual_authority", False)
+    if not isinstance(authority, bool):
+        raise InboxError(f"{source_id}: factual_authority must be true or false")
     return {
         "item_id": str(item.get("item_id") or item_id_for(source_id, source_item_id, url)),
         "source_id": source_id,
@@ -99,6 +109,9 @@ def validate_item(item):
         "summary": str(item.get("summary") or "")[:2000],
         "source_kind": str(item.get("source_kind") or ""),
         "priority": str(item.get("priority") or "normal"),
+        "publisher_domain": str(item.get("publisher_domain") or ""),
+        "publisher_kind": str(item.get("publisher_kind") or ""),
+        "factual_authority": authority,
         "status": status,
     }
 

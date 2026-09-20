@@ -173,11 +173,24 @@ INBOX_STATUS_FILTERS = (
     ("IGNORED", "Игнорирани"),
 )
 
+#: Filters on the item's **publisher**, not on the monitoring definition that
+#: discovered it (M4A.1 correction).
 INBOX_AUTHORITY_FILTERS = (
-    ("", "Всички източници"),
-    ("official", "Официални"),
-    ("monitoring", "Само наблюдение"),
+    ("", "Всички издатели"),
+    ("official", "Официален издател"),
+    ("authority", "Издател с авторитет"),
+    ("monitoring", "Издател без авторитет"),
 )
+
+
+PUBLISHER_UNKNOWN_LABEL = "Неизвестен издател"
+
+
+def publisher_kind_label(kind):
+    """Publisher kind label; an empty kind is an unapproved publisher."""
+    if not kind:
+        return PUBLISHER_UNKNOWN_LABEL
+    return SOURCE_KIND_LABELS.get(kind, kind)
 
 
 def source_health_label(status):

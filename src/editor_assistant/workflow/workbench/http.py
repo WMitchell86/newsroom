@@ -290,7 +290,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         """Echo the submitted add-form so a refusal never loses typing."""
         return {
             key: _first(form, key, "")
-            for key in ("source_id", "name", "kind", "collector", "url", "query", "note")
+            for key in ("source_id", "name", "kind", "domain", "collector", "url", "query", "note")
         }
 
     def _post_sources(self):
@@ -323,6 +323,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 name=_first(form, "name", ""),
                 kind=_first(form, "kind", ""),
                 collector=_first(form, "collector", ""),
+                domain=_first(form, "domain", ""),
                 url=_first(form, "url", ""),
                 query=_first(form, "query", ""),
                 priority=_first(form, "priority", "normal") or "normal",

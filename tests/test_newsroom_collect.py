@@ -478,6 +478,136 @@ def test_dry_run_reports_muted_and_disabled_without_a_network_call(registry):
     assert plan["estimated_network_calls"] == 1
 
 
+# ---------- M4A.1 correction: publisher authority vs discovery source ----------
+
+
+def _publisher_registry(stores):
+    """An official monitor plus three publishers with different standing."""
+    path = stores / "sources.json"
+    sources_registry.add_source(
+        path=path,
+        source_id="official-monitor",
+        name="Община Бургас (наблюдение)",
+        kind="official",
+        domain="burgas.bg",
+        collector="google_news_rss",
+        query="Община Бургас",
+        factual_authority=True,
+    )
+    sources_registry.add_source(
+        path=path,
+        source_id="bnr-burgas",
+        name="БНР Бургас",
+        kind="media",
+        domain="bnr.bg",
+        collector="google_news_rss",
+        query="БНР Бургас",
+        factual_authority=True,
+        status="disabled",  # only its authority policy matters here
+    )
+    sources_registry.add_source(
+        path=path,
+        source_id="darik-burgas",
+        name="DarikNews Бургас",
+        kind="regional",
+        domain="dariknews.bg",
+        collector="google_news_rss",
+        query="Darik Бургас",
+        factual_authority=False,
+        status="disabled",
+    )
+    return path
+
+
+def _gnews_result(index, publisher_domain):
+    return {
+        "title": f"Новина {index}",
+        "url": f"https://news.google.com/rss/articles/CBMi{index}",
+        "snippet": "текст",
+        "published_at": "Mon, 21 Sep 2026 08:00:00 +0300",
+        "source_name": f"Издател {index}",
+        "source_url": f"https://{publisher_domain}",
+    }
+
+
+def test_item_authority_comes_from_the_publisher_not_the_monitoring_source(stores):
+    """Acceptance test: an official monitor must not lend its authority to a
+    third-party article it merely surfaced."""
+    path = _publisher_registry(stores)
+    provider = _FakeProvider(
+        [
+            _gnews_result(1, "bnr.bg"),
+            _gnews_result(2, "dariknews.bg"),
+            _gnews_result(3, "burgas.bg"),
+            _gnews_result(4, "unknown-blog.example"),
+        ]
+    )
+    newsroom_run.collect(
+        dry_run=False,
+        path=path,
+        store=stores / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+        news_provider=provider,
+    )
+    items = {
+        item["publisher_domain"]: item for item in inbox_store.read_items(stores / "inbox.jsonl")
+    }
+
+    # discovered by the official monitor, published by БНР -> БНР's policy (media)
+    bnr = items["bnr.bg"]
+    assert bnr["source_id"] == "official-monitor"
+    assert bnr["source_kind"] == "official"  # how it was found
+    assert bnr["publisher_kind"] == "media"  # who published it
+    assert bnr["factual_authority"] is True
+
+    # a monitoring-only publisher never inherits the discovery source's authority
+    darik = items["dariknews.bg"]
+    assert darik["source_kind"] == "official"
+    assert darik["publisher_kind"] == "regional"
+    assert darik["factual_authority"] is False
+
+    # the configured source's own domain -> official authority eligible
+    own = items["burgas.bg"]
+    assert own["publisher_kind"] == "official" and own["factual_authority"] is True
+
+    # an unapproved publisher gets no authority
+    unknown = items["unknown-blog.example"]
+    assert unknown["publisher_kind"] == "" and unknown["factual_authority"] is False
+
+
+def test_resolve_authority_is_suffix_aware_and_defaults_to_monitoring_only(stores):
+    path = _publisher_registry(stores)
+    by_domain = newsroom_run.authority_by_domain(path)
+    assert set(by_domain) == {"burgas.bg", "bnr.bg", "dariknews.bg"}
+
+    sub = newsroom_run.resolve_authority({"source_url": "https://news.bnr.bg/x"}, by_domain)
+    assert sub["publisher_kind"] == "media" and sub["factual_authority"] is True
+
+    none = newsroom_run.resolve_authority({"url": "https://news.google.com/rss/x"}, by_domain)
+    assert none == {
+        "publisher_domain": "news.google.com",
+        "publisher_kind": "",
+        "factual_authority": False,
+    }
+
+
+def test_a_direct_feed_is_its_own_publisher_without_a_domain_field(stores):
+    """A direct source's own URL host is the authority key (no extra config)."""
+    sources_registry.add_source(
+        path=stores / "sources.json",
+        source_id="direct-feed",
+        name="Директна емисия",
+        kind="official",
+        collector="rss",
+        url="https://feed.example/rss",
+        factual_authority=True,
+    )
+    by_domain = newsroom_run.authority_by_domain(stores / "sources.json")
+    assert "feed.example" in by_domain
+    resolved = newsroom_run.resolve_authority({"url": "https://feed.example/1"}, by_domain)
+    assert resolved["publisher_kind"] == "official" and resolved["factual_authority"] is True
+
+
 def test_bootstrap_lookback_and_cap_for_news():
     now = NOW
     candidates = [

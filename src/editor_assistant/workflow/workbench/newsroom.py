@@ -144,6 +144,7 @@ def add_source(
     name,
     kind,
     collector,
+    domain="",
     url="",
     query="",
     priority="normal",
@@ -158,6 +159,7 @@ def add_source(
             source_id=source_id,
             name=name,
             kind=kind,
+            domain=domain,
             collector=collector,
             url=url,
             query=query,
@@ -303,9 +305,10 @@ def inbox_view(
     registry = {row["source_id"]: row for row in sources_registry.describe_all(sources_store())}
 
     def _match(item):
-        entry = registry.get(item["source_id"]) or {}
         if status and status != "all" and item["status"] != status:
             return False
+        # Filters describe the item itself: `source_id`/`kind` = how it was
+        # discovered, `authority` = who published it (never inherited).
         if source_id and item["source_id"] != source_id:
             return False
         if kind and item["source_kind"] != kind:
@@ -314,9 +317,13 @@ def inbox_view(
             return False
         if date and not (item["published_at"] or item["discovered_at"]).startswith(date):
             return False
-        if authority == "official" and not entry.get("factual_authority"):
-            return False
-        return not (authority == "monitoring" and entry.get("factual_authority"))
+        if authority == "official":
+            return item.get("publisher_kind") == "official"
+        if authority == "authority":
+            return bool(item.get("factual_authority"))
+        if authority == "monitoring":
+            return not item.get("factual_authority")
+        return True
 
     filtered = [item for item in items if _match(item)]
     try:
