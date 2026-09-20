@@ -24,6 +24,11 @@ API_PROVIDER = "gemini"  # current active provider for model + endpoint + key
 API_KEY_ENV = "GEMINI_API_KEY"
 API_KEY_FALLBACK_ENV = "OPENROUTER_API_KEY"
 
+# Give the operator the same knob in one place without editing code, plus the
+# per-role Gemini model order and the OpenRouter model selection. OpenAI
+# model ids with a `openai/` prefix (e.g. openai/gpt-oss-20b) are resolved
+# through OpenRouter's model catalog, not the OpenAI API endpoint.
+
 
 def _trim_for_model(prompt_text, *, hard_cap_chars=30000):
     """Keep every prompt section intact and only shorten the STYLE_EXAMPLES body
@@ -51,9 +56,22 @@ def _trim_for_model(prompt_text, *, hard_cap_chars=30000):
 
 
 # Fallback chain for M2.3/M2.3B generation:
-#   primary  : GEMINI_API_KEY -> gemini-3.6-flash (Gemini provider)
+#   primary  : GEMINI_API_KEY -> gemini-3.5-flash (Gemini provider)
 #   fallback : OPENROUTER_API_KEY -> OpenAI-compatible model (OpenRouter provider)
 #   free     : if neither key present and the task permits, a free OpenRouter model
+#
+# Gemini quota (AI Studio + Gemini API share the same quota; snapshot 2026-09-19,
+# format `used / limit` per cell).  The 3.x Flash family (draft pool) is RPD-exhausted
+# — all four showed 22/20 RPD in the snapshot — which is the direct cause of the 429s
+# in the M3D corpus (17 runs classified DISCOVERY_DEGRADED, never editorial zero).
+# TPM is never the bottleneck (250K allocated per model, 5-14K used for Flash, 25-67K
+# for Lite).  When a model 429s it is added to _GEMINI_EXHAUSTED and skipped by
+# _gemini_pool; if the whole pool is exhausted the batch degrades rather than
+# fabricating.  The ONLY fresh Gemini text-out quota in the same snapshot is Gemini
+# 2.5 Flash (0/20 RPD, 0/5 RPM) and Gemini 2.5 Flash Lite (0/20 RPD, 0/10 RPM) —
+# one generation older than 3.x, added below as last-resort fallbacks.  Models with
+# 0/0 allocation (Gemini 2 Flash, Gemini 2 Flash Lite) are not usable.  Full
+# row-by-row table + pacing notes are in CURRENT_STATE.md.
 #
 # Model swap is via MODEL_ID + MODEL_ENDPOINT + API_PROVIDER + API_KEY_ENV; no other
 # code path (lineage, audit, prompt, retrieval) depends on the provider identity.
@@ -66,17 +84,43 @@ def _utc_now():
 _GEMINI_LAST_CALL = [0.0]
 _GEMINI_EXHAUSTED = set()  # models that returned a daily-quota 429 (this process)
 
-# Free-tier Gemini meters each model separately. Verified buckets for this key:
-#   gemini-3.5-flash       ~20/day        -> drafting (primary)
-#   gemini-3.7-flash       ~20/day        -> drafting rotation
-#   gemini-3.8-flash       ~20/day        -> drafting rotation
-#   gemini-3.5-flash-lite  500/day, 15 RPM -> semantic judge
-#   gemini-3.1-flash-lite  500/day, 15 RPM -> semantic judge rotation
+# Free-tier Gemini meters each model separately. Quota snapshot from the Gemini AI
+# Studio quota page (2026-09-19, format `used/limit`, AI Studio + Gemini API share the
+# same quota).  Columns: RPM / TPM / RPD.  The 3.x Flash family is RPD-exhausted — all
+# four showed 22/20 RPD — which is the direct cause of the 429s in the M3D corpus.
+# The ONLY fresh Gemini text-out quota in that snapshot is Gemini 3 Flash (10/20 RPD,
+# 2/5 RPM), Gemini 2.5 Flash (0/20 RPD, 0/5 RPM) and Gemini 2.5 Flash Lite (0/20 RPD,
+# 0/10 RPM).  Gemini 2 Flash / 2 Flash Lite show 0/0 allocation and are unusable.
+#   gemini-3.5-flash         3 / 5 RPM   11.07K / 250K TPM   22 / 20 RPD  (EXHAUSTED)
+#   gemini-3.6-flash         5 / 5 RPM   5.41K / 250K TPM    22 / 20 RPD  (EXHAUSTED)
+#   gemini-3.7-flash         4 / 5 RPM   12.49K / 250K TPM   22 / 20 RPD  (EXHAUSTED)
+#   gemini-3.8-flash         3 / 5 RPM   13.63K / 250K TPM   22 / 20 RPD  (EXHAUSTED)
+#   gemini-3-flash-preview   (in 3.x family; RPD status not separately listed — treat as
+#                             likely shared/exhausted with 3.x family)
+#   gemini-3-flash           2 / 5 RPM   9.09K / 250K TPM    10 / 20 RPD  (HALF USED — fallback)
+#   gemini-2.5-flash         0 / 5 RPM   0 / 250K TPM       0 / 20 RPD   (FRESH — fallback)
+#   gemini-2.5-flash-lite    0 / 10 RPM  0 / 250K TPM       0 / 20 RPD   (FRESH — fallback, judge only)
+#   gemini-3.1-flash-lite    20 / 15 RPM 67.33K / 250K TPM  503 / 500 RPD (EXHAUSTED — judge pool)
+#   gemini-3.5-flash-lite    15 / 15 RPM 25.28K / 250K TPM  288 / 500 RPD (NEARLY EXHAUSTED — was dropped
+#                             from judge pool: rejects generationConfig.thinkingConfig)
+#   Models with 0/0 allocation (Gemini 2 Flash, Gemini 2 Flash Lite, Gemini 2.5 Pro,
+#   Gemini 3.1 Pro, Gemini 2.5 Flash TTS, etc.): not usable — no quota allocated.
+#   NOTE on -preview/-latest suffixes: the Gemini API models.list was not reachable without
+#   a valid key (403), so the exact endpoint model ids for "Gemini 3.1 Flash Lite Preview"
+#   and "Gemini Flash Lite Latest" could not be verified here. The base-model id pattern is
+#   `gemini-3.1-flash-lite`; -preview/-latest are appended the same way (e.g.
+#   `gemini-3.1-flash-lite-preview`). Whether those suffixes share the same RPD bucket as
+#   the base model or have their own is not confirmed from this snapshot — if they share it
+#   they are also exhausted (503/500) and 2.5 Flash Lite is the only fresh judge option.
+#   A live key should confirm the exact ids + bucket split before relying on the preview/latest
+#   judge entries.  The 2.5 Flash / 2.5 Flash Lite ids follow the same convention and are the
+#   same generation naming used elsewhere in the Gemini API, but are likewise UNVERIFIED here
+#   (no live key) and should be confirmed with one test call before depending on them.
 DRAFT_MODEL_POOL = [
     m.strip()
     for m in os.environ.get(
         "GEMINI_DRAFT_MODELS",
-        "gemini-3.5-flash,gemini-3.7-flash,gemini-3.8-flash,gemini-3-flash-preview",
+        "gemini-2.5-flash,gemini-3-flash,gemini-3.5-flash,gemini-3.6-flash,gemini-3.7-flash,gemini-3.8-flash,gemini-3-flash-preview",
     ).split(",")
     if m.strip()
 ]
@@ -84,13 +128,24 @@ JUDGE_MODEL_POOL = [
     m.strip()
     for m in os.environ.get(
         "GEMINI_JUDGE_MODELS",
-        "gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-flash-lite-latest",
+        "gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-flash-lite-latest",
     ).split(",")
     if m.strip()
 ]
 # NOTE: gemini-3.5-flash-lite was dropped from the judge pool: it rejects
 # generationConfig.thinkingConfig with 400 INVALID_ARGUMENT, which burned a
 # wasted request on every judge call before rotation rescued it.
+# RPM note (from the 2026-09-19 AI Studio quota snapshot): the only fresh
+# Gemini text-out buckets are gemini-2.5-flash (0/20 RPD, 0/5 RPM),
+# gemini-2.5-flash-lite (0/20 RPD, 0/10 RPM) and gemini-3-flash (10/20 RPD,
+# 2/5 RPM) — added to the pools below as fallbacks after the exhausted 3.x family.
+# gemini-3-flash is one generation older than 3.x and half-used on RPD, so it is
+# placed after 2.5 Flash (fresh).  2.5 Flash / 3 Flash are 5 RPM each — with the
+# default 5s pacing that is 12 calls/min, slightly above 5 RPM, so under a heavy
+# batch you may see self-inflicted 429s on those two and should bump
+# GEMINI_MIN_GAP_SECONDS toward 12 if that shows up.  2.5 Flash Lite (10 RPM) is
+# fine at the 5s default for the judge pool.  Lite pools are kept judge-only
+# (factual entailment / semantic gate), never drafting.
 if MODEL_ID not in DRAFT_MODEL_POOL:
     DRAFT_MODEL_POOL.insert(0, MODEL_ID)
 
@@ -204,6 +259,21 @@ def _call_gemini(prompt_text, *, api_key, timeout, min_gap=5, max_attempts=4, ro
     raise last_err
 
 
+def _openrouter_nonstream_text(body_text):
+    """Content of a NON-streaming chat-completion body ("" when absent/malformed).
+
+    Used only as a fallback when the streaming parse yielded nothing.
+    """
+    try:
+        data = json.loads(body_text)
+    except ValueError:
+        return ""
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    return (choices[0].get("message") or {}).get("content") or ""
+
+
 def _call_openrouter(prompt_text, *, api_key, timeout, model):
     url = "https://openrouter.ai/api/v1/chat/completions"
     payload = json.dumps(
@@ -212,6 +282,11 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
             "messages": [{"role": "user", "content": prompt_text}],
             "temperature": GENERATION_SETTINGS["temperature"],
             "max_tokens": GENERATION_SETTINGS["max_tokens"],
+            # The parser below reads OpenAI-style SSE frames (`data: {...}`), so
+            # streaming MUST be requested explicitly.  Without it OpenRouter
+            # answers with ONE json object, no line starts with `data:`, and the
+            # caller silently receives an empty completion.
+            "stream": True,
         }
     ).encode("utf-8")
     req = urllib.request.Request(
@@ -219,27 +294,55 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
         data=payload,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
     )
-    chunks = []
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        for raw_line in resp:
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if not line.startswith("data:"):
-                continue
-            payload_text = line[5:].strip()
-            if payload_text == "[DONE]":
-                break
-            try:
-                data = json.loads(payload_text)
-            except ValueError:
-                continue
-            choices = data.get("choices") or []
-            if not choices:
-                continue
-            delta = choices[0].get("delta", {}) or {}
-            if delta.get("content"):
-                chunks.append(delta["content"])
+        body = resp.read().decode("utf-8", errors="replace")
+    chunks = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload_text = line[5:].strip()
+        if payload_text == "[DONE]":
+            break
+        try:
+            data = json.loads(payload_text)
+        except ValueError:
+            continue
+        choices = data.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta", {}) or {}
+        if delta.get("content"):
+            chunks.append(delta["content"])
     text = "".join(chunks)
+    if not text.strip():
+        # Defensive: a provider that ignores/refuses `stream` returns a single
+        # JSON completion.  Parse that rather than report an empty generation.
+        text = _openrouter_nonstream_text(body)
     return text, {"model": model, "usage": {}, "provider": "openrouter"}
+
+
+# Paid OpenRouter models that are explicitly forbidden during the test phase.
+# Update this set if new paid models are approved for use (e.g. once the test
+# phase is passed and a higher-quality paid model is to be used).  The check in
+# call_model runs before any network call, so a forbidden model never consumes
+# quota and never reaches the provider.
+_OPENROUTER_PAID_FORBIDDEN = frozenset(
+    {
+        "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b",
+    }
+)
+
+
+def _check_openrouter_model_not_paid(model_id):
+    """Raise if model_id is a paid OpenRouter model (forbidden during test phase)."""
+    if model_id in _OPENROUTER_PAID_FORBIDDEN:
+        raise RuntimeError(
+            f"OpenRouter model {model_id!r} is a paid model and is explicitly "
+            f"forbidden during the test phase. Use a free model instead — see "
+            f"OPENROUTER_MODEL in .env.example for the currently available free models."
+        )
 
 
 def call_model(
@@ -261,6 +364,12 @@ def call_model(
     1. Explicit api_key -> configured primary provider (Gemini), given role.
     2. GEMINI_API_KEY present -> Gemini, given role.
     3. OPENROUTER_API_KEY present -> OpenAI-compatible fallback model.
+       BEFORE the call, the chosen model is checked against the forbidden paid
+       models list (_OPENROUTER_PAID_FORBIDDEN).  If it is a paid model, a
+       RuntimeError is raised and no network call is made.  During the test phase
+       only FREE OpenRouter models are allowed; paid models (openai/gpt-oss-20b,
+       openai/gpt-oss-120b, and any future paid model added to the forbidden set)
+       are rejected at call time.
     4. Otherwise: RuntimeError.
     """
     key = api_key or ""
@@ -277,24 +386,67 @@ def call_model(
         free = os.environ.get("OPENROUTER_FREE_MODEL")
         if prefer_free_openrouter or (not os.environ.get("OPENROUTER_MODEL") and not model):
             use = free or use
+        _check_openrouter_model_not_paid(use)
         return _call_openrouter(prompt_text, api_key=or_key, timeout=timeout, model=use)
 
     raise RuntimeError("No API key available (GEMINI_API_KEY or OPENROUTER_API_KEY)")
 
 
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-20b")
-# Available OpenRouter models: openai/gpt-oss-20b, stealth/union-alpha
-# Configured OpenRouter identity used as the OpenAI-compatible fallback when a
-# paid/work OpenRouter key is used. Change in env or here; kept as the m2.3b fallback
-# identity for lineage continuity.
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemma-4-31b")
+# OpenRouter model catalog (current snapshot).  During the test phase ONLY FREE
+# models are allowed — paid models are explicitly forbidden at call time by
+# _check_openrouter_model_not_paid() (see _OPENROUTER_PAID_FORBIDDEN).
+#
+# FREE models from the current OpenRouter free-model list that are suitable for
+# Bulgarian text drafting (general-purpose text, large context, $0/M input+output):
+#   google/gemma-4-31b              262K ctx  $0/M  (DEFAULT — dense 30.7B, 140+ langs,
+#                                             document understanding, coding, reasoning)
+#   qwen/qwen3.8-27b:free           262K ctx  $0/M  (dense 27B, general, multilingual,
+#                                             coding, research — confirmed free tier)
+#   nvidia/nemotron-3-super:free     262K ctx  $0/M  (120B hybrid MoE, 12B active —
+#                                             very capable but more agentic/coding-oriented)
+#   google/gemma-4-26b-a4b:free      262K ctx  $0/M  (MoE 25.2B total / 3.8B active —
+#                                             usable but smaller active params than 31B)
+#   thinkingmachines/inkling-small:free 1.05M ctx $0/M  (12B active MoE / 276B total —
+#                                             general reasoning, coding, RAG, multilingual convo)
+#   z-ai/glm-5.2:free                1M ctx    $0/M  (reasoning/coding/agentic focus —
+#                                             context is large but drafting is not primary use case)
+#
+#   FREE models from the same list that are NOT suitable for BG text drafting
+#   (specialized / too small context / guardrail / coding-only / knowledge-heavy):
+#     inclusionai/ling-3.0-flash-sante:free   262K ctx  $0/M  (medical focus)
+#     nvidia/nemotron-3.5-content-safety:free 128K ctx  $0/M  (guardrail/moderation)
+#     cohere/north-mini-code:free            256K ctx  $0/M  (coding agent model)
+#     nex-agi/nex-n2.5-mini:free             262K ctx  $0/M  (agentic coding model)
+#     poolside/laguna-xs-2.1:free            262K ctx  $0/M  (coding agent model)
+#     nvidia/nemotron-3-nano-omni:free       256K ctx  $0/M  (multimodal perception)
+#     liquid/lfm-2.5-2.6b:free               66K ctx  $0/M  (small — explicitly "not for
+#                                             knowledge-heavy tasks")
+#
+#   Model ID verification note: free-tier models that have a paid tier use the
+#   `:free` suffix (e.g. qwen/qwen3.8-27b:free = free tier of qwen/qwen3.8-27b).
+#   Models that are always free (no paid tier) use the plain id (e.g. google/gemma-4-31b
+#   if no paid tier exists).  VERIFY the exact id in your OpenRouter account before
+#   relying on it — especially for Gemma 4 models, which may be google/gemma-4-31b,
+#   google/gemma-4-31b:free, or google/gemma-4-31b-instruct depending on whether a
+#   paid tier exists.  The `:free` suffix may or may not be needed.
+#
+#   Paid models that are explicitly forbidden during the test phase (see
+#   _OPENROUTER_PAID_FORBIDDEN in call_model — a RuntimeError is raised BEFORE any
+#   network call, so a forbidden model never consumes quota):
+#     openai/gpt-oss-20b              (the previous default — now forbidden)
+#     openai/gpt-oss-120b             (more capable, ~5x cost — now forbidden)
+#     openai/gpt-luna-5.6             (referenced as a future paid alternative for drafts —
+#                                      add the exact id here once known; forbidden during test phase)
+#
+#   Set OPENROUTER_MODEL to a FREE model above (or any other FREE OpenRouter id) to
+#   override the drafting default; set OPENROUTER_FREE_MODEL to override the
+#   free-tier default.  Jev is untouched by these knobs (see workflow/jev.py).
 OPENROUTER_FALLBACK_MODEL = OPENROUTER_MODEL
-OPENROUTER_FREE_MODEL = os.environ.get("OPENROUTER_FREE_MODEL", "meta/llama-3.3-70b-instruct")
-# Free OpenRouter model used ONLY when neither Gemini nor a work OpenRouter key is
-# present AND the task is explicitly non-Bulgarian / non-editorial-critical. For M2.3
-# Bulgarian drafting this should remain unset unless you explicitly opt into free-tier
-# experimentation.
-# Union Alpha (stealth/union-alpha) is a multimodal model for research, coding,
-# and agentic workflows — set OPENROUTER_MODEL=stealth/union-alpha to use it.
+OPENROUTER_FREE_MODEL = os.environ.get(
+    "OPENROUTER_FREE_MODEL",
+    "qwen/qwen3.8-27b:free",
+)
 
 
 def _balanced_objects(text):

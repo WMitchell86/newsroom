@@ -1,6 +1,23 @@
 # M3D — Discovery Reproducibility & Stability Report
 
-**Date:** 2026-09-19 · **Base:** frozen `860f582` + M3D harness commits · **Harness:** `scripts/evals/discovery_stability.py`
+**Date:** 2026-09-19, closed 2026-09-20 · **Base:** frozen `860f582` + M3D harness commits · **Harness:** `scripts/evals/discovery_stability.py`
+
+> ## FREEZE (2026-09-20) — `YOUTUBE_PIPELINE_V1 = FROZEN / GOOD_ENOUGH`
+>
+> **This milestone is closed.** Verdict: `DISCOVERY_REPRODUCIBILITY = PROVEN`
+> (operational, L4 versioned cache), `ANGLE_STABILITY = PROMISING` (measured as
+> model-capacity-sensitive in §12), `OPERATIONAL_REPRODUCIBILITY = PROVEN`.
+> `OUTCOME_FLIP` stays recorded as **accepted residual risk**, mitigated by the
+> cache: an accepted analysis is pinned and replayable, and re-opening it
+> (`--force-discovery`) is explicit and non-destructive.
+>
+> **YouTube is a secondary source. No further optimization without observed
+> production pain** — no `player_client` work, no semantic-variance work, no new
+> transcript engine, no `ANGLE_STABILITY = PROVEN` chase. New ideas go to
+> `BACKLOG.md`; real use is now the source of truth.
+>
+> Read §11–§13 for the closing measurements (still-blocked corpus, angle-model
+> A/B, final verdicts and what was deliberately not built).
 
 ## Executive summary
 
@@ -143,8 +160,11 @@ so they can never go stale, and every hit records what it replayed (`source.seed
 | READINESS_STABILITY | **PROVEN** with versioned cache | 6/6 identical digests on replay; variance still measurable under force |
 | CATASTROPHIC_ZERO_YIELD | **RESOLVED** | 0/79; execution failures can no longer become editorial zero |
 | DISCOVERY_REPRODUCIBILITY | **PROVEN** (operational) | cache contract enforced in both directions, live + unit |
+| OPERATIONAL_REPRODUCIBILITY | **PROVEN** | versioned L4 cache: 6/6 byte-identical replays; §5, §7 |
+| ANGLE_STABILITY | **PROMISING** — model-capacity-sensitive | §12 A/B: 0/4 flips with the strongest model vs 22.2–31.6% with the shipped Lite pool |
 | JEV_PRODUCTION_AUTHORITY | **NONE** | shadow only, 3 pairs |
 | EDITORIAL_EFFECTIVENESS | **PENDING** | provider quota |
+| UNSEEN_VALIDATION | **PENDING** (provider) | judge pool unusable 2026-09-20; §11 |
 
 ## 9. Limitations
 
@@ -163,8 +183,103 @@ Close M3D as **PROVEN for operational reproducibility**, with `OUTCOME_FLIP` (22
 adversarial recording, 0% on the stable one) recorded as the **accepted residual risk**, mitigated
 by L4: an editor who accepts an analysis gets a pinned, replayable snapshot, and re-opening it
 (`--force-discovery`) is explicit and non-destructive. Bounded execution retries (L1), a
-fact-id-stable prompt, and a rubric less sensitive to ±1 point are follow-ups in `m3/BACKLOG.md`,
+fact-id-stable prompt, and a rubric less sensitive to ±1 point are follow-ups in `BACKLOG.md`,
 not blockers.
+
+**Implemented at closure (2026-09-20):** this recommendation was accepted and the milestone is
+**frozen**. The remaining open items and the optional stronger-model switch for the angle stage
+(§12) live in `BACKLOG.md`, not in a new milestone.
+
+## 11. Closing measurements (2026-09-20): the corpus is still provider-blocked
+
+The two blocked recordings were re-attempted the next day. The free Gemini tier
+is **still unusable for a 10-run baseline**, >10 h after the M3D measurement:
+
+| attempt | pacing | result |
+|---|---|---|
+| `b13U-N_Vk9c` run 1 (5 s default) | 5 s | 135 s, 1 fact / 11 `MODEL_CALL_FAILED` → `UNKNOWN` |
+| `b13U-N_Vk9c` run 2 | 5 s | 120 s, 0 facts / 12 `MODEL_CALL_FAILED` → `DISCOVERY_DEGRADED` |
+| `b13U-N_Vk9c` run 1 (12 s) | 12 s | 300 s, 0 facts / 12 `MODEL_CALL_FAILED` → `DISCOVERY_DEGRADED` |
+
+Pacing is not the fix, so the earlier hypothesis (self-inflicted RPM 429s) is
+disproved for this failure mode. Live per-model probe (2026-09-20 05:40 UTC):
+
+```text
+judge pool (the discovery chain runs ENTIRELY on it):
+  gemini-2.5-flash-lite        HTTP 404 (empty body)
+  gemini-3.1-flash-lite        HTTP 429
+  gemini-3.1-flash-lite-preview HTTP 429
+  gemini-flash-lite-latest     HTTP 400 (empty body)
+draft pool: first live bucket = gemini-3.6-flash (2.5 / 3 / 3.5 exhausted)
+```
+
+Because fact extraction, angle proposals **and** the grounding judge all sit in
+the judge pool, a run needs 12+ judge calls: the free tier cannot carry a
+corpus. Recordings C and D therefore still have **no completed baseline** and
+`UNSEEN_VALIDATION` stays **PENDING** (§9.1) — a provider limit, not a finding
+about the pipeline. All blocked rows are preserved (never deleted) as
+`var/discovery_stability_corpus2/runs.blocked_2026-09-20.jsonl` +
+`runs.degraded.jsonl`; the corpus runner stays resumable.
+
+**Real bug found and fixed while wiring this (no test existed):**
+`generate._call_openrouter` parsed OpenAI-style SSE frames (`data: {...}`) but
+never sent `"stream": true`. OpenRouter therefore answered with a single JSON
+object, no frame started with `data:`, and **every OpenRouter call — the whole
+fallback provider path — silently returned an empty completion**. Fixed by
+requesting streaming explicitly plus a non-streaming body fallback;
+`tests/test_openrouter_transport.py` (5 offline tests) now covers it.
+Suite 695 → **700 passed**, ruff clean.
+
+## 12. Angle-layer model A/B — the only model research admitted
+
+**Question (editor's hypothesis):** divergence starts at angle proposal, not at
+parsing/segmentation/grounding, so a stronger model on that one stage should
+remove the flips.
+
+**Method** (`scripts/evals/angle_model_ab.py`): the fact set is **pinned** to the
+real measured run `YsqD4T0D850__r003` (7 facts, `RESEARCH_MORE`) and passed to the
+harness as `facts_override`, so the *only* variable is the model that writes the
+propositions. The downstream gate (deterministic `assess_candidates` +
+`assess_angles` + `run_readiness`) is the production one, untouched. Same
+recording, same evidence, N runs per arm.
+
+| arm | model | usable runs | outcomes | OUTCOME_FLIP vs first | proposition overlap (mean) | cited facts |
+|---|---|---|---|---|---|---|
+| prod-lite (§3 corpus, same recording, uncached) | Gemini judge pool (Lite) | 39 | `RESEARCH_MORE` / `NO_PUBLISHABLE_ANGLE` | **22.2–31.6%** | 0.741–0.789 | — |
+| **luna-5.6** | `openai/gpt-5.6-luna-pro` (paid, authorised) | **5/5** | `RESEARCH_MORE` ×5 | **0/4 (0%)** | **1.00** | 1.6 (1–3) |
+| free | `qwen/qwen3.8-27b:free` | **not measurable** | — | — | — | — |
+
+**Answer: yes — on this recording the flip is model-capacity-driven.** The
+shipped Lite config flips on ~1 in 4 replays of identical evidence; the strongest
+available model produced **zero flips in 5 runs**, with a tighter proposition set
+(overlap 1.00 vs 0.74–0.79). The cited-fact counts still vary (1–3), which is the
+same mechanism the flip rides on — but the variation stayed on one side of the
+threshold.
+
+Caveats, stated up front: **n=5** (a 30-minute diagnostic, not a milestone), and
+the arms differ in **provider and capacity**, so this answers *"can a stronger
+model eliminate the flips?"*, not *"is model X better than model Y at equal
+capacity"*.
+
+**Why there is no free-model arm:** the shared free tier on OpenRouter could not
+be measured in the diagnostic window — upstream 429s plus multi-minute stalls
+(one run: 293 s, 0 proposals, no exception raised), retried with a 45 s backoff
+and still not converging. It is recorded as **not measured**, never as a result.
+The low-capacity reference is therefore the **shipped Lite pool over 39 corpus
+runs on the same recording** — a stronger reference than 5 free-tier runs would
+have been. `var/angle_model_ab/` is git-ignored.
+
+**What this does NOT authorise:** rewiring the pipeline now. The freeze stands.
+The measured switch is a one-knob change (run the angle stage on a stronger model
+pool), recorded in `BACKLOG.md` and to be pulled **only if real production use
+shows the flip hurting the editor**. That is the editor's explicit rule.
+
+**Cost/permission note:** `openai/gpt-5.6-luna-pro` is **paid** and was used once,
+explicitly authorised by the repo owner for this diagnostic; the production
+guard (`_OPENROUTER_PAID_FORBIDDEN`) is unchanged and the script requires
+`--allow-paid`. Also: the id documented earlier as `openai/gpt-luna-5.6` **does
+not exist** in the OpenRouter catalog — the real ids are `openai/gpt-5.6-luna`,
+`openai/gpt-5.6-luna-pro` and `~openai/gpt-luna-latest`; the docs were corrected.
 
 ## Reproduce
 

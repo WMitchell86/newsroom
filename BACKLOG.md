@@ -56,6 +56,62 @@ complicated confidence scoring, 80-source Playwright farm, heavy multi-agent new
 - [ ] **Discovery nondeterminism is promoted to M3D** (see below) — it is the
       next milestone, not a leftover M3B.1 item.
 
+## M4 — Daily Newsroom Operations & Source Management (NEXT major milestone; scope recorded 2026-09-20, NOT started)
+
+**Why this outranks any further semantic work.** The transport, the discovery
+layer and the YouTube module are good enough for v1 (`YOUTUBE_PIPELINE_V1 =
+FROZEN / GOOD_ENOUGH`, `CURRENT_STATE.md`). The largest remaining product gap is
+not intelligence — it is that **the editor has no daily system that simply
+opens in the morning and works**. Every remaining milestone-level item below is
+about that system, not about another engine.
+
+**Goal.** A scheduled daily routine that collects, dedupes, routes and delivers
+a *story inbox* to one non-technical editor, with the sources under their
+control.
+
+```text
+07:00 collect -> official sources
+              -> Google News RSS
+              -> TinyFish
+              -> selected regional/national sources
+              -> YouTube only when relevant (frozen pipeline)
+   -> normalize -> coarse relevance -> deduplicate -> rank/route -> editor inbox
+repeat runs at 12:00 / 16:00 / 20:00 (plain cron; adaptive monitoring NOT required)
+```
+
+Components, in the order they are worth building:
+
+1. **Scheduled collection** — plain cron over the existing intake/radar
+   primitives. The repo still installs no timer itself (`youtube-batch run --cron`
+   stays a one-shot entry point); the schedule is operator-owned.
+2. **Default source registry** — per-source type (official / media / national /
+   regional), status (active / disabled / muted), priority, and the
+   *monitoring-only vs factual-authority* flag. The editor must be able to add,
+   disable, mute and re-prioritise sources themselves from the Workbench.
+3. **Story inbox** — replaces case-ids and developer artifacts with
+   `NEW STORY / NEW DEVELOPMENT / RELATED / DUPLICATE` (`NEW_DEVELOPMENT` vs
+   `DUPLICATE` is the part that carries the value; borrow the Newsjack taxonomy
+   as a starting point, not as a spec) plus an interest label and source count.
+4. **Research when needed** — the existing bounded research loop, triggered from
+   the inbox rather than by a developer.
+5. **Editor workbench UX** — a non-technical editor must be able to work without
+   knowing what an EvidencePacket, JSONL, readiness or grounding is. Bulgarian
+   first, labels never raw enum ids alone.
+6. **Telegram editorial channel** — a *notification* channel (new strong story /
+   new development on a followed story, with a reason and a Workbench link), not
+   a publishing channel and not 40 signals a day. One-way in v1; the
+   `👍 преглед / 🔎 проучи още / 🗑 игнорирай` actions are a later increment.
+7. **Operational status / failures** — what ran, what failed, what is degraded,
+   visible without reading logs.
+
+**Hard boundaries that stay in force:** `AUTO_PUBLISH=false`, `DRY_RUN=true`, no
+CMS publishing, no LIVE 6–10, Jev keeps zero production authority, no rubric or
+threshold change, media/DB writes only through the canonical writers.
+
+**Explicitly NOT in M4:** an adaptive/smart monitoring engine, a second
+semantic-tuning round, a new transcript engine, a Jev semantic-equivalence run,
+per-source scraping farms.
+
 ## M3D — Discovery Reproducibility & Stability (BUILT 2026-09-19; measured; residual decision open)
 
 **Status:** built and measured. Report:
@@ -82,13 +138,33 @@ flip. Not extraction, not grounding, not parsing. Jev shadow agrees
 (same-fact paraphrase `SAME_CLAIM` p=1.00; competing candidates
 `OVERLAPPING_CLAIM` p=0.77).
 
-**Open (needs the editor or a quota reset):**
+**Status 2026-09-20: CLOSED & FROZEN** — `YOUTUBE_PIPELINE_V1 = FROZEN /
+GOOD_ENOUGH`. The editor accepted `OUTCOME_FLIP` as residual risk under the L4
+cache; `ANGLE_STABILITY = PROMISING` is the accepted end state, and the angle
+stage was **measured** (not switched). Report §11–§13; decisions below.
 
-- [ ] Re-run the two provider-blocked recordings (`b13U-N_Vk9c`, `xvsdi_j7s5c`)
-      to complete the corpus and prove forced-rerun variance **live**.
-- [ ] Editor decision: accept `OUTCOME_FLIP` as residual risk under the L4
-      cache, or scope a mitigation (fact-id-stable prompt / less threshold-fragile
-      readiness rubric).
+Closed:
+
+- [x] Editor decision: `OUTCOME_FLIP` accepted as residual risk under the L4
+      cache (an accepted analysis is pinned and replayable;
+      `--force-discovery` re-opens it explicitly and non-destructively).
+- [x] Angle-layer model A/B measured: `openai/gpt-5.6-luna-pro` → **0/4 flips,
+      proposition overlap 1.00** vs 22.2–31.6% for the shipped Lite pool on the
+      same recording → the flip is model-capacity-driven.
+
+Still open (backlog, no milestone):
+
+- [ ] **Optional one-knob switch: run the angle stage on a stronger model.**
+      Measured and NOT built. Needs a small code change first — `propose_angles`
+      currently shares the `judge` role with fact grounding, so the switch wants
+      a dedicated pool/role (e.g. `GEMINI_ANGLE_MODELS`) rather than a judge-pool
+      reorder. Paid providers require an explicit owner OK (the guard is
+      unchanged). **Pull only if real editor use shows the flip hurting.**
+- [ ] The two provider-blocked recordings (`b13U-N_Vk9c`, `xvsdi_j7s5c`) still
+      have no 10-run baseline: the free Gemini judge pool cannot carry 12+ calls
+      per run (404/429/400 empty-body signatures; pacing does not help).
+      Blocked rows preserved under `var/discovery_stability_corpus2/`. Re-run
+      only if a real need appears.
 - [ ] Bounded execution retries for discovery model calls (L1) — still open.
 
 ## M3D — Discovery Reproducibility & Stability (original scope, decided 2026-09-19)

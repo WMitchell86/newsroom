@@ -1,3 +1,30 @@
+## Handoff — M3D closure + YouTube freeze (2026-09-20)
+
+Verified: **700 offline tests**, ruff check/format clean, M3A smoke 25/25,
+`--check-determinism` IDENTICAL 4/4. Report:
+`m3/review/M3D_DISCOVERY_STABILITY_REPORT.md` (FREEZE banner + §11–§13).
+
+- **Frozen:** `YOUTUBE_PIPELINE_V1 = FROZEN / GOOD_ENOUGH`. YouTube is a
+  secondary source; no further optimization without observed production pain.
+  `ANGLE_STABILITY = PROMISING` is the accepted end state.
+- **A/B (the plan's only admitted model research):** facts pinned to
+  `YsqD4T0D850__r003`, only `propose_angles` varies. Lite pool (M3D corpus):
+  22.2–31.6% OUTCOME_FLIP; `openai/gpt-5.6-luna-pro`: **0/4 flips, overlap
+  1.00** → the flip is model-capacity-driven. **Not rewired** — the switch is a
+  backlog item needing a dedicated pool/role (`propose_angles` shares `judge`).
+- **Fixed a real bug:** `_call_openrouter` never requested `stream: true` while
+  parsing SSE, so the entire OpenRouter fallback returned empty completions.
+  Regression tests: `tests/test_openrouter_transport.py`. Also removed a
+  pre-existing `ruff` finding (useless `return`) left in the working tree.
+- **Still blocked (recorded, not instability):** the free Gemini judge pool is
+  unusable (404/429/400 empty-body signatures), so recordings `b13U-N_Vk9c` /
+  `xvsdi_j7s5c` keep no 10-run baseline. Blocked rows preserved in
+  `var/discovery_stability_corpus2/` (git-ignored).
+- **Next:** **M4 — Daily Newsroom Operations & Source Management** (scope in
+  `BACKLOG.md`): scheduled collection, source registry, story inbox, editor UX,
+  Telegram editorial notifications, operational status. Smallest next step
+  first; one milestone at a time.
+
 ## Handoff — M3D Discovery Reproducibility & Stability (2026-09-19)
 
 Verified: **695 offline tests**, ruff/format clean, M3A smoke passes. Report:

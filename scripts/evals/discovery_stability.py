@@ -125,12 +125,17 @@ def load_document(video_id, path):
 # ---------- stage runner (reuses production functions; no duplicated logic) ----------
 
 
-def run_discovery_stages(doc, *, use_model=True):
+def run_discovery_stages(doc, *, use_model=True, facts_override=None):
     """One discovery pass, capturing every stage separately (M3D Part C).
 
     Deterministic when `use_model=False`; otherwise calls the model for fact
     extraction and angle proposals exactly as production intake does.
     Returns a stage dict; model execution surfaces are recorded, never hidden.
+
+    `facts_override` pins the fact set (a model-free measurement input): the
+    extraction stage is skipped and the passed facts are staged verbatim, so an
+    A/B on a LATER model stage keeps the evidence constant and the downstream
+    deterministic gate (assessment + readiness) is still the production one.
     """
     stages = {}
 
@@ -153,7 +158,9 @@ def run_discovery_stages(doc, *, use_model=True):
     }
 
     facts, dropped, skips = [], [], []
-    if topics:
+    if facts_override is not None:
+        facts = list(facts_override)
+    elif topics:
         if use_model:
             facts = list(discovery.extract_facts(doc, topics))
             dropped = list(getattr(discovery.extract_facts, "dropped", []))

@@ -1,3 +1,58 @@
+## M3D closure + YouTube freeze — 2026-09-20 — CLOSED, FROZEN
+
+Closes M3D and freezes the YouTube module. No new engine work; the next major
+milestone is **M4 — Daily Newsroom Operations & Source Management** (scope in
+`BACKLOG.md`). Report: `m3/review/M3D_DISCOVERY_STABILITY_REPORT.md` (read the
+FREEZE banner + §11–§13).
+
+```text
+YOUTUBE_PIPELINE_V1              = FROZEN / GOOD_ENOUGH
+OPERATIONAL_REPRODUCIBILITY      = PROVEN   (versioned L4 cache, 6/6 identical replays)
+DETERMINISTIC_STAGE_STABILITY    = PROVEN   (--check-determinism IDENTICAL 4/4)
+ANGLE_STABILITY                  = PROMISING (measured as model-capacity-sensitive)
+OUTCOME_FLIP                     = accepted residual risk, mitigated by L4
+UNSEEN_VALIDATION                = PENDING  (free-tier provider limit, not a finding)
+JEV_PRODUCTION_AUTHORITY         = NONE
+EDITORIAL_EFFECTIVENESS          = PENDING  (human editor)
+```
+
+- **Angle-layer model A/B** — the only model research admitted by the plan.
+  Facts pinned to the real measured run `YsqD4T0D850__r003`, so the only
+  variable is the model writing the angle propositions; the deterministic gate
+  is production's. `scripts/evals/angle_model_ab.py`.
+
+  | arm | model | usable | outcomes | OUTCOME_FLIP | proposition overlap |
+  |---|---|---|---|---|---|
+  | prod-lite (M3D corpus, same recording) | Gemini judge pool (Lite) | 39 | `RESEARCH_MORE` / `NO_PUBLISHABLE_ANGLE` | **22.2–31.6%** | 0.741–0.789 |
+  | **luna-5.6** | `openai/gpt-5.6-luna-pro` (paid, owner-authorised) | **5/5** | `RESEARCH_MORE` ×5 | **0/4 (0%)** | **1.00** |
+
+  **Verdict:** on the flaky recording the flip **is** model-capacity-driven.
+  **But nothing is rewired** — the freeze stands; the switch is a backlog item
+  (and needs a dedicated pool/role, since `propose_angles` currently shares the
+  `judge` role), pulled only if real use shows the flip hurting the editor.
+- **Real bug found and fixed:** `generate._call_openrouter` parsed OpenAI-style
+  SSE frames but never sent `"stream": true`, so **every OpenRouter call — the
+  whole fallback provider path — returned an empty completion**. No test
+  existed; added `tests/test_openrouter_transport.py` (5 offline tests).
+- **Corpus still provider-blocked** (and now recorded as such, not as
+  instability): the free Gemini judge pool is unusable — `gemini-2.5-flash-lite`
+  HTTP 404, `gemini-3.1-flash-lite`(+preview) HTTP 429, `gemini-flash-lite-latest`
+  HTTP 400, all with the empty-body exhaustion signature; the first live draft
+  bucket was `gemini-3.6-flash`. Because fact extraction, angle proposals and
+  the grounding judge all live in that pool, a 12-topic run needs 12+ calls and
+  degrades to `DISCOVERY_DEGRADED`. Pacing does not fix it (5 s and 12 s behave
+  the same). Blocked rows preserved under `var/discovery_stability_corpus2/`
+  (git-ignored); recordings C/D still have no 10-run baseline.
+- **Docs corrected:** the documented OpenRouter id `openai/gpt-luna-5.6` does
+  not exist; the real ids are `openai/gpt-5.6-luna`, `openai/gpt-5.6-luna-pro`,
+  `~openai/gpt-luna-latest`. The paid-model guard is unchanged (paid use needed
+  an explicit owner OK and `--allow-paid`).
+- **Gate:** 700 passed (was 695), ruff check + format clean, M3A smoke 25/25,
+  `--check-determinism` IDENTICAL 4/4.
+- **Next:** M4. YouTube is maintenance-only.
+
+---
+
 ## M3D Discovery Reproducibility & Stability — 2026-09-19 — BUILT, MEASURED, PARTIALLY VERIFIED (provider quota)
 
 Goal: prove replay stability across runs, verify the L4 successful-stage cache on the production
