@@ -6,8 +6,9 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-Last updated: 2026-09-20 (**M3D closed and the YouTube pipeline is FROZEN**; angle-layer
-model A/B measured; active work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
+Last updated: 2026-09-20 (**M4A.1 default source pack + M4B daily inbox built and
+live-proven; awaiting review/freeze**; M3D closed and the YouTube pipeline is
+FROZEN; active work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
 
 ## Primary project objective (read before choosing any task)
 
@@ -26,8 +27,8 @@ model A/B measured; active work is **M4 — Daily Newsroom**, split M4A–M4E in
 
 ## Checkpoint
 
-- Base commit: `860f582` (frozen M3B.1) + the M3D harness commits.
-- Test baseline: **700 passed**, full suite, offline (was 695).
+- Base commit: `860f582` (frozen M3B.1) + the M3D harness commits; M4A `dd93e89`.
+- Test baseline: **793 passed**, full suite, offline (was 738 after M4A).
 - Gates: `ruff check src tests scripts` + `ruff format --check src tests scripts`
   clean; M3A smoke passes.
 
@@ -69,6 +70,13 @@ OPERATIONAL_REPRODUCIBILITY         = PROVEN (versioned L4 cache)
 YOUTUBE_PIPELINE_V1                 = FROZEN / GOOD_ENOUGH
 ANGLE_STABILITY                     = PROMISING (model-capacity-sensitive)
 UNSEEN_VALIDATION                   = PENDING (provider quota)
+SOURCE_REGISTRY_ENGINEERING         = PROVEN (M4A)
+DAILY_COLLECTION_ENGINEERING        = PROVEN (M4A, live)
+DEFAULT_SOURCE_PACK                 = PROVEN (M4A.1, live: 30 active / 5 disabled)
+SOURCE_EXCLUSION_POLICY             = PROVEN (M4A.1, live)
+SOURCE_CADENCE_ENGINEERING          = PROVEN (M4A.1, live: 21 skipped on run 2)
+SAFE_BOOTSTRAP                      = PROVEN (M4A.1)
+DAILY_INBOX_ENGINEERING             = PROVEN (M4B, live)
 ```
 
 Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,
@@ -326,6 +334,8 @@ PYTHONPATH=src python3 -m pytest -q                 # full suite, offline (695)
 ruff check src tests scripts
 ruff format --check src tests scripts
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # M3A UI (127.0.0.1:8123)
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply    # M4A.1 source pack
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect            # M4A.1 cron entry point
 PYTHONPATH=src python3 scripts/m3a_smoke.py         # M3A scripted smoke: 25/25
 PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --all       # M3J shadow eval (no authority)
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake "<URL>"  # M3B intake (no drafting)
@@ -383,26 +393,46 @@ collection → **M4B** story inbox + source/status UX → **M4C** story identity
 new development → **M4D** Telegram editorial alerts → **M4E** workflow polish. One
 slice at a time, reviewed and frozen before the next; plan: `m4/review/M4A_PLAN.md`.
 
-M4A state (2026-09-20): **BUILT, LIVE-PROVEN, awaiting review/freeze.**
-`workflow/sources_registry.py` (closed schema, time-boxed mute, priority/cadence,
-monitoring-only vs factual authority, one atomic writer) + `sources` CLI +
-Workbench «Източници» (`GET /sources` + inline actions) + `workflow/newsroom_run.py`
-(`cli newsroom collect`, `--dry-run` = zero network, one broken source never stops
-the run) + `workflow/inbox_store.py` (`GET /inbox`, `NEW`/`SEEN`/`IGNORED`).
-Default seed = **3 declared sources** (one verified official feed + two monitoring
-queries) — no outlet or feed URL invented. None of it is scheduled by the repo:
-the cron entry point is a one-shot process.
+M4A.1 / M4B state (2026-09-20): **BUILT, LIVE-PROVEN, awaiting review/freeze.**
+M4A (`sources_registry.py` + `sources` CLI + Workbench «Източници» +
+`newsroom_run.py` + `inbox_store.py`) was corrected and completed by:
+
+- `workflow/default_sources.py` — a declarative **35-entry** catalogue; a new
+  install seeds **30 active** sources (9 core `each_run` + 21 `daily`) and
+  catalogues **5 disabled** optionals. `sources defaults --preview|--apply` is
+  additive, idempotent and never re-enables or overwrites an editor-owned entry.
+- `workflow/blocked_domains.py` — editor-owned policy, default `flagman.bg`, in
+  force before any editor action; filters broad-monitor results before inbox
+  insertion (using the Google News publisher domain, not its opaque redirect
+  link) and refuses a direct blocked source.
+- `workflow/source_health.py` — real cadence (`each_run`/`daily`/`weekly` on the
+  `Europe/Sofia` day) plus a separate operational health store
+  (`OK`/`EMPTY`/`FAILED`/`NEVER_RUN`), shown in the Workbench.
+- Safe bootstrap (≤72 h / 10 newest for news, ±45-day window for calendars,
+  20 items per source per run) and one shared collection lock between cron and
+  the Workbench button.
+- M4B daily inbox: default **NEW** view, summary counts, practical filters,
+  pagination, per-item actions, «Събери новите сега» / «Пробен преглед» (both via
+  the same one-shot service) and a readable source-problem list.
+
+Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
+`m4/review/M4B_DAILY_INBOX_REPORT.md`; research `m4/M4_DEFAULT_SOURCE_STACK_RESEARCH.md`.
+None of it is scheduled by the repo: the cron entry point is still a one-shot
+process (schedule documented in `RUNBOOK.md` §0e).
 
 ```text
-PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources seed      # first install
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --preview
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources list
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --dry-run   # no network
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect             # cron calls this
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --force     # ignore cadence
 ```
 
-Boundary held in M4A: no AI angles, no research, no drafting, no story identity,
-no alerts — `SOURCE -> normalized INBOX ITEM` and stop (M4B/M4C/M4D). Details:
-`m4/review/M4A_PLAN.md` §8.
+Boundary held in M4A.1/M4B: no AI angles, no research, no drafting, no story
+identity, no ranking, no alerts — `SOURCE -> normalized INBOX ITEM` and stop.
+A structural test fails if a story-identity/AI identifier appears in the newsroom
+modules. M4C (story identity / new development) is next.
 
 YouTube (frozen) — **maintenance only**, and only on observed production pain:
 

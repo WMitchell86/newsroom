@@ -64,9 +64,10 @@ order — each one is done, reviewed and frozen before the next starts:
 ```text
 M3D  FROZEN            YouTube  GOOD ENOUGH (maintenance only)
 
-M4A  Source Registry + Scheduled Collection        <-- in progress
-M4B  Story Inbox + Source/Status UX
-M4C  Story Identity / New Development
+M4A   Source Registry + Scheduled Collection       DONE (frozen)
+M4A.1 Default Source Pack + Source Hardening      DONE (awaiting review/freeze)
+M4B   Daily Inbox UX                               DONE (awaiting review/freeze)
+M4C  Story Identity / New Development              <-- next
 M4D  Telegram Editorial Alerts
 M4E  Editorial workflow polish
 ```
@@ -110,14 +111,45 @@ Explicitly **not** done in M4A (owner's boundary): AI angle generation, full
 research, drafting, `NEW_DEVELOPMENT`/`DUPLICATE` story identity, Telegram alerts.
 The shape is `SOURCE -> RAW/normalized INBOX ITEM` and stop.
 
-### M4B — Story Inbox + Source/Status UX
+### M4A.1 — Default Source Pack + Source Hardening (BUILT, LIVE-PROVEN 2026-09-20)
 
-- [ ] Inbox is the **start screen**, not `cases`: `НОВИ` / `ВАЖНИ` / `ЗА ПРОВЕРКА` /
-      `СЛЕДЕНИ` / `ИГНОРИРАНИ`.
-- [ ] Each item shows: title/topic · where it came from · how many sources · when it
-      was found · why it is interesting · which facts are missing.
-- [ ] Workbench answers «Какво трябва да направя сега?», not «какъв е internal
-      readiness enum-ът?» (raw enum ids stay visible next to Bulgarian labels).
+Owner-authorized correction of M4A before scaling the source count. Report:
+`m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`. Source research:
+`m4/M4_DEFAULT_SOURCE_STACK_RESEARCH.md`.
+
+- [x] **Declarative catalogue** `workflow/default_sources.py` — 35 entries; new
+      install seeds **30 active** (9 core `each_run` + 21 `daily`) and catalogues
+      **5 disabled** optionals. `sources defaults --preview|--apply` is additive,
+      idempotent and never re-enables or overwrites an editor-owned entry.
+- [x] **Blocked-domain policy** `workflow/blocked_domains.py` — defaults to
+      `flagman.bg`, host-suffix matching, refuses page URLs as values, filters
+      broad-monitor results **before** inbox insertion (publisher domain from the
+      Google News `<source url>` attribute, not the opaque redirect link), refuses a
+      direct blocked source.
+- [x] **Real cadence + source health** `workflow/source_health.py` —
+      `each_run`/`daily`/`weekly` resolved on the `Europe/Sofia` day, separate
+      operational store, `OK`/`EMPTY`/`FAILED`/`NEVER_RUN`, health columns in the
+      Workbench, `newsroom collect --force`.
+- [x] **Safe bootstrap + caps** — first collection keeps ≤72 h / 10 newest (news) or
+      a ±45-day window (calendars), 20 items per source per run.
+- [x] **One shared collection lock** between cron and the Workbench button.
+
+### M4B — Daily Inbox UX (BUILT, LIVE-PROVEN 2026-09-20)
+
+Report: `m4/review/M4B_DAILY_INBOX_REPORT.md`.
+
+- [x] Inbox answers «Какво ново има и какво трябва да погледна?», with a top summary
+      (нови · прегледани · игнорирани · източници с проблем).
+- [x] Per item: headline · source name · kind · priority · published/discovered time ·
+      one-line summary · Прегледан / Игнорирай / Отвори източника; internal ids hidden.
+- [x] Filters: status (**default NEW**) · source · kind · priority · date · authority;
+      50-per-page pagination. No semantic filters yet.
+- [x] **«Събери новите сега»** delegates to the same one-shot service cron calls;
+      **«Пробен преглед»** is zero network; result + source problems + last run shown.
+- [x] Cron schedule documented (`RUNBOOK.md`): 07:00 / 12:00 / 16:00 / 20:00 Sofia.
+- [ ] Still M4B/M4E later (not built): multi-source grouping of the same event — that
+      is exactly M4C; the owner's `ВАЖНИ` / `СЛЕДЕНИ` buckets need a signal that does
+      not exist yet, so they are deferred rather than faked.
 
 ### M4C — Story Identity / New Development
 

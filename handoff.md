@@ -1,3 +1,30 @@
+## Handoff — M4A.1 Default Source Pack + M4B Daily Inbox (2026-09-20)
+
+Verified: **793 offline tests**, ruff check/format clean, M3A smoke 25/25, plus an
+isolated live source-pack run and Workbench proof. Reports:
+`m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`, `m4/review/M4B_DAILY_INBOX_REPORT.md`.
+
+- **What the editor can now do:** open `/sources` and see ~30 watched sources with a
+  health column («Последно успешно · Последен резултат · Нови материали»), the real
+  next collection, and a compact «Забранени домейни» policy; open `/inbox` and land on
+  **NEW** with summary counts, filters, pagination, per-item actions, «Събери новите
+  сега» and a readable source-problem list.
+- **What cron can now do:** `newsroom collect` collects 30 sources with real cadence
+  (daily sources once per Sofia day), a safe first-run bootstrap, per-source caps and
+  bound failures; schedule documented in `RUNBOOK.md` §0e. The repo installs no timer.
+- **Live proof:** isolated run → 29 OK / 1 EMPTY / 0 failed, 204 items; re-run → 100 new
+  + 80 known, 21 cadence-skipped; `/sources` and `/inbox` render; a blocked publisher
+  filtered live (20+46 items); a direct blocked source refused.
+- **Real bug found while proving the policy:** Google News item links are opaque
+  `news.google.com` redirects, so host-matching item URLs blocks nothing. The publisher
+  domain now comes from the item's `<source url>` attribute (provider + runner updated,
+  with a fixture test).
+- **Boundary held:** no AI ranking, no story clustering, no `NEW_DEVELOPMENT`, no
+  Telegram, no drafting — a structural test fails if those tokens appear as identifiers
+  in the newsroom modules.
+- **Next:** freeze M4A.1 + M4B, then **M4C** (story identity / new development) — the
+  first new semantic capability, and only now that the registry and inbox exist.
+
 ## Handoff — M4A Source Registry + Scheduled Collection (2026-09-20)
 
 Verified: **737 offline tests**, ruff check/format clean, M3A smoke 25/25, plus a

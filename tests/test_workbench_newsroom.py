@@ -17,7 +17,13 @@ import urllib.request
 
 import pytest
 
-from editor_assistant.workflow import inbox_store, sources_registry
+from editor_assistant.workflow import (
+    blocked_domains,
+    inbox_store,
+    newsroom_run,
+    source_health,
+    sources_registry,
+)
 from editor_assistant.workflow.workbench import http, newsroom
 
 
@@ -264,7 +270,7 @@ def test_inbox_status_actions(server):
     assert inbox_store.read_items(newsroom.inbox_store_path())[0]["status"] == "IGNORED"
     assert newsroom.read_actions()[-1]["action"] == "inbox_ignored"
 
-    body = _get(f"{server}/inbox").read().decode("utf-8")
+    body = _get(f"{server}/inbox?status=IGNORED").read().decode("utf-8")
     assert "Игнориран" in body
 
 
@@ -278,3 +284,151 @@ def test_collection_plan_view_makes_no_network_call(seeded):
     plan = newsroom.collection_plan()
     assert [s["source_id"] for s in plan["sources"]] == ["council-feed", "news-search"]
     assert plan["estimated_network_calls"] == 2
+
+
+# ---------- M4A.1: health, blocked domains, defaults ----------
+
+
+def test_sources_page_shows_health_and_blocked_domains(server):
+    body = _get(f"{server}/sources").read().decode("utf-8")
+    assert "Здраве" in body
+    assert "Още не е събирано" in body  # health never fabricates a success
+    assert "Забранени домейни" in body
+    assert "flagman.bg" in body  # the default policy is visible
+
+
+def test_blocked_domain_add_and_remove_from_the_page(server):
+    resp = _post(f"{server}/sources", {"action": "domain_add", "domain": "noise.example"})
+    assert resp.code in (302, 303)
+    assert "noise.example" in blocked_domains.read_domains(newsroom.blocked_store())
+
+    resp = _post(f"{server}/sources", {"action": "domain_remove", "domain": "noise.example"})
+    assert resp.code in (302, 303)
+    assert "noise.example" not in blocked_domains.read_domains(newsroom.blocked_store())
+
+
+def test_a_bad_blocked_domain_is_refused_readably(server):
+    resp = _post(f"{server}/sources", {"action": "domain_add", "domain": "https://x.bg/2026/09/a"})
+    assert resp.code == 400
+    assert "само домейн" in resp.read().decode("utf-8")
+
+
+def test_defaults_preview_writes_nothing_and_apply_is_additive(server):
+    before = newsroom.sources_store().read_text(encoding="utf-8")
+    resp = _post(f"{server}/sources", {"action": "defaults_preview"})
+    assert resp.code in (302, 303)
+    assert newsroom.sources_store().read_text(encoding="utf-8") == before
+
+    _post(f"{server}/sources", {"action": "defaults_apply"})
+    from editor_assistant.workflow import default_sources as D
+
+    registry = sources_registry.read_registry(newsroom.sources_store())
+    assert set(D.required_ids()) <= set(registry)
+    # the editor's own entries were preserved (only missing defaults are added)
+    assert registry["council-feed"]["name"] == "Общински съвет Бургас"
+    assert "news-search" in registry
+
+
+# ---------- M4B: daily inbox UX ----------
+
+
+def test_inbox_defaults_to_new_and_filters(server):
+    inbox_store.add_items(
+        [
+            {
+                "source_id": "news-search",
+                "title": "Игнорирана новина",
+                "url": "https://media.example/ignored",
+                "discovered_at": "2026-09-20T09:00:00Z",
+                "source_kind": "aggregator",
+                "priority": "normal",
+                "status": "IGNORED",
+            },
+            {
+                "source_id": "news-search",
+                "title": "Прегледана новина",
+                "url": "https://media.example/seen",
+                "discovered_at": "2026-09-20T08:00:00Z",
+                "source_kind": "aggregator",
+                "priority": "normal",
+                "status": "SEEN",
+            },
+        ],
+        path=newsroom.inbox_store_path(),
+    )
+    default = _get(f"{server}/inbox").read().decode("utf-8")
+    assert "Общинският съвет прие бюджета" in default  # the NEW item
+    assert "Игнорирана новина" not in default  # default view is NEW only
+    assert "нови 1" in default and "прегледани 1" in default and "игнорирани 1" in default
+
+    all_items = _get(f"{server}/inbox?status=all").read().decode("utf-8")
+    assert "Игнорирана новина" in all_items and "Прегледана новина" in all_items
+
+    by_source = _get(f"{server}/inbox?status=all&source=news-search").read().decode("utf-8")
+    assert "Игнорирана новина" in by_source
+    assert "Общинският съвет прие бюджета" not in by_source
+
+
+def test_inbox_collect_now_delegates_to_the_shared_service(server, monkeypatch):
+    captured = {}
+
+    def fake_collect(**kwargs):
+        captured.update(kwargs)
+        return {
+            "dry_run": False,
+            "locked": False,
+            "sources": [],
+            "estimated_network_calls": 2,
+            "new": 4,
+            "duplicate": 1,
+            "failed": 0,
+            "blocked_filtered": 0,
+        }
+
+    monkeypatch.setattr(newsroom_run, "collect", fake_collect)
+    resp = _post(f"{server}/inbox", {"action": "collect"})
+    assert resp.code in (302, 303)
+    assert str(captured["path"]).endswith("sources.json")
+    assert str(captured["store"]).endswith("inbox.jsonl")
+    assert str(captured["health_path"]).endswith("source_health.json")
+    assert str(captured["root"]) == str(newsroom.newsroom_dir())
+    assert captured["dry_run"] is False
+    assert "Събрани 4" in urllib.parse.unquote_plus(resp.headers["Location"])
+
+
+def test_inbox_collect_preview_asks_the_shared_service_for_a_dry_run(server, monkeypatch):
+    captured = {}
+
+    def fake_collect(**kwargs):
+        captured.update(kwargs)
+        return {
+            "dry_run": True,
+            "locked": False,
+            "sources": [],
+            "estimated_network_calls": 2,
+        }
+
+    monkeypatch.setattr(newsroom_run, "collect", fake_collect)
+    resp = _post(f"{server}/inbox", {"action": "collect_preview"})
+    assert resp.code in (302, 303)
+    assert captured["dry_run"] is True
+    assert "Пробен преглед" in urllib.parse.unquote_plus(resp.headers["Location"])
+
+
+def test_inbox_shows_source_problems_and_last_run(seeded):
+    source_health.record_source(
+        "news-search",
+        status="FAILED",
+        error="Google News: RATE_LIMITED",
+        success=False,
+        path=newsroom.health_store(),
+    )
+    source_health.record_run(
+        {"finished_at": "2026-09-20T07:00:00Z", "new": 3, "failed": 1},
+        path=newsroom.last_run_store(),
+    )
+    view = newsroom.inbox_view(status="NEW")
+    assert view["last_run"]["new"] == 3
+    assert any(p["source_id"] == "news-search" for p in view["problems"])
+    body = http.html_mod.render_inbox(view)
+    assert "Източници с проблем" in body and "RATE_LIMITED" in body

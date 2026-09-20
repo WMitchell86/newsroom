@@ -879,6 +879,21 @@ def cmd_sources(args):
             if result["skipped"]:
                 print(f"kept as-is (already present): {', '.join(result['skipped'])}")
             return
+        if action == "defaults":
+            result = reg.apply_defaults(preview=not args.apply)
+            mode = "ПРЕДГЛЕД (без запис)" if result["preview"] else "ПРИЛОЖЕНИ"
+            print(
+                f"{mode}: добавени {len(result['added'])} · вече налични "
+                f"{len(result['present'])} · непроменени (редакторски) {len(result['present'])}"
+            )
+            for source_id in result["added"]:
+                print(f"  + {source_id}")
+            if result["present"]:
+                print("  = " + ", ".join(result["present"]))
+            print(
+                "  изключени по подразбиране (активирайте ръчно): " + ", ".join(result["optional"])
+            )
+            return
         if action == "remove":
             reg.remove_source(args.source_id)
             print(f"removed {args.source_id} (collected evidence is untouched)")
@@ -927,8 +942,12 @@ def cmd_newsroom(args):
         dry_run=args.dry_run,
         source_ids=args.source or None,
         limit=args.limit,
+        force=args.force,
     )
     newsroom_run.print_summary(summary)
+    if summary.get("locked"):
+        # Another run (cron or the Workbench button) holds the lock; do nothing.
+        raise SystemExit(3)
     if summary["failed"]:
         # Partial failure is visible in the exit code so cron mail surfaces it,
         # while the successful sources still keep their items.
@@ -949,6 +968,9 @@ def _add_newsroom_subcommands(sub):
         "--source", action="append", default=None, help="only this source_id (repeatable)"
     )
     collect.add_argument("--limit", type=int, default=None, help="collect at most N sources")
+    collect.add_argument(
+        "--force", action="store_true", help="ignore cadence (collect even if already done today)"
+    )
     p.set_defaults(func=cmd_newsroom)
 
 
@@ -964,6 +986,16 @@ def _add_sources_subcommands(sub):
         "seed", help="add the default seed (declared sources only; never overwrites)"
     )
     seed.add_argument("--dry-run", action="store_true", help="show what would be added")
+
+    defaults = actions.add_parser(
+        "defaults", help="apply the default source catalogue additively (never overwrites)"
+    )
+    defaults.add_argument(
+        "--preview", action="store_true", help="report what would change, write nothing"
+    )
+    defaults.add_argument(
+        "--apply", action="store_true", help="add only the missing default source IDs"
+    )
 
     add = actions.add_parser("add", help="add a source")
     add.add_argument("--id", dest="source_id", required=True, help="slug, e.g. bnr-burgas")

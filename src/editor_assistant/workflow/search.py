@@ -459,6 +459,10 @@ class GoogleNewsRSSProvider(SearchProvider):
     (audit A9): the publisher page must be opened before anything can become
     evidence. A zero-result feed means "this provider returned no candidates",
     never "the news does not exist".
+
+    Each result also carries `source_url` (the publisher domain from the
+    `<source url=...>` attribute), because the `url` itself is always an opaque
+    news.google.com redirect.
     """
 
     name = "google_news_rss"
@@ -512,6 +516,11 @@ class GoogleNewsRSSProvider(SearchProvider):
                 node = _item.find(tag)
                 return (node.text or "").strip() if node is not None else ""
 
+            # The item link is a news.google.com redirect, so the publisher's own
+            # domain is only available on the <source url=...> attribute. It is
+            # carried so a downstream publisher/domain policy can act on it
+            # (the opaque news.google.com link can never be host-matched).
+            source_node = item.find("source")
             results.append(
                 {
                     "rank": len(results) + 1,
@@ -520,6 +529,7 @@ class GoogleNewsRSSProvider(SearchProvider):
                     "snippet": _text("description"),
                     "published_at": _text("pubDate"),
                     "source_name": _text("source"),
+                    "source_url": (source_node.get("url") if source_node is not None else "") or "",
                 }
             )
         record["results"] = results

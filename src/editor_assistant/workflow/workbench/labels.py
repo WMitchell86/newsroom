@@ -155,6 +155,34 @@ SOURCE_COLLECTOR_LABELS = {
 
 INBOX_STATUS_LABELS = {"NEW": "Нов", "SEEN": "Прегледан", "IGNORED": "Игнориран"}
 
+#: Source health as the editor sees it (operational, never an uptime dashboard).
+SOURCE_HEALTH_LABELS = {
+    "OK": "Успешно",
+    "EMPTY": "Празно",
+    "FAILED": "Проблем",
+    "NEVER_RUN": "Още не е събирано",
+}
+
+SOURCE_HEALTH_BADGES = {"OK": "ok", "EMPTY": "", "FAILED": "block", "NEVER_RUN": ""}
+
+#: M4B inbox filters — practical only, no semantic/topic filters before M4C.
+INBOX_STATUS_FILTERS = (
+    ("NEW", "Нови"),
+    ("all", "Всички"),
+    ("SEEN", "Прегледани"),
+    ("IGNORED", "Игнорирани"),
+)
+
+INBOX_AUTHORITY_FILTERS = (
+    ("", "Всички източници"),
+    ("official", "Официални"),
+    ("monitoring", "Само наблюдение"),
+)
+
+
+def source_health_label(status):
+    return SOURCE_HEALTH_LABELS.get(status or "", status or "—")
+
 
 def source_kind_label(kind):
     return SOURCE_KIND_LABELS.get(kind or "", kind or "—")

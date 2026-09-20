@@ -6,6 +6,7 @@ All dynamic content goes through esc(); only http/https URLs become links.
 from __future__ import annotations
 
 import html as html_mod
+import urllib.parse
 
 from editor_assistant.workflow import diff as diff_mod
 from editor_assistant.workflow.cases import EDITING_WEIGHTS, TIME_BUCKETS
@@ -723,7 +724,7 @@ def sources_table(rows):
         return '<p class="muted">Още няма източници. Добавете първия по-долу.</p>'
     head = (
         "<tr><th>Източник</th><th>Тип</th><th>Статус</th><th>Приоритет</th>"
-        "<th>Следващо събиране</th><th>Действия</th></tr>"
+        "<th>Здраве</th><th>Следващо събиране</th><th>Действия</th></tr>"
     )
     body = []
     for row in rows:
@@ -740,6 +741,10 @@ def sources_table(rows):
             flags.append(_badge("само наблюдение", "info"))
         if row["factual_authority"]:
             flags.append(_badge("фактологичен авторитет", "ok"))
+        if row.get("calendar"):
+            flags.append(_badge("календар", "info"))
+        if row.get("blocked_reason"):
+            flags.append(_badge("забранен домейн", "block"))
         actions = [
             _source_action_form(
                 row["source_id"],
@@ -761,10 +766,17 @@ def sources_table(rows):
             f'<span class="muted">{esc(row["source_id"])} · '
             f"{esc(lb.source_collector_label(row['collector']))}"
             + (f" · {esc(row['url'] or row['query'])}" if (row["url"] or row["query"]) else "")
-            + f"</span><br>{' '.join(flags)}</td>"
+            + f"</span><br>{' '.join(flags)}"
+            + (
+                f'<div class="muted">{esc(row["blocked_reason"])}</div>'
+                if row.get("blocked_reason")
+                else ""
+            )
+            + "</td>"
             f"<td>{esc(lb.source_kind_label(row['kind']))}</td>"
             f"<td>{_badge(status_text, status_cls)}</td>"
             f"<td>{esc(lb.source_priority_label(row['priority']))}</td>"
+            f"<td>{_health_cell(row)}</td>"
             f"<td>{esc(row['next_collection'])}</td>"
             f"<td>{' '.join(actions)}"
             + _source_edit_form(row)
@@ -773,6 +785,21 @@ def sources_table(rows):
             + "</td></tr>"
         )
     return f"<table>{head}{''.join(body)}</table>"
+
+
+def _health_cell(row):
+    """Operational health as a badge + the last success and new-item count."""
+    health = row.get("health") or {}
+    status = health.get("last_status") or "NEVER_RUN"
+    cell = _badge(lb.source_health_label(status), lb.SOURCE_HEALTH_BADGES.get(status, ""))
+    if health.get("last_success_at"):
+        when = str(health["last_success_at"])[:16].replace("T", " ")
+        cell += f'<div class="muted">последно успешно: {esc(when)}</div>'
+    if health.get("last_new_count"):
+        cell += f'<div class="muted">нови: {int(health["last_new_count"])}</div>'
+    if status == "FAILED" and health.get("last_error"):
+        cell += f'<div class="muted">{esc(str(health["last_error"])[:140])}</div>'
+    return cell
 
 
 def _source_edit_form(row):
@@ -849,6 +876,8 @@ def add_source_form(values=None):
         f'<label>Ритъм <select name="cadence">{cadences}</select></label>'
         f'<label>Бележка <input name="note" value="{esc(values.get("note", ""))}"></label>'
         + (
+            '<label><input type="checkbox" name="calendar" value="1"> календарен източник '
+            "(предстоящи събития са стойността)</label>"
             '<label><input type="checkbox" name="monitoring_only" value="1"> само наблюдение '
             "(не се използва като фактологичен авторитет)</label>"
             '<button class="btn primary" type="submit">Добави</button></form>'
@@ -876,22 +905,225 @@ def render_sources(view, message="", error="", values=None):
         body.append(f'<div class="notice error">{esc(error)}</div>')
     body.append(sources_table(view["rows"]))
     body.append(add_source_form(values))
+    body.append(_domains_section(view["blocked"]))
+    body.append(_defaults_section())
     return page("Източници", "\n".join(body), active="sources")
+
+
+def _defaults_section():
+    """Apply the default catalogue additively — never a silent overwrite (A2)."""
+    return (
+        '<section class="card" id="defaults"><h2>Подразбиращи се източници</h2>'
+        '<p class="muted">Добавя само липсващите източници от подразбиращия се набор. '
+        "Никога не променя вече наличните ви настройки и не включва изключени източници.</p>"
+        '<form method="post" action="/sources" style="display:inline">'
+        '<input type="hidden" name="action" value="defaults_preview">'
+        '<button class="btn" type="submit">Преглед (без запис)</button></form> '
+        '<form method="post" action="/sources" style="display:inline">'
+        '<input type="hidden" name="action" value="defaults_apply">'
+        '<button class="btn primary" type="submit">Приложи липсващите</button></form>'
+        "</section>"
+    )
+
+
+def _domains_section(view):
+    """Compact editor-owned blocked-domain policy (A5)."""
+    domains = view.get("domains") or []
+    rows = "".join(
+        "<li><code>"
+        + esc(domain)
+        + "</code> "
+        + '<form method="post" action="/sources" style="display:inline">'
+        + '<input type="hidden" name="action" value="domain_remove">'
+        + f'<input type="hidden" name="domain" value="{esc(domain)}">'
+        + '<button class="btn danger" type="submit">Премахни</button></form></li>'
+        for domain in domains
+    )
+    if not rows:
+        rows = '<li class="muted">Няма забранени домейни.</li>'
+    return (
+        '<section class="card" id="domains"><h2>Забранени домейни</h2>'
+        '<p class="muted">Широките заявки (Google News/търсене) никога не внасят елементи от '
+        "тези домейни. Директен източник от забранен домейн се отказва.</p>"
+        f"<ul>{rows}</ul>"
+        '<form method="post" action="/sources">'
+        '<input type="hidden" name="action" value="domain_add">'
+        '<label>Добави домейн <input name="domain" placeholder="example.bg" required></label>'
+        '<button class="btn" type="submit">Забрани</button></form></section>'
+    )
+
+
+def _inbox_qs(filters, **overrides):
+    params = {
+        "status": filters.get("status") or "all",
+        "source": filters.get("source_id") or "",
+        "kind": filters.get("kind") or "",
+        "priority": filters.get("priority") or "",
+        "date": filters.get("date") or "",
+        "authority": filters.get("authority") or "",
+    }
+    params.update({key: value for key, value in overrides.items() if value is not None})
+    return urllib.parse.urlencode({key: value for key, value in params.items() if value})
+
+
+def inbox_status_nav(view):
+    """Status filter links; the default view is `NEW` (M4B §B4)."""
+    filters = view["filters"]
+    parts = []
+    for key, label in lb.INBOX_STATUS_FILTERS:
+        cls = ' class="active"' if filters["status"] == key else ""
+        parts.append(f'<a{cls} href="/inbox?{_inbox_qs(filters, status=key)}">{esc(label)}</a>')
+    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+
+
+def _inbox_filter_form(view):
+    filters = view["filters"]
+    source_opts = ['<option value="">Всички източници</option>']
+    for option in view.get("source_options") or []:
+        selected = " selected" if filters["source_id"] == option["source_id"] else ""
+        source_opts.append(
+            f'<option value="{esc(option["source_id"])}"{selected}>{esc(option["name"])}</option>'
+        )
+    kind_opts = ['<option value="">Всички типове</option>'] + [
+        f'<option value="{esc(key)}"{" selected" if filters["kind"] == key else ""}>'
+        f"{esc(label)}</option>"
+        for key, label in lb.SOURCE_KIND_LABELS.items()
+    ]
+    prio_opts = ['<option value="">Всички приоритети</option>'] + [
+        f'<option value="{esc(key)}"{" selected" if filters["priority"] == key else ""}>'
+        f"{esc(label)}</option>"
+        for key, label in lb.SOURCE_PRIORITY_LABELS.items()
+    ]
+    auth_opts = "".join(
+        f'<option value="{esc(value)}"{" selected" if filters["authority"] == value else ""}>'
+        f"{esc(label)}</option>"
+        for value, label in lb.INBOX_AUTHORITY_FILTERS
+    )
+    return (
+        '<form method="get" action="/inbox" class="card" style="margin:.6rem 0">'
+        '<input type="hidden" name="status" value="' + esc(filters["status"]) + '">'
+        '<label>Източник <select name="source">' + "".join(source_opts) + "</select></label>"
+        '<label>Тип <select name="kind">' + "".join(kind_opts) + "</select></label>"
+        '<label>Приоритет <select name="priority">' + "".join(prio_opts) + "</select></label>"
+        '<label>Авторитет <select name="authority">' + auth_opts + "</select></label>"
+        f'<label>Дата <input type="date" name="date" value="{esc(filters["date"])}"></label>'
+        '<button class="btn" type="submit">Филтрирай</button></form>'
+    )
+
+
+def _pager(view):
+    filters = view["filters"]
+    page_no, page_count = view["page"], view["page_count"]
+    if page_count <= 1:
+        return ""
+    parts = []
+    if page_no > 1:
+        parts.append(f'<a href="/inbox?{_inbox_qs(filters, page=page_no - 1)}">← Предишна</a>')
+    parts.append(f'<span class="muted">Страница {page_no} / {page_count}</span>')
+    if page_no < page_count:
+        parts.append(f'<a href="/inbox?{_inbox_qs(filters, page=page_no + 1)}">Следваща →</a>')
+    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+
+
+def _collect_section(view):
+    """«Събери новините сега» delegates to the same one-shot service as cron."""
+    last = view.get("last_run")
+    info = ""
+    if last:
+        when = str(last.get("finished_at") or "—")[:16].replace("T", " ")
+        info = (
+            f'<p class="muted">Последно събиране: {esc(when)} · '
+            f"нови {int(last.get('new') or 0)} · "
+            f"вече известни {int(last.get('duplicate') or 0)} · "
+            f"източника с проблем {int(last.get('failed') or 0)}</p>"
+        )
+    parts = [
+        '<section class="card" id="collect"><h2>Събиране</h2>',
+        info,
+        (
+            '<form method="post" action="/inbox" style="display:inline">'
+            '<input type="hidden" name="action" value="collect">'
+            '<button class="btn primary" type="submit">Събери новините сега</button></form> '
+        ),
+        (
+            '<form method="post" action="/inbox" style="display:inline">'
+            '<input type="hidden" name="action" value="collect_preview">'
+            '<button class="btn" type="submit">Пробен преглед (без мрежа)</button></form>'
+        ),
+    ]
+    problems = view.get("problems") or []
+    if problems:
+        parts.append("<h3>Източници с проблем</h3><ul>")
+        parts.extend(
+            f"<li><strong>{esc(p['name'])}</strong> — {esc(p['detail'])}</li>" for p in problems
+        )
+        parts.append("</ul>")
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def _inbox_item(item):
+    status_cls = {"NEW": "info", "SEEN": "", "IGNORED": "block"}.get(item["status"], "")
+    actions = []
+    for action, label, cls in (
+        ("SEEN", "Прегледан", ""),
+        ("NEW", "Нов", ""),
+        ("IGNORED", "Игнорирай", "danger"),
+    ):
+        if action == item["status"]:
+            continue
+        actions.append(
+            '<form method="post" action="/inbox" style="display:inline">'
+            '<input type="hidden" name="action" value="status">'
+            f'<input type="hidden" name="item_id" value="{esc(item["item_id"])}">'
+            f'<input type="hidden" name="status" value="{esc(action)}">'
+            f'<button class="btn {cls}" type="submit">{esc(label)}</button></form>'
+        )
+    actions.append(
+        f'<a class="btn" href="{esc(item["url"])}" target="_blank" '
+        'rel="noopener noreferrer">Отвори източника</a>'
+    )
+    published = (item["published_at"] or "")[:16].replace("T", " ")
+    discovered = (item["discovered_at"] or "")[:16].replace("T", " ")
+    when = []
+    if published:
+        when.append(f"публикувано: {esc(published)}")
+    if discovered:
+        when.append(f"открито: {esc(discovered)}")
+    return (
+        '<section class="card">'
+        f'<h3><a href="{esc(item["url"])}" target="_blank" rel="noopener noreferrer">'
+        f"{esc(item['title'])}</a></h3>"
+        f'<p class="muted">{esc(item["source_name"])} · '
+        f"{esc(lb.source_kind_label(item['source_kind']))} · "
+        f"{esc(lb.source_priority_label(item['priority']))} приоритет</p>"
+        f'<p class="muted">{" · ".join(when)}</p>'
+        + (f"<p>{esc(item['summary'][:300])}</p>" if item["summary"] else "")
+        + f"<p>{_badge(lb.inbox_status_label(item['status']), status_cls)} "
+        + " ".join(actions)
+        + "</p></section>"
+    )
 
 
 def render_inbox(view, message="", error=""):
     counts = view["counts"]
+    by_status = counts["by_status"]
+    problems = view.get("problems") or []
     body = [
         (
-            f'<p class="muted">Входящи: {counts["total"]} · '
-            f"нови {counts['by_status'].get('NEW', 0)} · "
-            f"прегледани {counts['by_status'].get('SEEN', 0)} · "
-            f"игнорирани {counts['by_status'].get('IGNORED', 0)}</p>"
+            f"<p><strong>Днес:</strong> нови {by_status.get('NEW', 0)} · "
+            f"прегледани {by_status.get('SEEN', 0)} · "
+            f"игнорирани {by_status.get('IGNORED', 0)} · "
+            f"източници с проблем {len(problems)}"
+            f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
         ),
         (
             '<p class="muted">Това са събрани кандидати, не доказателства и не готови '
             "материали. Нищо тук не е проверено фактологично.</p>"
         ),
+        inbox_status_nav(view),
+        _collect_section(view),
+        _inbox_filter_form(view),
     ]
     if message:
         body.append(f'<div class="notice saved">{esc(message)}</div>')
@@ -900,41 +1132,10 @@ def render_inbox(view, message="", error=""):
     items = view["items"]
     if not items:
         body.append(
-            '<p class="muted">Още няма събрани елементи. Проверете източниците на '
-            '<a href="/sources">страницата с източници</a> и пуснете '
-            "<code>newsroom collect</code> (или първо <code>--dry-run</code>).</p>"
+            '<p class="muted">Няма елементи за този филтър. Пуснете «Събери новините сега» '
+            'или вижте <a href="/sources">източниците</a>.</p>'
         )
         return page("Входящи", "\n".join(body), active="inbox")
-    rows = []
-    for item in items:
-        status_cls = {"NEW": "info", "SEEN": "", "IGNORED": "block"}.get(item["status"], "")
-        actions = []
-        for action, label, cls in (
-            ("SEEN", "Прегледан", ""),
-            ("NEW", "Нов", ""),
-            ("IGNORED", "Игнорирай", "danger"),
-        ):
-            if action == item["status"]:
-                continue
-            actions.append(
-                '<form method="post" action="/inbox" style="display:inline">'
-                '<input type="hidden" name="action" value="status">'
-                f'<input type="hidden" name="item_id" value="{esc(item["item_id"])}">'
-                f'<input type="hidden" name="status" value="{esc(action)}">'
-                f'<button class="btn {cls}" type="submit">{esc(label)}</button></form>'
-            )
-        when = (item["published_at"] or item["discovered_at"] or "")[:19]
-        rows.append(
-            '<section class="card">'
-            f'<h3><a href="{esc(item["url"])}" target="_blank" rel="noopener noreferrer">'
-            f"{esc(item['title'])}</a></h3>"
-            f'<p class="muted">{esc(item["source_name"])} · '
-            f"{esc(lb.source_kind_label(item['source_kind']))} · "
-            f"{esc(lb.source_priority_label(item['priority']))} приоритет · {esc(when)}</p>"
-            + (f"<p>{esc(item['summary'][:300])}</p>" if item["summary"] else "")
-            + f"<p>{_badge(lb.inbox_status_label(item['status']), status_cls)} "
-            + " ".join(actions)
-            + "</p></section>"
-        )
-    body.append("".join(rows))
+    body.extend(_inbox_item(item) for item in items)
+    body.append(_pager(view))
     return page("Входящи", "\n".join(body), active="inbox")

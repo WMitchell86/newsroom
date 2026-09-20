@@ -1,32 +1,48 @@
-"""M4A collection runner: SOURCE -> normalized INBOX ITEM, and stop.
+"""M4A.1 collection runner: SOURCE -> normalized INBOX ITEM, and stop.
 
 One-shot process, no daemon: the operator's cron calls it (identical rule to
 `youtube-batch run --cron`). It reads the editor-owned registry and writes the
 inbox; it is the only place where a registry entry becomes collected material.
 
 **Not in this milestone** (deliberately): AI angle generation, research, drafting,
-story identity (`NEW_DEVELOPMENT` / `DUPLICATE`) and alerts. Those are M4B/M4C/M4D.
-An inbox item is a *candidate*, never evidence.
+story identity (`NEW_DEVELOPMENT` / `DUPLICATE`), ranking and alerts. Those are
+M4B/M4C/M4D. An inbox item is a *candidate*, never evidence.
 
-Two hard rules:
+Hard rules:
 
 * `--dry-run` performs **zero network calls** and prints exactly what a real run
-  would do (sources, collectors, estimated network calls);
+  would do (sources, collectors, cadence, estimated network calls);
 * **one broken source never stops the run**: its status is reported in the summary
-  (`OK` / `FAILED` / `UNSUPPORTED`) and the remaining sources still run.
+  (`OK` / `EMPTY` / `FAILED` / `UNSUPPORTED` / `BLOCKED`) and the remaining
+  sources still run;
+* **cadence is operational**: an `each_run` source is always due, a `daily` source
+  only if it has not succeeded on the current `Europe/Sofia` date (weekly: 7 local
+  days), and a muted/disabled source is never due;
+* **blocked domains** are filtered before an item can reach the inbox, and a
+  source whose own URL/query targets a blocked domain is refused;
+* **safe bootstrap**: the first successful collection of a source does not
+  backfill history (72 h / 10 newest for news, a ±45-day window for calendars);
+* **one shared lock** so two concurrent runs (cron + the Workbench button) cannot
+  interleave writes into the inbox or the health store.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from editor_assistant.models import SourceDef
 from editor_assistant.sources.html_desc import normalize_description
 from editor_assistant.sources.rss import PARSER_ID, item_to_dict, parse_datetime, parse_rss_feed
-from editor_assistant.workflow import inbox_store, sources_registry
+from editor_assistant.workflow import blocked_domains, inbox_store, source_health, sources_registry
 
-#: Collectors wired in M4A. `youtube` and `web` are declared in the registry (a
+ROOT = Path(__file__).resolve().parents[3]
+
+#: Collectors wired today. `youtube` and `web` are declared in the registry (a
 #: source keeps its collector across slices) but reported as UNSUPPORTED here
 #: rather than silently skipped.
 SUPPORTED_COLLECTORS = ("rss", "google_news_rss")
@@ -39,46 +55,159 @@ COLLECTOR_LABELS = {
 }
 
 STATUS_OK = "OK"
+STATUS_EMPTY = "EMPTY"
 STATUS_FAILED = "FAILED"
 STATUS_UNSUPPORTED = "UNSUPPORTED"
+STATUS_BLOCKED = "BLOCKED"
 STATUS_PLANNED = "PLANNED"
+
+#: Safe-bootstrap windows and per-source caps (M4A.1 §3/§9).
+NEWS_LOOKBACK_HOURS = 72
+CALENDAR_WINDOW_DAYS = 45
+BOOTSTRAP_MAX_NEWS = 10
+MAX_ITEMS_PER_SOURCE = 20
+
+LOCK_NAME = "collect.lock"
+LOCK_STALE_SECONDS = 3600
 
 
 class CollectionError(RuntimeError):
     """A collector could not produce candidates for a source."""
 
 
+def newsroom_dir(root=None):
+    """Runtime dir; overridable for tests (`NEWSROOM_DIR`)."""
+    if root is not None:
+        return Path(root)
+    override = os.environ.get("NEWSROOM_DIR")
+    return Path(override) if override else ROOT / "var" / "newsroom"
+
+
+def lock_path(root=None):
+    return newsroom_dir(root) / LOCK_NAME
+
+
+# ---------------------------------------------------------------- lock
+
+
+def acquire_lock(*, root=None, stale_after_s=LOCK_STALE_SECONDS, pid=None, clock=None):
+    """Take the collection lock; a stale lock is taken over once (see `intake_run`)."""
+    path = lock_path(root)
+    now = time.time() if clock is None else clock
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps({"pid": pid or os.getpid(), "started_at": _now().strftime("%Y-%m-%dT%H:%M:%SZ")})
+        + "\n"
+    )
+    for takeover_attempt in (False, True):
+        try:
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            try:
+                age = now - path.stat().st_mtime
+            except OSError:
+                age = 0
+            if takeover_attempt or age < stale_after_s:
+                return False
+            path.unlink(missing_ok=True)
+            continue
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return True
+    return False  # pragma: no cover - the loop always returns above
+
+
+def release_lock(root=None):
+    lock_path(root).unlink(missing_ok=True)
+
+
 def _now():
     return datetime.now(timezone.utc)
 
 
-def _selected_sources(path=None, *, today=None, source_ids=None, limit=None):
-    sources = sources_registry.collectable(path, today=today)
+# ---------------------------------------------------------------- planning
+
+
+def due_for(entry, record, today, *, force=False):
+    """(is_due, reason) for one active source, based on real operational state."""
+    if force:
+        return True, ""
+    cadence = entry.get("cadence") or "each_run"
+    if cadence == "each_run":
+        return True, ""
+    last = source_health.sofia_date_of((record or {}).get("last_success_at"))
+    if last is None:
+        return True, ""
+    if cadence == "daily":
+        return (last < today), "cadence_skipped"
+    if cadence == "weekly":
+        return ((today - last).days >= 7), "cadence_skipped"
+    return True, ""
+
+
+def plan(
+    path=None,
+    *,
+    today=None,
+    source_ids=None,
+    limit=None,
+    health_path=None,
+    force=False,
+    now=None,
+):
+    """What a run would do, with no network and no side effects.
+
+    `sources` stays the list the runner will actually work (due + selected +
+    limited), so callers keep a single source of truth. `excluded` explains who
+    was left out and why (`cadence`, `muted`, `disabled`) — the dry-run report the
+    operator reads.
+    """
+    moment = now or _now()
+    local_today = today or source_health.sofia_date(moment)
+    health = source_health.read_health(health_path)
+    all_rows = sources_registry.describe_all(path, today=local_today)
+    active = [e for e in all_rows if e["effective_status"] == "active"]
+    active.sort(
+        key=lambda e: (sources_registry.PRIORITY_RANK.get(e["priority"], 9), e["source_id"])
+    )
+
+    excluded = {"cadence": [], "muted": [], "disabled": []}
+    due = []
+    for entry in all_rows:
+        status = entry["effective_status"]
+        if status in ("muted", "disabled"):
+            excluded[status].append(entry["source_id"])
+    for entry in active:
+        is_due, _reason = due_for(entry, health.get(entry["source_id"]), local_today, force=force)
+        if is_due:
+            due.append(entry)
+        else:
+            excluded["cadence"].append(entry["source_id"])
+
     if source_ids:
         wanted = set(source_ids)
-        sources = [s for s in sources if s["source_id"] in wanted]
+        due = [s for s in due if s["source_id"] in wanted]
     if limit is not None:
-        sources = sources[: max(int(limit), 0)]
-    return sources
+        due = due[: max(int(limit), 0)]
 
-
-def plan(path=None, *, today=None, source_ids=None, limit=None):
-    """What a run would do, with no network and no side effects."""
-    sources = _selected_sources(path, today=today, source_ids=source_ids, limit=limit)
-    by_collector = Counter(s["collector"] for s in sources)
-    unsupported = [s["source_id"] for s in sources if s["collector"] not in SUPPORTED_COLLECTORS]
-    supported = [s for s in sources if s["collector"] in SUPPORTED_COLLECTORS]
+    by_collector = Counter(s["collector"] for s in due)
+    supported = [s for s in due if s["collector"] in SUPPORTED_COLLECTORS]
     return {
-        "sources": sources,
+        "sources": due,
         "by_collector": dict(sorted(by_collector.items())),
-        "unsupported": unsupported,
+        "unsupported": [s["source_id"] for s in due if s["collector"] not in SUPPORTED_COLLECTORS],
+        "excluded": excluded,
+        "today": local_today.isoformat(),
+        "force": bool(force),
         # One request per source is the honest estimate for both wired collectors
         # (one feed fetch / one query). Nothing is padded to look impressive.
         "estimated_network_calls": len(supported),
     }
 
 
-# ---------- collector adapters (the only network in M4A) ----------
+# ---------------------------------------------------------------- collector adapters
 
 
 def _collect_rss(entry, *, fetch_bytes, now):
@@ -102,7 +231,7 @@ def _collect_google_news(entry, *, provider, now):
     """One query through the adopted News RSS provider (DISCOVERY_ONLY results)."""
     from editor_assistant.workflow import search as search_mod
 
-    record = provider.search(entry["query"], count=20)
+    record = provider.search(entry["query"], count=MAX_ITEMS_PER_SOURCE)
     status = record.get("status")
     if status not in (search_mod.SEARCH_OK, search_mod.NO_RESULTS):
         raise CollectionError(
@@ -125,13 +254,59 @@ def _collect_google_news(entry, *, provider, now):
                 "snippet": snippet or "",
                 "published_at": published.isoformat() if published else "",
                 "source_item_id": row.get("url") or row.get("title") or "",
+                # Google News wraps the publisher link, so the publisher domain is
+                # the only reliable input for the blocked-domain policy.
+                "source_url": row.get("source_url") or "",
             }
         )
     return out
 
 
+# ---------------------------------------------------------------- safe bootstrap
+
+
+def _published_at(value):
+    return source_health.parse_timestamp(value)
+
+
+def select_candidates(entry, candidates, *, bootstrap, now):
+    """Apply the safe-bootstrap window and the per-source cap.
+
+    Returns `(kept, dropped)`; order is preserved (newest-first is the feed's /
+    provider's order, not ours to invent).
+    """
+    kept = list(candidates)
+    if bootstrap and entry.get("calendar"):
+        # A calendar's value is its upcoming events: keep a bounded forward window
+        # rather than a 72-hour recency window.
+        horizon = now + timedelta(days=CALENDAR_WINDOW_DAYS)
+        floor = now - timedelta(days=CALENDAR_WINDOW_DAYS)
+
+        def _in_window(item):
+            moment = _published_at(item.get("published_at"))
+            return True if moment is None else floor <= moment <= horizon
+
+        kept = [c for c in kept if _in_window(c)]
+    elif bootstrap:
+        recent = []
+        horizon = now - timedelta(hours=NEWS_LOOKBACK_HOURS)
+        for candidate in kept:
+            moment = _published_at(candidate.get("published_at"))
+            if moment is None or moment >= horizon:
+                recent.append(candidate)
+        if recent:
+            kept = recent
+        # else: nothing carried a usable recent date — fall through and let the
+        # bootstrap cap below take the newest items instead of emptying the source.
+        kept = kept[:BOOTSTRAP_MAX_NEWS]
+    dropped = len(candidates) - len(kept)
+    kept = kept[:MAX_ITEMS_PER_SOURCE]
+    dropped = len(candidates) - len(kept)
+    return kept, dropped
+
+
 def _to_inbox_item(entry, candidate, discovered_at):
-    """Raw candidate -> the M4A inbox row shape (candidate, never evidence)."""
+    """Raw candidate -> the inbox row shape (candidate, never evidence)."""
     return {
         "source_id": entry["source_id"],
         "source_item_id": candidate.get("source_item_id") or candidate.get("url") or "",
@@ -146,6 +321,9 @@ def _to_inbox_item(entry, candidate, discovered_at):
     }
 
 
+# ---------------------------------------------------------------- run
+
+
 def collect(
     *,
     dry_run=True,
@@ -157,101 +335,255 @@ def collect(
     fetch_bytes=None,
     news_provider=None,
     now=_now,
+    force=False,
+    health_path=None,
+    blocked_path=None,
+    last_run_path=None,
+    root=None,
+    use_lock=True,
 ):
-    """Run the collectors once. `dry_run=True` makes no network call at all."""
-    run_plan = plan(path, today=today, source_ids=source_ids, limit=limit)
+    """Run the collectors once. `dry_run=True` makes no network call and no write."""
     started = now()
-    results = []
-    collected = []
-
-    if not dry_run:
-        if fetch_bytes is None:
-            from editor_assistant.sources.fetcher import fetch_bytes as _fetch
-
-            fetch_bytes = _fetch
-        if news_provider is None:
-            from editor_assistant.workflow.search import GoogleNewsRSSProvider
-
-            news_provider = GoogleNewsRSSProvider()
-
-    for entry in run_plan["sources"]:
-        entry_result = {
-            "source_id": entry["source_id"],
-            "collector": entry["collector"],
-            "status": STATUS_PLANNED,
-            "items": 0,
-            "skipped_invalid": 0,
-            "reason": "",
-        }
-        if entry["collector"] not in SUPPORTED_COLLECTORS:
-            entry_result["status"] = STATUS_UNSUPPORTED
-            entry_result["reason"] = f"collector={entry['collector']} is not wired yet"
-            results.append(entry_result)
-            continue
-        if dry_run:
-            results.append(entry_result)
-            continue
-        try:
-            if entry["collector"] == "rss":
-                candidates = _collect_rss(entry, fetch_bytes=fetch_bytes, now=now)
-            else:
-                candidates = _collect_google_news(entry, provider=news_provider, now=now)
-        except Exception as exc:  # noqa: BLE001 - one source must never stop the run
-            entry_result["status"] = STATUS_FAILED
-            entry_result["reason"] = f"{type(exc).__name__}: {str(exc)[:200]}"
-            results.append(entry_result)
-            continue
-
-        discovered_at = now().strftime("%Y-%m-%dT%H:%M:%SZ")
-        for candidate in candidates:
-            item = _to_inbox_item(entry, candidate, discovered_at)
-            try:
-                inbox_store.validate_item(item)
-            except inbox_store.InboxError:
-                # A single malformed candidate is counted, never fatal.
-                entry_result["skipped_invalid"] += 1
-                continue
-            collected.append(item)
-        entry_result["status"] = STATUS_OK
-        entry_result["items"] = len(candidates) - entry_result["skipped_invalid"]
-        results.append(entry_result)
-
-    added = {"new": 0, "duplicate": 0}
-    if not dry_run and collected:
-        added = inbox_store.add_items(collected, store)
-
-    finished = now()
-    return {
+    run_plan = plan(
+        path,
+        today=today,
+        source_ids=source_ids,
+        limit=limit,
+        health_path=health_path,
+        force=force,
+        now=started,
+    )
+    summary_stub = {
         "dry_run": dry_run,
+        "locked": False,
         "started_at": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "finished_at": finished.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "sources": results,
+        "finished_at": "",
+        "sources": [],
         "by_collector": run_plan["by_collector"],
         "estimated_network_calls": run_plan["estimated_network_calls"],
-        "network_calls": 0 if dry_run else run_plan["estimated_network_calls"],
-        "collected": len(collected),
-        "new": added["new"],
-        "duplicate": added["duplicate"],
-        "failed": sum(1 for r in results if r["status"] == STATUS_FAILED),
-        "unsupported": sum(1 for r in results if r["status"] == STATUS_UNSUPPORTED),
-        "skipped_invalid": sum(r["skipped_invalid"] for r in results),
+        "network_calls": 0,
+        "collected": 0,
+        "new": 0,
+        "duplicate": 0,
+        "failed": 0,
+        "unsupported": 0,
+        "skipped_invalid": 0,
+        "blocked": 0,
+        "blocked_filtered": 0,
+        "cadence_skipped": len(run_plan["excluded"]["cadence"]),
+        "bootstrap_capped": 0,
+        "excluded": run_plan["excluded"],
     }
+
+    if dry_run:
+        results = []
+        for entry in run_plan["sources"]:
+            reason = blocked_domains.blocked_reason(entry, path=blocked_path)
+            if reason:
+                results.append(_entry_result(entry, STATUS_BLOCKED, reason=reason))
+            elif entry["collector"] not in SUPPORTED_COLLECTORS:
+                results.append(
+                    _entry_result(
+                        entry,
+                        STATUS_UNSUPPORTED,
+                        reason=f"collector={entry['collector']} is not wired yet",
+                    )
+                )
+            else:
+                results.append(_entry_result(entry, STATUS_PLANNED))
+        summary_stub["sources"] = results
+        summary_stub["failed"] = sum(1 for r in results if r["status"] == STATUS_FAILED)
+        summary_stub["unsupported"] = sum(1 for r in results if r["status"] == STATUS_UNSUPPORTED)
+        summary_stub["blocked"] = sum(1 for r in results if r["status"] == STATUS_BLOCKED)
+        summary_stub["finished_at"] = now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        return summary_stub
+
+    if fetch_bytes is None:
+        from editor_assistant.sources.fetcher import fetch_bytes as _fetch
+
+        fetch_bytes = _fetch
+    if news_provider is None:
+        from editor_assistant.workflow.search import GoogleNewsRSSProvider
+
+        news_provider = GoogleNewsRSSProvider()
+
+    if use_lock and not acquire_lock(root=root):
+        summary_stub["locked"] = True
+        summary_stub["finished_at"] = now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        return summary_stub
+
+    try:
+        health = source_health.read_health(health_path)
+        policy = blocked_domains.effective_domains(blocked_path)
+        existing_ids = {item["item_id"] for item in inbox_store.read_items(store)}
+        results = []
+        collected = []
+        new_by_source = Counter()
+        blocked_filtered_total = 0
+        bootstrap_capped = 0
+
+        for entry in run_plan["sources"]:
+            source_id = entry["source_id"]
+            entry_result = _entry_result(entry, STATUS_PLANNED)
+            refusal = blocked_domains.blocked_reason(entry, path=blocked_path)
+            if refusal:
+                entry_result["status"] = STATUS_BLOCKED
+                entry_result["reason"] = refusal
+                results.append(entry_result)
+                continue
+            if entry["collector"] not in SUPPORTED_COLLECTORS:
+                entry_result["status"] = STATUS_UNSUPPORTED
+                entry_result["reason"] = f"collector={entry['collector']} is not wired yet"
+                results.append(entry_result)
+                continue
+
+            try:
+                if entry["collector"] == "rss":
+                    candidates = _collect_rss(entry, fetch_bytes=fetch_bytes, now=now)
+                else:
+                    candidates = _collect_google_news(entry, provider=news_provider, now=now)
+            except Exception as exc:  # noqa: BLE001 - one source must never stop the run
+                reason = f"{type(exc).__name__}: {str(exc)[:200]}"
+                entry_result["status"] = STATUS_FAILED
+                entry_result["reason"] = reason
+                _record_health(
+                    source_id,
+                    STATUS_FAILED,
+                    error=reason,
+                    success=False,
+                    now=now,
+                    health_path=health_path,
+                )
+                results.append(entry_result)
+                continue
+
+            bootstrap = not (health.get(source_id) or {}).get("last_success_at")
+            kept, dropped = select_candidates(entry, candidates, bootstrap=bootstrap, now=now())
+            bootstrap_capped += dropped if bootstrap else 0
+
+            discovered_at = now().strftime("%Y-%m-%dT%H:%M:%SZ")
+            kept_for_inbox = []
+            for candidate in kept:
+                if policy and (
+                    blocked_domains.is_blocked(candidate.get("url"), policy)
+                    or blocked_domains.is_blocked(candidate.get("source_url"), policy)
+                ):
+                    entry_result["blocked_filtered"] += 1
+                    blocked_filtered_total += 1
+                    continue
+                item = _to_inbox_item(entry, candidate, discovered_at)
+                try:
+                    normalized = inbox_store.validate_item(item)
+                except inbox_store.InboxError:
+                    # A single malformed candidate is counted, never fatal.
+                    entry_result["skipped_invalid"] += 1
+                    continue
+                kept_for_inbox.append(normalized)
+
+            for item in kept_for_inbox:
+                if item["item_id"] not in existing_ids:
+                    new_by_source[source_id] += 1
+                    existing_ids.add(item["item_id"])
+            collected.extend(kept_for_inbox)
+            entry_result["items"] = len(kept_for_inbox)
+            entry_result["status"] = STATUS_OK if kept_for_inbox else STATUS_EMPTY
+            _record_health(
+                source_id,
+                entry_result["status"],
+                item_count=len(kept_for_inbox),
+                new_count=new_by_source[source_id],
+                error="",
+                success=True,
+                now=now,
+                health_path=health_path,
+            )
+            results.append(entry_result)
+
+        added = {"new": 0, "duplicate": 0}
+        if collected:
+            added = inbox_store.add_items(collected, store)
+
+        finished = now()
+        summary = {
+            **summary_stub,
+            "finished_at": finished.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "sources": results,
+            "collected": len(collected),
+            "new": added["new"],
+            "duplicate": added["duplicate"],
+            "failed": sum(1 for r in results if r["status"] == STATUS_FAILED),
+            "unsupported": sum(1 for r in results if r["status"] == STATUS_UNSUPPORTED),
+            "blocked": sum(1 for r in results if r["status"] == STATUS_BLOCKED),
+            "skipped_invalid": sum(r["skipped_invalid"] for r in results),
+            "blocked_filtered": blocked_filtered_total,
+            "bootstrap_capped": bootstrap_capped,
+        }
+        source_health.record_run(summary, path=last_run_path)
+        return summary
+    finally:
+        if use_lock:
+            release_lock(root)
+
+
+def _entry_result(entry, status, *, reason=""):
+    return {
+        "source_id": entry["source_id"],
+        "collector": entry["collector"],
+        "status": status,
+        "items": 0,
+        "skipped_invalid": 0,
+        "blocked_filtered": 0,
+        "reason": reason,
+    }
+
+
+def _record_health(
+    source_id, status, *, item_count=0, new_count=0, error="", success, now, health_path
+):
+    source_health.record_source(
+        source_id,
+        status=status,
+        item_count=item_count,
+        new_count=new_count,
+        error=error,
+        success=success,
+        now=now(),
+        path=health_path,
+    )
+
+
+# ---------------------------------------------------------------- reporting
 
 
 def render_summary(summary):
     """Human-readable run summary (the operator reads this in the cron output)."""
     lines = []
     mode = "ПРОБЕН (без мрежа)" if summary["dry_run"] else "СЪБИРАНЕ"
+    if summary.get("locked"):
+        lines.append("СЪБИРАНЕТО Е ПРОПУСНАТО: друг процес държи заключването.")
+        return "\n".join(lines)
     lines.append(
         f"{mode}: {len(summary['sources'])} източника · "
         f"очаквани мрежови заявки: {summary['estimated_network_calls']}"
     )
     for collector, count in summary["by_collector"].items():
         lines.append(f"  · {COLLECTOR_LABELS.get(collector, collector)}: {count}")
+    excluded = summary.get("excluded") or {}
+    if any(excluded.get(k) for k in ("cadence", "muted", "disabled")):
+        detail = []
+        if excluded.get("cadence"):
+            detail.append(f"по ритъм: {len(excluded['cadence'])}")
+        if excluded.get("muted"):
+            detail.append(f"заглушени: {len(excluded['muted'])}")
+        if excluded.get("disabled"):
+            detail.append(f"изключени: {len(excluded['disabled'])}")
+        lines.append("  изключени — " + " · ".join(detail))
     for row in summary["sources"]:
         detail = f"{row['items']} елемента"
         if row["skipped_invalid"]:
             detail += f", {row['skipped_invalid']} пропуснати"
+        if row.get("blocked_filtered"):
+            detail += f", {row['blocked_filtered']} от забранени домейни"
         if row["reason"]:
             detail += f" — {row['reason']}"
         lines.append(f"  {row['source_id']}: {row['status']} ({detail})")
@@ -259,9 +591,12 @@ def render_summary(summary):
         lines.append("Нищо не е събрано и нищо не е записано (--dry-run).")
     else:
         lines.append(
-            f"Събрани: {summary['collected']} · нови в входящите: {summary['new']} · "
+            f"Събрани: {summary['collected']} · нови във входящите: {summary['new']} · "
             f"вече известни: {summary['duplicate']} · невалидни: {summary['skipped_invalid']} · "
-            f"грешки: {summary['failed']} · неподдържани: {summary['unsupported']}"
+            f"грешки: {summary['failed']} · неподдържани: {summary['unsupported']} · "
+            f"забранени: {summary.get('blocked', 0)} · "
+            f"филтрирани по домейн: {summary.get('blocked_filtered', 0)} · "
+            f"пропуснати по ритъм: {summary.get('cadence_skipped', 0)}"
         )
     return "\n".join(lines)
 

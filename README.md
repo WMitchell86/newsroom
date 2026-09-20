@@ -120,8 +120,43 @@ by itself and there is no daemon, retry thread or background worker.
 
 See `m3/review/M3B1_INTAKE_HARDENING_REPORT.md` (design) and
 `m3/review/M3B1_CODE_REVIEW.md` (review + settled decisions), plus `RUNBOOK.md`
-§0d. **Next milestone: M3D Discovery Reproducibility & Stability** — see
-`BACKLOG.md`.
+§0d.
+
+## M4 Daily Newsroom (sources + daily inbox)
+
+The editor owns which sources are watched, and opens a daily inbox instead of
+Markdown case files.
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --preview  # no write
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply    # add missing defaults
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources list
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --dry-run  # zero network
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect            # cron calls this
+```
+
+The Workbench adds **«Източници»** (`/sources`: table with health, next collection,
+add/edit/enable/disable/mute-until/priority/monitoring-only/factual-authority, a
+compact **«Забранени домейни»** policy and additive default controls) and
+**«Входящи»** (`/inbox`: default **NEW** view, summary counts, filters, pagination,
+per-item actions and **«Събери новите сега»** / **«Пробен преглед»**).
+
+A new install seeds **30 active** default sources (9 core every-run + 21 daily)
+from a declarative catalogue (`workflow/default_sources.py`); 5 optional sources
+are catalogued but disabled. No outlet or feed URL is invented: the one verified
+feed is used directly, every other entry is a publisher/locality-constrained
+monitoring query. `flagman.bg` is never a source and is blocked as a domain.
+
+Cadence is operational (`each_run`/`daily`/`weekly` on the Europe/Sofia day) with
+a separate health store (`OK`/`EMPTY`/`FAILED`/`NEVER_RUN`); the first collection
+of a source does not backfill history (72 h / 10 newest, ±45-day window for
+calendars). The repository still installs **no timer** — cron is the operator's
+(see `RUNBOOK.md` §0e) and one shared lock makes cron and the Workbench button
+safe to run concurrently.
+
+Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
+`m4/review/M4B_DAILY_INBOX_REPORT.md`. **Next milestone: M4C story identity /
+new development** — see `BACKLOG.md`.
 
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 

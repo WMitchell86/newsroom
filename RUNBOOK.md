@@ -167,6 +167,60 @@ Shows: queue counts, active cooldown, the effective policy line
 
 See `m3/review/M3B1_INTAKE_HARDENING_REPORT.md`.
 
+## 0e. Daily newsroom collection (M4A.1/M4B)
+
+The editor manages sources in the Workbench (`/sources`) and reads collected
+candidates in `/inbox`. Collection is a **one-shot process** the operator's cron
+calls; the repository still installs no timer.
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --preview   # no write
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources list
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --dry-run   # zero network
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect             # cron calls this
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --force     # ignore cadence
+```
+
+### Installing the daily runs (the operator does this)
+
+Four light runs a day in `Europe/Sofia` (07:00 / 12:00 / 16:00 / 20:00). Daily
+sources are collected once per local day; the core sources run every time, so the
+later runs are cheap.
+
+```bash
+crontab -e
+0 7,12,16,20 * * * cd /home/test/media && PYTHONPATH=src /usr/bin/python3 -m editor_assistant.workflow.cli newsroom collect >> var/newsroom/cron.log 2>&1
+```
+
+Exit codes: `0` ok · `1` at least one source failed (successful sources keep
+their items — read the summary) · `3` another run holds the collection lock
+(cron overlapping the Workbench «Събери новите сега» button; harmless).
+
+### Operational rules
+
+- **Cadence is real.** An `each_run` source is always collected; a `daily` source
+  only if it has not *succeeded* on the current Sofia date; `weekly` needs 7 local
+  days; muted/disabled are never collected. The dry-run lists who was skipped and
+  why. `--force` overrides cadence deliberately.
+- **Health is separate from settings** (`var/newsroom/source_health.json`):
+  `OK` / `EMPTY` / `FAILED` / `NEVER_RUN`. `EMPTY` means the collector worked and
+  found nothing; `FAILED` means the collector is broken — the Workbench shows both.
+- **First collection is bounded** (safe bootstrap): ≤72 h or the 10 newest items
+  for news, a ±45-day window for calendar sources, 20 items per source per run.
+  A new 30-source install therefore does not dump months of history into the inbox.
+- **Blocked domains** (`/sources` → «Забранени домейни»): `flagman.bg` is blocked
+  by default. Broad monitoring results are filtered before they reach the inbox and
+  a direct source on a blocked domain is refused. The filter uses the publisher
+  domain from the Google News `<source url>` attribute, because the item link is an
+  opaque `news.google.com` redirect.
+- **One shared lock** (`var/newsroom/collect.lock`, 1 h stale window) prevents two
+  concurrent runs from interleaving inbox/health writes.
+
+Workbench pages: `http://127.0.0.1:8123/sources` and `…/inbox`. Reports:
+`m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
+`m4/review/M4B_DAILY_INBOX_REPORT.md`.
+
 ## 1. Normal manual cycle
 
 ```text

@@ -7,10 +7,21 @@ source never stops the run. The collector adapters are stubbed; no HTTP happens.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
-from editor_assistant.workflow import cli, inbox_store, newsroom_run, sources_registry
+from editor_assistant.workflow import (
+    blocked_domains,
+    cli,
+    inbox_store,
+    newsroom_run,
+    source_health,
+    sources_registry,
+)
 from editor_assistant.workflow import search as search_mod
+
+NOW = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
 
 RSS_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -41,9 +52,10 @@ class _FakeProvider:
 
 @pytest.fixture(autouse=True)
 def stores(tmp_path, monkeypatch):
-    """Isolated registry + inbox for every test (env is the only knob)."""
+    """Isolated registry + inbox + operational state for every test (env only)."""
     monkeypatch.setenv("NEWSROOM_SOURCES_PATH", str(tmp_path / "sources.json"))
     monkeypatch.setenv("NEWSROOM_INBOX_PATH", str(tmp_path / "inbox.jsonl"))
+    monkeypatch.setenv("NEWSROOM_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -298,3 +310,227 @@ def _summary_with_failures():
         "unsupported": 0,
         "skipped_invalid": 0,
     }
+
+
+# ---------- M4A.1: blocked domains, cadence, health, bootstrap, lock ----------
+
+
+def _provider(urls):
+    return _FakeProvider(
+        [
+            {
+                "title": f"Новина {index}",
+                "url": url,
+                "snippet": "описание",
+                "published_at": "Mon, 21 Sep 2026 08:00:00 +0300",
+                "source_name": "Медия",
+            }
+            for index, url in enumerate(urls, start=1)
+        ]
+    )
+
+
+def test_blocked_domain_is_filtered_before_the_inbox(registry):
+    blocked_domains.add_domain("flagman.bg")
+    summary = newsroom_run.collect(
+        dry_run=False,
+        path=registry / "sources.json",
+        store=registry / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+        news_provider=_provider(
+            ["https://flagman.bg/1", "https://m.flagman.bg/2", "https://ok.example/3"]
+        ),
+    )
+    by_id = {row["source_id"]: row for row in summary["sources"]}
+    assert by_id["news-search"]["blocked_filtered"] == 2
+    assert summary["blocked_filtered"] == 2
+    urls = {item["url"] for item in inbox_store.read_items(registry / "inbox.jsonl")}
+    assert urls == {"https://feed.example/1", "https://feed.example/2", "https://ok.example/3"}
+
+
+def test_a_blocked_publisher_is_filtered_from_a_google_news_fixture(registry):
+    """Google News links are news.google.com redirects, so the publisher domain
+    carried on the result itself is what the policy must act on."""
+    blocked_domains.add_domain("flagman.bg")
+    provider = _FakeProvider(
+        [
+            {
+                "title": "Новина от Флагман",
+                "url": "https://news.google.com/rss/articles/CBMi1",
+                "snippet": "текст",
+                "published_at": "Mon, 21 Sep 2026 08:00:00 +0300",
+                "source_name": "Флагман",
+                "source_url": "https://www.flagman.bg",
+            },
+            {
+                "title": "Новина от БНР",
+                "url": "https://news.google.com/rss/articles/CBMi2",
+                "snippet": "текст",
+                "published_at": "Mon, 21 Sep 2026 08:00:00 +0300",
+                "source_name": "БНР",
+                "source_url": "https://bnr.bg",
+            },
+        ]
+    )
+    summary = newsroom_run.collect(
+        dry_run=False,
+        path=registry / "sources.json",
+        store=registry / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+        news_provider=provider,
+    )
+    by_id = {row["source_id"]: row for row in summary["sources"]}
+    assert by_id["news-search"]["blocked_filtered"] == 1
+    titles = {item["title"] for item in inbox_store.read_items(registry / "inbox.jsonl")}
+    assert "Новина от БНР" in titles
+    assert "Новина от Флагман" not in titles
+
+
+def test_a_direct_blocked_source_is_refused_and_never_fetched(stores):
+    blocked_domains.add_domain("flagman.bg")
+    sources_registry.add_source(
+        path=stores / "sources.json",
+        source_id="blocked-feed",
+        name="Забранена емисия",
+        kind="media",
+        collector="rss",
+        url="https://flagman.bg/rss",
+    )
+
+    def explode(_url):
+        raise AssertionError("a blocked source must never be fetched")
+
+    summary = newsroom_run.collect(
+        dry_run=False,
+        path=stores / "sources.json",
+        store=stores / "inbox.jsonl",
+        fetch_bytes=explode,
+    )
+    row = summary["sources"][0]
+    assert row["status"] == newsroom_run.STATUS_BLOCKED
+    assert "забранен" in row["reason"]
+    assert (
+        not (stores / "inbox.jsonl").exists()
+        or inbox_store.read_items(stores / "inbox.jsonl") == []
+    )
+
+
+def test_health_records_ok_and_empty_distinctly(registry):
+    newsroom_run.collect(
+        dry_run=False,
+        path=registry / "sources.json",
+        store=registry / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+        news_provider=_search_hits(),
+    )
+    assert source_health.describe("council-feed")["last_status"] == "OK"
+
+    empty = _FakeProvider([])
+    newsroom_run.collect(
+        dry_run=False,
+        path=registry / "sources.json",
+        store=registry / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+        news_provider=empty,
+    )
+    record = source_health.describe("news-search")
+    assert record["last_status"] == "EMPTY" and record["last_success_at"]
+
+
+def test_daily_cadence_is_operational_and_force_overrides_it(stores):
+    sources_registry.add_source(
+        path=stores / "sources.json",
+        source_id="daily-feed",
+        name="Дневна емисия",
+        kind="official",
+        collector="rss",
+        url="https://feed.example/rss",
+        cadence="daily",
+    )
+    first = newsroom_run.collect(
+        dry_run=False,
+        path=stores / "sources.json",
+        store=stores / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+    )
+    assert first["new"] == 2
+
+    plan = newsroom_run.plan(stores / "sources.json")
+    assert plan["sources"] == []
+    assert plan["excluded"]["cadence"] == ["daily-feed"]
+
+    forced = newsroom_run.plan(stores / "sources.json", force=True)
+    assert [s["source_id"] for s in forced["sources"]] == ["daily-feed"]
+
+    again = newsroom_run.collect(
+        dry_run=False,
+        path=stores / "sources.json",
+        store=stores / "inbox.jsonl",
+        fetch_bytes=_rss_fetcher,
+    )
+    assert again["new"] == 0 and again["cadence_skipped"] == 1
+
+
+def test_dry_run_reports_muted_and_disabled_without_a_network_call(registry):
+    sources_registry.set_status("news-search", "disabled", path=registry / "sources.json")
+    plan = newsroom_run.plan(registry / "sources.json")
+    assert plan["excluded"]["disabled"] == ["news-search"]
+    assert plan["estimated_network_calls"] == 1
+
+
+def test_bootstrap_lookback_and_cap_for_news():
+    now = NOW
+    candidates = [
+        {"published_at": "2026-09-20T06:00:00Z", "url": "https://x/a"},
+        {"published_at": "2026-09-01T06:00:00Z", "url": "https://x/old"},
+    ]
+    kept, dropped = newsroom_run.select_candidates({}, candidates, bootstrap=True, now=now)
+    assert [c["url"] for c in kept] == ["https://x/a"]
+    assert dropped == 1
+
+    many = [{"published_at": "2026-09-20T06:00:00Z", "url": f"https://x/{i}"} for i in range(15)]
+    kept, dropped = newsroom_run.select_candidates({}, many, bootstrap=True, now=now)
+    assert len(kept) == newsroom_run.BOOTSTRAP_MAX_NEWS and dropped == 5
+
+    # not a bootstrap run: only the per-source cap applies
+    capped = [
+        {"published_at": "2026-09-20T06:00:00Z", "url": f"https://x/{i}"}
+        for i in range(newsroom_run.MAX_ITEMS_PER_SOURCE + 8)
+    ]
+    kept, _ = newsroom_run.select_candidates({}, capped, bootstrap=False, now=now)
+    assert len(kept) == newsroom_run.MAX_ITEMS_PER_SOURCE
+
+
+def test_future_calendar_event_survives_bootstrap():
+    future = [{"published_at": "2026-10-20T06:00:00Z", "url": "https://x/event"}]
+    kept, _ = newsroom_run.select_candidates({"calendar": True}, future, bootstrap=True, now=NOW)
+    assert kept == future
+
+    ancient = [{"published_at": "2026-01-01T06:00:00Z", "url": "https://x/old"}]
+    kept, dropped = newsroom_run.select_candidates(
+        {"calendar": True}, ancient, bootstrap=True, now=NOW
+    )
+    assert kept == [] and dropped == 1
+
+
+def test_a_second_concurrent_run_is_locked_out(registry):
+    assert newsroom_run.acquire_lock() is True
+    try:
+        summary = newsroom_run.collect(
+            dry_run=False,
+            path=registry / "sources.json",
+            store=registry / "inbox.jsonl",
+            fetch_bytes=_rss_fetcher,
+        )
+    finally:
+        newsroom_run.release_lock()
+    assert summary["locked"] is True and summary["collected"] == 0
+    assert not (registry / "inbox.jsonl").exists()
+
+
+def test_dry_run_never_writes_health_or_last_run(registry):
+    newsroom_run.collect(
+        dry_run=True, path=registry / "sources.json", store=registry / "inbox.jsonl"
+    )
+    assert source_health.read_health() == {}
+    assert source_health.read_last_run() is None

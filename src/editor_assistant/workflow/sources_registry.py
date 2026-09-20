@@ -27,7 +27,7 @@ import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from editor_assistant.workflow import live_store
+from editor_assistant.workflow import default_sources, live_store
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -56,6 +56,7 @@ FIELDS = (
     "priority",
     "cadence",
     "factual_authority",
+    "calendar",
     "note",
     "added_at",
     "updated_at",
@@ -64,47 +65,13 @@ FIELDS = (
 #: Query length limit, matching the public-query privacy guard in `search.py`.
 MAX_QUERY_CHARS = 400
 
-#: Default seed — DELIBERATELY SHORT, and only sources this repository already
-#: uses or that the editor approved explicitly. No outlet is invented, and no
-#: feed URL is guessed: `rss` entries carry a URL that exists in the repo
-#: (`sources/live.py`), the rest are monitoring queries through the adopted News
-#: RSS provider. The editor adds more from the Workbench; a guessed URL would be
-#: worse than a missing one.
-DEFAULT_SEED = (
-    {
-        "source_id": "burgas-municipal-council",
-        "name": "Общински съвет Бургас",
-        "kind": "official",
-        "collector": "rss",
-        "url": "https://burgascouncil.org/last-update.xml",
-        "priority": "high",
-        "cadence": "each_run",
-        "factual_authority": True,
-        "note": "Официалната емисия, вече използвана от системата (sources/live.py).",
-    },
-    {
-        "source_id": "burgas-news-watch",
-        "name": "Бургас (наблюдение в Google News)",
-        "kind": "aggregator",
-        "collector": "google_news_rss",
-        "query": "Бургас",
-        "priority": "normal",
-        "cadence": "each_run",
-        "factual_authority": False,
-        "note": "Само за наблюдение: резултатите са за откриване, не са доказателство.",
-    },
-    {
-        "source_id": "council-news-watch",
-        "name": "Общински съвет Бургас (наблюдение)",
-        "kind": "aggregator",
-        "collector": "google_news_rss",
-        "query": "Общински съвет Бургас",
-        "priority": "normal",
-        "cadence": "each_run",
-        "factual_authority": False,
-        "note": "Само за наблюдение: показва кой още пише по темата.",
-    },
-)
+#: New-install seed. Now the declarative catalogue (`workflow/default_sources.py`)
+#: instead of three hand-written rows: the editor gets a real regional stack, and
+#: only the entries the catalogue marks active are seeded (the optionals stay
+#: catalogued but disabled). No outlet is invented and no feed URL is guessed —
+#: the one `rss` entry is the feed the repository already uses, every other entry
+#: is a publisher/locality-constrained monitoring query.
+DEFAULT_SEED = default_sources.DEFAULT_ENTRIES
 
 
 class RegistryError(ValueError):
@@ -190,6 +157,10 @@ def validate_entry(entry):
     if not isinstance(authority, bool):
         raise RegistryError(f"{source_id}: factual_authority must be true or false")
 
+    calendar = entry.get("calendar", False)
+    if not isinstance(calendar, bool):
+        raise RegistryError(f"{source_id}: calendar must be true or false")
+
     return {
         "source_id": source_id,
         "name": name,
@@ -202,6 +173,7 @@ def validate_entry(entry):
         "priority": priority,
         "cadence": cadence,
         "factual_authority": authority,
+        "calendar": calendar,
         "note": str(entry.get("note", "")).strip(),
         "added_at": str(entry.get("added_at") or _now()),
         "updated_at": str(entry.get("updated_at") or _now()),
@@ -338,6 +310,37 @@ def seed_defaults(*, path=None, dry_run=False):
     return {"added": [e["source_id"] for e in added], "skipped": skipped}
 
 
+def apply_defaults(*, path=None, preview=False):
+    """Explicitly apply the default catalogue additively (M4A.1).
+
+    The editor-owned store is never silently overwritten:
+
+    * `preview=True` performs **no** write and reports what would change;
+    * only missing catalogue IDs are added — an existing entry keeps the editor's
+      status, priority, cadence and text verbatim;
+    * a disabled source is never re-enabled;
+    * repeated applies are idempotent.
+    """
+    registry = read_registry(path)
+    added, present = [], []
+    for entry in default_sources.CATALOG:
+        source_id = entry["source_id"]
+        if source_id in registry:
+            present.append(source_id)
+            continue
+        added.append(validate_entry(entry))
+    if not preview and added:
+        for entry in added:
+            registry[entry["source_id"]] = entry
+        save_registry(registry, path)
+    return {
+        "preview": bool(preview),
+        "added": [e["source_id"] for e in added],
+        "present": present,
+        "optional": list(default_sources.OPTIONAL_IDS),
+    }
+
+
 def remove_source(source_id, *, path=None):
     """Delete a source. Never deletes collected evidence — registry only."""
     registry = read_registry(path)
@@ -382,7 +385,7 @@ def collectable(path=None, *, today=None):
     return sorted(rows, key=lambda e: (PRIORITY_RANK.get(e["priority"], 9), e["source_id"]))
 
 
-def next_collection_label(entry, *, today=None):
+def next_collection_label(entry, *, due=True, today=None):
     """What the editor sees in the «Следващо събиране» column.
 
     Deliberately does NOT invent a clock time: the repo installs no timer, so the
@@ -395,11 +398,14 @@ def next_collection_label(entry, *, today=None):
     if status == "muted":
         until = entry.get("muted_until") or ""
         return f"след {until[8:10]}.{until[5:7]}" if _DATE_RX.match(until) else "—"
-    return {
+    base = {
         "each_run": "при всяко събиране",
         "daily": "всеки ден",
         "weekly": "седмично",
     }.get(entry.get("cadence"), "—")
+    # `due=False` is the operational truth once cadence is real: the column shows
+    # what the runner will actually do, not just an installed cadence label.
+    return base if due else "не е дължимо (днес вече е събрано)"
 
 
 def summary(path=None, *, today=None):

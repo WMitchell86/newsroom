@@ -1,3 +1,32 @@
+## M4A.1 Default Source Pack + M4B Daily Inbox — 2026-09-20 — BUILT, LIVE-PROVEN, AWAITING REVIEW
+
+Owner-authorized correction + completion of M4A, then the first daily-editor inbox.
+Still no new AI capability (that is M4C). Reports:
+`m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`, `m4/review/M4B_DAILY_INBOX_REPORT.md`.
+
+- **Default source pack (35 entries; 30 active on a new install, 5 optional disabled)**
+  from `workflow/default_sources.py`. `sources defaults --preview|--apply` is additive,
+  idempotent, never re-enables and never overwrites an editor-owned entry.
+- **Blocked-domain policy** `workflow/blocked_domains.py`: default `flagman.bg`, in
+  force before any editor action, host-suffix matching, page URLs refused as values,
+  filtering before inbox insertion, direct blocked source refused. **Real finding:**
+  Google News links are `news.google.com` redirects, so the publisher domain is read
+  from the item's `<source url>` attribute — without that the policy would have been
+  a no-op in production (live: blocking one publisher filtered 20+46 items).
+- **Real cadence + source health** `workflow/source_health.py`: `each_run`/`daily`/
+  `weekly` on the Europe/Sofia day; separate health store with
+  `OK`/`EMPTY`/`FAILED`/`NEVER_RUN`; health columns in the Workbench.
+- **Safe bootstrap + caps:** ≤72 h / 10 newest (news), ±45-day window (calendars),
+  20 items per source per run. **One shared collection lock** (cron ↔ Workbench button).
+- **M4B daily inbox:** default **NEW** view, summary counts, practical filters,
+  pagination, per-item actions, «Събери новите сега» / «Пробен преглед» delegating to
+  the same one-shot service, readable source-problem list.
+- **Live proof (isolated `/tmp` runtime):** 30 sources → 29 OK / 1 EMPTY / 0 failed,
+  204 items; re-run added 100 new + 80 already-known and auto-skipped 21 daily sources
+  by cadence; `GET /sources` and `GET /inbox` render; a blocked publisher was filtered
+  live; a direct blocked source was refused.
+- **Gate:** 793 offline tests (was 738), ruff check/format clean, M3A smoke 25/25.
+
 ## M4A Source Registry + Scheduled Collection — 2026-09-20 — BUILT, LIVE-PROVEN, AWAITING REVIEW
 
 First slice of M4 (Daily Newsroom). No new AI capability: this is the editor's

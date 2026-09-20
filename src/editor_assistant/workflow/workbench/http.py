@@ -20,6 +20,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from editor_assistant.workflow import blocked_domains as blocked_mod
 from editor_assistant.workflow import inbox_store as inbox_mod
 from editor_assistant.workflow import sources_registry as sources_mod
 from editor_assistant.workflow.workbench import html as html_mod
@@ -250,10 +251,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _query(self):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
 
+    @staticmethod
+    def _sources_view():
+        """Registry view + the blocked-domain policy the page renders together."""
+        view = wb_newsroom.sources_view()
+        view["blocked"] = wb_newsroom.blocked_view()
+        return view
+
     def _get_sources(self):
         params = self._query()
         body = html_mod.render_sources(
-            wb_newsroom.sources_view(),
+            self._sources_view(),
             message=_first(params, "message", ""),
             error=_first(params, "error", ""),
         )
@@ -261,8 +269,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _get_inbox(self):
         params = self._query()
+        view = wb_newsroom.inbox_view(
+            status=_first(params, "status", "NEW") or "NEW",
+            source_id=_first(params, "source", ""),
+            kind=_first(params, "kind", ""),
+            priority=_first(params, "priority", ""),
+            date=_first(params, "date", ""),
+            authority=_first(params, "authority", ""),
+            page=_first(params, "page", "1"),
+        )
         body = html_mod.render_inbox(
-            wb_newsroom.inbox_view(),
+            view,
             message=_first(params, "message", ""),
             error=_first(params, "error", ""),
         )
@@ -280,12 +297,20 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         form = _post_form(self)
         action = _first(form, "action", "")
         source_id = _first(form, "source_id", "")
+        catalog_actions = ("defaults_preview", "defaults_apply", "domain_add", "domain_remove")
         try:
-            message = self._apply_source_action(action, form, source_id)
-        except (sources_mod.RegistryError, inbox_mod.InboxError) as exc:
+            if action in catalog_actions:
+                message = self._apply_catalog_action(action, form)
+            else:
+                message = self._apply_source_action(action, form, source_id)
+        except (
+            sources_mod.RegistryError,
+            inbox_mod.InboxError,
+            blocked_mod.BlockedDomainError,
+        ) as exc:
             # A refusal is a readable message on the page, never a 500/traceback.
             body = html_mod.render_sources(
-                wb_newsroom.sources_view(), error=str(exc), values=self._source_values(form)
+                self._sources_view(), error=str(exc), values=self._source_values(form)
             )
             _respond(self, 400, body)
             return
@@ -303,6 +328,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 priority=_first(form, "priority", "normal") or "normal",
                 cadence=_first(form, "cadence", "each_run") or "each_run",
                 monitoring_only=bool(_first(form, "monitoring_only", "")),
+                calendar=bool(_first(form, "calendar", "")),
                 note=_first(form, "note", ""),
             )
             return f"Източникът {entry['name']} е добавен."
@@ -339,17 +365,73 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return f"{source_id} е премахнат (събраното остава)."
         raise sources_mod.RegistryError(f"непознато действие: {action!r}")
 
+    def _apply_catalog_action(self, action, form):
+        if action == "defaults_preview":
+            result = wb_newsroom.apply_defaults(preview=True)
+            return (
+                f"Преглед: ще бъдат добавени {len(result['added'])} източника, "
+                f"вече налични {len(result['present'])} (без запис)."
+            )
+        if action == "defaults_apply":
+            result = wb_newsroom.apply_defaults(preview=False)
+            return (
+                f"Добавени {len(result['added'])} източника; "
+                f"вече наличните {len(result['present'])} остават непроменени."
+            )
+        if action == "domain_add":
+            result = wb_newsroom.add_blocked_domain(_first(form, "domain", ""))
+            verb = "е забранен" if result["added"] else "вече беше забранен"
+            return f"{result['domain']} {verb}."
+        if action == "domain_remove":
+            result = wb_newsroom.remove_blocked_domain(_first(form, "domain", ""))
+            return f"{result['domain']} е премахнат от забранените."
+        raise sources_mod.RegistryError(f"непознато действие: {action!r}")
+
     def _post_inbox(self):
         form = _post_form(self)
+        action = _first(form, "action", "")
+        if action in ("collect", "collect_preview"):
+            self._collect_now(dry_run=action == "collect_preview")
+            return
         item_id = _first(form, "item_id", "")
         status = _first(form, "status", "")
         try:
             wb_newsroom.set_inbox_status(item_id, status)
         except inbox_mod.InboxError as exc:
-            body = html_mod.render_inbox(wb_newsroom.inbox_view(), error=str(exc))
+            body = html_mod.render_inbox(wb_newsroom.inbox_view(status="all"), error=str(exc))
             _respond(self, 400, body)
             return
         _redirect(self, "/inbox?" + urllib.parse.urlencode({"message": "Отбелязано."}))
+
+    def _collect_now(self, *, dry_run):
+        """«Събери новите сега»: the same one-shot service cron calls."""
+        try:
+            summary = wb_newsroom.collect_now(dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001 - a readable message, never a 500
+            _redirect(
+                self,
+                "/inbox?" + urllib.parse.urlencode({"error": f"Събирането се провали: {exc}"}),
+            )
+            return
+        if summary.get("locked"):
+            _redirect(
+                self,
+                "/inbox?"
+                + urllib.parse.urlencode({"message": "Друго събиране вече тече — опитайте пак."}),
+            )
+            return
+        if dry_run:
+            message = (
+                f"Пробен преглед: {len(summary['sources'])} източника, "
+                f"{summary['estimated_network_calls']} заявки (без мрежа)."
+            )
+        else:
+            wb_newsroom.record_action("collect_now", f"new={summary['new']}")
+            message = (
+                f"Събрани {summary['new']} нови · вече известни {summary['duplicate']} · "
+                f"грешки {summary['failed']} · филтрирани по домейн {summary['blocked_filtered']}"
+            )
+        _redirect(self, "/inbox?" + urllib.parse.urlencode({"message": message}))
 
     def _notfound(self, path):
         body = html_mod.page(
