@@ -1,3 +1,48 @@
+## Handoff — M4B.1 Feed Stabilization + M4C Story Identity (2026-09-21)
+
+Verified: **859 offline tests**, ruff check/format clean, M3A smoke 25/25, a real
+isolated collection with two immediate runs, a real deterministic story build and a
+capped semantic probe. Reports: `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
+`m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
+
+- **What the editor can now do:** open **«Истории»** and see real stories instead of
+  ~120 raw rows — each with «Нова история» / «Ново развитие», `издатели` /
+  `публикации` / `откривания` counted separately, the publisher list and a one-line
+  summary; open a story and see the chronology, the unique publications grouped by
+  publisher and the discovery provenance; correct a bad grouping with
+  **«Този материал не е част от историята»** (split) or **«Обедини с друга скорошна
+  история»** (merge) without touching JSON or ids. **«Материали»** still lists every
+  original collected row.
+- **What cron can now do:** `newsroom refresh` = `collect` → assign new material to
+  stories → one summary (`източници / нови материали / нови истории / нови развития /
+  добавени към съществуващи / за преглед / грешки`). A story failure never rolls back a
+  successful collection. `newsroom collect` is unchanged; the repo still installs no
+  timer and runs no daemon.
+- **Real proof (isolated, 2026-09-21):** run 1 → 91 items; immediate run 2 → 32
+  genuinely new items, 91 known, **0 rows older than 72 h** (the old `+100 new`
+  second-run backfill is gone). Corpus 123 rows → **113 unique publications**, 10
+  duplicate discovery rows collapsed, 1 deterministic cross-publisher merge, 112
+  stories in a deterministic-only build. Semantic probe (capped, free OpenRouter arm):
+  10 answers, all `DIFFERENT_STORY`, 0 merges — failure degrades to a separate story
+  with `за преглед`, never to a merge.
+- **New stores:** `var/newsroom/stories.json` (atomic, strict schema, `overrides`
+  audit). Env: `NEWSROOM_STORIES_PATH`. The inbox store is untouched by M4C.
+- **New module map:** `workflow/publication_identity.py` (URL normalization, Google
+  News token identity), `workflow/story_store.py` (schema/lifecycle/overrides),
+  `workflow/story_identity.py` (retrieval, matching, update/analyze/rebuild, views),
+  `workflow/story_relation.py` (the one semantic step), Workbench story pages,
+  `role="story"` in `drafting/generate.py`.
+- **Structural guards:** the six source/collection modules stay AI/story-free; the M4C
+  modules are a new explicit allow-list and still may not reach drafting, publishing,
+  Telegram, transcripts or a generic agent.
+- **Open after review (deliberately not done here):** semantic call budget for a large
+  ambiguous shortlist (102 items in one real corpus), Bulgarian morphology for the
+  deterministic match (currently conservative because of it), and the pre-existing
+  OpenRouter default-model id defect that makes any OpenRouter-only call return HTTP
+  400 for **every** role (workaround: set `OPENROUTER_STORY_MODEL` / `OPENROUTER_MODEL`).
+- **Next milestone is M4D (Telegram editorial alerts)** — only after this review; no
+  automatic continuation was taken.
+
 ## Handoff — M4A.1 Default Source Pack + M4B Daily Inbox (2026-09-20)
 
 Verified: **805 offline tests**, ruff check/format clean, M3A smoke 25/25, plus an

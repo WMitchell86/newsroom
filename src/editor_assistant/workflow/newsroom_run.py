@@ -20,8 +20,13 @@ Hard rules:
   days), and a muted/disabled source is never due;
 * **blocked domains** are filtered before an item can reach the inbox, and a
   source whose own URL/query targets a blocked domain is refused;
-* **safe bootstrap**: the first successful collection of a source does not
-  backfill history (72 h / 10 newest for news, a ±45-day window for calendars);
+* **rolling recency**: every run keeps only dated news items from the last 72 h
+  (M4B.1 F1) — the bootstrap run additionally caps to the 10 newest, so the older
+  results the first run excluded cannot come back as "new" on the second;
+* **honest calendar semantics**: a ±45-day event window is applied only when the
+  collector genuinely supplies `event_at`/`event_end_at`; otherwise a calendar
+  source is treated as ordinary news (an article's publication time is not an
+  event date) (M4B.1 F2);
 * **one shared lock** so two concurrent runs (cron + the Workbench button) cannot
   interleave writes into the inbox or the health store.
 """
@@ -269,35 +274,56 @@ def _published_at(value):
     return source_health.parse_timestamp(value)
 
 
+def _event_moment(candidate):
+    """A **real** event date supplied by the collector, never a publication time."""
+    return _published_at(candidate.get("event_at")) or _published_at(candidate.get("event_end_at"))
+
+
+def _within(moment, floor, horizon):
+    # An unreadable date is kept: a source must not be emptied merely because a
+    # collector omitted a timestamp.
+    return True if moment is None else floor <= moment <= horizon
+
+
 def select_candidates(entry, candidates, *, bootstrap, now):
-    """Apply the safe-bootstrap window and the per-source cap.
+    """Apply the recency window, the bootstrap cap and the per-source cap.
 
     Returns `(kept, dropped)`; order is preserved (newest-first is the feed's /
     provider's order, not ours to invent).
+
+    Two rules, deliberately separate (M4B.1 F1/F2):
+
+    * **news recency runs on every run** — a dated item older than
+      `NEWS_LOOKBACK_HOURS` is excluded on run 1 *and* run 2, so a second
+      immediate run cannot backfill what the first deliberately dropped;
+    * **event window only with a real event date** — a `calendar=True` source uses
+      the ±`CALENDAR_WINDOW_DAYS` window only when at least one candidate carries
+      `event_at`/`event_end_at`. A calendar whose collector only knows the
+      article's publication time is treated as ordinary news (an article's
+      `published_at` is not the date the event happens).
     """
     kept = list(candidates)
-    if bootstrap and entry.get("calendar"):
-        # A calendar's value is its upcoming events: keep a bounded forward window
-        # rather than a 72-hour recency window.
-        horizon = now + timedelta(days=CALENDAR_WINDOW_DAYS)
-        floor = now - timedelta(days=CALENDAR_WINDOW_DAYS)
-
-        def _in_window(item):
-            moment = _published_at(item.get("published_at"))
-            return True if moment is None else floor <= moment <= horizon
-
-        kept = [c for c in kept if _in_window(c)]
-    elif bootstrap:
-        recent = []
-        horizon = now - timedelta(hours=NEWS_LOOKBACK_HOURS)
-        for candidate in kept:
-            moment = _published_at(candidate.get("published_at"))
-            if moment is None or moment >= horizon:
-                recent.append(candidate)
-        if recent:
-            kept = recent
-        # else: nothing carried a usable recent date — fall through and let the
-        # bootstrap cap below take the newest items instead of emptying the source.
+    calendar_window = None
+    if entry.get("calendar") and any(_event_moment(c) is not None for c in kept):
+        calendar_window = (
+            now - timedelta(days=CALENDAR_WINDOW_DAYS),
+            now + timedelta(days=CALENDAR_WINDOW_DAYS),
+        )
+    if calendar_window is not None:
+        floor, horizon = calendar_window
+        kept = [c for c in kept if _within(_event_moment(c), floor, horizon)]
+    else:
+        # News recency is a floor only: a slightly future timestamp (clock skew on
+        # the publisher's side) must not make a fresh item disappear.
+        news_floor = now - timedelta(hours=NEWS_LOOKBACK_HOURS)
+        kept = [
+            c
+            for c in kept
+            if (moment := _published_at(c.get("published_at"))) is None or moment >= news_floor
+        ]
+    if bootstrap:
+        # First successful run of a source: never backfill history with more than
+        # the newest few items. Subsequent runs keep the normal per-source cap.
         kept = kept[:BOOTSTRAP_MAX_NEWS]
     dropped = len(candidates) - len(kept)
     kept = kept[:MAX_ITEMS_PER_SOURCE]
@@ -310,13 +336,32 @@ def authority_by_domain(path=None, *, today=None):
 
     Built from every registry entry's declared `domain` plus the host of its own
     `url` (so a direct feed is its own publisher without any extra configuration).
-    Ordered by `source_id`, so a shared domain resolves deterministically.
+
+    **Fail closed on conflict (M4B.1 F5).** Two registry entries for the same
+    canonical publisher domain are allowed only when they agree on `kind` and
+    `factual_authority`; a differing policy raises `RegistryError` instead of
+    letting the alphabetically-first `source_id` decide who has authority.
     """
     out = {}
     for row in sources_registry.describe_all(path, today=today):
         for domain in (row.get("domain") or "", blocked_domains.host_of(row.get("url")) or ""):
-            if domain:
-                out.setdefault(domain, row)
+            if not domain:
+                continue
+            known = out.get(domain)
+            if known is None:
+                out[domain] = row
+                continue
+            if known["kind"] != row["kind"] or bool(known["factual_authority"]) != bool(
+                row["factual_authority"]
+            ):
+                raise sources_registry.RegistryError(
+                    f"conflicting publisher policy for {domain}: "
+                    f"{known['source_id']} (kind={known['kind']}, "
+                    f"factual_authority={bool(known['factual_authority'])}) vs "
+                    f"{row['source_id']} (kind={row['kind']}, "
+                    f"factual_authority={bool(row['factual_authority'])}) — "
+                    "fix the registry; authority must never be decided by source order"
+                )
     return out
 
 
@@ -377,6 +422,10 @@ def _to_inbox_item(entry, candidate, discovered_at, authority=None):
         "title": candidate.get("title") or "",
         "url": candidate.get("url") or "",
         "published_at": candidate.get("published_at") or "",
+        # Only a collector that genuinely knows the event date supplies these
+        # (M4B.1 F2); they stay empty for every wired collector today.
+        "event_at": candidate.get("event_at") or "",
+        "event_end_at": candidate.get("event_end_at") or "",
         "discovered_at": discovered_at,
         "summary": candidate.get("snippet") or "",
         "source_kind": entry["kind"],

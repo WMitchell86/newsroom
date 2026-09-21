@@ -39,6 +39,10 @@ FIELDS = (
     "title",
     "url",
     "published_at",
+    #: Real event dates, supplied only by a collector that knows them (M4B.1 F2).
+    #: Empty for every collector wired today; never populated from `published_at`.
+    "event_at",
+    "event_end_at",
     "discovered_at",
     "summary",
     "source_kind",
@@ -105,6 +109,8 @@ def validate_item(item):
         "title": title,
         "url": url,
         "published_at": str(item.get("published_at") or ""),
+        "event_at": str(item.get("event_at") or ""),
+        "event_end_at": str(item.get("event_end_at") or ""),
         "discovered_at": str(item.get("discovered_at") or ""),
         "summary": str(item.get("summary") or "")[:2000],
         "source_kind": str(item.get("source_kind") or ""),
@@ -176,15 +182,52 @@ def set_status(item_id, status, *, path=None):
     raise InboxError(f"unknown item_id: {item_id}")
 
 
-def counts(path=None):
-    items = read_items(path)
+def count_buckets(items):
+    """Status counts for a list of items (shared by lifetime and daily counts)."""
     by_status = {status: 0 for status in ITEM_STATUSES}
-    by_source = {}
     for item in items:
         by_status[item["status"]] = by_status.get(item["status"], 0) + 1
+    return by_status
+
+
+def counts(path=None):
+    """Lifetime totals. The UI must not label these "Днес" (M4B.1 F3)."""
+    items = read_items(path)
+    by_source = {}
+    for item in items:
         by_source[item["source_id"]] = by_source.get(item["source_id"], 0) + 1
     return {
         "total": len(items),
-        "by_status": by_status,
+        "by_status": count_buckets(items),
         "by_source": dict(sorted(by_source.items())),
     }
+
+
+def today_counts(path=None, *, now=None):
+    """Real counts for the current Europe/Sofia calendar day.
+
+    "Today" is a newsroom-arrival day, so it is computed from `discovered_at` on
+    the local `Europe/Sofia` date — not from the file's lifetime totals and not
+    from `published_at` (an item published yesterday but collected today arrived
+    today). `source_health` owns the timezone helper so cadence and "today" never
+    disagree.
+    """
+    from editor_assistant.workflow import source_health
+
+    today = source_health.sofia_date(now)
+    items = read_items(path)
+    arrived = [i for i in items if source_health.sofia_date_of(i.get("discovered_at")) == today]
+    return {
+        "date": today.isoformat(),
+        "total": len(arrived),
+        "by_status": count_buckets(arrived),
+    }
+
+
+def unreviewed_count(path=None):
+    """Unfinished work: every NEW row, however old it is.
+
+    Deliberately lifetime, not daily — the editor must not lose an item that
+    arrived yesterday and was never looked at.
+    """
+    return sum(1 for item in read_items(path) if item["status"] == "NEW")

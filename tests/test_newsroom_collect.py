@@ -575,6 +575,78 @@ def test_item_authority_comes_from_the_publisher_not_the_monitoring_source(store
     assert unknown["publisher_kind"] == "" and unknown["factual_authority"] is False
 
 
+def test_a_shared_publisher_domain_with_conflicting_policy_fails_closed(stores):
+    """M4B.1 F5: authority must never be decided by source_id order."""
+    path = stores / "sources.json"
+    sources_registry.add_source(
+        path=path,
+        source_id="aaa-publisher",
+        name="Издател А",
+        kind="official",
+        domain="clash.bg",
+        collector="google_news_rss",
+        query="Издател А",
+        factual_authority=True,
+    )
+    sources_registry.add_source(
+        path=path,
+        source_id="zzz-publisher",
+        name="Издател Б",
+        kind="official",
+        domain="clash.bg",
+        collector="google_news_rss",
+        query="Издател Б",
+        factual_authority=False,
+    )
+    with pytest.raises(sources_registry.RegistryError, match="conflicting publisher policy"):
+        newsroom_run.authority_by_domain(path)
+
+    # Same domain + same policy is explicitly allowed (the shipped catalogue does
+    # this for burgas.bg) and resolves to one authority row.
+    sources_registry.set_factual_authority("zzz-publisher", True, path=path)
+    by_domain = newsroom_run.authority_by_domain(path)
+    assert by_domain["clash.bg"]["factual_authority"] is True
+
+    # A conflicting kind is refused too, even when the authority flag agrees.
+    sources_registry.update_source("zzz-publisher", kind="media", path=path)
+    with pytest.raises(sources_registry.RegistryError, match="conflicting publisher policy"):
+        newsroom_run.authority_by_domain(path)
+
+
+def test_a_declared_blocked_domain_refuses_an_otherwise_innocent_query(stores):
+    """M4B.1 F6: the registry `domain` field is inspected before any network call."""
+    blocked_domains.add_domain("flagman.bg")
+    entry = {
+        "source_id": "sneaky-query",
+        "url": "",
+        "query": "някаква заявка без име на домейн",
+        "domain": "flagman.bg",
+    }
+    reason = blocked_domains.blocked_reason(entry)
+    assert reason and "забранен" in reason
+
+    sources_registry.add_source(
+        path=stores / "sources.json",
+        source_id="sneaky-query",
+        name="Заявка",
+        kind="media",
+        domain="flagman.bg",
+        collector="google_news_rss",
+        query="някаква заявка без име на домейн",
+    )
+
+    def explode(_url):
+        raise AssertionError("a blocked source must never be fetched")
+
+    summary = newsroom_run.collect(
+        dry_run=False,
+        path=stores / "sources.json",
+        store=stores / "inbox.jsonl",
+        fetch_bytes=explode,
+    )
+    assert summary["sources"][0]["status"] == newsroom_run.STATUS_BLOCKED
+
+
 def test_resolve_authority_is_suffix_aware_and_defaults_to_monitoring_only(stores):
     path = _publisher_registry(stores)
     by_domain = newsroom_run.authority_by_domain(path)
@@ -631,16 +703,60 @@ def test_bootstrap_lookback_and_cap_for_news():
     assert len(kept) == newsroom_run.MAX_ITEMS_PER_SOURCE
 
 
-def test_future_calendar_event_survives_bootstrap():
-    future = [{"published_at": "2026-10-20T06:00:00Z", "url": "https://x/event"}]
-    kept, _ = newsroom_run.select_candidates({"calendar": True}, future, bootstrap=True, now=NOW)
-    assert kept == future
-
-    ancient = [{"published_at": "2026-01-01T06:00:00Z", "url": "https://x/old"}]
+def test_a_real_event_date_gets_the_event_window_but_a_publication_time_does_not():
+    """M4B.1 F2: calendar semantics need a real event date, not published_at."""
+    # A future publication time is NOT an event date: with no event_at this is an
+    # ordinary news source, so the old ±45-day publication window no longer
+    # pretends to understand the event.
+    published_only = [
+        {"published_at": "2026-10-20T06:00:00Z", "url": "https://x/event"},
+        {"published_at": "2026-01-01T06:00:00Z", "url": "https://x/old"},
+    ]
     kept, dropped = newsroom_run.select_candidates(
-        {"calendar": True}, ancient, bootstrap=True, now=NOW
+        {"calendar": True}, published_only, bootstrap=True, now=NOW
     )
-    assert kept == [] and dropped == 1
+    assert [c["url"] for c in kept] == ["https://x/event"]
+    assert dropped == 1
+
+    # A genuine event date gets the bounded event window, even when the article
+    # that announced it is older than the news lookback.
+    real_events = [
+        {
+            "published_at": "2026-06-01T06:00:00Z",
+            "event_at": "2026-10-20T06:00:00Z",
+            "url": "https://x/future-event",
+        },
+        {
+            "published_at": "2026-06-01T06:00:00Z",
+            "event_at": "2026-01-01T06:00:00Z",
+            "url": "https://x/past-event",
+        },
+    ]
+    kept, dropped = newsroom_run.select_candidates(
+        {"calendar": True}, real_events, bootstrap=True, now=NOW
+    )
+    assert kept == [real_events[0]] and dropped == 1
+
+
+def test_undated_candidates_never_empty_a_source():
+    undated = [{"url": f"https://x/{i}"} for i in range(3)]
+    kept, dropped = newsroom_run.select_candidates({}, undated, bootstrap=True, now=NOW)
+    assert kept == undated and dropped == 0
+
+
+def test_rolling_recency_applies_on_every_run():
+    """M4B.1 F1: run 2 must not backfill what run 1 deliberately excluded."""
+    recent = [
+        {"published_at": "2026-09-20T06:00:00Z", "url": f"https://x/new/{i}"} for i in range(10)
+    ]
+    old = [{"published_at": "2026-09-10T06:00:00Z", "url": f"https://x/old/{i}"} for i in range(10)]
+    candidates = recent + old
+
+    first, _ = newsroom_run.select_candidates({}, candidates, bootstrap=True, now=NOW)
+    assert [c["url"] for c in first] == [c["url"] for c in recent]
+
+    second, _ = newsroom_run.select_candidates({}, candidates, bootstrap=False, now=NOW)
+    assert [c["url"] for c in second] == [c["url"] for c in recent]  # no old backfill
 
 
 def test_a_second_concurrent_run_is_locked_out(registry):

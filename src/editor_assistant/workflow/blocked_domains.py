@@ -162,9 +162,10 @@ def is_blocked(url_or_host, domains=None, *, path=None):
 def blocked_reason(entry, *, path=None):
     """Why a registry entry must not be collected, or None.
 
-    Two cases: a source whose own URL is blocked (a direct blocked publisher),
-    or a monitoring query that names a blocked domain. A source is refused, not
-    silently emptied.
+    Three cases, all checked **before any network call** (M4B.1 F6): a source whose
+    own URL is blocked (a direct blocked publisher), a source that *declares* a
+    blocked publisher domain, or a monitoring query that names a blocked domain.
+    A source is refused, not silently emptied.
     """
     policy = effective_domains(path)
     if not policy:
@@ -172,6 +173,9 @@ def blocked_reason(entry, *, path=None):
     url = entry.get("url") or ""
     if url and is_blocked(url, policy):
         return f"домейнът на източника е забранен ({host_of(url)})"
+    declared = entry.get("domain") or ""
+    if declared and is_blocked(declared, policy):
+        return f"обявеният домейн на източника е забранен ({declared})"
     query = (entry.get("query") or "").lower()
     if query:
         for domain in policy:

@@ -28,6 +28,8 @@ from editor_assistant.workflow import (
     newsroom_run,
     source_health,
     sources_registry,
+    story_identity,
+    story_store,
 )
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -62,6 +64,10 @@ def blocked_store():
 
 def last_run_store():
     return newsroom_dir() / "last_run.json"
+
+
+def stories_store():
+    return newsroom_dir() / "stories.json"
 
 
 def audit_path():
@@ -343,6 +349,9 @@ def inbox_view(
     return {
         "items": window,
         "counts": view["counts"],
+        # Real Europe/Sofia daily counts, not lifetime totals (M4B.1 F3).
+        "today": inbox_store.today_counts(inbox_store_path()),
+        "unreviewed": inbox_store.unreviewed_count(inbox_store_path()),
         "problems": _inbox_problems(),
         "last_run": last_run(),
         "total": total,
@@ -369,3 +378,97 @@ def set_inbox_status(item_id, status):
         item = inbox_store.set_status(item_id, status, path=inbox_store_path())
         record_action(f"inbox_{status.lower()}", item_id)
         return item
+
+
+# ---------- stories (M4C) ----------
+
+STORY_PAGE_SIZE = 25
+
+
+def refresh_stories(*, dry_run=False, semantic=True):
+    """Assign newly collected items to stories (the same service the CLI calls).
+
+    No network here: collection is the CLI/cron step; this only groups what is
+    already in the inbox.
+    """
+    with _MUTATION_LOCK:
+        summary = story_identity.update(
+            inbox=inbox_store_path(),
+            stories=stories_store(),
+            dry_run=dry_run,
+            semantic=semantic,
+            blocked_path=blocked_store(),
+        )
+        if not dry_run and summary["scanned"]:
+            record_action("stories_updated", f"new={summary['new_stories']}")
+        return summary
+
+
+def stories_view(*, status=None, review=False, page=1, page_size=STORY_PAGE_SIZE):
+    """Story-first view: real titles, honest counts, no internal ids on the page."""
+    data = story_identity.story_cards(
+        inbox=inbox_store_path(), stories=stories_store(), blocked_path=blocked_store()
+    )
+    cards = data["stories"]
+    counts = {name: 0 for name in story_store.STORY_STATUSES}
+    for card in cards:
+        counts[card["status"]] = counts.get(card["status"], 0) + 1
+    filtered = cards
+    if status and status != "all":
+        filtered = [c for c in filtered if c["status"] == status]
+    if review:
+        filtered = [c for c in filtered if c["needs_review"]]
+    try:
+        page = max(int(page), 1)
+    except (TypeError, ValueError):
+        page = 1
+    page_size = max(min(int(page_size), INBOX_MAX_PAGE_SIZE), 1)
+    total = len(filtered)
+    page_count = max((total + page_size - 1) // page_size, 1)
+    page = min(page, page_count)
+    start = (page - 1) * page_size
+    return {
+        "stories": filtered[start : start + page_size],
+        "counts": counts,
+        "total_stories": len(cards),
+        "total": total,
+        "page": page,
+        "page_count": page_count,
+        "needs_review": sum(1 for c in cards if c["needs_review"]),
+        "filters": {"status": status or "all", "review": bool(review)},
+    }
+
+
+def story_view(story_id):
+    return story_identity.story_detail(
+        story_id, inbox=inbox_store_path(), stories=stories_store(), blocked_path=blocked_store()
+    )
+
+
+def set_story_status(story_id, status):
+    with _MUTATION_LOCK:
+        result = story_identity.set_story_status(
+            story_id, status, inbox=inbox_store_path(), stories=stories_store()
+        )
+        record_action(f"story_{status.lower()}", story_id)
+        return result
+
+
+def split_story_item(story_id, item_id):
+    """Editor correction: this material is not part of that story."""
+    with _MUTATION_LOCK:
+        result = story_identity.split_item(
+            story_id, item_id, inbox=inbox_store_path(), stories=stories_store()
+        )
+        record_action("story_split", f"{story_id}:{item_id}")
+        return result
+
+
+def merge_story(target_id, source_id):
+    """Editor correction: merge a false split back into one story."""
+    with _MUTATION_LOCK:
+        result = story_identity.merge_stories(
+            target_id, source_id, inbox=inbox_store_path(), stories=stories_store()
+        )
+        record_action("story_merged", f"{source_id}->{target_id}")
+        return result

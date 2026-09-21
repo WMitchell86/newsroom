@@ -24,6 +24,7 @@ from editor_assistant.workflow import (
     source_health,
     sources_registry,
 )
+from editor_assistant.workflow import story_store as story_store_mod
 from editor_assistant.workflow.workbench import http, newsroom
 
 
@@ -255,8 +256,9 @@ def test_unknown_action_is_refused(server):
 
 
 def test_inbox_page_shows_collected_items(server):
+    # M4C renamed the raw view «Материали»; the route and the store are unchanged.
     body = _get(f"{server}/inbox").read().decode("utf-8")
-    assert "Входящи" in body
+    assert "Материали" in body
     assert "Общинският съвет прие бюджета" in body
     assert "Общински съвет Бургас" in body  # source name, not only the id
     assert "Нов" in body
@@ -359,7 +361,9 @@ def test_inbox_defaults_to_new_and_filters(server):
     default = _get(f"{server}/inbox").read().decode("utf-8")
     assert "Общинският съвет прие бюджета" in default  # the NEW item
     assert "Игнорирана новина" not in default  # default view is NEW only
-    assert "нови 1" in default and "прегледани 1" in default and "игнорирани 1" in default
+    # "Днес" is a real Europe/Sofia day and lifetime totals are labelled separately
+    # (M4B.1 F3); these fixtures were collected on 2026-09-20, not today.
+    assert "Днес (" in default and "Непрегледани общо:" in default
 
     all_items = _get(f"{server}/inbox?status=all").read().decode("utf-8")
     assert "Игнорирана новина" in all_items and "Прегледана новина" in all_items
@@ -367,6 +371,170 @@ def test_inbox_defaults_to_new_and_filters(server):
     by_source = _get(f"{server}/inbox?status=all&source=news-search").read().decode("utf-8")
     assert "Игнорирана новина" in by_source
     assert "Общинският съвет прие бюджета" not in by_source
+
+
+def test_today_counts_use_the_sofia_arrival_day(server):
+    """ "Днес" counts arrival on the local day, never lifetime totals (F3)."""
+    from datetime import datetime, timezone
+
+    arrived = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    inbox_store.add_items(
+        [
+            {
+                "source_id": "news-search",
+                "title": "Днешна новина",
+                "url": "https://media.example/today",
+                "discovered_at": arrived,
+                "source_kind": "aggregator",
+                "priority": "normal",
+            },
+            {
+                "source_id": "news-search",
+                "title": "Стара новина",
+                "url": "https://media.example/old",
+                "discovered_at": "2020-01-01T08:00:00Z",
+                "source_kind": "aggregator",
+                "priority": "normal",
+            },
+        ],
+        path=newsroom.inbox_store_path(),
+    )
+    counts = inbox_store.today_counts(newsroom.inbox_store_path())
+    assert counts["by_status"]["NEW"] >= 1
+    # the 2020 row exists but is outside the local day window
+    assert counts["total"] < inbox_store.counts(newsroom.inbox_store_path())["total"]
+    page = _get(f"{server}/inbox").read().decode("utf-8")
+    assert "Днес (" in page and counts["date"] in page
+    assert "Непрегледани общо:" in page
+
+
+# ---------- M4C: stories page ----------
+
+
+PAIR_TITLE = "Катастрофа на пътя Бургас — Несебър, трима ранени"
+
+
+def _add_pair():
+    """Two publishers reporting the same event with an identical title.
+
+    The title is deliberately unrelated to the seeded fixture item, so this pair
+    never needs a semantic call (the deterministic test is enough).
+    """
+    inbox_store.add_items(
+        [
+            {
+                "source_id": "news-search",
+                "title": PAIR_TITLE,
+                "url": "https://media.example/crash",
+                "published_at": "2026-09-20T08:00:00Z",
+                "discovered_at": "2026-09-20T08:00:00Z",
+                "source_kind": "aggregator",
+                "priority": "normal",
+                "publisher_domain": "bta.bg",
+                "status": "NEW",
+            },
+            {
+                "source_id": "council-feed",
+                "title": PAIR_TITLE,
+                "url": "https://bnr.bg/crash",
+                "published_at": "2026-09-20T08:05:00Z",
+                "discovered_at": "2026-09-20T08:05:00Z",
+                "source_kind": "official",
+                "priority": "high",
+                "publisher_domain": "bnr.bg",
+                "status": "NEW",
+            },
+        ],
+        path=newsroom.inbox_store_path(),
+    )
+
+
+def _pair_story(path=None):
+    store = story_store_mod.read_store(path or newsroom.stories_store())
+    return next(s for s in store["stories"] if len(s["members"]) == 2)
+
+
+def test_stories_page_groups_materials_and_shows_honest_counts(server):
+    _add_pair()
+    resp = _post(f"{server}/stories", {"action": "update"})
+    assert resp.code in (302, 303)
+    page = _get(f"{server}/stories").read().decode("utf-8")
+    assert "Истории" in page
+    assert PAIR_TITLE in page
+    # two discoveries, two unique publications, two publishers — counted apart
+    assert "2 издателя" in page and "2 публикации" in page and "2 откривания" in page
+    assert "bta.bg" in page and "bnr.bg" in page
+    # the raw materials view is still one click away
+    assert 'href="/inbox"' in page
+    assert len(_pair_story()["members"]) == 2
+
+
+def test_story_detail_shows_chronology_and_publications(server):
+    _add_pair()
+    _post(f"{server}/stories", {"action": "update"})
+    detail = _get(f"{server}/stories/{_pair_story()['story_id']}").read().decode("utf-8")
+    assert "Хронология" in detail and "Материали" in detail
+    assert "Откривания" in detail
+    assert "bta.bg" in detail and "bnr.bg" in detail
+    assert "0.4" not in detail and "jaccard" not in detail.lower()
+
+
+def test_editor_can_split_a_material_out_of_a_story(server):
+    _add_pair()
+    _post(f"{server}/stories", {"action": "update"})
+    story_id = _pair_story()["story_id"]
+    before = len(story_store_mod.read_stories(newsroom.stories_store()))
+    view = newsroom.story_view(story_id)
+    resp = _post(
+        f"{server}/stories",
+        {"action": "split", "story": story_id, "item": view["timeline"][1]["item_id"]},
+    )
+    assert resp.code in (302, 303)
+    assert "/stories/" in resp.headers["Location"]
+    # one story gained: the split material is its own story again
+    assert len(story_store_mod.read_stories(newsroom.stories_store())) == before + 1
+    store = story_store_mod.read_store(newsroom.stories_store())
+    assert store["overrides"][-1]["action"] == "SPLIT"
+
+
+def test_editor_can_merge_a_false_split(server):
+    _add_pair()
+    _post(f"{server}/stories", {"action": "update"})
+    first = _pair_story()
+    before = len(story_store_mod.read_stories(newsroom.stories_store()))
+    # split, then merge back — exactly the editor's recovery path
+    view = newsroom.story_view(first["story_id"])
+    split = newsroom.split_story_item(first["story_id"], view["timeline"][1]["item_id"])
+    assert len(story_store_mod.read_stories(newsroom.stories_store())) == before + 1
+    resp = _post(
+        f"{server}/stories",
+        {"action": "merge", "target": first["story_id"], "source": split["to_story"]},
+    )
+    assert resp.code in (302, 303)
+    assert len(story_store_mod.read_stories(newsroom.stories_store())) == before
+    assert len(_pair_story()["members"]) == 2
+    store = story_store_mod.read_store(newsroom.stories_store())
+    assert store["overrides"][-1]["action"] == "MERGE"
+
+
+def test_story_status_actions_work_from_the_page(server):
+    _add_pair()
+    _post(f"{server}/stories", {"action": "update"})
+    story_id = _pair_story()["story_id"]
+    resp = _post(f"{server}/stories", {"action": "status", "story": story_id, "status": "SEEN"})
+    assert resp.code in (302, 303)
+    store = story_store_mod.read_store(newsroom.stories_store())
+    assert story_store_mod.story_by_id(store, story_id)["status"] == "SEEN"
+    items = inbox_store.read_items(newsroom.inbox_store_path())
+    assert {i["status"] for i in items if i["source_id"] == "news-search"} == {"SEEN"}
+
+
+def test_story_update_preview_writes_nothing(server):
+    _add_pair()
+    resp = _post(f"{server}/stories", {"action": "update_preview"})
+    assert resp.code in (302, 303)
+    assert "Пробен преглед" in urllib.parse.unquote_plus(resp.headers["Location"])
+    assert story_store_mod.read_stories(newsroom.stories_store()) == []
 
 
 def test_inbox_collect_now_delegates_to_the_shared_service(server, monkeypatch):

@@ -122,7 +122,7 @@ See `m3/review/M3B1_INTAKE_HARDENING_REPORT.md` (design) and
 `m3/review/M3B1_CODE_REVIEW.md` (review + settled decisions), plus `RUNBOOK.md`
 §0d.
 
-## M4 Daily Newsroom (sources + daily inbox)
+## M4 Daily Newsroom (sources + stories + daily materials)
 
 The editor owns which sources are watched, and opens a daily inbox instead of
 Markdown case files.
@@ -133,13 +133,20 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources list
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --dry-run  # zero network
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect            # cron calls this
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --dry-run  # M4C plan
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update     # assign to stories
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom refresh            # collect -> stories -> summary
 ```
 
-The Workbench adds **«Източници»** (`/sources`: table with health, next collection,
+The Workbench adds **«Истории»** (`/stories` + `/stories/{id}`: real-world stories
+with `издатели / публикации / откривания` counted separately, a chronology, unique
+publications grouped by publisher, and editor **split** / **merge** corrections),
+**«Източници»** (`/sources`: table with health, next collection,
 add/edit/enable/disable/mute-until/priority/monitoring-only/factual-authority, a
 compact **«Забранени домейни»** policy and additive default controls) and
-**«Входящи»** (`/inbox`: default **NEW** view, summary counts, filters, pagination,
-per-item actions and **«Събери новите сега»** / **«Пробен преглед»**).
+**«Материали»** (`/inbox`: default **NEW** view, real Europe/Sofia daily counts,
+filters, pagination, per-item actions and **«Събери новите сега»** /
+**«Пробен преглед»**).
 
 A new install seeds **30 active** default sources (9 core every-run + 21 daily)
 from a declarative catalogue (`workflow/default_sources.py`); 5 optional sources
@@ -148,15 +155,25 @@ feed is used directly, every other entry is a publisher/locality-constrained
 monitoring query. `flagman.bg` is never a source and is blocked as a domain.
 
 Cadence is operational (`each_run`/`daily`/`weekly` on the Europe/Sofia day) with
-a separate health store (`OK`/`EMPTY`/`FAILED`/`NEVER_RUN`); the first collection
-of a source does not backfill history (72 h / 10 newest, ±45-day window for
-calendars). The repository still installs **no timer** — cron is the operator's
-(see `RUNBOOK.md` §0e) and one shared lock makes cron and the Workbench button
-safe to run concurrently.
+a separate health store (`OK`/`EMPTY`/`FAILED`/`NEVER_RUN`); **every run** keeps only
+dated news from the last 72 h (the first run of a source additionally caps to the 10
+newest), and a ±45-day event window applies only when a collector supplies a real
+`event_at` — an article's publication time is never treated as an event date. The
+repository still installs **no timer** — cron is the operator's (see `RUNBOOK.md`
+§0e) and one shared lock makes cron and the Workbench button safe to run
+concurrently.
+
+Story identity (M4C) is deterministic first: exact publication identity collapses the
+same article found by several monitors, a conservative title/time/token test groups
+the obvious cross-publisher pairs, and only the ambiguous shortlist reaches one narrow
+semantic relation (`role="story"`). A failure of that step **never** merges — the item
+stays a separate story marked «за преглед». Collected rows are never rewritten or
+deleted: stories reference them.
 
 Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
-`m4/review/M4B_DAILY_INBOX_REPORT.md`. **Next milestone: M4C story identity /
-new development** — see `BACKLOG.md`.
+`m4/review/M4B_DAILY_INBOX_REPORT.md`, `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
+`m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
+**Next milestone: M4D Telegram editorial alerts** — see `BACKLOG.md`.
 
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 

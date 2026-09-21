@@ -167,11 +167,12 @@ Shows: queue counts, active cooldown, the effective policy line
 
 See `m3/review/M3B1_INTAKE_HARDENING_REPORT.md`.
 
-## 0e. Daily newsroom collection (M4A.1/M4B)
+## 0e. Daily newsroom collection + stories (M4A.1/M4B/M4B.1/M4C)
 
-The editor manages sources in the Workbench (`/sources`) and reads collected
-candidates in `/inbox`. Collection is a **one-shot process** the operator's cron
-calls; the repository still installs no timer.
+The editor manages sources in the Workbench (`/sources`), reads real stories in
+`/stories` and the raw collected material in `/inbox`. Collection is a **one-shot
+process** the operator's cron calls; the repository still installs no timer, and
+story building is a second one-shot step with no daemon and no polling loop.
 
 ```bash
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --preview   # no write
@@ -180,7 +181,18 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources list
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --dry-run   # zero network
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect             # cron calls this
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --force     # ignore cadence
+# M4C story identity
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --dry-run   # plan only
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update             # assign
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --no-semantic  # deterministic only
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories rebuild --preview  # full rebuild, no write
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom refresh             # collect -> stories -> summary
 ```
+
+`newsroom refresh` is the recommended cron command: it collects, assigns the newly
+collected items to stories and prints one summary (`източници / нови материали /
+нови истории / нови развития / добавени към съществуващи / за преглед / грешки`). A
+story failure is reported but never rolls back a successful collection.
 
 ### Installing the daily runs (the operator does this)
 
@@ -190,7 +202,7 @@ later runs are cheap.
 
 ```bash
 crontab -e
-0 7,12,16,20 * * * cd /home/test/media && PYTHONPATH=src /usr/bin/python3 -m editor_assistant.workflow.cli newsroom collect >> var/newsroom/cron.log 2>&1
+0 7,12,16,20 * * * cd /home/test/media && PYTHONPATH=src /usr/bin/python3 -m editor_assistant.workflow.cli newsroom refresh >> var/newsroom/cron.log 2>&1
 ```
 
 Exit codes: `0` ok · `1` at least one source failed (successful sources keep
@@ -206,9 +218,17 @@ their items — read the summary) · `3` another run holds the collection lock
 - **Health is separate from settings** (`var/newsroom/source_health.json`):
   `OK` / `EMPTY` / `FAILED` / `NEVER_RUN`. `EMPTY` means the collector worked and
   found nothing; `FAILED` means the collector is broken — the Workbench shows both.
-- **First collection is bounded** (safe bootstrap): ≤72 h or the 10 newest items
-  for news, a ±45-day window for calendar sources, 20 items per source per run.
-  A new 30-source install therefore does not dump months of history into the inbox.
+- **Rolling recency, every run.** Dated news items older than 72 h are excluded on
+  run 1 **and** on every later run, so a second run cannot backfill what the first
+  deliberately dropped. The *first* successful run of a source additionally caps to
+  the 10 newest items (safe bootstrap) and every run keeps the 20-per-source cap. A
+  candidate without a readable date is kept, so a source is never emptied over a
+  missing timestamp. Real measurement: 0 stored rows older than 72 h after two
+  immediate runs.
+- **Calendar semantics are honest.** The ±45-day window is applied only when the
+  collector supplies a real `event_at`/`event_end_at`. A Google News result's
+  `published_at` is the *article* time, so a `calendar=True` source without real event
+  dates behaves like ordinary news — the system never pretends to know the event date.
 - **Blocked domains** (`/sources` → «Забранени домейни»): `flagman.bg` is blocked
   by default. Broad monitoring results are filtered before they reach the inbox and
   a direct source on a blocked domain is refused. The filter uses the publisher
@@ -217,9 +237,32 @@ their items — read the summary) · `3` another run holds the collection lock
 - **One shared lock** (`var/newsroom/collect.lock`, 1 h stale window) prevents two
   concurrent runs from interleaving inbox/health writes.
 
-Workbench pages: `http://127.0.0.1:8123/sources` and `…/inbox`. Reports:
-`m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
-`m4/review/M4B_DAILY_INBOX_REPORT.md`.
+Workbench pages: `http://127.0.0.1:8123/stories`, `…/inbox` (Материали) and
+`…/sources`. Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
+`m4/review/M4B_DAILY_INBOX_REPORT.md`, `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
+`m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
+
+### M4C story stores and recovery
+
+```text
+var/newsroom/inbox.jsonl     raw collected rows (never rewritten by story work)
+var/newsroom/stories.json    story store: members reference inbox item_ids
+var/newsroom/             + collect.lock, source_health.json, last_run.json,
+                            blocked_domains.json, newsroom_actions.jsonl (audit)
+```
+
+- `NEWSROOM_STORIES_PATH` overrides the story store path (same pattern as the other
+  newsroom stores).
+- The story role is its own model pool: `GEMINI_STORY_MODELS` (defaults to the draft
+  pool, never the Lite judge pool) or `OPENROUTER_STORY_MODEL` for the OpenRouter arm.
+  A missing/rate-limited/invalid model **never** merges anything — affected items stay
+  separate stories flagged `за преглед`, and the run reports the failure count.
+- Editor corrections (split/merge in the story page) are stored as overrides. A
+  `stories rebuild --apply` refuses to run while overrides exist unless `--force` is
+  passed; the normal path is always the incremental `stories update`/`refresh`.
+- Recovery: deleting `stories.json` does **not** lose any collected material — the
+  next `stories update` rebuilds stories from the inbox. Deleting `inbox.jsonl` does
+  lose raw rows, so back it up if you are debugging.
 
 ## 1. Normal manual cycle
 

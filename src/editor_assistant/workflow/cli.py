@@ -929,35 +929,111 @@ def cmd_sources(args):
 
 
 def cmd_newsroom(args):
-    """M4A: one-shot collection run (cron calls this; the repo schedules nothing).
+    """M4A/M4C: one-shot collection + story identity (cron calls this; no daemon).
 
     Reads the editor-owned registry and writes the story-inbox store. Collection
-    only READS public sources; the only write is to our own inbox. `--dry-run`
-    makes no network call at all.
+    only READS public sources; the only writes are to our own inbox and story
+    store. `--dry-run` makes no network call at all.
     """
     from editor_assistant.workflow import newsroom_run
 
-    if args.action != "collect":
-        raise SystemExit(f"unknown newsroom action: {args.action}")
-    summary = newsroom_run.collect(
+    if args.action == "collect":
+        summary = newsroom_run.collect(
+            dry_run=args.dry_run,
+            source_ids=args.source or None,
+            limit=args.limit,
+            force=args.force,
+        )
+        newsroom_run.print_summary(summary)
+        if summary.get("locked"):
+            # Another run (cron or the Workbench button) holds the lock; do nothing.
+            raise SystemExit(3)
+        if summary["failed"]:
+            # Partial failure is visible in the exit code so cron mail surfaces it,
+            # while the successful sources still keep their items.
+            raise SystemExit(1)
+        return
+    if args.action == "stories":
+        _run_newsroom_stories(args)
+        return
+    if args.action == "refresh":
+        _run_newsroom_refresh(args)
+        return
+    raise SystemExit(f"unknown newsroom action: {args.action}")
+
+
+def _run_newsroom_stories(args):
+    """M4C: incremental story assignment (or an explicit full rebuild)."""
+    from editor_assistant.workflow import story_identity
+
+    if args.action == "stories" and args.stories_action == "rebuild":
+        result = story_identity.rebuild(
+            semantic=not args.no_semantic, preview=not args.apply, force=args.force
+        )
+        if result.get("refused"):
+            print(f"ПРЕИЗГРАЖДАНЕТО Е ОТКАЗАНО: {result['reason']}")
+            return
+        print(story_identity.render_summary(result))
+        return
+    semantic = not getattr(args, "no_semantic", False)
+    summary = story_identity.update(dry_run=args.dry_run, semantic=semantic)
+    print(story_identity.render_summary(summary))
+
+
+def _run_newsroom_refresh(args):
+    """PART 11: collect -> assign new items to stories -> one readable summary.
+
+    A story failure must not roll back a successful collection (and vice versa):
+    collection runs first and its items are on disk before stories are touched.
+    """
+    from editor_assistant.workflow import newsroom_run, story_identity
+
+    collect = newsroom_run.collect(
         dry_run=args.dry_run,
         source_ids=args.source or None,
         limit=args.limit,
         force=args.force,
     )
-    newsroom_run.print_summary(summary)
-    if summary.get("locked"):
-        # Another run (cron or the Workbench button) holds the lock; do nothing.
+    if collect.get("locked"):
+        newsroom_run.print_summary(collect)
         raise SystemExit(3)
-    if summary["failed"]:
-        # Partial failure is visible in the exit code so cron mail surfaces it,
-        # while the successful sources still keep their items.
+    story_summary, story_error = None, ""
+    try:
+        story_summary = story_identity.update(dry_run=args.dry_run, semantic=not args.no_semantic)
+    except Exception as exc:  # noqa: BLE001 - a story failure must not lose the collection
+        story_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+    print(render_refresh_summary(collect, story_summary, story_error))
+    if collect["failed"]:
         raise SystemExit(1)
 
 
+def render_refresh_summary(collect, stories, story_error):
+    """The editor-facing one-shot summary (PART 11)."""
+    lines = []
+    if collect.get("dry_run"):
+        lines.append("ПРОБЕН ПРЕГЛЕД (без мрежа и без запис)")
+    lines.append(f"източници: {len(collect.get('sources') or [])}")
+    lines.append(f"нови материали: {int(collect.get('new') or 0)}")
+    if stories is None:
+        lines.append("истории: НЕ СА ОБНОВЕНИ")
+    else:
+        lines.append(f"нови истории: {stories['new_stories']}")
+        lines.append(f"нови развития: {stories['relations'].get('NEW_DEVELOPMENT', 0)}")
+        lines.append(
+            "добавени към съществуващи: "
+            f"{stories['deterministic_matches'] + stories['semantic_matches'] + stories['exact_duplicates']}"
+        )
+        lines.append(f"за преглед: {stories['needs_review']}")
+    errors = int(collect.get("failed") or 0) + (1 if story_error else 0)
+    lines.append(f"грешки: {errors}")
+    if story_error:
+        lines.append(f"  истории: {story_error}")
+    return "\n".join(lines)
+
+
 def _add_newsroom_subcommands(sub):
-    """M4A: the cron entry point for daily collection."""
-    p = sub.add_parser("newsroom", help="daily newsroom operations (source collection)")
+    """M4A/M4C: the cron entry point for daily collection + story building."""
+    p = sub.add_parser("newsroom", help="daily newsroom operations (collection + stories)")
     actions = p.add_subparsers(dest="action", required=True)
     collect = actions.add_parser(
         "collect", help="collect from the registered sources once (cron entry point)"
@@ -972,6 +1048,36 @@ def _add_newsroom_subcommands(sub):
     collect.add_argument(
         "--force", action="store_true", help="ignore cadence (collect even if already done today)"
     )
+
+    stories = actions.add_parser("stories", help="M4C story identity")
+    story_actions = stories.add_subparsers(dest="stories_action", required=True)
+    upd = story_actions.add_parser("update", help="assign newly collected items to stories")
+    upd.add_argument("--dry-run", action="store_true", help="report the plan, write nothing")
+    upd.add_argument(
+        "--no-semantic",
+        action="store_true",
+        help="deterministic only (no model call); uncertain items stay separate",
+    )
+    reb = story_actions.add_parser(
+        "rebuild", help="rebuild every story from raw items (refuses to lose editor fixes)"
+    )
+    reb.add_argument("--preview", action="store_true", help="show the plan (default: no write)")
+    reb.add_argument("--apply", action="store_true", help="write the rebuilt store")
+    reb.add_argument(
+        "--force", action="store_true", help="allow a rebuild that discards editor split/merge"
+    )
+    reb.add_argument("--no-semantic", action="store_true", help="deterministic only")
+
+    refresh = actions.add_parser(
+        "refresh", help="collect, then assign the new material to stories, one summary"
+    )
+    refresh.add_argument("--dry-run", action="store_true", help="no network, no writes")
+    refresh.add_argument(
+        "--source", action="append", default=None, help="only this source_id (repeatable)"
+    )
+    refresh.add_argument("--limit", type=int, default=None, help="collect at most N sources")
+    refresh.add_argument("--force", action="store_true", help="ignore cadence")
+    refresh.add_argument("--no-semantic", action="store_true", help="deterministic story only")
     p.set_defaults(func=cmd_newsroom)
 
 

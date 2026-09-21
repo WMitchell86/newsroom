@@ -23,6 +23,7 @@ from typing import Any
 from editor_assistant.workflow import blocked_domains as blocked_mod
 from editor_assistant.workflow import inbox_store as inbox_mod
 from editor_assistant.workflow import sources_registry as sources_mod
+from editor_assistant.workflow import story_store as story_store_mod
 from editor_assistant.workflow.workbench import html as html_mod
 from editor_assistant.workflow.workbench import newsroom as wb_newsroom
 from editor_assistant.workflow.workbench import state as wb_state
@@ -73,6 +74,10 @@ def _route(path: str) -> tuple[str, str | None]:
         return "sources", None
     if parts == ["inbox"]:
         return "inbox", None
+    if parts == ["stories"]:
+        return "stories", None
+    if len(parts) == 2 and parts[0] == "stories":
+        return "story", parts[1]
     if parts == ["quit"]:
         return "quit", None
     if len(parts) == 2 and parts[0] == "case":
@@ -156,6 +161,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._get_sources()
             elif route == "inbox":
                 self._get_inbox()
+            elif route == "stories":
+                self._get_stories()
+            elif route == "story":
+                self._get_story(case_id)
             elif route == "healthz":
                 self._healthz()
             else:
@@ -177,6 +186,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._post_sources()
             elif route == "inbox":
                 self._post_inbox()
+            elif route == "stories":
+                self._post_stories()
             elif route == "quit":
                 self._quit()
             else:
@@ -433,6 +444,87 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 f"грешки {summary['failed']} · филтрирани по домейн {summary['blocked_filtered']}"
             )
         _redirect(self, "/inbox?" + urllib.parse.urlencode({"message": message}))
+
+    # ---------- M4C: stories ----------
+
+    def _get_stories(self):
+        params = self._query()
+        view = wb_newsroom.stories_view(
+            status=_first(params, "status", "NEW") or "NEW",
+            review=bool(_first(params, "review", "")),
+            page=_first(params, "page", "1"),
+        )
+        body = html_mod.render_stories(
+            view,
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
+        )
+        _respond(self, 200, body)
+
+    def _get_story(self, story_id):
+        detail = wb_newsroom.story_view(story_id)
+        if detail is None:
+            self._notfound(self.path)
+            return
+        params = self._query()
+        body = html_mod.render_story(
+            detail,
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
+        )
+        _respond(self, 200, body)
+
+    def _post_stories(self):
+        """Editor corrections + the story refresh action (no network here)."""
+        form = _post_form(self)
+        action = _first(form, "action", "")
+        story_id = _first(form, "story", "")
+        try:
+            if action in ("update", "update_preview"):
+                summary = wb_newsroom.refresh_stories(dry_run=action == "update_preview")
+                if action == "update_preview":
+                    message = (
+                        f"Пробен преглед: {summary['scanned']} материала · "
+                        f"нови истории {summary['new_stories']} · без запис."
+                    )
+                else:
+                    message = (
+                        f"Нови истории {summary['new_stories']} · "
+                        f"добавени към съществуващи "
+                        f"{summary['deterministic_matches'] + summary['semantic_matches'] + summary['exact_duplicates']} · "
+                        f"за преглед {summary['needs_review']}."
+                    )
+            elif action == "status":
+                status = _first(form, "status", "")
+                wb_newsroom.set_story_status(story_id, status)
+                message = "Историята е отбелязана."
+            elif action == "split":
+                result = wb_newsroom.split_story_item(story_id, _first(form, "item", ""))
+                story_id = result["to_story"]
+                message = "Материалът е отделен като нова история."
+            elif action == "merge":
+                result = wb_newsroom.merge_story(
+                    _first(form, "target", ""), _first(form, "source", "")
+                )
+                story_id = result["story_id"]
+                message = "Историите са обединени."
+            else:
+                raise story_store_mod.StoryStoreError(f"непознато действие: {action!r}")
+        except story_store_mod.StoryStoreError as exc:
+            detail = wb_newsroom.story_view(story_id) if story_id else None
+            if detail is None:
+                _redirect(self, "/stories?" + urllib.parse.urlencode({"error": str(exc)}))
+                return
+            _respond(self, 400, html_mod.render_story(detail, error=str(exc)))
+            return
+        if action in ("update", "update_preview"):
+            _redirect(self, "/stories?" + urllib.parse.urlencode({"message": message}))
+            return
+        _redirect(
+            self,
+            f"/stories/{urllib.parse.quote(story_id)}?"
+            + urllib.parse.urlencode({"message": message}),
+        )
 
     def _notfound(self, path):
         body = html_mod.page(

@@ -147,11 +147,27 @@ SOURCE_CADENCE_LABELS = {
 }
 
 SOURCE_COLLECTOR_LABELS = {
-    "rss": "RSS емисия",
-    "google_news_rss": "Търсене в Google News",
+    "rss": "Директна емисия",
+    "google_news_rss": "Наблюдение чрез Google News",
     "youtube": "YouTube (още не се събира)",
     "web": "Уеб страница (още не се събира)",
 }
+
+#: Collection mode, derived from the collector — no new registry field (M4B.1 F7).
+#: Source health for a monitoring query means the monitor worked, not that the
+#: publisher's own website was directly checked.
+COLLECTION_MODE_LABELS = {
+    "rss": "Директна емисия",
+    "google_news_rss": "Наблюдение чрез Google News",
+    "youtube": "YouTube (още не се събира)",
+    "web": "Уеб страница (още не се събира)",
+}
+
+
+def collection_mode_label(collector):
+    """How the material is actually obtained for a source."""
+    return COLLECTION_MODE_LABELS.get(collector or "", collector or "—")
+
 
 INBOX_STATUS_LABELS = {"NEW": "Нов", "SEEN": "Прегледан", "IGNORED": "Игнориран"}
 
@@ -181,6 +197,39 @@ INBOX_AUTHORITY_FILTERS = (
     ("authority", "Издател с авторитет"),
     ("monitoring", "Издател без авторитет"),
 )
+
+
+# ---------- M4C: story identity ----------
+
+#: Story *status* (workflow), distinct from the type badge «Нова история» /
+#: «Ново развитие», which describes the material.
+STORY_STATUS_LABELS = {"NEW": "Непрегледана", "SEEN": "Прегледана", "IGNORED": "Игнорирана"}
+
+STORY_STATUS_FILTERS = (
+    ("NEW", "Нови"),
+    ("all", "Всички"),
+    ("SEEN", "Прегледани"),
+    ("IGNORED", "Игнорирани"),
+)
+
+#: Membership relations, as the editor reads them on the timeline.
+STORY_RELATION_LABELS = {
+    "ORIGIN": "начало",
+    "SAME_STORY": "същата история",
+    "NEW_DEVELOPMENT": "ново развитие",
+    "RELATED_BACKGROUND": "свързан контекст",
+}
+
+STORY_DEVELOPMENT_LABEL = "Ново развитие"
+STORY_NEW_LABEL = "Нова история"
+
+
+def story_status_label(status):
+    return STORY_STATUS_LABELS.get(status or "", status or "—")
+
+
+def story_relation_label(relation):
+    return STORY_RELATION_LABELS.get(relation or "", relation or "—")
 
 
 PUBLISHER_UNKNOWN_LABEL = "Неизвестен издател"

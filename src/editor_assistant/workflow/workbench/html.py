@@ -59,10 +59,13 @@ def esc(value):
     return html_mod.escape(str(value if value is not None else ""), quote=True)
 
 
+#: M4C navigation: Stories first (the daily landing surface), then the raw
+#: materials view, which stays reachable so every collected row can be inspected.
 NAV = (
-    ("queue", "/", "Случаи"),
-    ("inbox", "/inbox", "Входящи"),
+    ("stories", "/stories", "Истории"),
+    ("inbox", "/inbox", "Материали"),
     ("sources", "/sources", "Източници"),
+    ("queue", "/", "Случаи"),
     ("intake", "/intake", "YouTube"),
 )
 
@@ -764,7 +767,7 @@ def sources_table(rows):
             "<tr>"
             f"<td><strong>{esc(row['name'])}</strong><br>"
             f'<span class="muted">{esc(row["source_id"])} · '
-            f"{esc(lb.source_collector_label(row['collector']))}"
+            f"{esc(lb.collection_mode_label(row['collector']))}"
             + (f" · {esc(row['url'] or row['query'])}" if (row["url"] or row["query"]) else "")
             + f"</span><br>{' '.join(flags)}"
             + (
@@ -1124,15 +1127,254 @@ def _inbox_item(item):
     )
 
 
-def render_inbox(view, message="", error=""):
+# ---------- M4C: stories ----------
+
+
+def _story_qs(filters, **overrides):
+    params = {
+        "status": filters.get("status") or "all",
+        "review": "1" if filters.get("review") else "",
+    }
+    params.update({key: value for key, value in overrides.items() if value is not None})
+    return urllib.parse.urlencode({key: value for key, value in params.items() if value})
+
+
+def story_status_nav(view):
+    filters = view["filters"]
+    parts = []
+    for key, label in lb.STORY_STATUS_FILTERS:
+        cls = ' class="active"' if filters["status"] == key else ""
+        parts.append(f'<a{cls} href="/stories?{_story_qs(filters, status=key)}">{esc(label)}</a>')
+    marker = " ✓" if filters.get("review") else ""
+    parts.append(
+        f'<a href="/stories?{_story_qs(filters, review="1" if not filters.get("review") else "")}">'
+        f"Само за преглед{marker}</a>"
+    )
+    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+
+
+def _story_actions(story, *, detail=False):
+    forms = []
+    for action, label, cls in (
+        ("SEEN", "Прегледана", ""),
+        ("IGNORED", "Игнорирай", "danger"),
+        ("NEW", "Върни като нова", ""),
+    ):
+        if action == story["status"]:
+            continue
+        forms.append(
+            '<form method="post" action="/stories" style="display:inline">'
+            '<input type="hidden" name="action" value="status">'
+            f'<input type="hidden" name="story" value="{esc(story["story_id"])}">'
+            f'<input type="hidden" name="status" value="{esc(action)}">'
+            f'<button class="btn {cls}" type="submit">{esc(label)}</button></form>'
+        )
+    link = (
+        f'<a class="btn" href="/stories/{esc(story["story_id"])}">Отвори историята</a>'
+        if not detail
+        else '<a class="btn" href="/inbox?status=all">Материали</a>'
+    )
+    return f"<p>{' '.join(forms)} {link}</p>"
+
+
+def _count_label(count, singular, plural):
+    """«1 издател» / «3 издателя» — the editor should not read broken BG."""
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def _story_when(card):
+    def _short(value):
+        text = str(value or "")
+        return text[11:16] if len(text) >= 16 else "—"
+
+    bits = [f"открито {esc(_short(card['first_seen_at']))}"]
+    if card["latest_material_change_at"]:
+        bits.append(f"обновено {esc(_short(card['latest_material_change_at']))}")
+    return " · ".join(bits)
+
+
+def _story_card(card):
+    badge = (
+        _badge(lb.STORY_DEVELOPMENT_LABEL, "warn")
+        if card.get("new_development")
+        else _badge(lb.STORY_NEW_LABEL, "info")
+    )
+    if card.get("needs_review"):
+        badge += " " + _badge("за преглед", "block")
+    if card.get("blocked_publisher"):
+        badge += " " + _badge("забранен издател", "block")
+    metrics = card["metrics"]
+    publishers = " · ".join(card["publishers"]) or "неизвестни издатели"
+    return (
+        '<section class="card">'
+        f"<p>{badge} {_badge(lb.story_status_label(card['status']))}</p>"
+        f'<h3><a href="/stories/{esc(card["story_id"])}">{esc(card["title"])}</a></h3>'
+        f'<p class="muted">{_count_label(metrics["publisher_count"], "издател", "издателя")} · '
+        f"{_count_label(metrics['publication_count'], 'публикация', 'публикации')} · "
+        f"{_count_label(metrics['discovery_count'], 'откриване', 'откривания')} · "
+        f"{_story_when(card)}</p>"
+        f'<p class="muted">{esc(publishers)}</p>'
+        + (f"<p>{esc(card['summary'])}</p>" if card["summary"] else "")
+        + _story_actions(card)
+        + "</section>"
+    )
+
+
+def render_stories(view, message="", error=""):
     counts = view["counts"]
-    by_status = counts["by_status"]
-    problems = view.get("problems") or []
     body = [
         (
-            f"<p><strong>Днес:</strong> нови {by_status.get('NEW', 0)} · "
-            f"прегледани {by_status.get('SEEN', 0)} · "
-            f"игнорирани {by_status.get('IGNORED', 0)} · "
+            f"<p><strong>Истории:</strong> {view['total_stories']} · "
+            f"нови {counts.get('NEW', 0)} · прегледани {counts.get('SEEN', 0)} · "
+            f"игнорирани {counts.get('IGNORED', 0)} · "
+            f"за преглед {view['needs_review']}"
+            f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
+        ),
+        (
+            '<p class="muted">История = реално събитие, сглобено от запазените материали. '
+            "Откриванията, публикациите и издателите се броят отделно: един и същ материал, "
+            "намерен от няколко наблюдения, не е няколко източника.</p>"
+        ),
+        story_status_nav(view),
+        (
+            '<section class="card"><h2>Обновяване на историите</h2>'
+            '<p class="muted">Групира вече събраните материали. Пробният преглед не записва. '
+            "Събирането на нови материали остава задача на cron "
+            "(<code>newsroom refresh</code>).</p>"
+            '<form method="post" action="/stories" style="display:inline">'
+            '<input type="hidden" name="action" value="update">'
+            '<button class="btn primary" type="submit">Обнови историите</button></form> '
+            '<form method="post" action="/stories" style="display:inline">'
+            '<input type="hidden" name="action" value="update_preview">'
+            '<button class="btn" type="submit">Пробен преглед</button></form></section>'
+        ),
+    ]
+    if message:
+        body.append(f'<div class="notice saved">{esc(message)}</div>')
+    if error:
+        body.append(f'<div class="notice error">{esc(error)}</div>')
+    stories = view["stories"]
+    if not stories:
+        body.append(
+            '<p class="muted">Няма истории за този филтър. Пуснете «Обнови историите» или '
+            'вижте <a href="/inbox">материалите</a>.</p>'
+        )
+        return page("Истории", "\n".join(body), active="stories")
+    body.extend(_story_card(card) for card in stories)
+    if view["page_count"] > 1:
+        filters = view["filters"]
+        parts = []
+        if view["page"] > 1:
+            parts.append(
+                f'<a href="/stories?{_story_qs(filters, page=view["page"] - 1)}">← Предишна</a>'
+            )
+        parts.append(f'<span class="muted">Страница {view["page"]} / {view["page_count"]}</span>')
+        if view["page"] < view["page_count"]:
+            parts.append(
+                f'<a href="/stories?{_story_qs(filters, page=view["page"] + 1)}">Следваща →</a>'
+            )
+        body.append('<nav class="filters">' + " | ".join(parts) + "</nav>")
+    return page("Истории", "\n".join(body), active="stories")
+
+
+def render_story(detail, message="", error=""):
+    metrics = detail["metrics"]
+    badge = (
+        _badge(lb.STORY_DEVELOPMENT_LABEL, "warn")
+        if any(m["relation"] == "NEW_DEVELOPMENT" for m in detail["timeline"])
+        else _badge(lb.STORY_NEW_LABEL, "info")
+    )
+    body = [
+        '<p><a href="/stories">← Всички истории</a></p>',
+        f"<h2>{esc(detail['title'])}</h2>",
+        f"<p>{badge} {_badge(lb.story_status_label(detail['status']))}"
+        + (_badge("за преглед", "block") if detail.get("needs_review") else "")
+        + "</p>",
+        (
+            f'<p class="muted">първо откриване: {esc(detail["first_seen_at"] or "—")} · '
+            f"първа публикация: {esc(detail['first_public_at'] or '—')} · "
+            f"последна съществена промяна: {esc(detail['latest_material_change_at'] or '—')}</p>"
+        ),
+        (
+            f'<p class="muted">{_count_label(metrics["publisher_count"], "издател", "издателя")} · '
+            f"{_count_label(metrics['publication_count'], 'уникална публикация', 'уникални публикации')} · "
+            f"{_count_label(metrics['discovery_count'], 'откриване', 'откривания')}</p>"
+        ),
+        _story_actions(detail, detail=True),
+        "<h3>Хронология</h3>",
+    ]
+    if message:
+        body.insert(0, f'<div class="notice saved">{esc(message)}</div>')
+    if error:
+        body.insert(0, f'<div class="notice error">{esc(error)}</div>')
+    for row in detail["timeline"]:
+        blocked = _badge("забранен издател", "block") if row.get("blocked_publisher") else ""
+        body.append(
+            '<div class="fact">'
+            f'<p class="muted">{esc(str(row["at"])[:16].replace("T", " "))} — '
+            f"{esc(lb.story_relation_label(row['relation']))} {blocked}</p>"
+            f'<p><a href="/inbox?status=all">{esc(row["title"])}</a>'
+            f' <span class="muted">({esc(row["publisher_domain"] or "неизвестен издател")})</span></p>'
+            '<form method="post" action="/stories" style="display:inline">'
+            '<input type="hidden" name="action" value="split">'
+            f'<input type="hidden" name="story" value="{esc(detail["story_id"])}">'
+            f'<input type="hidden" name="item" value="{esc(row["item_id"])}">'
+            '<button class="btn danger" type="submit">Този материал не е част от историята</button>'
+            "</form></div>"
+        )
+    body.append("<h3>Материали</h3>")
+    body.append(
+        '<p class="muted">Уникални публикации, групирани по издател. Различните наблюдения на '
+        "един и същ материал са откривания, не независими източници.</p>"
+    )
+    for pub in detail["publications"]:
+        blocked = _badge("забранен издател", "block") if pub.get("blocked_publisher") else ""
+        provenance = "".join(
+            f"<li>{esc(d['item_id'])} · {esc(d['source_id'])} · "
+            f"{esc(str(d['discovered_at'])[:16].replace('T', ' '))}</li>"
+            for d in pub["discoveries"]
+        )
+        body.append(
+            '<div class="fact">'
+            f"<p><strong>{esc(pub['title'])}</strong> {blocked}</p>"
+            f'<p class="muted">{esc(pub["publisher_domain"] or "неизвестен издател")} · '
+            f"публикувано {esc(str(pub['published_at'])[:16].replace('T', ' ') or '—')} · "
+            f"{len(pub['discoveries'])} откриване(я)</p>"
+            f"<details><summary>Откривания</summary><ul>{provenance}</ul></details></div>"
+        )
+    options = "".join(
+        f'<option value="{esc(o["story_id"])}">{esc(o["title"])}</option>'
+        for o in detail["recent_stories"]
+    )
+    if options:
+        body.append(
+            '<section class="card"><h3>Обедини с друга скорошна история</h3>'
+            '<p class="muted">Ако историята е разделена погрешно, обединете я с истинската.</p>'
+            '<form method="post" action="/stories">'
+            '<input type="hidden" name="action" value="merge">'
+            f'<input type="hidden" name="source" value="{esc(detail["story_id"])}">'
+            f'<select name="target">{options}</select>'
+            '<button class="btn" type="submit">Обедини</button></form></section>'
+        )
+    return page("История", "\n".join(body), active="stories")
+
+
+def render_inbox(view, message="", error=""):
+    problems = view.get("problems") or []
+    # "Днес" is the Europe/Sofia arrival day, not the lifetime inbox total
+    # (M4B.1 F3). Unfinished NEW work is reported separately so the editor never
+    # loses an item that arrived earlier and was not looked at.
+    today = view.get("today") or {}
+    today_status = today.get("by_status") or {}
+    body = [
+        (
+            f"<p><strong>Днес ({esc(today.get('date') or '—')}):</strong> "
+            f"нови {today_status.get('NEW', 0)} · "
+            f"прегледани {today_status.get('SEEN', 0)} · "
+            f"игнорирани {today_status.get('IGNORED', 0)}</p>"
+        ),
+        (
+            f"<p><strong>Непрегледани общо:</strong> {int(view.get('unreviewed') or 0)} · "
             f"източници с проблем {len(problems)}"
             f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
         ),
@@ -1154,7 +1396,7 @@ def render_inbox(view, message="", error=""):
             '<p class="muted">Няма елементи за този филтър. Пуснете «Събери новините сега» '
             'или вижте <a href="/sources">източниците</a>.</p>'
         )
-        return page("Входящи", "\n".join(body), active="inbox")
+        return page("Материали", "\n".join(body), active="inbox")
     body.extend(_inbox_item(item) for item in items)
     body.append(_pager(view))
-    return page("Входящи", "\n".join(body), active="inbox")
+    return page("Материали", "\n".join(body), active="inbox")

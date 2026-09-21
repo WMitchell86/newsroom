@@ -1,3 +1,56 @@
+## M4B.1 Feed Stabilization + M4C Story Identity — 2026-09-21 — BUILT, REAL-ISOLATED-PROVEN, AWAITING REVIEW
+
+Base `075e81d`. Gate: **859 offline tests** (was 805), ruff check/format clean, M3A
+smoke 25/25. Reports: `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
+`m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
+
+### PART 0 — the five bounded source-feed corrections
+
+- **F1 rolling recency:** the 72 h news window now applies on **every** run (bootstrap
+  only adds the 10-newest cap). Real isolated proof: run 1 → 91 items; an immediate
+  run 2 → 32 genuinely new, **0** stored rows older than 72 h. The former `+100 new`
+  second-run backfill did not reproduce.
+- **F2 honest calendar semantics:** a ±45-day event window is applied only when the
+  collector supplies a real `event_at`/`event_end_at`; an article's `published_at` is
+  never treated as an event date. No calendar scraper, no prose inference.
+- **F3 real «Днес»:** `Europe/Sofia` arrival-day counts from `discovered_at`, plus a
+  separate lifetime `Непрегледани общо` so unfinished work is never lost.
+- **F5 authority conflict fails closed:** a shared publisher domain with differing
+  `kind`/`factual_authority` raises `RegistryError`; same policy is allowed.
+- **F6:** `blocked_reason()` inspects the declared `entry.domain` before any network
+  call; the result-level publisher filter stays as defence in depth.
+- **F7:** collection mode derived from `collector` (`Директна емисия` /
+  `Наблюдение чрез Google News`) — no new registry field.
+
+### M4C — story identity
+
+- **Three identities kept apart:** discovery (`source_id`), publication
+  (`publication_key` + `publisher_domain`), story (`story_id`). The raw inbox is never
+  rewritten, never deleted; stories reference existing item ids.
+- **New modules:** `publication_identity.py`, `story_store.py`, `story_identity.py`,
+  `story_relation.py` (+ Workbench story views).
+- **Cheap-first pipeline:** exact publication identity → ≤7-day shortlist →
+  conservative deterministic test (near-identical title + close time + strong
+  distinctive overlap) → narrow semantic relation only for the ambiguous shortlist.
+  No embeddings, no all-pairs model calls, no long-term topic memory.
+- **False merge is worse than false split:** `uncertain -> separate` with
+  `needs_review`; a model/provider failure can never force a merge.
+- **`role="story"` pool** (`GEMINI_STORY_MODELS`, `OPENROUTER_STORY_MODEL`), never the
+  Lite judge pool; the paid-model guard is unchanged.
+- **CLI:** `newsroom stories update [--dry-run] [--no-semantic]`,
+  `newsroom stories rebuild --preview|--apply`, `newsroom refresh` (collect → assign →
+  one summary; a story failure never rolls back collection).
+- **Workbench:** `Истории` list + story detail with editor **split** and **merge**,
+  honest `издатели / публикации / откривания` counts, blocked-publisher material kept
+  for audit but excluded from grouping; `Материали` (raw inbox) still reachable.
+- **Real isolated evaluation:** 123 discovery rows → 113 unique publications (10
+  duplicate rows collapsed), 1 deterministic cross-publisher merge, 112 stories in a
+  deterministic-only build; a capped semantic probe (free OpenRouter arm) answered
+  DIFFERENT_STORY on every sampled near-miss and produced **0 merges**.
+- **Structural guards updated, not deleted:** the collection stack stays AI/story-free;
+  a second guard keeps the M4C modules free of drafting/publishing/Telegram/transcript
+  reach-through.
+
 ## M4A.1 Default Source Pack + M4B Daily Inbox — 2026-09-20 — BUILT, LIVE-PROVEN, AWAITING REVIEW
 
 Owner-authorized correction + completion of M4A, then the first daily-editor inbox.

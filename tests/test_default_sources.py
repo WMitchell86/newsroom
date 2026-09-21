@@ -18,7 +18,10 @@ from editor_assistant.workflow import sources_registry as R
 
 WORKFLOW = pathlib.Path(__file__).resolve().parents[1] / "src" / "editor_assistant" / "workflow"
 
-#: M4A.1 must not smuggle in a semantic/AI capability (that is M4C/M4D).
+#: The source/collection stack must stay AI/story-free (M4A.1 + M4C PART 24):
+#: collecting, storing and reporting raw source items never involves story
+#: semantics. M4C moved the story work into explicit modules (below), so this
+#: guard keeps its teeth instead of being deleted or worked around by naming.
 NEWSROOM_MODULES = (
     WORKFLOW / "default_sources.py",
     WORKFLOW / "blocked_domains.py",
@@ -26,7 +29,6 @@ NEWSROOM_MODULES = (
     WORKFLOW / "sources_registry.py",
     WORKFLOW / "newsroom_run.py",
     WORKFLOW / "inbox_store.py",
-    WORKFLOW / "workbench" / "newsroom.py",
 )
 AI_TOKENS = (
     "discovery",
@@ -38,6 +40,27 @@ AI_TOKENS = (
     "embedding",
     "telegram",
     "new_development",
+)
+
+#: M4C story semantics live only in these modules. They may be semantic, but they
+#: still may not draft, publish, or reach Telegram/transcripts/generic agents.
+M4C_MODULES = (
+    WORKFLOW / "publication_identity.py",
+    WORKFLOW / "story_store.py",
+    WORKFLOW / "story_identity.py",
+    WORKFLOW / "story_relation.py",
+    WORKFLOW / "workbench" / "newsroom.py",
+)
+M4C_FORBIDDEN_TOKENS = (
+    "telegram",
+    "transcriber",
+    "publish",
+    "wordpress",
+    "n8n",
+    "requests",
+    "httpx",
+    "apscheduler",
+    "youtube",
 )
 
 
@@ -52,6 +75,13 @@ def _tokens(path):
 def test_no_ai_or_story_identity_tokens_in_the_newsroom_stack(path):
     hits = sorted({token for token in _tokens(path) if token in AI_TOKENS})
     assert hits == [], f"{path.name} grew an AI/story-identity token: {hits}"
+
+
+@pytest.mark.parametrize("path", M4C_MODULES, ids=lambda p: p.name)
+def test_m4c_modules_never_draft_publish_or_reach_other_pipelines(path):
+    """Story identity may be semantic; it still stays inside its own boundary."""
+    hits = sorted({token for token in _tokens(path) if token in M4C_FORBIDDEN_TOKENS})
+    assert hits == [], f"{path.name} grew a forbidden token: {hits}"
 
 
 @pytest.mark.parametrize("path", NEWSROOM_MODULES, ids=lambda p: p.name)

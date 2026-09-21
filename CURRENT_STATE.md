@@ -6,9 +6,10 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-Last updated: 2026-09-20 (**M4A.1 default source pack + M4B daily inbox built and
-live-proven; awaiting review/freeze**; M3D closed and the YouTube pipeline is
-FROZEN; active work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
+Last updated: 2026-09-21 (**M4B.1 feed stabilization + M4C story identity built,
+real-isolated-evaluated; awaiting review/freeze**; M3D closed and the YouTube
+pipeline is FROZEN; active work is **M4 — Daily Newsroom**, split M4A–M4E in
+`BACKLOG.md`).
 
 ## Primary project objective (read before choosing any task)
 
@@ -27,10 +28,11 @@ FROZEN; active work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md
 
 ## Checkpoint
 
-- Base commit: `860f582` (frozen M3B.1) + the M3D harness commits; M4A `dd93e89`.
-- Test baseline: **793 passed**, full suite, offline (was 738 after M4A).
-- Gates: `ruff check src tests scripts` + `ruff format --check src tests scripts`
-  clean; M3A smoke passes.
+- Base commit: `075e81d` (M4A.1/M4B + publisher-authority correction).
+- Test baseline: **859 passed**, full suite, offline (was 805 at `075e81d`).
+- Gates: `ruff check src tests` + `ruff format --check src tests` clean; M3A smoke 25/25.
+- Last real isolated collection (M4B.1/M4C evaluation, 2026-09-21): 123 source items,
+  113 unique publications, 112 stories in a deterministic-only build.
 
 ## Verdicts
 
@@ -78,6 +80,16 @@ SOURCE_CADENCE_ENGINEERING          = PROVEN (M4A.1, live: 21 skipped on run 2)
 SAFE_BOOTSTRAP                      = PROVEN (M4A.1)
 PUBLISHER_AUTHORITY_INHERITANCE     = PROVEN (M4A.1 correction, live)
 DAILY_INBOX_ENGINEERING             = PROVEN (M4B, live)
+ROLLING_NEWS_RECENCY                = PROVEN (M4B.1 F1, two real immediate runs)
+CALENDAR_DATE_SEMANTICS             = HONEST (M4B.1 F2: event window needs a real event_at)
+DAILY_COUNT_SEMANTICS               = PROVEN (M4B.1 F3, Europe/Sofia arrival day)
+PUBLICATION_IDENTITY                = PROVEN (M4C, real corpus: 123 rows -> 113 publications)
+STORY_STORE_ENGINEERING             = PROVEN (M4C)
+DETERMINISTIC_STORY_MATCHING        = PROVEN (M4C, deliberately conservative)
+SEMANTIC_STORY_RELATION             = PROMISING (M4C: path proven, sampled answers all DIFFERENT_STORY)
+NEW_DEVELOPMENT_DETECTION           = NOT_EVALUATED on real material (hermetic tests pass)
+EDITOR_CORRECTION_WORKFLOW          = PROVEN (M4C split/merge)
+STORY_INBOX_ENGINEERING             = PROVEN (M4C)
 ```
 
 Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,
@@ -115,7 +127,9 @@ done. Maintenance only.
   thresholds; hook guidance; factual-gate semantics; provider routing
   (`PROVIDER_ORDER`); transcript discovery semantics; deterministic-vs-model
   authority; current editor-pilot results.
-- M3A (`workflow/workbench/`) is frozen after this reliability cleanup.
+- The **M3A case-editing workflow** (`workflow/workbench/` case pages) is frozen.
+  The **M4 newsroom surfaces** (`/sources`, `/inbox`, `/stories`) remain active
+  development — they are the product, not the frozen engine.
 - Jev has **zero production authority**: it is invoked only by the eval runner.
 - No drafting, no publishing, no LIVE 6–10 in M3J.
 - The intake stack contains **no scheduler**: `youtube-batch run` is a one-shot
@@ -331,12 +345,15 @@ is acceptable because the deterministic assessor stays authoritative.
 ## Commands
 
 ```bash
-PYTHONPATH=src python3 -m pytest -q                 # full suite, offline (695)
+PYTHONPATH=src python3 -m pytest -q                 # full suite, offline (859)
 ruff check src tests scripts
 ruff format --check src tests scripts
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # M3A UI (127.0.0.1:8123)
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply    # M4A.1 source pack
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect            # M4A.1 cron entry point
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --dry-run   # M4C plan, no write
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update     # M4C assign new material
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom refresh            # collect -> stories -> summary
 PYTHONPATH=src python3 scripts/m3a_smoke.py         # M3A scripted smoke: 25/25
 PYTHONPATH=src python3 scripts/evals/jev_shadow_eval.py --all       # M3J shadow eval (no authority)
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli youtube-intake "<URL>"  # M3B intake (no drafting)
@@ -394,6 +411,28 @@ collection → **M4B** story inbox + source/status UX → **M4C** story identity
 new development → **M4D** Telegram editorial alerts → **M4E** workflow polish. One
 slice at a time, reviewed and frozen before the next; plan: `m4/review/M4A_PLAN.md`.
 
+M4 state (2026-09-21): **M4A.1 + M4B frozen by review history; M4B.1 corrections +
+M4C story identity built and real-isolated-evaluated, awaiting review/freeze.**
+Reports: `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
+`m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
+
+M4B.1 (bounded corrections from `m4/M4_CHECKPOINT_REPO_REVIEW.md`): rolling 72 h news
+recency on **every** run (run 2 can no longer backfill what run 1 excluded); calendar
+semantics are honest (a ±45-day event window needs a real `event_at`, never
+`published_at`); «Днес» is a real `Europe/Sofia` arrival day; a shared publisher domain
+with conflicting policy fails closed instead of resolving alphabetically; a declared
+blocked `entry.domain` refuses the source before any network call; the collection mode
+is derived from `collector` (`Директна емисия` / `Наблюдение чрез Google News`).
+
+M4C (story identity): three identities stay separate — discovery (`source_id`),
+publication (`publication_key` + `publisher_domain`), story (`story_id`). The inbox is
+never rewritten; stories reference existing item ids. New modules
+`workflow/publication_identity.py`, `workflow/story_store.py`,
+`workflow/story_identity.py`, `workflow/story_relation.py`; new commands
+`newsroom stories update|rebuild`, `newsroom refresh`; new Workbench pages
+`/stories` and `/stories/{id}` with editor split/merge; `role="story"` model pool
+(`GEMINI_STORY_MODELS` / `OPENROUTER_STORY_MODEL`, paid guard preserved).
+
 M4A.1 / M4B state (2026-09-20): **BUILT, LIVE-PROVEN, awaiting review/freeze.**
 M4A (`sources_registry.py` + `sources` CLI + Workbench «Източници» +
 `newsroom_run.py` + `inbox_store.py`) was corrected and completed by:
@@ -437,10 +476,14 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect        
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --force     # ignore cadence
 ```
 
-Boundary held in M4A.1/M4B: no AI angles, no research, no drafting, no story
-identity, no ranking, no alerts — `SOURCE -> normalized INBOX ITEM` and stop.
-A structural test fails if a story-identity/AI identifier appears in the newsroom
-modules. M4C (story identity / new development) is next.
+Boundary after M4B.1/M4C: the collection stack (`default_sources.py`,
+`blocked_domains.py`, `source_health.py`, `sources_registry.py`, `newsroom_run.py`,
+`inbox_store.py`) is still AI/story-free and a structural test enforces it. Story
+semantics live **only** in the explicit M4C modules (`publication_identity.py`,
+`story_store.py`, `story_identity.py`, `story_relation.py`, the story Workbench views),
+which a second structural test keeps free of drafting/publishing/Telegram/transcript
+reach-through. Still not allowed: AI angles, research, drafting, ranking, alerts —
+**M4D (Telegram editorial alerts) is next and only after this review**.
 
 YouTube (frozen) — **maintenance only**, and only on observed production pain:
 

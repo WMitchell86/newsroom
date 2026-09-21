@@ -65,10 +65,11 @@ order — each one is done, reviewed and frozen before the next starts:
 M3D  FROZEN            YouTube  GOOD ENOUGH (maintenance only)
 
 M4A   Source Registry + Scheduled Collection       DONE (frozen)
-M4A.1 Default Source Pack + Source Hardening      DONE (awaiting review/freeze)
-M4B   Daily Inbox UX                               DONE (awaiting review/freeze)
-M4C  Story Identity / New Development              <-- next
-M4D  Telegram Editorial Alerts
+M4A.1 Default Source Pack + Source Hardening      DONE (frozen)
+M4B   Daily Inbox UX                               DONE (frozen)
+M4B.1 Feed stabilization (review F1-F7)            DONE (awaiting review/freeze)
+M4C   Story Identity / New Development             DONE (awaiting review/freeze)
+M4D  Telegram Editorial Alerts                     <-- next
 M4E  Editorial workflow polish
 ```
 
@@ -159,11 +160,63 @@ Report: `m4/review/M4B_DAILY_INBOX_REPORT.md`.
       is exactly M4C; the owner's `ВАЖНИ` / `СЛЕДЕНИ` buckets need a signal that does
       not exist yet, so they are deferred rather than faked.
 
-### M4C — Story Identity / New Development
+### M4B.1 — Feed Stabilization (BUILT, REAL-ISOLATED-PROVEN 2026-09-21)
 
-- [ ] `NEW_STORY` / `NEW_DEVELOPMENT` / `RELATED_BACKGROUND` / `DUPLICATE`
-      (Newsjack-inspired starting point, not a spec).
-- [ ] Why it matters now: with cron collection the same event arrives from many
+Bounded corrections from `m4/M4_CHECKPOINT_REPO_REVIEW.md`; report:
+`m4/review/M4B1_FEED_STABILIZATION_REPORT.md`.
+
+- [x] **F1 rolling recency** — the 72 h news window now applies on **every** run, so a
+      second immediate run cannot backfill what the first excluded. Real proof: run 1
+      → 91 items, run 2 (immediately) → 32 genuinely new, **0** stored rows older than
+      72 h (the old `+100 new` pattern is gone).
+- [x] **F2 honest calendar semantics** — a ±45-day event window needs a real
+      `event_at`/`event_end_at` from a collector that knows it; otherwise a calendar
+      source is ordinary news. `published_at` is never an event date.
+- [x] **F3 real «Днес»** — `Europe/Sofia` arrival-day counts from `discovered_at`,
+      plus a separate lifetime `Непрегледани общо` so nothing unfinished is lost.
+- [x] **F5 authority conflict fails closed** — same publisher domain with differing
+      `kind`/`factual_authority` raises `RegistryError` instead of letting the
+      alphabetically-first `source_id` decide authority.
+- [x] **F6 declared blocked domain refused pre-network** — `blocked_reason()` now
+      checks `entry.domain` as well as the URL and the query text.
+- [x] **F7 collection-mode wording** — derived from `collector` (`Директна емисия` /
+      `Наблюдение чрез Google News`); no new registry field.
+
+### M4C — Story Identity / New Development (BUILT, REAL-ISOLATED-PROVEN 2026-09-21)
+
+Report: `m4/review/M4C_STORY_IDENTITY_REPORT.md`; manual sample:
+`m4/review/M4C_STORY_REVIEW_PACK.md`.
+
+- [x] three separate identities (discovery / publication / story); the raw inbox is
+      never rewritten or deleted;
+- [x] `publication_identity.py` (URL normalization + tracking-param removal, Google
+      News token identity, no key invented from a title);
+- [x] `story_store.py` — strict, atomic, overrides audit, lifecycle rules,
+      propagation to member items;
+- [x] `story_identity.py` — cheap-first retrieval (exact publication → 7-day
+      shortlist → conservative deterministic test → narrow semantic fallback),
+      incremental `update`, `analyze`, `rebuild`, views and editor actions;
+- [x] `story_relation.py` — one narrow JSON relation contract, strict validation,
+      failure never merges;
+- [x] `role="story"` model pool (`GEMINI_STORY_MODELS`, `OPENROUTER_STORY_MODEL`),
+      never the Lite judge pool, paid guard preserved;
+- [x] CLI `newsroom stories update|rebuild`, `newsroom refresh` (collect → assign →
+      one summary; story failure never rolls back collection);
+- [x] Workbench `Истории` list + story detail with split («Този материал не е част от
+      историята») and merge; `Материали` (raw inbox) stays;
+- [x] real isolated evaluation + review pack; 123 rows → 113 publications, 10
+      duplicate rows collapsed, 112 stories deterministic-only.
+
+Open after review (NOT in this change): semantic call budget (102 ambiguous items in
+one corpus would mean ~102 calls), Bulgarian stemming/morphology for the deterministic
+match, and the pre-existing OpenRouter default-model id defect (see the report §10).
+
+### M4C — original scoping note (delivered above)
+
+- [x] `SAME_STORY` / `NEW_DEVELOPMENT` / `RELATED_BACKGROUND` / `DIFFERENT_STORY`
+      (Newsjack-inspired starting point, not a spec). `NEW_STORY` is an action, not a
+      relation.
+- [x] Why it mattered now: with cron collection the same event arrives from many
       sources; this is what stops the inbox becoming noise. Deliberately **after**
       M4A + M4B, never before them.
 

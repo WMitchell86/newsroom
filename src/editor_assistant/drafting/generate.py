@@ -150,9 +150,23 @@ if MODEL_ID not in DRAFT_MODEL_POOL:
     DRAFT_MODEL_POOL.insert(0, MODEL_ID)
 
 
+#: M4C story relation (semantic event comparison). This is NOT mechanical
+#: entailment, so it must never default to the weak Lite `judge` pool (the M3D
+#: lesson). Safe default: reuse the normal/full-capability draft pool. Set
+#: `GEMINI_STORY_MODELS` to give the story role its own ordered pool.
+STORY_MODEL_POOL = [
+    m.strip() for m in os.environ.get("GEMINI_STORY_MODELS", "").split(",") if m.strip()
+] or list(DRAFT_MODEL_POOL)
+
+
 def _gemini_pool(role="draft"):
     """Ordered model list for a role, skipping buckets already known exhausted."""
-    pool = JUDGE_MODEL_POOL if role == "judge" else DRAFT_MODEL_POOL
+    if role == "judge":
+        pool = JUDGE_MODEL_POOL
+    elif role == "story":
+        pool = STORY_MODEL_POOL
+    else:
+        pool = DRAFT_MODEL_POOL
     fresh = [m for m in pool if m not in _GEMINI_EXHAUSTED]
     return fresh or list(pool)  # all known-exhausted -> retry anyway (may have reset)
 
@@ -358,6 +372,9 @@ def call_model(
 
     role="draft" -> DRAFT_MODEL_POOL (full Flash, quality-critical drafting)
     role="judge" -> JUDGE_MODEL_POOL (Lite, 500/day, mechanical entailment checks)
+    role="story" -> STORY_MODEL_POOL (M4C semantic relation; defaults to the draft
+                    pool, never the weak judge pool — `GEMINI_STORY_MODELS`
+                    / `OPENROUTER_STORY_MODEL` override it; paid guard applies)
     Within a role the pool is walked in order and exhausted buckets are skipped.
 
     Resolution order:
@@ -386,6 +403,10 @@ def call_model(
         free = os.environ.get("OPENROUTER_FREE_MODEL")
         if prefer_free_openrouter or (not os.environ.get("OPENROUTER_MODEL") and not model):
             use = free or use
+        if role == "story" and not model:
+            # M4C's own OpenRouter arm; still never a paid model by accident
+            # (the guard below raises before any network call).
+            use = os.environ.get("OPENROUTER_STORY_MODEL") or use
         _check_openrouter_model_not_paid(use)
         return _call_openrouter(prompt_text, api_key=or_key, timeout=timeout, model=use)
 
