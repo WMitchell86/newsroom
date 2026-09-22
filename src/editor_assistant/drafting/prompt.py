@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-PROMPT_VERSION = "m2.3b-prompt-2"
+PROMPT_VERSION = "m2.3b-prompt-3"
 SECTIONS = (
     "SYSTEM",
     "CURRENT_EVIDENCE",
@@ -143,6 +143,9 @@ def build_prompt(packet, *, site_dna, voice_profile, mode_profile, style_example
             "- NEVER transfer a number, participant count, organization, role, date, or relationship from (historical_background) to the current event unless CURRENT EVIDENCE explicitly repeats that link\n"
             "- breaking a professor/title (проф., доц., д-р) binding from the person/play it belongs to in the source\n"
             "- connective facts to smooth prose\n- blockquote/pull-quote layout, subheadline/lead element, first person\n"
+            "- copying sentences or phrases verbatim from CURRENT EVIDENCE, the source headline or "
+            "the source text — reword every sentence in your own words; only a short direct quote "
+            "inside «…» may match the source exactly\n"
             "- anything not supported by CURRENT EVIDENCE (omit unknowns)"
         ),
     }

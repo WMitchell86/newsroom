@@ -112,10 +112,12 @@ def test_rendered_prompt_has_no_concrete_institution_attribution():
             }
         ],
     )
-    assert PROMPT_VERSION == "m2.3b-prompt-2" and pt["prompt_version"] == PROMPT_VERSION
+    assert PROMPT_VERSION == "m2.3b-prompt-3" and pt["prompt_version"] == PROMPT_VERSION
     text = pt["text"]
     assert "ОДМВР" not in text and "пресцентъра на ОД" not in text
     assert "historical_background" in text and "NEVER transfer" in text and "STYLE ONLY" in text
+    # M4F F5: the no-copy rule lives in FORBIDDEN, which must survive trimming.
+    assert "reword every sentence in your own words" in text
 
 
 # 4. semantic judge contract

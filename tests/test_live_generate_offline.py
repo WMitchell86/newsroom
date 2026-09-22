@@ -123,6 +123,9 @@ def test_offline_end_to_end_generation_path(store, stub_gemini):
     assert case["draft_text"].startswith("В Бургас")
     assert draft["semantic"]["pass"] is True
     assert draft["lineage"]["draft_id"] == case["draft_id"]
+    # M4F F5: the deterministic originality verdict rides into both stores.
+    assert draft["originality"]["pass"] is True
+    assert case["audit"]["originality"]["checked"] is True
 
 
 def test_gemini_retries_503_then_succeeds(monkeypatch):
@@ -143,7 +146,11 @@ def test_gemini_retries_503_then_succeeds(monkeypatch):
             }
             return json.dumps(payload).encode()
 
+    urls, keys = [], []
+
     def fake_urlopen(req, timeout):
+        urls.append(req.full_url)
+        keys.append(req.get_header("X-goog-api-key"))
         calls["n"] += 1
         if calls["n"] == 1:
             raise gen.urllib.error.HTTPError(req.full_url, 503, "Service Unavailable", None, None)
@@ -153,3 +160,6 @@ def test_gemini_retries_503_then_succeeds(monkeypatch):
     text, _meta = gen._call_gemini("ping", api_key="k", timeout=5, min_gap=0, role="draft")
     assert calls["n"] == 2
     assert "OK" in text or text  # recovered response reached the caller
+    # M4F F6: the key travels as a header; URLs are logged everywhere.
+    assert all("?key=" not in u and "key=" not in u for u in urls)
+    assert keys == ["k", "k"]

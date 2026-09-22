@@ -32,6 +32,8 @@ def test_canonicalization_normalizes_scheme_www_case_and_trailing(store):
         "https://flagman.bg/?q=1",
         "flagman.bg:8080",
         "ftp://flagman.bg",
+        "https://flagman.bg:notaport",
+        "https://flagman.bg:99999",
         "not a domain",
         "localhost",
         "",

@@ -479,6 +479,8 @@ def test_live_generate_proceeds_when_draft_ready_and_hook_enters_prompt(monkeypa
     assert "draft" in result
     assert result["readiness"]["status"] == DRAFT_READY
     assert result["factual_gate"] == "FACTUAL_GATE_PASS"
+    # M4F F5: the originality (no-copy) verdict is part of the result contract.
+    assert "originality" in result and "pass" in result["originality"]
     assert "РЕДАКТОРСКИ ПЛАН ЗА ИНТЕРЕС" in capture[0]
     assert "PRACTICAL_VALUE" in capture[0]
 

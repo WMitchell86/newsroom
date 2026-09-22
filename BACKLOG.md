@@ -257,23 +257,24 @@ match, and the pre-existing OpenRouter default-model id defect (see the report �
       has seven — and `new_proposition=title`, which validation rejects). If the
       editor wants in-UI angle scoring, build it as a real slice: route + form
       (7 rubric criteria, distinct new_proposition, fact refs) + tests.
-- [ ] **F5 originality guard (owner requirement, 2026-09-22):** drafts must
-      differ from the source and not look copy-pasted. Needs (a) a FORBIDDEN-
-      section prompt rule (reword, never copy sentences) and (b) a deterministic
-      n-gram overlap check vs `packet.source_text` surfaced on the case as an
-      `originality` verdict (like the factual gates). Today nothing checks it:
-      `audit_claims` *rewards* token overlap with evidence, so a verbatim source
-      sentence passes every gate; the style-leak check covers STYLE EXAMPLES only.
-- [ ] **F6 Gemini key in URL** — `_call_gemini` sends `?key=...`; switch to the
-      `x-goog-api-key` header so the secret never appears in a request URL
-      (extends the repo's "never put tokens in URLs" rule beyond Telegram).
-- [ ] **P3 hardening notes (2026-09-22 review):** models-page toggle fails OPEN
-      on a read error (flips a route to *enabled* — should keep state);
+- [x] **F5 originality guard (owner requirement, 2026-09-22) — DONE, M4F fix
+      round 2:** prompt `FORBIDDEN` no-copy rule (`m2.3b-prompt-3`) +
+      deterministic `generate.originality_check` (shared word run ≥ 8,
+      quotes exempt) → `audit.originality` + ⚠ case warning. Remaining critique
+      of `audit_claims` (it *rewards* token overlap with evidence, so a verbatim
+      source sentence still passes the *factual* gates) stands — the originality
+      verdict is what catches it.
+- [x] **F6 Gemini key in URL — DONE, M4F fix round 2** — `_call_gemini` and
+      `model_catalog.fetch_gemini_models` now send the `x-goog-api-key` header;
+      the `?key=` form is gone (extends the repo's "never put tokens in URLs"
+      rule beyond Telegram).
+- [ ] **P3 hardening notes (2026-09-22 review)** — ✅ DONE, M4F fix round 2:
+      models-page toggle fails CLOSED on a read error (400, nothing changed);
+      `publication_identity`/`blocked_domains` malformed-port `.port` ValueErrors
+      can no longer crash `process_item`. Still open:
       `_MUTATION_LOCK` is held across the whole model generation, blocking other
       writes for minutes; no cross-process locking between CLI and UI writers of
-      `cases.jsonl`/`ideas.jsonl` (concurrent runs can lose an update);
-      `publication_identity` `parts.port` raises `ValueError` on a malformed
-      feed URL and would crash `process_item`.
+      `cases.jsonl`/`ideas.jsonl` (concurrent runs can lose an update).
 
 ## M4 (original scoping note, kept for context)
 

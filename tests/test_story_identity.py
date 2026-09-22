@@ -131,6 +131,18 @@ def test_no_usable_url_never_fabricates_an_exact_key():
     assert pub.publication_key({"url": "javascript:alert(1)"}) is None
 
 
+def test_a_malformed_port_never_crashes_identity():
+    """M4F P3: a junk port drops out of the key deterministically — no ValueError."""
+    one = pub.publication_key(_item(url="https://media.example:notaport/story?id=1"))
+    two = pub.publication_key(
+        _item(source_id="monitor-b", url="https://media.example:notaport/story?id=1")
+    )
+    assert one is not None and one == two
+    assert pub.normalize_publication_url("https://media.example:notaport/story?id=1") == (
+        "https://media.example/story?id=1"
+    )
+
+
 # ---------------------------------------------------------------- story store
 
 

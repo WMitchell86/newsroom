@@ -48,7 +48,8 @@ def _get_json(url, *, headers=None, timeout=20):
 
 def fetch_gemini_models(api_key, *, timeout=20):
     """Text-out Gemini model ids (`generateContent`) for the account's key."""
-    payload = _get_json(f"{GEMINI_MODELS_URL}?key={api_key}", timeout=timeout)
+    # M4F F6: key travels as a header, never in the URL.
+    payload = _get_json(GEMINI_MODELS_URL, headers={"x-goog-api-key": api_key}, timeout=timeout)
     names = []
     for model in payload.get("models") or []:
         methods = model.get("supportedGenerationMethods") or []

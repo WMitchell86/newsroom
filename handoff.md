@@ -1,3 +1,34 @@
+## Handoff — Fix round 2: F5 originality + F6 key header + P3 hardening (2026-09-22)
+
+Verified: **934 offline tests** (was 922), `ruff check` + `ruff format --check`
+clean, M3A smoke **25/25**, `scripts/ui_proof.py` **56/56**.
+Entry in `MILESTONE.md` (top section).
+
+- **F5 (owner's "must differ from source, not copy-pasted" rule)**: prompt
+  FORBIDDEN no-copy line → `PROMPT_VERSION = "m2.3b-prompt-3"` (pin updated in
+  `test_drafting_m23b.py`); `generate.originality_check` strips «…»/„…“/"…"
+  quotes from both sides, binary-searches the longest shared word run,
+  threshold 8, lists mostly-covered sentences. Flows live result → drafts
+  store → `audit.originality` → ⚠ case warning; CLI prints a REVIEW line.
+  Deliberately warns, does not block (single-attempt policy, mirrors
+  `FACTUAL_GATE_REVIEW`).
+- **F6**: `x-goog-api-key` header in `_call_gemini` + `fetch_gemini_models`.
+  Test gotcha learned: `urllib.request.Request` constructor stores
+  `key.capitalize()` (→ `X-goog-api-key`) and `get_header` does NOT normalize —
+  look up `"X-goog-api-key"`.
+- **P3**: models toggle flip-read now raises `PolicyError` inside the handler
+  `try` (translation block moved in); the 400-render falls back to
+  `html_mod.page(...)` if `models_view()` itself is unreadable; `parts.port`
+  guarded in `publication_identity` (junk dropped → deterministic key) and
+  `blocked_domains` (refused with the port error, never `ValueError`).
+- Owner-approved **next milestone**: `frontend/` **Vite + React + TS** SPA over
+  a JSON API, **strangler** migration — API adapter over the existing service
+  functions (no logic duplication), client routing, toasts instead of
+  `?error=`/`?message=`, Ctrl+K palette, guided idea→draft stepper; server
+  pages + the whole suite stay green while `/app` grows; each page cut over per
+  review. Node 24.18.1 / npm 12.0.2 / registry reachable — verified.
+- Still open (BACKLOG M4F): angles submission UI; the two locking redesigns.
+
 ## Handoff — Code-review fix round F1–F4 (idea→draft correctness) (2026-09-22)
 
 Verified: **922 offline tests** (was 914), `ruff check` + `ruff format --check`

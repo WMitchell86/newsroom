@@ -68,7 +68,13 @@ def canonical_host(value):
             raise BlockedDomainError(f"въведете само домейн, не адрес на страница: {text!r}")
         if parsed.username or parsed.password:
             raise BlockedDomainError("домейнът не може да съдържа потребител/парола")
-        if parsed.port:
+        try:
+            has_port = bool(parsed.port)
+        except ValueError as exc:
+            # Malformed/out-of-range port is still a port — refuse it as one
+            # instead of crashing the collection path on a junk URL (M4F P3).
+            raise BlockedDomainError("домейнът не може да съдържа порт") from exc
+        if has_port:
             raise BlockedDomainError("домейнът не може да съдържа порт")
         candidate = parsed.hostname or ""
     if any(ch in candidate for ch in "/?#@:"):

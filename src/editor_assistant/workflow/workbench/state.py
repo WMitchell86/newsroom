@@ -631,6 +631,28 @@ def case_view(case_id):
                 "text": f"⚠ Нужна проверка: изречение без директна опора в източниците — „{text[:200]}“.",
             }
         )
+    # M4F F5: the draft must differ from its source — surface the deterministic
+    # originality verdict exactly like the factual gates.
+    originality = audit.get("originality") or {}
+    if originality.get("checked") and not originality.get("pass", True):
+        warnings.append(
+            {
+                "level": "review",
+                "text": (
+                    f"⚠ Черновата повтаря дословно {originality.get('longest_run_words', 0)} "
+                    f"думи от източника (праг {originality.get('threshold', 8)}). "
+                    "Препишете със свои думи — черновата не бива да изглежда "
+                    "копирана от оригинала."
+                ),
+            }
+        )
+        for copied_sentence in (originality.get("copied") or [])[:3]:
+            warnings.append(
+                {
+                    "level": "review",
+                    "text": f"Дословно повторено от източника: „{copied_sentence[:200]}“.",
+                }
+            )
     evidence_row = evidence_rows.get(case.get("evidence_id") or "")
     duplicates = evidence_row.get("duplicate_check") if evidence_row else None
     if duplicates and duplicates.get("status") not in (None, "NO_DUPLICATE"):
@@ -1141,6 +1163,7 @@ def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
             "lexical": result["lexical"],
             "semantic": result["semantic"],
             "factual_gate": result["factual_gate"],
+            "originality": result.get("originality"),
             "readiness": result["readiness"],
             "voice": prepared["voice"],
             "mode": prepared["mode"],
@@ -1168,7 +1191,11 @@ def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
             suggestion_reason=prepared.get("suggestion_reason", ""),
             factual_gate=store["factual_gate"],
             prompt_version=store["lineage"].get("prompt_version", ""),
-            audit={"semantic": store["semantic"], "lexical": store["lexical"]},
+            audit={
+                "semantic": store["semantic"],
+                "lexical": store["lexical"],
+                "originality": store.get("originality"),
+            },
             track=TRACK_LIVE,
             source_url=(row.get("packet") or {}).get("source_url", ""),
         )

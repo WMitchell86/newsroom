@@ -82,7 +82,13 @@ def normalize_publication_url(url):
             return ""
         return urlunsplit(("https", host, path, "", ""))
 
-    port = parts.port
+    try:
+        port = parts.port
+    except ValueError:
+        # Malformed/out-of-range port (":abc"): keep the identity on the bare
+        # host — deterministic and crash-free; junk never enters the key
+        # (M4F P3: this runs on every collected item).
+        port = None
     netloc = host
     if port and not (
         (parts.scheme.lower() == "http" and port == 80)

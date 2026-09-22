@@ -323,6 +323,28 @@ class TestCasePage:
         page = html.render_case(state.case_view("LIV-08"))
         assert "Нужна проверка" in page
 
+    def test_originality_warning_renders(self, wf_dir):
+        """M4F F5: a failed no-copy verdict surfaces like the factual gates."""
+        _add_case(
+            wf_dir,
+            "LIV-77",
+            draft_id="d1",
+            audit={
+                "semantic": {},
+                "lexical": {},
+                "originality": {
+                    "pass": False,
+                    "checked": True,
+                    "threshold": 8,
+                    "longest_run_words": 12,
+                    "copied": ["Общинският съвет прие бюджета на заседание."],
+                },
+            },
+        )
+        page = html.render_case(state.case_view("LIV-77"))
+        assert "повтаря дословно 12 думи" in page
+        assert "Дословно повторено" in page
+
     def test_bg_status_badges_on_case_page(self, wf_dir):
         _normal_case(wf_dir, "LIV-01")
         page = html.render_case(state.case_view("LIV-01"))

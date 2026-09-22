@@ -217,7 +217,8 @@ def live_generate_draft(
 
     The editor trigger is explicit: callers must pass an idea whose status is
     DRAFT_REQUESTED (see cli.live_generate). Reuses: sectioned prompt, style
-    retrieval (STYLE ONLY), lexical + semantic factual gates, full lineage.
+    retrieval (STYLE ONLY), lexical + semantic factual gates, deterministic
+    originality (no-copy) guard, full lineage.
     No auto-republish, no regeneration loop beyond the M2.3B single-attempt
     policy.
 
@@ -285,6 +286,8 @@ def live_generate_draft(
     lexical = gen.audit_claims(draft["body"], packet, style_texts=[e["headline"] for e in examples])
     semantic = gen.verify_claims_semantic(packet, draft["body"], api_key=api_key, timeout=timeout)
     gate = "FACTUAL_GATE_PASS" if semantic["pass"] else "FACTUAL_GATE_REVIEW"
+    # M4F F5: the draft must differ from the source — deterministic, offline.
+    originality = gen.originality_check(draft["body"], packet.get("source_text", ""))
     lineage = gen.make_lineage(
         draft_id=gen.draft_id_for(packet["evidence_id"], voice, mode, PROMPT_VERSION),
         evidence_id=packet["evidence_id"],
@@ -299,6 +302,7 @@ def live_generate_draft(
         "lexical": lexical,
         "semantic": semantic,
         "factual_gate": gate,
+        "originality": originality,
         "readiness": readiness,
         "retrieval": {
             "examples": examples,

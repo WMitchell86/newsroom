@@ -685,40 +685,45 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         form = _post_form(self)
         action = _first(form, "action", "")
         role = _first(form, "role", "")
-        # Compact single-form manager posts op+index; translate to the legacy
-        # vocabulary so the policy contract (and its tests) never changes.
-        if not action and _first(form, "op", ""):
-            op = _first(form, "op", "")
-            index = _first(form, "index", "0") or "0"
-            if op in ("up", "down"):
-                action = "move"
-                form = {**form, "action": [action], "direction": [op], "index": [index]}
-            elif op == "toggle":
-                action = "toggle"
-                form = {**form, "action": [action], "index": [index]}
-                if "enabled" not in form:
-                    # No explicit target: flip the current state of that route.
-                    flip = True
-                    try:
-                        roles = wb_newsroom.models_view().get("roles") or []
-                        row = next((r for r in roles if r.get("role") == role), None)
-                        current = next(
-                            (
-                                r
-                                for r in (row or {}).get("routes", [])
-                                if str(r.get("index")) == str(index)
-                            ),
-                            None,
-                        )
-                        if current is not None:
-                            flip = not bool(current.get("enabled"))
-                    except Exception:  # noqa: BLE001 - fall back to enabling
-                        flip = True
-                    form = {**form, "enabled": ["1" if flip else "0"]}
-            elif op == "remove":
-                action = "remove"
-                form = {**form, "action": [action], "index": [index]}
         try:
+            # Compact single-form manager posts op+index; translate to the legacy
+            # vocabulary so the policy contract (and its tests) never changes.
+            if not action and _first(form, "op", ""):
+                op = _first(form, "op", "")
+                index = _first(form, "index", "0") or "0"
+                if op in ("up", "down"):
+                    action = "move"
+                    form = {**form, "action": [action], "direction": [op], "index": [index]}
+                elif op == "toggle":
+                    action = "toggle"
+                    form = {**form, "action": [action], "index": [index]}
+                    if "enabled" not in form:
+                        # No explicit target: flip the current state of that route.
+                        flip = True
+                        try:
+                            roles = wb_newsroom.models_view().get("roles") or []
+                            row = next((r for r in roles if r.get("role") == role), None)
+                            current = next(
+                                (
+                                    r
+                                    for r in (row or {}).get("routes", [])
+                                    if str(r.get("index")) == str(index)
+                                ),
+                                None,
+                            )
+                            if current is not None:
+                                flip = not bool(current.get("enabled"))
+                        except Exception as exc:
+                            # M4F P3 fail-CLOSED: never guess a policy read
+                            # into an *enable* — refuse, change nothing.
+                            raise policy_mod.PolicyError(
+                                "не можа да се прочете текущото състояние на "
+                                f"маршрута — нищо не е променено ({exc})"
+                            ) from exc
+                        form = {**form, "enabled": ["1" if flip else "0"]}
+                elif op == "remove":
+                    action = "remove"
+                    form = {**form, "action": [action], "index": [index]}
             if action == "validate":
                 report = wb_newsroom.validate_models()
                 message = (
@@ -786,7 +791,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             KeyError,
             TypeError,
         ) as exc:
-            body = html_mod.render_models(wb_newsroom.models_view(), error=str(exc))
+            try:
+                body = html_mod.render_models(wb_newsroom.models_view(), error=str(exc))
+            except Exception:  # noqa: BLE001 - the view itself may be unreadable
+                body = html_mod.page("AI модели", f'<p class="muted">{html_mod.esc(str(exc))}</p>')
             _respond(self, 400, body)
             return
         _redirect(self, "/models?" + urllib.parse.urlencode({"message": message}))

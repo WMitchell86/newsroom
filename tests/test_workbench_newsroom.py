@@ -697,6 +697,27 @@ def test_models_page_refuses_an_impossible_edit_with_a_message(server):
     assert resp.status == 400
     assert "provider и model" in resp.read().decode("utf-8")
 
+
+def test_models_toggle_fails_closed_when_the_policy_read_fails(server, newsroom_dir, monkeypatch):
+    """M4F P3: an unreadable policy must never be guessed into an *enable*.
+
+    The old flip path fell back to `enabled=1` on a read error — a fail-open
+    money switch. Now the toggle refuses, changes nothing, and says so.
+    """
+    from editor_assistant.drafting import model_policy as policy_mod
+    from editor_assistant.workflow.workbench import newsroom as nr
+
+    before = policy_mod.load_policy()["roles"]["draft"]["routes"][0]["enabled"]
+
+    def boom():
+        raise OSError("policy store unreadable")
+
+    monkeypatch.setattr(nr, "models_view", boom)
+    resp = _post(f"{server}/models", {"op": "toggle", "role": "draft", "index": "0"})
+    assert resp.status == 400
+    assert "нищо не е променено" in resp.read().decode("utf-8")
+    assert policy_mod.load_policy()["roles"]["draft"]["routes"][0]["enabled"] == before
+
     resp = _post(f"{server}/models", {"action": "nonsense"})
     assert resp.status == 400
 

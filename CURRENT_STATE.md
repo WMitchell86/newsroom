@@ -6,6 +6,20 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
+Updated 2026-09-22 (fix round 2): **review remainder DONE** — F5 originality
+guard (prompt `m2.3b-prompt-3` FORBIDDEN no-copy rule + deterministic
+`generate.originality_check`: longest shared word run ≥ 8 = copy-paste,
+direct quotes exempt on both sides, verdict stored in `audit.originality` and
+rendered as a ⚠ REVIEW warning on the case; CLI prints REVIEW), F6 (the Gemini
+key travels as the `x-goog-api-key` header in `_call_gemini` and
+`fetch_gemini_models`, never in a URL), P3 (models-page toggle fails CLOSED on
+a policy read error — 400, nothing changed; malformed-port `.port` ValueErrors
+can no longer crash `process_item` in `publication_identity`/`blocked_domains`).
+Gates: **934 tests**, ruff clean, ui_proof 56/56, M3A smoke 25/25.
+Owner-approved next milestone: `frontend/` **Vite + React + TS** SPA over a
+JSON API, strangler migration — server pages, pipelines and the full suite
+stay green while the SPA grows; each page cut over per review.
+
 Updated 2026-09-22 (later): **second full code review of every pipeline**
 (owner gate: "logic and pipelines correct first" before approving a modern
 frontend stack) → verdict: pipelines A/B/D and the money/privacy/secret
@@ -56,7 +70,7 @@ work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
 ## Checkpoint
 
 - Base commit: `075e81d` (M4A.1/M4B + publisher-authority correction).
-- Test baseline: **922 passed**, full suite, offline (914 before the 2026-09-22 F1–F4 review fixes; was 805 at `075e81d`).
+- Test baseline: **934 passed**, full suite, offline (922 after the F1–F4 review fixes; was 805 at `075e81d`).
 - Gates: `ruff check src tests` + `ruff format --check src tests` clean; M3A smoke 25/25.
 - Last real isolated collection (M4B.1/M4C evaluation, 2026-09-21): 123 source items,
   113 unique publications, 112 stories in a deterministic-only build.

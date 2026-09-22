@@ -1,4 +1,50 @@
-## M4F Code-Review Fix Round (idea→draft correctness F1–F4 + regression tests) — 2026-09-22 — BUILT, AWAITING REVIEW
+## M4F Fix Round 2 (F5 originality guard + F6 key-in-URL + P3 hardening) — 2026-09-22 — BUILT, AWAITING REVIEW
+
+Base `f718234`. Gates: **934 offline tests** (was 922), `ruff check` +
+`ruff format --check` clean, M3A smoke **25/25**, `scripts/ui_proof.py` **56/56**.
+Owner decision recorded this round: finish the review remainder first, then
+start the approved next milestone — `frontend/` **Vite + React + TS** SPA over
+a JSON API, strangler migration (Node 24 + npm 12 + network verified here).
+
+- **F5 originality guard (owner requirement: draft ≠ source, not copy-pasted).**
+  Two halves. (a) Prompt `FORBIDDEN` now bans verbatim sentences from CURRENT
+  EVIDENCE/the source — reword every sentence, only a short «…» quote may match
+  → `PROMPT_VERSION` bumped to `m2.3b-prompt-3` (pin updated; lineage stays
+  honest about which prompt produced a draft). (b)
+  `generate.originality_check(draft, source_text)`: deterministic and offline —
+  strips direct quotes from BOTH sides (quoting the source correctly *is* the
+  job), then binary-searches the longest contiguous shared word run; ≥ 8 words
+  of verbatim prose = fail, with the mostly-covered sentences listed as
+  evidence. Wired `live_generate_draft` result → live-draft store → case
+  `audit.originality` → `case_view` renders a ⚠ REVIEW warning beside the
+  factual gates (the CLI prints a REVIEW line too). Warns, never blocks: the
+  M2.3B single-attempt policy has no regeneration loop, so it behaves like
+  `FACTUAL_GATE_REVIEW` and the editor sees it before finalize. Old cases
+  without the key render nothing (`checked` gate).
+- **F6 — the Gemini key never enters a URL.** `_call_gemini` and
+  `model_catalog.fetch_gemini_models` send `x-goog-api-key` as a header; the
+  `?key=` form (which leaks into logs, proxies and history) is gone. Tests
+  capture the real `urllib` Request on both call paths.
+- **P3 — fail-closed + crash-proofing.** The models-page toggle used to fall
+  back to *enabled* when the policy read failed — it now raises `PolicyError`
+  inside the handler try (400, «нищо не е променено»), and the error render
+  tolerates an unreadable view instead of crashing. The `parts.port` ValueErrors
+  on malformed/out-of-range ports (junk feed URLs could crash `process_item`)
+  are guarded: `publication_identity` drops the junk port deterministically,
+  `blocked_domains` refuses it as a port.
+- **+12 tests**: originality unit suite (incl. the exact 8-words-fail /
+  7-words-pass boundary, quote exemption, empty-source report), prompt pin +
+  no-copy rule, header capture on both Gemini paths, fail-closed toggle over
+  live HTTP, malformed-port identity/domain refusals, and end-to-end originality
+  in both stores.
+- Still deferred (BACKLOG M4F): the two locking redesigns (mutation lock held
+  across generation; cross-process CLI/UI file locking) and the angles-UI slice.
+
+No new dependencies; no UI/route/store-contract changes; `DRY_RUN` /
+`AUTO_PUBLISH` untouched.
+
+---
+
 
 Base `9938013`. Gate: **922 offline tests** (was 914), `ruff check` +
 `ruff format --check` clean, M3A smoke **25/25**, live UI proof

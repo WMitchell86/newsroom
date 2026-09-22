@@ -702,3 +702,37 @@ def test_call_model_still_routes_through_the_policy(monkeypatch):
     assert seen["role"] == "story"
     assert seen["model"] == model_policy.load_policy()["roles"]["story"]["routes"][0]["model"]
     assert meta["on_exhausted"] == "conservative"
+
+
+def test_fetch_gemini_models_sends_the_key_as_a_header_never_in_the_url(monkeypatch):
+    """M4F F6: URLs leak into logs/proxies — the key must never enter one."""
+    seen = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "models": [
+                        {
+                            "name": "models/gemini-test",
+                            "supportedGenerationMethods": ["generateContent"],
+                        }
+                    ]
+                }
+            ).encode()
+
+    def fake_urlopen(req, timeout):
+        seen["url"] = req.full_url
+        seen["key"] = req.get_header("X-goog-api-key")
+        return _Resp()
+
+    monkeypatch.setattr(model_catalog.urllib.request, "urlopen", fake_urlopen)
+    assert model_catalog.fetch_gemini_models("k-secret") == ["gemini-test"]
+    assert "?key=" not in seen["url"] and "k-secret" not in seen["url"]
+    assert seen["key"] == "k-secret"

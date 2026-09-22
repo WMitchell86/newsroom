@@ -394,6 +394,7 @@ def cmd_live_generate(args):
         "lexical": result["lexical"],
         "semantic": result["semantic"],
         "factual_gate": result["factual_gate"],
+        "originality": result.get("originality"),
         "readiness": result["readiness"],
         "voice": prepared["voice"],
         "mode": prepared["mode"],
@@ -415,7 +416,11 @@ def cmd_live_generate(args):
         suggestion_reason=prepared.get("suggestion_reason", ""),
         factual_gate=store["factual_gate"],
         prompt_version=store["lineage"]["prompt_version"],
-        audit={"semantic": store["semantic"], "lexical": store["lexical"]},
+        audit={
+            "semantic": store["semantic"],
+            "lexical": store["lexical"],
+            "originality": store.get("originality"),
+        },
         track=TRACK_LIVE,
         source_url=row["packet"].get("source_url", ""),
     )
@@ -427,6 +432,8 @@ def cmd_live_generate(args):
     print(f"headline: {store['draft']['headline']}")
     if gate == "FACTUAL_GATE_REVIEW":
         print("REVIEW required before presenting the draft (M2.3B §10 policy).")
+    if not (store.get("originality") or {}).get("pass", True):
+        print("REVIEW required: the draft repeats source prose verbatim (originality guard).")
 
 
 def cmd_lineage_check(_args):

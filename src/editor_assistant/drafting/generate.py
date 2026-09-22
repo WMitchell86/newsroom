@@ -193,16 +193,19 @@ def _call_gemini(
     ).encode("utf-8")
     last_err = None
     for model_id in [model] if model else _gemini_pool(role):
+        # M4F F6: the key NEVER enters the URL (URLs leak into logs, proxies
+        # and history); Gemini accepts it as the x-goog-api-key header.
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
             + model_id
-            + ":generateContent?key="
-            + api_key
+            + ":generateContent"
         )
         for attempt in range(1, max_attempts + 1):
             _gemini_pace(min_gap)
             req = urllib.request.Request(
-                url, data=payload, headers={"Content-Type": "application/json"}
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
             )
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -630,6 +633,113 @@ def audit_claims(draft_text, packet, style_texts=()):
         "contradicted": contradicted,
         "leak_hits": sorted(set(leak_hits))[:20],
     }
+
+
+# M4F F5 (owner requirement): a draft must differ from its source and must not
+# look copy-pasted. Verbatim prose runs of this many words (direct quotes
+# excluded) are copy-paste and surface as a REVIEW warning on the case.
+ORIGINALITY_THRESHOLD_WORDS = 8
+_QUOTED_RX = re.compile(r"[«„\"][^«»„“”\"]{4,400}[»”\"]")
+
+
+def _words(text):
+    return re.findall(r"\w+", _norm(text))
+
+
+def _prose(text):
+    """Text minus direct quotes — a quote is *supposed* to match verbatim."""
+    return _QUOTED_RX.sub(" ", text or "")
+
+
+def _share_run(a, b, length):
+    """True when both word streams share a contiguous run of `length` words."""
+    if length <= 0:
+        return True
+    if length > len(a) or length > len(b):
+        return False
+    src = {tuple(b[i : i + length]) for i in range(len(b) - length + 1)}
+    return any(tuple(a[i : i + length]) in src for i in range(len(a) - length + 1))
+
+
+def _longest_common_run(a, b):
+    """Length of the longest contiguous word run present in both streams."""
+    if not a or not b:
+        return 0
+    lo, hi, best = 1, min(len(a), len(b)), 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if _share_run(a, b, mid):
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
+def originality_check(draft_text, source_text, *, threshold=ORIGINALITY_THRESHOLD_WORDS):
+    """Deterministic no-copy guard (M4F F5): how much of the draft is verbatim
+    source prose.
+
+    Returns a factual-gate-style verdict:
+      pass               no shared prose run reaches `threshold` words
+      checked            False when either side has no prose to compare
+      longest_run_words  longest contiguous shared word run
+      copied             draft sentences that are mostly covered by a shared run
+
+    Direct quotes («…», „…“, "…") are stripped from BOTH sides first: quoting
+    the source verbatim is correct journalism, copying its prose is not.
+    """
+    segments = [
+        s.strip() for s in re.split(r"(?<=[.!?…])\s+", _prose(draft_text or "")) if s.strip()
+    ]
+    draft_words: list[str] = []
+    spans: list[tuple[int, int, str]] = []
+    pos = 0
+    for seg in segments:
+        words = _words(seg)
+        spans.append((pos, pos + len(words), seg))
+        draft_words.extend(words)
+        pos += len(words)
+    src_words = _words(_prose(source_text or ""))
+    result = {
+        "pass": True,
+        "checked": bool(draft_words and src_words),
+        "threshold": threshold,
+        "longest_run_words": 0,
+        "copied": [],
+    }
+    if not result["checked"]:
+        return result
+    longest = _longest_common_run(draft_words, src_words)
+    result["longest_run_words"] = longest
+    if longest < threshold:
+        return result
+    # Fail: mark every word covered by a maximal shared run, then report the
+    # sentences where most words are covered (evidence for the editor).
+    starts: dict[tuple[str, ...], list[int]] = {}
+    for j in range(len(src_words) - threshold + 1):
+        starts.setdefault(tuple(src_words[j : j + threshold]), []).append(j)
+    covered = [False] * len(draft_words)
+    for i in range(len(draft_words) - threshold + 1):
+        for j in starts.get(tuple(draft_words[i : i + threshold]), ()):
+            s, e, js = i, i + threshold, j
+            while s > 0 and js > 0 and draft_words[s - 1] == src_words[js - 1]:
+                s -= 1
+                js -= 1
+            while (
+                e < len(draft_words)
+                and js + (e - s) < len(src_words)
+                and draft_words[e] == src_words[js + (e - s)]
+            ):
+                e += 1
+            covered[s:e] = [True] * (e - s)
+    for start, end, seg in spans:
+        n = end - start
+        hit = sum(1 for k in range(start, end) if covered[k])
+        if n and hit * 2 >= n and hit >= threshold // 2:
+            result["copied"].append(seg[:160])
+    result["pass"] = False
+    return result
 
 
 _SEMANTIC_ISSUES = (
