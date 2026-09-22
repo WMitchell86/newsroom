@@ -1,3 +1,63 @@
+## Handoff — M4-UI Workbench UI Overhaul (2026-09-21)
+
+Verified: **914 offline tests**, ruff check/format clean, M3A smoke 25/25, a live
+isolated UI proof `ALL CHECKS PASSED`. Report:
+`m4/review/WORKBENCH_UI_OVERHAUL_REPORT.md`. Every finding in
+`m4/review/UX_UI_REVIEW.md` is resolved (table at the end of that file).
+
+- **The complaint that drove it:** the editor-in-chief opened the running app and
+  could not tell what it was for. Both in-repo reviews agreed (no «today», no nav
+  hierarchy, `/` landed on the frozen M3A queue).
+- **`/` is now the daily landing** (`html.render_home`, read-only): unreviewed
+  stories / materials / arrived-today (Europe/Sofia) / active sources, newest five
+  stories, two counted buttons, a three-step «Как се работи» card.
+  The M3A queue moved to `/cases`; old `/?filter=…` links still resolve.
+- **Header says what the product is** — «Дневен новинарски помощник» + «Какво е
+  ново от вашите източници · прочетете · отбележете · напишете»; the `M4` tag is
+  gone.
+- **Nav has hierarchy:** `Начало · Истории · Материали · Източници` then
+  `AI модели · Случаи · YouTube` under «Настройки и архив:».
+- **CSS is served once** at `/static/style.css` (inline block kept only as a
+  fallback), with responsive rules and `.table-wrap`.
+- **`/models` compacted 58 KB → 27.6 KB:** one manager form per role
+  (route select + operation select) instead of 4 forms per route. The POST
+  contract is unchanged — `op`/`index` are translated to the legacy
+  `action`/`direction`/`enabled` vocabulary in `http._post_models`.
+- **Safety/UX polish:** destructive buttons confirm first, long collect/refresh
+  actions disable their button and show a busy overlay, empty states carry the
+  next action, and the daily pages no longer speak developer Bulgarian.
+- **Unchanged on purpose:** every button still calls the same service functions
+  (the UI owns no validation), no new dependency, no JS framework, M3A case flow
+  and finalization guards untouched, `EDITORIAL_EFFECTIVENESS` still PENDING.
+- **Next:** show it to the editor-in-chief; then M4E (Telegram alerts) or the next
+  UI round driven by real use.
+
+---
+
+## Handoff — M4D Model Routing + Role Budget (2026-09-21)
+
+Verified: **913 offline tests**, ruff check/format clean, M3A smoke 25/25. Reports:
+`m4/review/MODEL_ROUTING_AND_BUDGET_REPORT.md`,
+`m4/review/MODEL_ROLE_QUALIFICATION_REPORT.md`.
+
+- **Model routing is built:** 7 roles (judge/story/angle/draft/research/extract/utility),
+  ordered routes per role, true cross-provider fallback (Gemini → OpenRouter), failure
+  classification, health tracking, bounded retries, daily usage ledger (no prompts stored).
+- **Policy store:** `config/model_policy.default.json` (tracked) + optional `var/model_policy.json`
+  (operator override). Gemini per-model quotas: 500 RPD Lite, 20 RPD Flash.
+- **CLI:** `newsroom models status|validate|show`. Validation checks live OpenRouter catalog.
+- **Workbench:** `AI модели` page at `/models` for operator control.
+- **Role qualification harness:** `scripts/evals/model_role_eval.py` with fixtures for
+  judge (6 cases), story (6), angle (4), draft (3), research (3). Extract/utility
+  roles defined but no qualification corpus yet.
+- **Anchor gate tightening (PART 12):** weak candidates (no title overlap, no shared
+  distinctive tokens, no matching numbers) rejected without a model call.
+- **Safe degradation per role:** story=conservative (never merge), judge=review_required,
+  angle=degraded, draft=fail_visible, research=deterministic.
+- **Next:** review + freeze M4C + M4D, then M4E (workflow polish) or M4D Telegram alerts.
+
+---
+
 ## Handoff — M4B.1 Feed Stabilization + M4C Story Identity (2026-09-21)
 
 Verified: **859 offline tests**, ruff check/format clean, M3A smoke 25/25, a real

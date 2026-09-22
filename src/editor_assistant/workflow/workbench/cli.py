@@ -41,7 +41,7 @@ def add_workbench_subcommand(sub):
 
 
 def _workbench_cmd(args):
-    sys_argv = ["workbench"]
+    sys_argv = []
     if args.host != "127.0.0.1":
         sys_argv.append("--host")
         sys_argv.append(args.host)

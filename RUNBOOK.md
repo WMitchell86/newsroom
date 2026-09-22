@@ -4,10 +4,7 @@ Operational-verification milestone only. No code changes in this step:
 no ingestion, renderer, Telegram transport, state, or polling-code changes.
 No scheduling. No automatic delivery.
 
-## 0. Editor Workbench (M3A, local browser UI)
-
-For editorial review of LIVE workflow cases (draft → sources → editor final)
-without editing Markdown files:
+## 0. Editor Workbench (local browser UI)
 
 ```bash
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127.0.0.1:8123/
@@ -15,6 +12,40 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127
 
 Binds **127.0.0.1** by default; `--host` is opt-in and there is **no auth** on
 this local MVP. `POST /quit` is refused unless `WB_ALLOW_QUIT=1` (test-only).
+
+First run (empty `var/newsroom/` — the pages will be empty until you do this
+once; verified 2026-09-21: 35 sources applied, 99 real items collected, 0
+errors, 88 stories built):
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli sources defaults --apply
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect --force
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --no-semantic
+```
+
+(After that, «Събери новините сега» / «Обнови историите» in the UI do the same
+two steps; the buttons can also run in `--dry-run` form «Пробен преглед».)
+
+Where the editor lands (2026-09-21 UI overhaul —
+`m4/review/WORKBENCH_UI_OVERHAUL_REPORT.md`):
+
+- **`/` = «Начало»** — read-only daily landing: unreviewed stories / unreviewed
+  materials / arrived-today (Europe/Sofia) / active sources, the newest stories
+  and a three-step «Как се работи» card. No page here writes anything.
+- **Daily pages:** `/stories` (+ `/stories/{id}`), `/inbox` (Материали),
+  `/sources`. **Settings/archive row:** `/models` (AI модели), `/cases`
+  (the frozen M3A queue), `/intake` (YouTube).
+- `/cases?filter=…` is the queue's canonical URL; the older `/?filter=…` links
+  still resolve to the same page. The stylesheet is served once at
+  `/static/style.css` (an inline copy stays as a no-network fallback).
+- Long actions (collect / refresh stories) disable their button and show a
+  «Събиране… моля, изчакайте.» overlay; destructive buttons ask
+  `Наистина ли?` first.
+
+### M3A case workflow (frozen surface, now under «Случаи»)
+
+For editorial review of LIVE workflow cases (draft → sources → editor final)
+without editing Markdown files:
 
 Editor rules:
 
@@ -187,6 +218,12 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update 
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --no-semantic  # deterministic only
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories rebuild --preview  # full rebuild, no write
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom refresh             # collect -> stories -> summary
+# M4D model routing
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models status      # per-role model view
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models validate    # check model IDs live
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models show         # full policy dump
+PYTHONPATH=src python3 scripts/evals/model_role_eval.py --list                     # qualification plan
+PYTHONPATH=src python3 scripts/evals/model_role_eval.py --role judge               # qualify one role
 ```
 
 `newsroom refresh` is the recommended cron command: it collects, assigns the newly

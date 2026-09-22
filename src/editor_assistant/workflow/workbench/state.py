@@ -868,3 +868,371 @@ def _record_decision_locked(
         case = evidence_only
     record_action("editor_decision_submitted", case_id)
     return case
+
+
+# ---------- M4F: ideas -> prepared cases -> drafts («Статии» bridge) ----------
+#
+# The daily loop used to end at "story reviewed". These functions expose the
+# existing M2.3B drafting contracts (ideas.request_draft, live.live_case_request,
+# live.live_generate_draft) to the workbench UI without changing them: the same
+# validation, the same stores, the same immutability rules. The AI draft store
+# stays append-only; generation always goes through live_generate_draft.
+
+#: The four editing modes the prompt layer knows (workflow/modes.py). The UI
+#: select offers exactly these; anything else is rejected before a model call.
+EDITING_MODES = (
+    "MODE_BRIEF",
+    "MODE_STANDARD_NEWS",
+    "MODE_EVENT_PREVIEW",
+    "MODE_CULTURE_FEATURE",
+)
+
+
+def live_drafts_path():
+    return workflow_dir() / "live_drafts.jsonl"
+
+
+def load_ideas():
+    from editor_assistant.workflow import ideas as ideas_mod
+
+    path = ideas_path()
+    return ideas_mod.read_ideas(path) if path.exists() else []
+
+
+def save_ideas(ideas):
+    from editor_assistant.workflow import ideas as ideas_mod
+
+    ideas_mod.save_ideas(ideas, ideas_path())
+
+
+def load_live_rows():
+    from editor_assistant.workflow import live_store
+
+    return live_store.read_live_evidence(live_evidence_path())
+
+
+def _save_live_row(row):
+    from editor_assistant.workflow import live_store
+
+    live_store.save_live_evidence_row(row, live_evidence_path())
+
+
+def _load_draft_rows():
+    """AI drafts are append-only JSONL; reading tolerates an absent file."""
+    path = live_drafts_path()
+    if not path.exists():
+        return []
+    out = []
+    for line in path.open(encoding="utf-8"):
+        if line.strip():
+            out.append(json.loads(line))
+    return out
+
+
+def articles_view():
+    """Rows for the «Статии» page: ideas joined with packets, drafts, cases.
+
+    Purely read-only: every mutation the page offers goes through the explicit
+    service functions below (and lands in the audit log).
+    """
+    ideas = load_ideas()
+    rows = load_live_rows()
+    drafts = _load_draft_rows()
+    cases = load_cases()
+    cases_by_evidence = {}
+    for case in cases:
+        if case.get("track") == TRACK_LIVE and case.get("evidence_id"):
+            cases_by_evidence.setdefault(case["evidence_id"], case)
+    drafts_by_idea = {}
+    for draft in drafts:
+        drafts_by_idea.setdefault(draft.get("idea_id", ""), []).append(draft)
+    evidence_by_idea = {}
+    for row in rows.values():
+        evidence_by_idea.setdefault(row.get("idea_id", ""), []).append(row)
+    idea_rows = []
+    for idea in ideas:
+        evidence = []
+        for row in evidence_by_idea.get(idea["idea_id"], ()):
+            packet = row.get("packet") or {}
+            prepared = row.get("prepared")
+            case = cases_by_evidence.get(row["evidence_id"])
+            evidence.append(
+                {
+                    "evidence_id": row["evidence_id"],
+                    "observed_at": row.get("observed_at", ""),
+                    "fact_count": len(packet.get("facts") or ()),
+                    "prepared": bool(prepared),
+                    "mode": (prepared or {}).get("mode", ""),
+                    "mode_suggested": bool((prepared or {}).get("mode_suggested")),
+                    "suggested_mode": (prepared or {}).get("suggested_mode", ""),
+                    "suggestion_reason": (prepared or {}).get("suggestion_reason", ""),
+                    "drafts": [
+                        {
+                            "draft_id": (d.get("lineage") or {}).get("draft_id", ""),
+                            "headline": (d.get("draft") or {}).get("headline", ""),
+                            "gate": d.get("factual_gate", ""),
+                            "generated_at": (d.get("lineage") or {}).get("generated_at", ""),
+                            "model": (d.get("lineage") or {}).get("model", ""),
+                        }
+                        for d in drafts_by_idea.get(idea["idea_id"], ())
+                    ],
+                    "case_id": (case or {}).get("case_id", ""),
+                    "case_headline": (case or {}).get("draft_headline", ""),
+                }
+            )
+        idea_rows.append({"idea": idea, "evidence": evidence})
+    return {
+        "ideas": idea_rows,
+        "counts": {
+            "ideas": len(ideas),
+            "prepared": sum(1 for r in idea_rows for e in r["evidence"] if e["prepared"]),
+            "drafts": len(drafts),
+            "live_cases": sum(1 for c in cases if c.get("track") == TRACK_LIVE),
+        },
+        "story_options": wb_newsroom_story_options(),
+    }
+
+
+def wb_newsroom_story_options():
+    """Newest stories as promote candidates (lazy import: no cycle at load)."""
+    from editor_assistant.workflow import story_identity
+    from editor_assistant.workflow.workbench import newsroom as wb_newsroom
+
+    cards = story_identity.story_cards(
+        inbox=wb_newsroom.inbox_store_path(),
+        stories=wb_newsroom.stories_store(),
+        blocked_path=wb_newsroom.blocked_store(),
+    )["stories"]
+    return [c for c in cards if c.get("title")][:30]
+
+
+
+def request_draft_for_idea(idea_id):
+    """Editor action: NEW/FOLLOW_UP idea becomes DRAFT_REQUESTED (contract)."""
+    with _MUTATION_LOCK:
+        from editor_assistant.workflow import ideas as ideas_mod
+
+        ideas = load_ideas()
+        idea = next((i for i in ideas if i["idea_id"] == idea_id), None)
+        if idea is None:
+            raise WorkbenchError(f"unknown idea_id: {idea_id}")
+        try:
+            ideas_mod.request_draft(idea)
+        except ideas_mod.IdeaError as exc:
+            raise WorkbenchError(str(exc)) from exc
+        save_ideas(ideas)
+        record_action("draft_requested", idea_id)
+        return idea
+
+
+def prepare_case(idea_id, evidence_id, *, mode=""):
+    """Bind voice+mode to an idea's packet via the real live_case_request.
+
+    Mirrors the CLI contract: the suggestion is always computed and shown; the
+    stored prepared row carries an explicitly chosen mode (auto-confirmed from
+    the suggestion when the editor leaves the select empty), so generation is
+    never blocked by an unconfirmed tool suggestion.
+    """
+    with _MUTATION_LOCK:
+        from editor_assistant.workflow import angles, live
+        from editor_assistant.workflow import modes as modes_mod
+
+        idea = next((i for i in load_ideas() if i["idea_id"] == idea_id), None)
+        if idea is None:
+            raise WorkbenchError(f"unknown idea_id: {idea_id}")
+        row = load_live_rows().get(evidence_id)
+        if row is None or row.get("idea_id") != idea_id:
+            raise WorkbenchError("материалът не принадлежи на тази идея")
+        packet = row.get("packet") or {}
+        try:
+            suggestion = modes_mod.suggest_mode(packet)
+        except Exception as exc:
+            raise WorkbenchError(f"материалът не може да бъде подготвен: {exc}") from exc
+        chosen = mode if mode in EDITING_MODES else suggestion["suggested_mode"]
+        try:
+            prepared = live.live_case_request(idea, packet, voice=live.DEFAULT_VOICE, mode=chosen)
+        except live.LiveError as exc:
+            raise WorkbenchError(str(exc)) from exc
+        if prepared.get("status") == angles.NO_ANGLE:
+            save_ideas(load_ideas())  # live_case_request set the NO_ANGLE status
+            record_action("prepare_refused_no_angle", evidence_id)
+            return {"status": angles.NO_ANGLE, "reason": prepared.get("reason", "")}
+        row["prepared"] = prepared
+        _save_live_row(row)
+        save_ideas(load_ideas())  # live_case_request set DRAFT_REQUESTED
+        record_action("case_prepared", evidence_id)
+        return {
+            "status": "PREPARED",
+            "mode": prepared["mode"],
+            "mode_suggested": prepared.get("mode_suggested", False),
+            "suggested_mode": prepared.get("suggested_mode", ""),
+            "suggestion_reason": prepared.get("suggestion_reason", ""),
+        }
+
+
+def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
+    """The real M2.3B generation path, then the same stores the CLI writes.
+
+    Appends the immutable AI draft to live_drafts.jsonl and opens a LIVE case
+    (LIV-nn). Readiness refusals (RESEARCH_MORE / NO_ANGLE) come back as a
+    status, never silently; a forced generation requires a recorded reason.
+    """
+    with _MUTATION_LOCK:
+        from editor_assistant.workflow import angles, live
+        from editor_assistant.workflow import cases as cases_mod
+        from editor_assistant.workflow import readiness as readiness_mod
+
+        idea = next((i for i in load_ideas() if i["idea_id"] == idea_id), None)
+        if idea is None:
+            raise WorkbenchError(f"unknown idea_id: {idea_id}")
+        row = load_live_rows().get(evidence_id)
+        if row is None or row.get("idea_id") != idea_id:
+            raise WorkbenchError("материалът не принадлежи на тази идея")
+        prepared = row.get("prepared")
+        if not prepared:
+            raise WorkbenchError("първо подготви случая (глас и режим)")
+        if prepared.get("mode_suggested"):
+            raise WorkbenchError("потвърди или промени предложенния режим първо")
+        if force and not force_reason.strip():
+            raise WorkbenchError("принудителната генерация изисква причина (записва се)")
+        cases = load_cases()
+        if any(c["evidence_id"] == evidence_id and c.get("track") == TRACK_LIVE for c in cases):
+            raise WorkbenchError("за този материал вече е отворен LIVE случай")
+        try:
+            result = live.live_generate_draft(
+                row["packet"],
+                voice=prepared["voice"],
+                mode=prepared["mode"],
+                force_draft=force,
+                editor_override_reason=force_reason or None,
+            )
+        except (angles.AngleError, live.LiveError) as exc:
+            raise WorkbenchError(str(exc)) from exc
+        status = result.get("status")
+        if status in (angles.NO_ANGLE, readiness_mod.RESEARCH_MORE):
+            record_action(f"draft_refused_{status}", evidence_id)
+            return {"status": status, "reason": result.get("reason", "")}
+        store = {
+            "evidence_id": evidence_id,
+            "idea_id": prepared["idea_id"],
+            "draft": result["draft"],
+            "lineage": result["lineage"],
+            "lexical": result["lexical"],
+            "semantic": result["semantic"],
+            "factual_gate": result["factual_gate"],
+            "readiness": result["readiness"],
+            "voice": prepared["voice"],
+            "mode": prepared["mode"],
+            "mode_suggested_by_tool": prepared.get("mode_suggested", False),
+            "retrieval": {k: v for k, v in result["retrieval"].items() if k != "examples"},
+            "retrieval_example_ids": [e["article_id"] for e in result["retrieval"]["examples"]],
+        }
+        path = live_drafts_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(store, ensure_ascii=False, sort_keys=True) + "\n")
+        used_ids = {c["case_id"] for c in cases}
+        n = 1
+        while f"LIV-{n:02d}" in used_ids:
+            n += 1
+        case_id = f"LIV-{n:02d}"
+        case = cases_mod.open_case(
+            case_id=case_id,
+            idea_id=prepared["idea_id"],
+            evidence_id=evidence_id,
+            draft=store,
+            voice=prepared["voice"],
+            mode=prepared["mode"],
+            mode_suggested=prepared.get("suggested_mode"),
+            suggestion_reason=prepared.get("suggestion_reason", ""),
+            factual_gate=store["factual_gate"],
+            prompt_version=store["lineage"].get("prompt_version", ""),
+            audit={"semantic": store["semantic"], "lexical": store["lexical"]},
+            track=TRACK_LIVE,
+            source_url=(row.get("packet") or {}).get("source_url", ""),
+        )
+        cases.append(case)
+        cases_mod.save_cases(cases, cases_path())
+        record_action("draft_generated", case_id)
+        return {
+            "status": "DRAFTED",
+            "case_id": case_id,
+            "headline": store["draft"].get("headline", ""),
+            "gate": store["factual_gate"],
+        }
+
+
+def promote_story_to_idea(story_id, *, inbox_path, stories_path, why_now="", angle=""):
+    """Bridge: an M4 story becomes an idea + EvidencePacket (M2.3B path).
+
+    The packet is built from the story's own collected material (facts only),
+    so the drafting gates later see real provenance — nothing is invented here.
+    Blocked publishers are skipped; a story with no usable material is refused
+    with an explicit error instead of fabricating a packet.
+    """
+    with _MUTATION_LOCK:
+        from editor_assistant.workflow import inbox_store, live, story_identity
+
+        detail = story_identity.story_detail(story_id, inbox=inbox_path, stories=stories_path)
+        if detail is None:
+            raise WorkbenchError(f"unknown story_id: {story_id}")
+        items = {i["item_id"]: i for i in inbox_store.read_items(inbox_path)}
+        candidate = None
+        # Prefer a material long enough to carry facts, then any clean material.
+        for need_body in (True, False):
+            for entry in detail["timeline"]:
+                if entry.get("blocked_publisher"):
+                    continue
+                item = items.get(entry["item_id"]) or {}
+                url = str(item.get("url") or "")
+                if not url.startswith("http"):
+                    continue
+                if need_body and len((item.get("body") or "").strip()) < 200:
+                    continue
+                candidate = item
+                break
+            if candidate is not None:
+                break
+        if candidate is None:
+            raise WorkbenchError("историята няма подходящ незаблокиран материал за запис")
+        url = candidate["url"]
+        source_type = "upstream_press_release"
+        if "transcript" in url.lower():
+            source_type = "council_transcript"
+        try:
+            idea = live.new_idea(
+                source_type=source_type,
+                source_url=url,
+                title=detail["title"] or candidate.get("title") or "(без заглавие)",
+                what_changed=(candidate.get("summary") or candidate.get("title") or "")[:600],
+                why_now=why_now.strip(),
+                possible_angle=angle.strip(),
+            )
+            record = {
+                "url": url,
+                "headline": candidate.get("title") or "",
+                "body": candidate.get("body") or candidate.get("summary") or "",
+                "quotes": [],
+            }
+            evidence_id = f"{idea['idea_id']}-EVIDENCE"
+            packet = live.build_live_packet(idea, record=record, evidence_id=evidence_id)
+        except live.LiveError as exc:
+            raise WorkbenchError(str(exc)) from exc
+        except ValueError as exc:  # packet validation failures
+            raise WorkbenchError(f"материалът не може да стане пакет: {exc}") from exc
+        _save_live_row(
+            {
+                "evidence_id": evidence_id,
+                "idea_id": idea["idea_id"],
+                "packet": packet,
+                "observed_at": packet["observed_at"],
+            }
+        )
+        save_ideas(load_ideas() + [idea])
+        record_action("story_promoted", idea["idea_id"])
+        return {
+            "idea_id": idea["idea_id"],
+            "evidence_id": evidence_id,
+            "title": idea["title"],
+            "fact_count": len(packet.get("facts") or ()),
+        }

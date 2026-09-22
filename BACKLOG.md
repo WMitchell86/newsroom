@@ -69,8 +69,9 @@ M4A.1 Default Source Pack + Source Hardening      DONE (frozen)
 M4B   Daily Inbox UX                               DONE (frozen)
 M4B.1 Feed stabilization (review F1-F7)            DONE (awaiting review/freeze)
 M4C   Story Identity / New Development             DONE (awaiting review/freeze)
-M4D  Telegram Editorial Alerts                     <-- next
-M4E  Editorial workflow polish
+M4D   Model Routing + Role Budget                  DONE (awaiting review/freeze)
+M4E   Telegram Editorial Alerts                    <-- next
+M4F   Editorial workflow polish
 ```
 
 Scoring rule for every task in this milestone: *will this make tomorrow's work
@@ -220,7 +221,24 @@ match, and the pre-existing OpenRouter default-model id defect (see the report �
       sources; this is what stops the inbox becoming noise. Deliberately **after**
       M4A + M4B, never before them.
 
-### M4D — Telegram Editorial Alerts
+### M4D — Model Routing + Role Budget
+
+- [x] Central role-based model policy (`config/model_policy.default.json`, 7 roles)
+- [x] True cross-provider fallback (`model_router.call_role()`)
+- [x] Failure classification + health tracking + bounded retries
+- [x] Daily usage ledger (no prompts stored)
+- [x] CLI `newsroom models status|validate|show`
+- [x] Workbench `AI модели` page (`/models`)
+- [x] Role qualification harness + fixtures (judge/story/angle/draft/research)
+- [x] Anchor gate tightening (PART 12: weak candidates rejected without model call)
+- [x] Safe degradation per role (story=conservative, judge=review_required, etc.)
+- [x] Privacy gate (public_only routes never receive private payload)
+- [x] Gemini per-model quotas (500 RPD Lite, 20 RPD Flash) + named OpenRouter free models
+- [x] Paid fallback: GPT-5.6 Luna/Luna Pro (not GPT-5.4)
+- [ ] Live qualification run on real fixtures (needs provider keys)
+- [ ] M4C semantic-call reduction measurement on real corpus
+
+### M4E — Telegram Editorial Alerts
 
 - [ ] Notification layer only (the Workbench stays the place to work):
       🔴 new important story · 🟡 research needed · 🔵 new development on a followed
@@ -229,7 +247,7 @@ match, and the pre-existing OpenRouter default-model id defect (see the report �
 - [ ] Reuses the existing gated TEST transport (`--send` + `DRY_RUN=false`), never
       a publishing channel.
 
-### M4E — Editorial workflow polish
+### M4F — Editorial workflow polish
 
 - [ ] Whatever real daily use shows is missing (article workspace, sources panel,
       missing-facts panel). Nothing here is designed speculatively.

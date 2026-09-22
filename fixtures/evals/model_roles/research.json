@@ -1,0 +1,36 @@
+{
+  "role": "research",
+  "note": "Seed corpus for the research role. Scoring is about useful gap/question generation, not literary Bulgarian: expected gap keywords that the questions must cover, plus a ceiling on the number of questions (a long list of generic questions is a failure, not diligence).",
+  "cases": [
+    {
+      "id": "transport-line-gaps",
+      "topic": "Нова автобусна линия до кв. „Лозово“ в Бургас",
+      "facts": [
+        "Общината обмисля нова автобусна линия до кв. „Лозово“.",
+        "Няма решение за маршрут, разписание или финансиране."
+      ],
+      "expect_keywords": ["маршрут", "финансиране"],
+      "max_questions": 5
+    },
+    {
+      "id": "sanitation-programme-gaps",
+      "topic": "Саниране на жилищни блокове в Бургас",
+      "facts": [
+        "Общината обяви нова вълна по програмата за саниране.",
+        "Не е ясно колко блока ще бъдат включени и с какъв бюджет."
+      ],
+      "expect_keywords": ["блок", "бюджет"],
+      "max_questions": 5
+    },
+    {
+      "id": "budget-execution-gaps",
+      "topic": "Изпълнение на капиталовата програма на Бургас",
+      "facts": [
+        "Капиталовата програма предвижда 18 милиона лева за улици и тротоари.",
+        "Изпълнението към момента не е публикувано."
+      ],
+      "expect_keywords": ["изпълнение", "улици"],
+      "max_questions": 5
+    }
+  ]
+}

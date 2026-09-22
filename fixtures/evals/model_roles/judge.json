@@ -1,0 +1,54 @@
+{
+  "role": "judge",
+  "note": "Seed corpus for the judge role (mechanical entailment). Small on purpose: replace with a larger adjudicated set from the M3D grounding material before any production decision. `entailed=true` only when every actor, relation, status, number and negation is explicitly supported.",
+  "cases": [
+    {
+      "id": "paraphrase-supported",
+      "fact": "Общинският съвет прие бюджета на Бургас за 2027 г.",
+      "support": [
+        "Точка пета от заседанието: приемане на бюджета на община Бургас за 2027 година. Решението е взето с 33 гласа „за“."
+      ],
+      "entailed": true
+    },
+    {
+      "id": "invented-number",
+      "fact": "Общинският съвет прие бюджета с 41 гласа „за“.",
+      "support": [
+        "Точка пета от заседанието: приемане на бюджета на община Бургас за 2027 година. Решението е взето с 33 гласа „за“."
+      ],
+      "entailed": false
+    },
+    {
+      "id": "status-flip-proposal-to-adopted",
+      "fact": "Комисията прие предложението за нова наредба.",
+      "support": [
+        "Комисията по финанси разгледа предложението за нова наредба. Решение по точката не беше взето; гласуването се отлага за следващото заседание."
+      ],
+      "entailed": false
+    },
+    {
+      "id": "negation-sensitive",
+      "fact": "Училището няма да бъде затворено.",
+      "support": [
+        "Кметът заяви, че училището остава отворено и няма планове за закриване."
+      ],
+      "entailed": true
+    },
+    {
+      "id": "actor-swap",
+      "fact": "Прокуратурата образува проверка по случая.",
+      "support": [
+        "Областната администрация образува проверка по случая с обществените поръчки на общината."
+      ],
+      "entailed": false
+    },
+    {
+      "id": "date-mismatch",
+      "fact": "Събитието ще се проведе на 12 октомври.",
+      "support": [
+        "Организаторите обявиха датата 21 октомври за провеждане на събитието."
+      ],
+      "entailed": false
+    }
+  ]
+}

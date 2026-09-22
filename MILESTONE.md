@@ -1,3 +1,103 @@
+## M4-UI Workbench UI Overhaul (daily entry point, navigation, /models) — 2026-09-21 — BUILT, LIVE-PROVEN, AWAITING REVIEW
+
+Base `6410d77`. Gate: **914 offline tests** (was 913), ruff check/format clean,
+M3A smoke 25/25, live isolated UI proof `ALL CHECKS PASSED`.
+Report: `m4/review/WORKBENCH_UI_OVERHAUL_REPORT.md` (trigger + resolution of every
+finding in `m4/review/UX_UI_REVIEW.md`).
+
+The editor-in-chief's verdict on the running app ("the GUI is bad … nowhere near
+a usable state for a non-technical person … the agent had no idea what the app is
+for") was treated as the bug report. The app is for one job: **showing a
+Bulgarian municipal news editor what arrived from her sources, grouping it into
+stories, and recording her decision.** The UI now says that on its first screen.
+
+### What the editor sees now
+
+- `/` = **«Начало»** — the daily landing: unreviewed stories / unreviewed
+  materials / arrived today (Europe/Sofia) / active sources, the newest five
+  stories, two buttons carrying the counts, and a three-step «Как се работи»
+  card naming the exact button to press. Header: «Дневен новинарски помощник» —
+  the meaningless «M4» tag is gone.
+- Navigation has hierarchy: `Начало · Истории · Материали · Източници` on the
+  first row, `AI модели · Случаи · YouTube` under «Настройки и архив:».
+- The frozen M3A case queue moved to `/cases` (old `/?filter=…` links still
+  resolve); it is labelled as an archive, not daily work.
+- Empty states are instructions: the three steps plus the button that performs
+  step 1 in place.
+- Long actions (`Събери новините сега`, `Обнови историите`) disable the button
+  and show a «Събиране… моля, изчакайте.» overlay instead of a dead page.
+- Destructive buttons confirm first (`data-danger`, `data-confirm-route`).
+- `AI модели`: 4-forms-per-route scaffolding collapsed into one manager form per
+  role (route select + operation select + «Приложи»), raw path/hash behind
+  `<details>Технически детайли`: **58 KB → 27.6 KB**.
+- «Добави източник» grouped into Основно · Адрес · Настройки.
+
+### Structure
+
+- `html.py`: new `render_home`, split `NAV_DAILY`/`NAV_ADMIN`, new design tokens
+  + responsive block, empty-state hero cards, busy/confirm script in `page()`.
+- `http.py`: `GET /static/style.css`, new read-only `_get_home()` aggregating
+  `stories_view`/`inbox_view`/`sources_view`, `_get_cases()`, back-compat
+  `_get_root()`, `op`→legacy-action translation in `_post_models`.
+- `scripts/m3a_smoke.py`: checks 1–2 now assert the landing page and that the
+  queue stayed reachable at `/cases`.
+
+### Not changed
+
+No backend semantics (every button still calls the same service functions), no
+new dependency, no JS framework, identical routes/stores otherwise, M3A case
+flow and finalization guards untouched, `EDITORIAL_EFFECTIVENESS` still PENDING.
+
+---
+
+
+
+Base `075e81d`. Gate: **913 offline tests** (was 805), ruff check/format clean, M3A
+smoke 25/25. Reports: `m4/review/MODEL_ROUTING_AND_BUDGET_REPORT.md`,
+`m4/review/MODEL_ROLE_QUALIFICATION_REPORT.md`.
+
+### New modules
+
+- `config/model_policy.default.json` — tracked policy defaults (7 roles, ordered routes,
+  Gemini Lite 500 RPD for volume, Gemini Flash 20 RPD for quality, GPT-5.6 Luna for
+  paid fallback, free OpenRouter named models for secondary routes)
+- `drafting/model_policy.py` — policy store, normalization, env overrides, editing helpers
+- `drafting/model_router.py` — `call_role()` with true cross-provider fallback, failure
+  classification, health tracking, bounded retries, route-level usage recording
+- `drafting/model_usage.py` — daily ledger (no prompts stored), aggregation, cost estimation
+- `drafting/model_catalog.py` — live model validation (OpenRouter catalog + Gemini)
+- `scripts/evals/model_role_eval.py` — role qualification harness (judge/story/angle/draft/research)
+- `fixtures/evals/model_roles/` — seed fixtures for 5 roles
+
+### CLI
+
+- `newsroom models status` — per-role view with route eligibility, today's calls, health
+- `newsroom models validate` — verify model IDs against live catalogs (no text sent)
+- `newsroom models show` — full policy dump
+
+### Workbench
+
+- `AI модели` page (`/models`) — compact operator control page with reorder/enable/disable
+
+### Key architecture decisions
+
+- **True cross-provider fallback**: Gemini exhaustion no longer blocks OpenRouter
+- **Role-specific safe degradation**: story=conservative (never merge), judge=review_required,
+  angle=degraded, draft=fail_visible, research=deterministic
+- **Privacy gate**: `public_only=true` routes never receive `payload_class=private`
+- **Usage ledger never stores prompts** — only operational facts
+- **Anchor gate tightening (PART 12)**: weak candidates rejected without model call
+- **Gemini per-model quotas**: 500 RPD Lite + 20 RPD Flash, per-model not global
+- **Paid fallback**: GPT-5.6 Luna/Luna Pro, not GPT-5.4 (12.5x cheaper)
+
+### Structural guards
+
+- Collection stack stays AI/story-free (existing guard)
+- M4C modules stay free of drafting/publishing/Telegram (existing guard)
+- M4D modules get explicit allow-list in structural guard (new)
+
+---
+
 ## M4B.1 Feed Stabilization + M4C Story Identity — 2026-09-21 — BUILT, REAL-ISOLATED-PROVEN, AWAITING REVIEW
 
 Base `075e81d`. Gate: **859 offline tests** (was 805), ruff check/format clean, M3A

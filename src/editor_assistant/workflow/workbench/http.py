@@ -68,14 +68,20 @@ def _route(path: str) -> tuple[str, str | None]:
         return "root", None
     if parts == ["healthz"]:
         return "healthz", None
+    if parts == ["static", "style.css"]:
+        return "static_css", None
     if parts == ["intake"]:
         return "intake", None
+    if parts == ["cases"]:
+        return "cases", None
     if parts == ["sources"]:
         return "sources", None
     if parts == ["inbox"]:
         return "inbox", None
     if parts == ["stories"]:
         return "stories", None
+    if parts == ["models"]:
+        return "models", None
     if len(parts) == 2 and parts[0] == "stories":
         return "story", parts[1]
     if parts == ["quit"]:
@@ -153,6 +159,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         try:
             if route == "root":
                 self._get_root()
+            elif route == "static_css":
+                self._get_static_css()
+            elif route == "cases":
+                self._get_cases()
             elif route == "intake":
                 self._get_intake()
             elif route == "case":
@@ -163,6 +173,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._get_inbox()
             elif route == "stories":
                 self._get_stories()
+            elif route == "models":
+                self._get_models()
             elif route == "story":
                 self._get_story(case_id)
             elif route == "healthz":
@@ -188,6 +200,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._post_inbox()
             elif route == "stories":
                 self._post_stories()
+            elif route == "models":
+                self._post_models()
             elif route == "quit":
                 self._quit()
             else:
@@ -195,7 +209,38 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 - any handler error must become an HTTP response
             self._handle_error(e)
 
-    def _get_root(self):
+    def _get_static_css(self):
+        _respond(
+            self,
+            200,
+            html_mod.CSS,
+            content_type="text/css; charset=utf-8",
+        )
+
+    def _get_home(self):
+        """Daily landing page: what is new, what needs attention, start here.
+
+        Read-only: it aggregates the same views the /stories, /inbox and
+        /sources pages use, so it can never drift from the store contract.
+        The frozen M3A queue stays reachable under /cases but is not the
+        daily entry point any more (UX review P0).
+        """
+        try:
+            stories = wb_newsroom.stories_view(status="NEW", page_size=5)
+        except Exception:  # noqa: BLE001 - home must render even on bad story store
+            stories = {"stories": [], "counts": {}, "total_stories": 0}
+        try:
+            inbox = wb_newsroom.inbox_view(status="NEW", page_size=5)
+        except Exception:  # noqa: BLE001 - home must render even on bad inbox store
+            inbox = {"items": [], "total": 0, "unreviewed": 0, "today": {}}
+        try:
+            sources = wb_newsroom.sources_view()
+        except Exception:  # noqa: BLE001 - home must render even on bad registry
+            sources = {"summary": {}, "rows": []}
+        body = html_mod.render_home(stories, inbox, sources)
+        _respond(self, 200, body)
+
+    def _get_cases(self):
         qs = urllib.parse.urlparse(self.path).query
         params = urllib.parse.parse_qs(qs, keep_blank_values=True)
         filt = _first(params, "filter", "all") or "all"
@@ -204,6 +249,20 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         q = wb_state.queue()
         body = html_mod.render_queue(q, active_filter=filt)
         _respond(self, 200, body)
+
+    def _get_root(self):
+        """Back-compat: old queue links (?filter=...) still reach the archive."""
+        qs = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(qs, keep_blank_values=True)
+        if "filter" in params:
+            filt = _first(params, "filter", "all") or "all"
+            if filt not in {k for k, _ in html_mod.lb.FILTERS}:
+                filt = "all"
+            q = wb_state.queue()
+            body = html_mod.render_queue(q, active_filter=filt)
+            _respond(self, 200, body)
+            return
+        self._get_home()
 
     def _get_case(self, case_id):
         if not case_id or not case_id.strip():
@@ -525,6 +584,130 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             f"/stories/{urllib.parse.quote(story_id)}?"
             + urllib.parse.urlencode({"message": message}),
         )
+
+    # ---------- M4D: the AI models policy page ----------
+
+    def _get_models(self):
+        params = self._query()
+        body = html_mod.render_models(
+            wb_newsroom.models_view(),
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
+        )
+        _respond(self, 200, body)
+
+    def _post_models(self):
+        """Operator configuration only: no editorial content, no key ever echoed."""
+        from editor_assistant.drafting import model_policy as policy_mod
+
+        form = _post_form(self)
+        action = _first(form, "action", "")
+        role = _first(form, "role", "")
+        # Compact single-form manager posts op+index; translate to the legacy
+        # vocabulary so the policy contract (and its tests) never changes.
+        if not action and _first(form, "op", ""):
+            op = _first(form, "op", "")
+            index = _first(form, "index", "0") or "0"
+            if op in ("up", "down"):
+                action = "move"
+                form = {**form, "action": [action], "direction": [op], "index": [index]}
+            elif op == "toggle":
+                action = "toggle"
+                form = {**form, "action": [action], "index": [index]}
+                if "enabled" not in form:
+                    # No explicit target: flip the current state of that route.
+                    flip = True
+                    try:
+                        roles = wb_newsroom.models_view().get("roles") or []
+                        row = next((r for r in roles if r.get("role") == role), None)
+                        current = next(
+                            (
+                                r
+                                for r in (row or {}).get("routes", [])
+                                if str(r.get("index")) == str(index)
+                            ),
+                            None,
+                        )
+                        if current is not None:
+                            flip = not bool(current.get("enabled"))
+                    except Exception:  # noqa: BLE001 - fall back to enabling
+                        flip = True
+                    form = {**form, "enabled": ["1" if flip else "0"]}
+            elif op == "remove":
+                action = "remove"
+                form = {**form, "action": [action], "index": [index]}
+        try:
+            if action == "validate":
+                report = wb_newsroom.validate_models()
+                message = (
+                    f"Проверката приключи: невалидни {len(report['invalid'])} · "
+                    f"несъответствия {len(report['mismatches'])}."
+                )
+            elif action == "global":
+                wb_newsroom.edit_policy(
+                    action_edit="global",
+                    paid_enabled=bool(_first(form, "paid_enabled", "")),
+                    soft_paid_budget_usd_day=float(
+                        _first(form, "soft_paid_budget_usd_day", "0") or 0
+                    ),
+                )
+                message = "Глобалните настройки са запазени."
+            elif action == "role_budget":
+                wb_newsroom.edit_policy(
+                    action_edit="role_budget",
+                    role=role,
+                    soft_calls_day=int(_first(form, "soft_calls_day", "0") or 0),
+                    hard_calls_day=int(_first(form, "hard_calls_day", "0") or 0),
+                )
+                message = f"Границите за {role} са запазени."
+            elif action == "move":
+                direction = _first(form, "direction", "up") or "up"
+                wb_newsroom.edit_policy(
+                    action_edit="move",
+                    role=role,
+                    index=int(_first(form, "index", "0") or 0),
+                    direction=direction,
+                )
+                message = f"{role}: маршрутът е преместен ({direction})."
+            elif action == "toggle":
+                enabled = _first(form, "enabled", "") in ("1", "true", "on")
+                wb_newsroom.edit_policy(
+                    action_edit="toggle",
+                    role=role,
+                    index=int(_first(form, "index", "0") or 0),
+                    enabled=enabled,
+                )
+                message = f"{role}: маршрутът е {'включен' if enabled else 'изключен'}."
+            elif action == "remove":
+                wb_newsroom.edit_policy(
+                    action_edit="remove", role=role, index=int(_first(form, "index", "0") or 0)
+                )
+                message = f"{role}: маршрутът е премахнат."
+            elif action == "add":
+                provider = _first(form, "provider", "").strip()
+                model = _first(form, "model", "").strip()
+                if not provider or not model:
+                    raise policy_mod.PolicyError("попълнете provider и model")
+                wb_newsroom.edit_policy(
+                    action_edit="add",
+                    role=role,
+                    provider=provider,
+                    model=model,
+                    public_only=bool(_first(form, "public_only", "")),
+                )
+                message = f"{role}: добавен {provider}:{model}."
+            else:
+                raise policy_mod.PolicyError(f"непознато действие: {action!r}")
+        except (
+            policy_mod.PolicyError,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as exc:
+            body = html_mod.render_models(wb_newsroom.models_view(), error=str(exc))
+            _respond(self, 400, body)
+            return
+        _redirect(self, "/models?" + urllib.parse.urlencode({"message": message}))
 
     def _notfound(self, path):
         body = html_mod.page(

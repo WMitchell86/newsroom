@@ -30,11 +30,13 @@ environment) — always run tests and CLIs with `PYTHONPATH=src`.
 
 Expected: smoke + safety tests pass, no network calls, no external side effects.
 
-## M3A Editor Workbench (local browser UI)
+## Editor Workbench (local browser UI)
 
-The editor-facing surface over the frozen workflow: review LIVE cases, inspect
-sources/warnings, edit, answer the structured review questions and finalize —
-in a browser instead of Markdown files.
+The editor-facing surface: a daily newsroom home, stories, materials, sources and
+operator settings — in a browser instead of Markdown files. The landing page at
+`/` is the daily «Начало»; the older M3A case workflow (review LIVE cases,
+inspect sources/warnings, edit, answer the structured review questions,
+finalize) still lives under **«Случаи»** at `/cases`.
 
 ```bash
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127.0.0.1:8123/
@@ -43,7 +45,7 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.workbench       # equivalent
 
 Binds `127.0.0.1` by default; `--host`/`--port` exist, and `--host` is opt-in
 (there is **no auth** on this local MVP). Stdlib only — no framework, no build
-chain, no JavaScript required.
+chain; JavaScript is optional feedback only (confirm dialogs + busy overlay).
 
 The workbench lives under `workflow/`, which the M0 smoke guard's token scan
 `src/editor_assistant/{*.py,sources,notify}` does not cover — so it adds **no**
@@ -136,7 +138,21 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom collect        
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update --dry-run  # M4C plan
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom stories update     # assign to stories
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom refresh            # collect -> stories -> summary
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models status      # per-role model view
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models validate    # check model IDs
+PYTHONPATH=src python3 scripts/evals/model_role_eval.py --list                     # qualification plan
 ```
+
+The Workbench is meant for a **non-technical editor**, so the first screen answers
+"what is new?": `/` = **«Начало»** (read-only daily landing — unreviewed stories,
+unreviewed materials, arrived-today counts in Europe/Sofia, the newest stories,
+and a three-step «Как се работи» card with the very button to press). The
+navigation has two levels: `Начало · Истории · Материали · Източници` and
+`AI модели · Случаи · YouTube` under «Настройки и архив:». The frozen M3A case
+queue lives at `/cases` (old `/?filter=…` links still resolve), the stylesheet is
+served once at `/static/style.css`, and long actions disable their button and show
+a «Събиране…» overlay. Destructive buttons ask for confirmation first.
+Report: `m4/review/WORKBENCH_UI_OVERHAUL_REPORT.md`.
 
 The Workbench adds **«Истории»** (`/stories` + `/stories/{id}`: real-world stories
 with `издатели / публикации / откривания` counted separately, a chronology, unique

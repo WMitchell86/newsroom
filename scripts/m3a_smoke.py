@@ -125,11 +125,16 @@ def main() -> int:
     print(f"workbench: {base}  (store: {SMOKE_STORE})\n")
 
     try:
-        # 1 + 2 — dashboard loads, LIVE cases visible
+        # 1 + 2 — daily landing loads, archive queue still reachable
         page = read(get(f"{base}/"))
-        check("1. Dashboard loads", "Редакторски работен плот" in page)
+        check("1. Dashboard loads", "Дневен новинарски помощник" in page)
+        queue_page = read(get(f"{base}/cases"))
         live_ids = [row["case_id"] for row in state.queue()["live"]]
-        check("2. LIVE cases visible", "LIV-02" in page and "LIV-06" in page, str(live_ids))
+        check(
+            "2. LIVE cases visible",
+            "LIV-02" in queue_page and "LIV-06" in queue_page,
+            str(live_ids),
+        )
 
         # 3 + 4 — normal case opens, draft + sources render
         case_page = read(get(f"{base}/case/LIV-02"))

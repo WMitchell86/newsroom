@@ -187,7 +187,10 @@ def _extract_facts_for_topic(topic, doc=None, *, api_key=None, timeout=120):
     prompt = _FACTS_PROMPT.replace("{label}", topic["label"]).replace(
         "{blocks}", f"{blocks}\n\nID-та: {id_line}"
     )
-    raw, _meta = gen.call_model(prompt, api_key=api_key, timeout=timeout, role="judge")
+    # role="extract" (M4D model policy): structured fact extraction is high-volume
+    # and schema-first, so it runs on the cheap Lite/free routes — not on the
+    # quality-sensitive angle pool and not on the mechanical judge pool.
+    raw, _meta = gen.call_model(prompt, api_key=api_key, timeout=timeout, role="extract")
     # Per-topic failure taxonomy (M3D Part E): a truly empty completion, prose
     # without JSON, and unparsable JSON are three different execution outcomes
     # and none of them is evidence that the topic has no facts.
@@ -677,8 +680,10 @@ def propose_angles(facts, *, max_angles=4):
         for f in facts
     )
     prompt = _ANGLES_PROMPT.replace("{facts}", listing)
+    # role="angle" — M3D measured that angle quality is model-capacity-sensitive,
+    # so proposals must never ride the weak judge pool (M4D PART 7).
     raw, _meta = gen.call_model(
-        prompt, api_key=os.environ.get("GEMINI_API_KEY", "") or None, timeout=120, role="judge"
+        prompt, api_key=os.environ.get("GEMINI_API_KEY", "") or None, timeout=120, role="angle"
     )
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if not match:
@@ -820,6 +825,7 @@ unexpected_fact, strong_quote, burgas_novelty
 def _model_assess(proposal, refs, *, api_key=None, timeout=120):
     listing = "\n".join(f"- {f['fact_id']}: {f['text']}" for f in refs)
     try:
+        # Angle *assessment* shares the angle role with proposal (M4D PART 7).
         raw, _m = gen.call_model(
             _ASSESS_PROMPT.replace("@@TITLE@@", proposal.get("title", ""))
             .replace("@@PROP@@", proposal.get("new_proposition", ""))
@@ -827,7 +833,7 @@ def _model_assess(proposal, refs, *, api_key=None, timeout=120):
             .replace("@@FACTS@@", listing),
             api_key=api_key,
             timeout=timeout,
-            role="judge",
+            role="angle",
         )
     except (RuntimeError, ValueError, OSError):
         return None

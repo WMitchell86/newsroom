@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from editor_assistant.drafting import generate
+from editor_assistant.drafting import generate, model_policy
 from editor_assistant.workflow import (
     blocked_domains,
     cli,
@@ -300,6 +300,88 @@ def test_semantic_answer_can_join_the_shortlisted_story():
     assert summary["semantic_matches"] == 1
     assert summary["semantic_calls"] == 1
     assert len(story_store.read_stories()) == 1
+
+
+# ---------------------------------------------------------------- candidate anchor gate (PART 12)
+
+
+def test_strong_anchor_decides_whether_a_model_question_is_worth_asking():
+    yes = [
+        {"title": 0.4, "shared_tokens": ["созопол"], "numbers": 0.0, "hours": 5},
+        {
+            "title": 0.1,
+            "shared_tokens": ["катастрофа", "несебър"],
+            "numbers": 0.0,
+            "hours": 5,
+        },
+        {"title": 0.05, "shared_tokens": ["3"], "numbers": 1.0, "hours": 2},
+    ]
+    for detail in yes:
+        anchored, why = story_identity.strong_anchor(detail)
+        assert anchored, (detail, why)
+
+    no = [
+        # weak, short shared tokens only
+        {"title": 0.1, "shared_tokens": ["такси", "смет"], "numbers": 0.0, "hours": 5},
+        # strong tokens, but far outside the window: a topic is not a story
+        {"title": 0.9, "shared_tokens": ["несебър"], "numbers": 0.0, "hours": 200},
+        # nothing shared at all
+        {"title": 0.0, "shared_tokens": [], "numbers": 0.0, "hours": None},
+    ]
+    for detail in no:
+        anchored, why = story_identity.strong_anchor(detail)
+        assert not anchored, (detail, why)
+
+
+def test_weak_candidates_no_longer_reach_the_semantic_model():
+    """The PART 12 gate: no strong anchor -> a new story, and no model call."""
+    _seed(
+        [
+            _item(source_id="monitor-a", title="Нови такси за смет", url="https://a.example/1"),
+            _item(
+                source_id="monitor-b",
+                title="Нови такси за паркиране",
+                url="https://b.example/2",
+                publisher_domain="b.example",
+            ),
+        ]
+    )
+
+    def explode(*_args, **_kwargs):
+        pytest.fail("a weak candidate must not reach the model")
+
+    summary = story_identity.update(dry_run=False, semantic=True, call_model=explode)
+    assert summary["semantic_calls"] == 0
+    assert summary["anchor_skipped"] == 1
+    assert summary["new_stories"] == 2
+    # No anchor is a confident "separate", not editor uncertainty: the item is
+    # simply a new story and is not queued for manual review.
+    assert summary["needs_review"] == 0
+    assert len(story_store.read_stories()) == 2
+
+
+def test_anchored_candidates_still_reach_the_model_and_are_accounted():
+    _shortlist_pair()
+
+    def different(_prompt, role="story"):
+        return _found(
+            {
+                "same_event": False,
+                "relation": "DIFFERENT_STORY",
+                "material_change": False,
+                "shared_anchors": [],
+                "reason": "различни събития",
+            },
+            role,
+        )
+
+    summary = story_identity.update(dry_run=False, semantic=True, call_model=different)
+    assert summary["semantic_eligible"] == 1
+    assert summary["semantic_calls"] == 1
+    assert summary["anchor_skipped"] == 0
+    assert summary["semantic_matches"] == 0
+    # An anchored item that the model could not join stays visible for the editor.
+    assert summary["needs_review"] == 1
 
 
 def test_invalid_semantic_output_never_merges():
@@ -758,21 +840,23 @@ def test_story_role_has_its_own_pool_and_never_the_judge_pool():
 
 
 def test_openrouter_story_model_does_not_leak_into_the_draft_role(monkeypatch):
+    """The story role's OpenRouter route is its own; the draft role stays free of it.
+
+    M4D models/policy: the draft chain has no free OpenRouter route at all until a
+    free model passes Bulgarian qualification, so the only OpenRouter route a
+    draft call can reach is a paid one (and paid stays off by default).
+    """
     monkeypatch.setenv("OPENROUTER_STORY_MODEL", "deepseek/deepseek-v4-flash-0731:free")
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
-    calls = {}
-
-    def fake_call(prompt, *, api_key, timeout, model):
-        calls["model"] = model
-        return "{}", {"model": model}
-
-    monkeypatch.setattr(generate, "_call_openrouter", fake_call)
-    generate.call_model("hello", role="draft")
-    drafted = calls["model"]
-    generate.call_model("hello", role="story")
-    assert calls["model"] == "deepseek/deepseek-v4-flash-0731:free"
-    assert drafted != calls["model"]
+    policy = model_policy.load_policy()
+    story = model_policy.role_policy(policy, "story")["routes"]
+    draft = model_policy.role_policy(policy, "draft")["routes"]
+    story_models = [r["model"] for r in story]
+    draft_openrouter = [r for r in draft if r["provider"] == "openrouter"]
+    assert "deepseek/deepseek-v4-flash-0731:free" in story_models
+    assert "deepseek/deepseek-v4-flash-0731:free" not in [r["model"] for r in draft]
+    assert draft_openrouter and all(r["billing"] == "paid" for r in draft_openrouter)
 
 
 def test_story_calls_reuse_the_gemini_env_pool_when_configured(monkeypatch):

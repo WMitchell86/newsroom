@@ -1,0 +1,44 @@
+{
+  "role": "angle",
+  "note": "Seed corpus for the angle role, shaped like the M3D material where routine procedural items must NOT be called publishable. Replace with the adjudicated M3D recordings and the editor's disagreement cases before any production decision.",
+  "cases": [
+    {
+      "id": "routine-report-needs-no-article",
+      "proposal": "Съветът прие годишния отчет за дейността на общинското предприятие",
+      "facts": [
+        "Точка трета от заседанието: годишен отчет за дейността на общинското предприятие „Чистота“.",
+        "Отчетът е приет без разисквания."
+      ],
+      "status": "NO_PUBLISHABLE_ANGLE"
+    },
+    {
+      "id": "concrete-new-service",
+      "proposal": "В Бургас отваря безплатен кабинет за деца с диабет",
+      "facts": [
+        "Общината открива безплатен кабинет за деца с диабет в ДКЦ-1.",
+        "Кабинетът приема от 1 октомври, записан е график всеки работен ден.",
+        "Услугата е безплатна за деца до 18 години."
+      ],
+      "status": "PUBLISHABLE_ANGLE"
+    },
+    {
+      "id": "incomplete-development-needs-research",
+      "proposal": "Общината обмисля нова линия за градския транспорт до кв. „Лозово“",
+      "facts": [
+        "Общината обмисля нова автобусна линия до кв. „Лозово“.",
+        "Няма решение за маршрут, разписание или финансиране."
+      ],
+      "status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH"
+    },
+    {
+      "id": "money-and-people-impact",
+      "proposal": "Таксата за такситата в Бургас се вдига от 60 на 120 лева годишно",
+      "facts": [
+        "Общинският съвет прие увеличение на годишната такса за таксиметрови превозвачи от 60 на 120 лева.",
+        "В града работят 640 таксиметрови автомобила по данни на общината.",
+        "Промяната влиза в сила от 1 януари."
+      ],
+      "status": "PUBLISHABLE_ANGLE"
+    }
+  ]
+}

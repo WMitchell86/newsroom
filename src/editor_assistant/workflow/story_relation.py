@@ -141,8 +141,10 @@ PROMPT_TEMPLATE = """Ти сравняваш ЕДНА нова публикац�
 
 def render_prompt(context):
     publications = "\n".join(
-        f"    - {p['title']} ({p['publisher_domain']} · {p['published_at'] or p['discovered_at']})"
-        f" — {p['relation']}" + (f"\n      {p['summary']}" if p["summary"] else "")
+        f"    - {p.get('title', '')} ({p.get('publisher_domain', '')} · "
+        f"{p.get('published_at') or p.get('discovered_at') or ''})"
+        f" — {p.get('relation', '')}"
+        + (f"\n      {p.get('summary', '')}" if p.get("summary") else "")
         for p in context["publications"]
     )
     if not publications:

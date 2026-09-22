@@ -21,3 +21,4 @@ var/
 # (not *.zip) so future legitimate ZIP fixtures stay trackable.
 media.zip
 *.sqlite3
+tmp/

@@ -1,0 +1,299 @@
+{
+  "version": 1,
+  "note": "Tracked defaults for role-based model routing. The operator override lives in var/model_policy.json (editor-owned, never committed). Route order is authoritative: first enabled+allowed route wins. Provider catalogs change: run `newsroom models validate` to check ids against the live catalogs instead of trusting this file. daily_call_limit is the operator-declared per-model quota (Gemini AI Studio, per model, 2026-09-21: Flash-Lite 500 RPD, Flash 20 RPD); it is a local guardrail, and provider signals (429 quota) still win.",
+  "global": {
+    "paid_enabled": false,
+    "soft_paid_budget_usd_day": 2.0,
+    "max_transient_attempts": 2,
+    "max_rate_limited_attempts": 1
+  },
+  "roles": {
+    "judge": {
+      "label": "Механична проверка",
+      "purpose": "entailment, factual consistency, risk checks, structured yes/no",
+      "default_payload_class": "private",
+      "on_exhausted": "review_required",
+      "soft_calls_day": 40,
+      "hard_calls_day": 80,
+      "routes": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.5-flash-lite",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 500,
+          "omit_thinking_config": true
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-flash-lite",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 500
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3.5-lightning:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "google/gemma-4-31b-it:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna",
+          "billing": "paid",
+          "public_only": false
+        }
+      ]
+    },
+    "story": {
+      "label": "Идентичност на история",
+      "purpose": "SAME_STORY / NEW_DEVELOPMENT / RELATED_BACKGROUND / DIFFERENT_STORY",
+      "default_payload_class": "public",
+      "on_exhausted": "conservative",
+      "soft_calls_day": 60,
+      "hard_calls_day": 100,
+      "routes": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.8-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.7-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.6-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "qwen/qwen3.8-27b:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna-pro",
+          "billing": "paid",
+          "public_only": false
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna",
+          "billing": "paid",
+          "public_only": false
+        }
+      ]
+    },
+    "angle": {
+      "label": "Ъгъл",
+      "purpose": "editorial angle proposal and assessment (quality-sensitive, M3D)",
+      "default_payload_class": "private",
+      "on_exhausted": "degraded",
+      "soft_calls_day": 20,
+      "hard_calls_day": 30,
+      "routes": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.8-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.7-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.6-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna-pro",
+          "billing": "paid",
+          "public_only": false
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna",
+          "billing": "paid",
+          "public_only": false
+        }
+      ]
+    },
+    "draft": {
+      "label": "Финален текст",
+      "purpose": "final Bulgarian article writing / substantial rewrite",
+      "default_payload_class": "private",
+      "on_exhausted": "fail_visible",
+      "soft_calls_day": 15,
+      "hard_calls_day": 25,
+      "routes": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.8-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.7-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.6-flash",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 20
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna",
+          "billing": "paid",
+          "public_only": false
+        }
+      ]
+    },
+    "research": {
+      "label": "Проучване",
+      "purpose": "research planning: query generation, missing-information and source follow-up",
+      "default_payload_class": "private",
+      "on_exhausted": "deterministic",
+      "soft_calls_day": 25,
+      "hard_calls_day": 50,
+      "routes": [
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.2:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "qwen/qwen3.8-27b:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.5-flash-lite",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 500,
+          "omit_thinking_config": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna",
+          "billing": "paid",
+          "public_only": false
+        }
+      ]
+    },
+    "extract": {
+      "label": "Извличане на факти",
+      "purpose": "structured fact extraction from transcripts/documents (high volume, schema-first)",
+      "default_payload_class": "private",
+      "on_exhausted": "distinguish_zero",
+      "soft_calls_day": 20,
+      "hard_calls_day": 50,
+      "routes": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.5-flash-lite",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 500,
+          "omit_thinking_config": true
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-flash-lite",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 500
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3.5-lightning:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "openai/gpt-5.6-luna",
+          "billing": "paid",
+          "public_only": false
+        }
+      ]
+    },
+    "utility": {
+      "label": "Помощни задачи",
+      "purpose": "low-risk labels, summaries, helper transforms",
+      "default_payload_class": "public",
+      "on_exhausted": "cheap_only",
+      "soft_calls_day": 30,
+      "hard_calls_day": 75,
+      "routes": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.5-flash-lite",
+          "billing": "operator_declared",
+          "public_only": false,
+          "daily_call_limit": 500,
+          "omit_thinking_config": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "nvidia/nemotron-3.5-lightning:free",
+          "billing": "free",
+          "public_only": true
+        },
+        {
+          "provider": "openrouter",
+          "model": "google/gemma-4-31b-it:free",
+          "billing": "free",
+          "public_only": true
+        }
+      ]
+    }
+  }
+}

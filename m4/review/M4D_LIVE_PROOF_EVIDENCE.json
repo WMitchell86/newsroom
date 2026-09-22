@@ -1,0 +1,250 @@
+{
+  "daily_usage": {
+    "calls": 4,
+    "day": "2026-09-21",
+    "failures": 2,
+    "fallbacks": 1,
+    "input_tokens": 0,
+    "invalid_model_failures": 1,
+    "model_calls": {
+      "gemini:gemini-9.9-flash-does-not-exist": 1,
+      "openrouter:nvidia/nemotron-3.5-lightning:free": 1,
+      "openrouter:openai/gpt-5.6-luna": 2
+    },
+    "output_tokens": 0,
+    "paid_cost_usd": 0.0,
+    "payment_failures": 1,
+    "quota_failures": 0,
+    "role_calls": {
+      "draft": 1,
+      "judge": 3
+    },
+    "role_successes": {
+      "draft": 0,
+      "judge": 1
+    },
+    "skipped": 1,
+    "successes": 1,
+    "updated_at": "2026-09-21T07:31:37Z"
+  },
+  "default_routes": {
+    "angle": [
+      [
+        "gemini",
+        "gemini-3.8-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.7-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.6-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "openrouter",
+        "openai/gpt-5.6-luna-pro",
+        "paid",
+        false
+      ],
+      [
+        "openrouter",
+        "openai/gpt-5.6-luna",
+        "paid",
+        false
+      ]
+    ],
+    "draft": [
+      [
+        "gemini",
+        "gemini-3.8-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.7-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.6-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "openrouter",
+        "openai/gpt-5.6-luna",
+        "paid",
+        false
+      ]
+    ],
+    "judge": [
+      [
+        "gemini",
+        "gemini-3.5-flash-lite",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.1-flash-lite",
+        "operator_declared",
+        false
+      ],
+      [
+        "openrouter",
+        "nvidia/nemotron-3.5-lightning:free",
+        "free",
+        true
+      ],
+      [
+        "openrouter",
+        "google/gemma-4-31b-it:free",
+        "free",
+        true
+      ],
+      [
+        "openrouter",
+        "openai/gpt-5.6-luna",
+        "paid",
+        false
+      ]
+    ],
+    "story": [
+      [
+        "gemini",
+        "gemini-3.8-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.7-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "gemini",
+        "gemini-3.6-flash",
+        "operator_declared",
+        false
+      ],
+      [
+        "openrouter",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "free",
+        true
+      ],
+      [
+        "openrouter",
+        "qwen/qwen3.8-27b:free",
+        "free",
+        true
+      ],
+      [
+        "openrouter",
+        "openai/gpt-5.6-luna-pro",
+        "paid",
+        false
+      ],
+      [
+        "openrouter",
+        "openai/gpt-5.6-luna",
+        "paid",
+        false
+      ]
+    ]
+  },
+  "health": {
+    "gemini:gemini-9.9-flash-does-not-exist": {
+      "at": "2026-09-21T07:29:47Z",
+      "policy_hash": "9dd2a3564b1f",
+      "reason": "INVALID_MODEL: HTTP Error 404: Not Found",
+      "status": "INVALID",
+      "until": ""
+    },
+    "openrouter:openai/gpt-5.6-luna": {
+      "at": "2026-09-21T07:31:37Z",
+      "policy_hash": "c1a81484d38b",
+      "reason": "PAYMENT_REQUIRED: HTTP Error 402: Payment Required",
+      "status": "INVALID",
+      "until": ""
+    }
+  },
+  "invalid_route_fallback": {
+    "answer": "{\"entailed\": false, \"reason\": \"The fact states 41 votes in favor, but the source indicates only 33 votes in favor, so the fact is not logically entailed by the provided source.\"}",
+    "answer_model": "nvidia/nemotron-3.5-lightning:free",
+    "fallbacks": 1,
+    "provider": "openrouter",
+    "trace": [
+      {
+        "event": "ERROR",
+        "reason": "INVALID_MODEL: HTTP Error 404: Not Found",
+        "route": "gemini:gemini-9.9-flash-does-not-exist",
+        "route_index": 0
+      },
+      {
+        "event": "FAILED",
+        "reason": "INVALID_MODEL",
+        "route": "gemini:gemini-9.9-flash-does-not-exist",
+        "route_index": 0
+      }
+    ]
+  },
+  "paid_disabled": {
+    "on_exhausted": "review_required",
+    "reason": "judge: няма достъпен маршрут (липсващ ключ, лимит, изключени платени модели или политика)",
+    "result": "REFUSED",
+    "trace": [
+      {
+        "event": "SKIPPED",
+        "reason": "платените модели са изключени",
+        "route": "openrouter:openai/gpt-5.6-luna",
+        "route_index": 0
+      }
+    ]
+  },
+  "paid_enabled_call": {
+    "health": {
+      "gemini:gemini-9.9-flash-does-not-exist": {
+        "at": "2026-09-21T07:29:47Z",
+        "policy_hash": "9dd2a3564b1f",
+        "reason": "INVALID_MODEL: HTTP Error 404: Not Found",
+        "status": "INVALID",
+        "until": ""
+      },
+      "openrouter:openai/gpt-5.6-luna": {
+        "at": "2026-09-21T07:31:37Z",
+        "policy_hash": "c1a81484d38b",
+        "reason": "PAYMENT_REQUIRED: HTTP Error 402: Payment Required",
+        "status": "INVALID",
+        "until": ""
+      }
+    },
+    "reason": "draft: няма успешен маршрут",
+    "result": "PROVIDER_REFUSED",
+    "trace": [
+      {
+        "event": "ERROR",
+        "reason": "PAYMENT_REQUIRED: HTTP Error 402: Payment Required",
+        "route": "openrouter:openai/gpt-5.6-luna",
+        "route_index": 0
+      },
+      {
+        "event": "FAILED",
+        "reason": "PAYMENT_REQUIRED",
+        "route": "openrouter:openai/gpt-5.6-luna",
+        "route_index": 0
+      }
+    ]
+  },
+  "policy_hash": "9d258f6c67cd"
+}

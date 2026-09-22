@@ -13,45 +13,96 @@ from editor_assistant.workflow.cases import EDITING_WEIGHTS, TIME_BUCKETS
 from editor_assistant.workflow.workbench import labels as lb
 
 CSS = """
-:root { --ink:#1a1a2e; --line:#d8d8e0; --bg:#f7f7fa; --accent:#0b5394; --warn:#b45309; --ok:#15803d; }
+:root {
+  --ink:#17202b; --line:#d9dee6; --bg:#f4f6f9; --card:#ffffff;
+  --accent:#0f5aa8; --accent-dark:#0b447f; --ok:#15803d; --ok-bg:#dcfce7;
+  --warn:#b45309; --warn-bg:#fef3c7; --bad:#991b1b; --bad-bg:#fee2e2;
+  --info:#1e40af; --info-bg:#dbeafe; --muted:#5b6572;
+}
 * { box-sizing: border-box; }
-body { font-family: -apple-system, 'Segoe UI', sans-serif; color: var(--ink); background: var(--bg); margin: 0; }
-header { background: var(--accent); color: #fff; padding: .8rem 1.2rem; }
-header h1 { font-size: 1.15rem; margin: 0; }
+body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+body { color: var(--ink); background: var(--bg); margin: 0; line-height: 1.45; }
+header.top { background: linear-gradient(180deg, var(--accent), var(--accent-dark)); }
+header.top { color: #fff; padding: .9rem 1.2rem .7rem; }
+header.top h1 { font-size: 1.2rem; margin: 0; }
+header.top a { color: #fff; text-decoration: none; }
+header.top nav a { display: inline-block; padding: .35rem .85rem; margin: .15rem .1rem 0 0; }
+header.top nav a { border-radius: 999px; opacity: .82; transition: background .15s, opacity .15s; }
+header.top nav a:hover { opacity: 1; background: rgba(255, 255, 255, .14); }
+header.top nav a.nav-active { background: #fff; color: var(--accent-dark); opacity: 1; font-weight: 700; }
+.admin-label { color: rgba(255, 255, 255, .65); font-size: .78rem; margin-right: .3rem; }
 main { max-width: 62rem; margin: 0 auto; padding: 1rem 1.2rem 3rem; }
 a { color: var(--accent); }
-table { border-collapse: collapse; width: 100%; background: #fff; }
-th, td { border: 1px solid var(--line); padding: .45rem .6rem; text-align: left; vertical-align: top; font-size: .92rem; }
+table { border-collapse: collapse; width: 100%; background: var(--card); }
+th, td { border: 1px solid var(--line); padding: .5rem .65rem; }
+th, td { text-align: left; vertical-align: top; font-size: .92rem; }
 th { background: #eef1f6; }
-.badge { display: inline-block; padding: .1rem .5rem; border-radius: .7rem; font-size: .78rem; background: #e5e7eb; }
-.badge.ok { background: #dcfce7; color: var(--ok); }
-.badge.warn { background: #fef3c7; color: var(--warn); }
-.badge.block { background: #fee2e2; color: #991b1b; }
-.badge.info { background: #dbeafe; color: #1e40af; }
-section.card { background: #fff; border: 1px solid var(--line); border-radius: .4rem; padding: 1rem 1.2rem; margin: 1rem 0; }
-section.card h2 { font-size: 1.05rem; margin-top: 0; }
+.badge { display: inline-block; padding: .2rem .65rem; border-radius: 999px; }
+.badge { font-size: .82rem; font-weight: 600; background: #e5e7eb; }
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.block { background: var(--bad-bg); color: var(--bad); }
+.badge.info { background: var(--info-bg); color: var(--info); }
+section.card { background: var(--card); border: 1px solid var(--line); }
+section.card { border-radius: .6rem; padding: 1rem 1.2rem; margin: 1rem 0; }
+section.card h2 { font-size: 1.08rem; margin-top: 0; }
+section.card.hero { border-left: 5px solid var(--accent); }
+.hero-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .8rem; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+.stats { gap: .7rem; margin: .8rem 0; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: .6rem; }
+.stat { padding: .7rem .9rem; }
+.stat .num { font-size: 1.5rem; font-weight: 800; }
+.stat .lbl { color: var(--muted); font-size: .85rem; }
+.howto { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.howto { gap: .7rem; margin-top: .6rem; }
+.howto div { background: #f8fafc; border: 1px solid var(--line); border-radius: .5rem; }
+.howto div { padding: .6rem .8rem; font-size: .9rem; }
 textarea { width: 100%; min-height: 16rem; font: inherit; }
-input[type=text] { width: 100%; font: inherit; }
+textarea { padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .35rem; }
+input[type=text], input:not([type]), select { padding: .45rem .6rem; }
+input[type=text], input:not([type]), select { border: 1px solid var(--line); }
+input[type=text], input:not([type]), select { border-radius: .35rem; font-size: .92rem; }
+input[type=text]:focus, input:not([type]):focus, select:focus, textarea:focus { outline: 2px solid var(--accent); }
 label { display: block; margin: .6rem 0 .2rem; font-weight: 600; }
-button { font: inherit; background: var(--accent); color: #fff; border: 0; border-radius: .3rem; padding: .5rem 1.1rem; cursor: pointer; }
+fieldset { border: 1px solid var(--line); border-radius: .5rem; padding: .7rem .9rem; }
+fieldset { margin: .8rem 0; background: #fcfdff; }
+fieldset legend { font-weight: 700; padding: 0 .4rem; }
+button { font: inherit; background: var(--accent); color: #fff; border: 0; }
+button { border-radius: .35rem; padding: .55rem 1.2rem; cursor: pointer; }
 button.secondary { background: #6b7280; }
-.btn { padding: .25rem .6rem; font-size: .82rem; }
-.btn.danger { background: #991b1b; }
+button:hover { background: var(--accent-dark); }
+button:disabled { opacity: .6; cursor: wait; }
+.btn { padding: .3rem .7rem; font-size: .85rem; border-radius: .35rem; }
+.btn.danger { background: var(--bad); }
 .btn.primary { background: var(--ok); }
 details form { margin: .3rem 0 .1rem; }
-.notice { padding: .6rem .9rem; border-radius: .3rem; margin: .6rem 0; }
-.notice.error { background: #fee2e2; }
-.notice.saved { background: #dcfce7; }
+.notice { padding: .6rem .9rem; border-radius: .35rem; margin: .6rem 0; }
+.notice.error { background: var(--bad-bg); border: 1px solid #fca5a5; }
+.notice.saved { background: var(--ok-bg); border: 1px solid #86efac; }
 .warnbox { background: #fef3c7; border: 1px solid #f59e0b; padding: .6rem .9rem; border-radius: .3rem; margin: .5rem 0; }
 .infobox { background: #e0f2fe; border: 1px solid #7dd3fc; padding: .6rem .9rem; border-radius: .3rem; margin: .5rem 0; }
 .filters a { margin-right: .8rem; }
 .filters .active { font-weight: 700; text-decoration: underline; }
-.muted { color: #6b7280; font-size: .85rem; }
-pre.draft { white-space: pre-wrap; font-family: Georgia, serif; background: #fafafa; border: 1px solid var(--line); padding: .8rem; }
+.muted { color: var(--muted); font-size: .85rem; }
+pre.draft { white-space: pre-wrap; font-family: Georgia, serif; }
+pre.draft { background: #fafafa; border: 1px solid var(--line); padding: .8rem; }
+pre.draft { border-radius: .35rem; }
 .fact { border-bottom: 1px dotted var(--line); padding: .3rem 0; }
 .loc { font-size: .8rem; color: var(--accent); }
 dl.meta dt { font-weight: 600; margin-top: .4rem; }
 dl.meta dd { margin: 0 0 .3rem; }
+.table-wrap { overflow-x: auto; }
+#busy-overlay { display: none; position: fixed; inset: 0; z-index: 50; }
+#busy-overlay { background: rgba(15,30,50,.55); align-items: center; }
+#busy-overlay { justify-content: center; }
+#busy-overlay div { background: #fff; border-radius: .6rem; padding: 1.2rem 1.6rem; }
+@media (max-width: 768px) {
+  main { padding: .8rem .7rem 2.5rem; }
+  th, td { font-size: .85rem; padding: .4rem .45rem; }
+  .hero-actions button { width: 100%; }
+  section.card { padding: .85rem .9rem; }
+}
 """
 
 
@@ -59,35 +110,77 @@ def esc(value):
     return html_mod.escape(str(value if value is not None else ""), quote=True)
 
 
-#: M4C navigation: Stories first (the daily landing surface), then the raw
-#: materials view, which stays reachable so every collected row can be inspected.
-NAV = (
+#: Daily workflow first (what the editor opens every morning), then setup and
+#: archive surfaces. «Случаи» is the frozen M3A queue — kept reachable but not
+#: promoted; «YouTube» is a secondary source view.
+NAV_DAILY = (
+    ("home", "/", "Начало"),
     ("stories", "/stories", "Истории"),
     ("inbox", "/inbox", "Материали"),
     ("sources", "/sources", "Източници"),
-    ("queue", "/", "Случаи"),
+)
+NAV_ADMIN = (
+    ("models", "/models", "AI модели"),
+    ("queue", "/cases", "Случаи"),
+    ("intake", "/intake", "YouTube"),
+)
+#: Back-compat alias table: every key ever used as ``active=`` still resolves.
+NAV = (
+    ("home", "/", "Начало"),
+    ("stories", "/stories", "Истории"),
+    ("inbox", "/inbox", "Материали"),
+    ("sources", "/sources", "Източници"),
+    ("models", "/models", "AI модели"),
+    ("queue", "/cases", "Случаи"),
     ("intake", "/intake", "YouTube"),
 )
 
 
+def _nav_link(key, href, label, active=""):
+    cls = ' class="nav-active"' if key == active else ""
+    extra = ""
+    if key in ("home", "stories", "inbox"):
+        extra = ' data-daily="1"'
+    return f'<a href="{href}"{cls}{extra}>{esc(label)}</a>'
+
+
 def nav(active=""):
-    parts = []
-    for key, href, label in NAV:
-        cls = ' style="color:#fff;font-weight:700"' if key == active else ""
-        parts.append(f'<a href="{href}"{cls}>{esc(label)}</a>')
-    return '<nav class="filters" style="color:#cbd5e1">' + " | ".join(parts) + "</nav>"
+    daily = "".join(_nav_link(k, h, label, active) for k, h, label in NAV_DAILY)
+    admin = "".join(_nav_link(k, h, label, active) for k, h, label in NAV_ADMIN)
+    return (
+        '<nav class="primary" aria-label="Ежедневна работа">' + daily + "</nav>"
+        '<nav class="admin" aria-label="Настройки и архив">'
+        '<span class="admin-label">Настройки и архив:</span>' + admin + "</nav>"
+    )
 
 
 def page(title, body, active=""):
     return (
         '<!doctype html>\n<html lang="bg">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f"<title>{esc(title)} — Редакторски работен плот</title>\n"
-        f"<style>{CSS}</style>\n</head>\n<body>\n"
-        '<header><h1><a style="color:#fff;text-decoration:none" href="/">Редакторски работен плот</a>'
-        ' <span class="muted" style="color:#cbd5e1">M4</span></h1>\n'
+        f"<title>{esc(title)} — Дневен новинарски помощник</title>\n"
+        f'<link rel="stylesheet" href="/static/style.css">\n<style>{CSS}</style>\n</head>\n<body>\n'
+        '<header class="top"><h1><a href="/">Дневен новинарски помощник</a></h1>\n'
+        '<p class="tagline">Какво е ново от вашите източници · прочетете · '
+        "отбележете · напишете</p>\n"
         f"{nav(active)}</header>\n"
-        f"<main>\n{body}\n</main>\n</body>\n</html>\n"
+        f"<main>\n{body}\n</main>\n"
+        '<div id="busy-overlay" role="status"><div>Събиране… моля, изчакайте.</div></div>\n'
+        "<script>"
+        "document.addEventListener('submit',function(e){"
+        "var f=e.target;if(f.method&&f.method.toLowerCase()!=='post')return;"
+        "var b=f.querySelector('button[type=submit]');"
+        "if(!b||!b.dataset)return;"
+        "if(b.dataset.danger){"
+        "if(!confirm('Наистина ли?')){e.preventDefault();return;}}"
+        "if(b.dataset.confirmRoute){"
+        "var op=f.querySelector('select[name=op]');"
+        "if(op&&op.value==='remove'&&!confirm('Наистина ли да премахна?')){e.preventDefault();return;}}"
+        "if(b.dataset.busy){"
+        "b.disabled=true;var o=document.getElementById('busy-overlay');"
+        "if(o){o.style.display='flex';}"
+        "}});</script>\n"
+        "</body>\n</html>\n"
     )
 
 
@@ -105,11 +198,12 @@ def readiness_badge(status):
     return _badge(status or "—")
 
 
-def filter_nav(active):
+def filter_nav(active, base="/cases"):
     parts = []
     for key, label in lb.FILTERS:
         cls = ' class="active"' if key == active else ""
-        parts.append(f'<a{cls} href="/?filter={key}">{esc(label)}</a>')
+        href = f"{base}?filter={urllib.parse.quote(key)}"
+        parts.append(f'<a{cls} href="{href}">{esc(label)}</a>')
     return '<nav class="filters">' + " | ".join(parts) + "</nav>"
 
 
@@ -146,7 +240,85 @@ def queue_table(rows, empty_text):
             f'<td class="muted">{esc(row["updated_at"] or "—")}</td>'
             "</tr>"
         )
-    return f"<table>{head}{''.join(body)}</table>"
+    return f'<div class="table-wrap"><table>{head}{"".join(body)}</table></div>'
+
+
+def render_home(stories, inbox, sources):
+    """Daily landing page: «what is new, what do I do next».
+
+    Read-only aggregation over the views the dedicated pages already compute.
+    Keeps the editor's morning in one place: unreviewed counts, today's
+    arrivals, the top new stories and the next step.
+    """
+    summary = (sources or {}).get("summary") or {}
+    story_cards = (stories or {}).get("stories") or []
+    counts = (stories or {}).get("counts") or {}
+    new_stories = int(counts.get("NEW") or 0)
+    total_stories = int((stories or {}).get("total_stories") or 0)
+    today = ((inbox or {}).get("today") or {}).get("by_status") or {}
+    new_materials = int((inbox or {}).get("unreviewed") or 0)
+    today_new = int(today.get("NEW") or 0)
+    today_date = ((inbox or {}).get("today") or {}).get("date") or "—"
+    active_sources = summary.get("active", "—")
+    top = story_cards[:5]
+    if top:
+        top_rows = "".join(
+            "<li>"
+            f'<a href="/stories/{esc(card.get("story_id", ""))}">'
+            f"<strong>{esc(card.get('title') or card.get('story_id', ''))}</strong></a>"
+            f' <span class="muted">· {esc(" · ".join(card.get("publishers") or []))}</span>'
+            "</li>"
+            for card in top
+        )
+        top_block = f"<ol>{top_rows}</ol>"
+    else:
+        top_block = (
+            '<p class="muted">Още няма групирани истории. Ако материалите са събрани, '
+            "натиснете „Обнови историите“.</p>"
+        )
+    hero = (
+        '<section class="card hero"><h2>Добро утро — ето какво е ново</h2>'
+        '<p class="muted">Дневен новинарски помощник: събира материали от вашите '
+        "източници, групира ги в истории и ви оставя решението. "
+        "Нищо не се публикува автоматично.</p>"
+        '<div class="stats">'
+        f'<div class="stat"><div class="num">{new_stories}</div>'
+        '<div class="lbl">нови истории за преглед</div></div>'
+        f'<div class="stat"><div class="num">{new_materials}</div>'
+        '<div class="lbl">непрегледани материали</div></div>'
+        f'<div class="stat"><div class="num">{today_new}</div>'
+        f'<div class="lbl">пристигнали днес ({esc(today_date)})</div></div>'
+        f'<div class="stat"><div class="num">{esc(active_sources)}</div>'
+        '<div class="lbl">активни източници</div></div>'
+        "</div>"
+        '<div class="hero-actions">'
+        f'<a href="/stories"><button class="btn primary" type="button">'
+        f"Прегледай историите ({new_stories})</button></a> "
+        f'<a href="/inbox"><button class="btn" type="button">'
+        f"Към материалите ({new_materials})</button></a> "
+        "</div></section>"
+    )
+    latest = (
+        '<section class="card"><h2>Най-нови истории</h2>'
+        f"{top_block}"
+        f'<p class="muted">Общо истории: {total_stories} · '
+        '<a href="/stories">всички истории</a></p></section>'
+    )
+    howto = (
+        '<section class="card"><h2>Как се работи (3 стъпки)</h2>'
+        '<div class="howto">'
+        "<div><strong>1. Събери</strong><br>Натисни „Събери новините сега“ "
+        'в <a href="/inbox">Материали</a>.</div>'
+        "<div><strong>2. Прегледай</strong><br>Отвори история в "
+        '<a href="/stories">Истории</a> и прочети материалите.</div>'
+        "<div><strong>3. Отбележи</strong><br>Маркирай като прегледана, "
+        "игнорирай или върни за още информация.</div>"
+        "</div>"
+        '<p class="muted"><a href="/sources">Източници</a> и '
+        '<a href="/models">AI модели</a> са настройки — отварят се рядко.</p>'
+        "</section>"
+    )
+    return page("Начало", f"{hero}\n{latest}\n{howto}", active="home")
 
 
 def render_queue(queue, active_filter="all", message="", error=""):
@@ -172,7 +344,11 @@ def render_queue(queue, active_filter="all", message="", error=""):
         '<p class="muted">Работният плот не публикува автоматично: финализирането е '
         "изрично действие на редактора и не променя AI черновите.</p>"
     )
-    return page("Опашка", "\n".join(body), active="queue")
+    body.append(
+        '<p class="muted">Това е архивната опашка от по-ранен етап. '
+        + 'Ежедневната работа започва от <a href="/">Начало</a>.</p>'
+    )
+    return page("Случаи (архив)", "\n".join(body), active="queue")
 
 
 def _diff_section(view):
@@ -671,7 +847,7 @@ def render_case(view, message="", error=""):
     case = view["case"]
     status = (view["readiness"] or {}).get("status", "")
     head = (
-        '<p><a href="/">← Опашка</a></p>'
+        '<p><a href="/cases">← Случаи (архив)</a></p>'
         f'<h2 id="casehead">{esc(view["case_id"])} — '
         f"{esc(case.get('draft_headline') or case.get('final_headline') or '—')}</h2>"
         "<p>"
@@ -787,7 +963,7 @@ def sources_table(rows):
             + _source_mute_form(row)
             + "</td></tr>"
         )
-    return f"<table>{head}{''.join(body)}</table>"
+    return f'<div class="table-wrap"><table>{head}{"".join(body)}</table></div>'
 
 
 def _health_cell(row):
@@ -868,15 +1044,20 @@ def add_source_form(values=None):
         for key, label in lb.SOURCE_CADENCE_LABELS.items()
     )
     return (
-        '<h2>Добави източник</h2><form method="post" action="/sources">'
+        '<section class="card"><h2>Добави източник</h2>'
+        '<p class="muted">За директен канал попълнете адрес (URL); за търсене — заявка.</p>'
+        '<form method="post" action="/sources">'
         '<input type="hidden" name="action" value="add">'
+        "<fieldset><legend>Основно</legend>"
         f'<label>Идентификатор (латиница, тирета) <input name="source_id" value="{esc(values.get("source_id", ""))}" required></label>'
         f'<label>Име <input name="name" value="{esc(values.get("name", ""))}" required></label>'
         f'<label>Тип <select name="kind">{kinds}</select></label>'
         f'<label>Начин на събиране <select name="collector">{collectors}</select></label>'
+        "</fieldset><fieldset><legend>Адрес</legend>"
         f'<label>Домейн на издателя <input name="domain" value="{esc(values.get("domain", ""))}"></label>'
         f'<label>URL <input name="url" value="{esc(values.get("url", ""))}"></label>'
         f'<label>Заявка (за търсене) <input name="query" value="{esc(values.get("query", ""))}"></label>'
+        "</fieldset><fieldset><legend>Настройки</legend>"
         f'<label>Приоритет <select name="priority">{priorities}</select></label>'
         f'<label>Ритъм <select name="cadence">{cadences}</select></label>'
         f'<label>Бележка <input name="note" value="{esc(values.get("note", ""))}"></label>'
@@ -885,7 +1066,7 @@ def add_source_form(values=None):
             "(предстоящи събития са стойността)</label>"
             '<label><input type="checkbox" name="monitoring_only" value="1"> само наблюдение '
             "(не се използва като фактологичен авторитет)</label>"
-            '<button class="btn primary" type="submit">Добави</button></form>'
+            '</fieldset><button class="btn primary" type="submit">Добави</button></form></section>'
         )
     )
 
@@ -899,9 +1080,10 @@ def render_sources(view, message="", error="", values=None):
             f"само наблюдение {summary['monitoring_only']}</p>"
         ),
         (
-            '<p class="muted">Събирането се изпълнява от cron (еднократна команда '
-            "<code>newsroom collect</code>); тук се управлява кои източници се събират и как. "
-            "Предварителен преглед без мрежа: <code>newsroom collect --dry-run</code>.</p>"
+            '<p class="muted">Тук се управлява кои източници се проверяват и колко често. '
+            "Събирането върви автоматично по график; ръчно пускане има в "
+            '<a href="/inbox">Материали</a> («Събери новините сега»). '
+            "Редовете по-долу показват и кога източникът е работил за последно.</p>"
         ),
     ]
     if message:
@@ -941,7 +1123,7 @@ def _domains_section(view):
         + '<form method="post" action="/sources" style="display:inline">'
         + '<input type="hidden" name="action" value="domain_remove">'
         + f'<input type="hidden" name="domain" value="{esc(domain)}">'
-        + '<button class="btn danger" type="submit">Премахни</button></form></li>'
+        + '<button class="btn danger" type="submit" data-danger="1">Премахни</button></form></li>'
         for domain in domains
     )
     if not rows:
@@ -1043,17 +1225,21 @@ def _collect_section(view):
             f"източника с проблем {int(last.get('failed') or 0)}</p>"
         )
     parts = [
-        '<section class="card" id="collect"><h2>Събиране</h2>',
+        (
+            '<section class="card" id="collect"><h2>Събиране</h2>'
+            '<p class="muted">Проверява всички активни източници за нови материали. '
+            "Може да отнеме минута — не затваряйте страницата.</p>"
+        ),
         info,
         (
-            '<form method="post" action="/inbox" style="display:inline">'
+            '<div class="hero-actions"><form method="post" action="/inbox">'
             '<input type="hidden" name="action" value="collect">'
-            '<button class="btn primary" type="submit">Събери новините сега</button></form> '
+            '<button class="btn primary" type="submit" data-busy="1">Събери новините сега</button></form> '
         ),
         (
-            '<form method="post" action="/inbox" style="display:inline">'
+            '<form method="post" action="/inbox">'
             '<input type="hidden" name="action" value="collect_preview">'
-            '<button class="btn" type="submit">Пробен преглед (без мрежа)</button></form>'
+            '<button class="btn" type="submit">Пробен преглед (без мрежа)</button></form></div>'
         ),
     ]
     problems = view.get("problems") or []
@@ -1082,7 +1268,9 @@ def _inbox_item(item):
             '<input type="hidden" name="action" value="status">'
             f'<input type="hidden" name="item_id" value="{esc(item["item_id"])}">'
             f'<input type="hidden" name="status" value="{esc(action)}">'
-            f'<button class="btn {cls}" type="submit">{esc(label)}</button></form>'
+            f'<button class="btn {cls}" type="submit"'
+            + (' data-danger="1"' if cls == "danger" else "")
+            + f">{esc(label)}</button></form>"
         )
     actions.append(
         f'<a class="btn" href="{esc(item["url"])}" target="_blank" '
@@ -1167,7 +1355,9 @@ def _story_actions(story, *, detail=False):
             '<input type="hidden" name="action" value="status">'
             f'<input type="hidden" name="story" value="{esc(story["story_id"])}">'
             f'<input type="hidden" name="status" value="{esc(action)}">'
-            f'<button class="btn {cls}" type="submit">{esc(label)}</button></form>'
+            f'<button class="btn {cls}" type="submit"'
+            + (' data-danger="1"' if cls == "danger" else "")
+            + f">{esc(label)}</button></form>"
         )
     link = (
         f'<a class="btn" href="/stories/{esc(story["story_id"])}">Отвори историята</a>'
@@ -1231,22 +1421,19 @@ def render_stories(view, message="", error=""):
             f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
         ),
         (
-            '<p class="muted">История = реално събитие, сглобено от запазените материали. '
-            "Откриванията, публикациите и издателите се броят отделно: един и същ материал, "
-            "намерен от няколко наблюдения, не е няколко източника.</p>"
+            '<p class="muted">История = нови материали, групирани като едно събитие. '
+            "Броим отделно материалите и издателите.</p>"
         ),
         story_status_nav(view),
         (
             '<section class="card"><h2>Обновяване на историите</h2>'
-            '<p class="muted">Групира вече събраните материали. Пробният преглед не записва. '
-            "Събирането на нови материали остава задача на cron "
-            "(<code>newsroom refresh</code>).</p>"
-            '<form method="post" action="/stories" style="display:inline">'
+            '<p class="muted">Групира вече събраните материали. Пробният преглед не записва.</p>'
+            '<div class="hero-actions"><form method="post" action="/stories">'
             '<input type="hidden" name="action" value="update">'
-            '<button class="btn primary" type="submit">Обнови историите</button></form> '
-            '<form method="post" action="/stories" style="display:inline">'
+            '<button class="btn primary" type="submit" data-busy="1">Обнови историите</button></form> '
+            '<form method="post" action="/stories">'
             '<input type="hidden" name="action" value="update_preview">'
-            '<button class="btn" type="submit">Пробен преглед</button></form></section>'
+            '<button class="btn" type="submit">Пробен преглед</button></form></div></section>'
         ),
     ]
     if message:
@@ -1256,8 +1443,13 @@ def render_stories(view, message="", error=""):
     stories = view["stories"]
     if not stories:
         body.append(
-            '<p class="muted">Няма истории за този филтър. Пуснете «Обнови историите» или '
-            'вижте <a href="/inbox">материалите</a>.</p>'
+            '<section class="card hero"><h2>Няма истории за този филтър</h2>'
+            '<p class="muted">Стъпки: 1) съберете материалите, 2) обновете историите, '
+            "3) отворете история и маркирайте като прегледана.</p>"
+            '<div class="hero-actions"><form method="post" action="/stories">'
+            '<input type="hidden" name="action" value="update">'
+            '<button class="btn primary" type="submit" data-busy="1">Обнови историите сега</button>'
+            '</form><a href="/inbox"><button class="btn secondary" type="button">Към материалите</button></a></div></section>'
         )
         return page("Истории", "\n".join(body), active="stories")
     body.extend(_story_card(card) for card in stories)
@@ -1319,7 +1511,7 @@ def render_story(detail, message="", error=""):
             '<input type="hidden" name="action" value="split">'
             f'<input type="hidden" name="story" value="{esc(detail["story_id"])}">'
             f'<input type="hidden" name="item" value="{esc(row["item_id"])}">'
-            '<button class="btn danger" type="submit">Този материал не е част от историята</button>'
+            '<button class="btn danger" type="submit" data-danger="1">Този материал не е част от историята</button>'
             "</form></div>"
         )
     body.append("<h3>Материали</h3>")
@@ -1359,6 +1551,190 @@ def render_story(detail, message="", error=""):
     return page("История", "\n".join(body), active="stories")
 
 
+MODEL_STATUS_LABELS = {
+    "OK": "наличен",
+    "INVALID": "НЕВАЛИДЕН",
+    "MISMATCH": "НЕСЪОТВЕТСТВИЕ",
+    "UNCHECKED": "непроверен",
+}
+
+
+def _policy_action(role, action, **hidden):
+    """One small POST form for a route/role control (no JS framework).
+
+    ``_role_manager_form`` below renders the compact single-form manager; this
+    helper stays for the global/budget/validate forms and for tests.
+    """
+    fields = "".join(
+        f'<input type="hidden" name="{esc(key)}" value="{esc(value)}">'
+        for key, value in ({"action": action, "role": role, **hidden}).items()
+    )
+    return f'<form method="post" action="/models">{fields}'
+
+
+def _role_manager_form(role):
+    """Compact single-form manager for one role (P1 page-size fix).
+
+    One ``<form>`` per role instead of four per route: the editor picks a route
+    and an operation, then submits once. Field names (``op``/``index``) are
+    translated to the legacy ``action`` vocabulary in ``http._post_models`` so
+    the POST contract the CLI and the tests use never changes.
+    """
+    options = (
+        "".join(
+            f'<option value="{r["index"]}">#{r["index"]} — {esc(r["provider"])}:'
+            f"{esc(r['model'])} ({('вкл.' if r['enabled'] else 'изкл.')})</option>"
+            for r in role["routes"]
+        )
+        or '<option value="">— няма маршрути —</option>'
+    )
+    return (
+        f'<form method="post" action="/models" class="role-manage">'
+        f'<input type="hidden" name="role" value="{esc(role["role"])}">'
+        '<label>Маршрут <select name="index">' + options + "</select></label> "
+        '<label>Действие <select name="op">'
+        '<option value="up">Премести нагоре</option>'
+        '<option value="down">Премести надолу</option>'
+        '<option value="toggle">Включи / изключи</option>'
+        '<option value="remove">Премахни</option>'
+        "</select></label> "
+        '<button class="btn" type="submit" data-confirm-route="1">Приложи</button></form>'
+    )
+
+
+def render_models(view, message="", error="", values=None):
+    """«AI модели» — operator configuration for the role-based routing policy.
+
+    Deliberately plain: an ordered list per role, the free/paid label, today's
+    calls against the declared model limit, enable/disable, add/remove and
+    reorder. No API key is ever shown — only whether a key is present.
+    """
+    keys = view.get("keys") or {}
+    body = [
+        (
+            '<p class="muted">Настройки за напреднали: кои модели задвижват отделните стъпки. '
+            "Не е нужно за ежедневната работа.</p>"
+        ),
+        (
+            "<p>"
+            f"<strong>Ключове:</strong> Gemini — {'наличен' if keys.get('gemini') else 'ЛИПСВА'} · "
+            f"OpenRouter — {'наличен' if keys.get('openrouter') else 'ЛИПСВА'}"
+            "<br><strong>Политика:</strong> "
+            f"{'собствена' if view.get('override_exists') else 'по подразбиране'}"
+            f" · ден {esc(view.get('day'))}</p>"
+            '<details class="muted"><summary>Технически детайли</summary>'
+            f"<code>{esc(view.get('override_path'))}</code> · версия {esc(view.get('policy_hash'))}"
+            "</details>"
+        ),
+    ]
+    if message:
+        body.append(f'<div class="notice saved">{esc(message)}</div>')
+    if error:
+        body.append(f'<div class="notice error">{esc(error)}</div>')
+
+    validation = view.get("validation")
+    if validation:
+        rows = "".join(
+            "<tr>"
+            f"<td>{esc(r['role'])}</td><td>{esc(r['provider'])}:{esc(r['model'])}</td>"
+            f"<td>{esc(MODEL_STATUS_LABELS.get(r['status'], r['status']))}</td>"
+            f'<td class="muted">{esc(r.get("detail") or "")}</td></tr>'
+            for r in validation.get("rows") or []
+        )
+        body.append(
+            '<section class="card"><h2>Последна проверка в живите каталози</h2>'
+            f'<p class="muted">Gemini: {esc(validation.get("gemini_catalog"))} модела · '
+            f"OpenRouter: {esc(validation.get('openrouter_catalog'))} модела · "
+            f"невалидни {len(validation.get('invalid') or [])} · "
+            f"несъответствия {len(validation.get('mismatches') or [])}</p>"
+            "<table><tr><th>Роля</th><th>Модел</th><th>Статус</th><th>Бележка</th></tr>"
+            f"{rows}</table></section>"
+        )
+
+    for role in view.get("roles") or []:
+        rows = []
+        for route in role["routes"]:
+            limit = f"/{route['daily_call_limit']}" if route.get("daily_call_limit") else ""
+            note = route.get("reason") or ""
+            rows.append(
+                "<tr>"
+                f"<td>{route['index']}</td>"
+                f"<td>{esc(route['provider'])}:{esc(route['model'])}"
+                + (
+                    '<br><span class="muted">само публични материали</span>'
+                    if route.get("public_only")
+                    else ""
+                )
+                + "</td>"
+                f"<td>{esc(lb.route_billing_label(route))}</td>"
+                f"<td>{route['calls_today']}{esc(limit)}</td>"
+                f"<td>{_badge('✓ готов', 'ok') if route['eligible'] else _badge('× пропуснат', 'block')}"
+                + (f'<br><span class="muted">{esc(note)}</span>' if note else "")
+                + "</td>"
+                "</tr>"
+            )
+        body.append(
+            '<section class="card">'
+            f'<h2>{esc(role["label"])} <span class="muted">({esc(role["role"])})</span></h2>'
+            f'<p class="muted">{esc(role["purpose"])}</p>'
+            f"<p>днес {role['calls_today']} заявки · soft {role['soft_calls_day']} / "
+            f"hard {role['hard_calls_day']} · "
+            + (
+                "публични материали"
+                if role["payload_class"] == "public"
+                else "непубликувани материали"
+            )
+            + f" · при изчерпване: {esc(role['on_exhausted'])}"
+            + (" · <strong>SOFT ЛИМИТ ПРЕВИШЕН</strong>" if role["soft_exceeded"] else "")
+            + "</p>"
+            f'<div class="table-wrap"><table><tr><th>#</th><th>Модел</th><th>Тип</th>'
+            f"<th>Днес</th><th>Състояние</th></tr>{''.join(rows)}</table></div>"
+            + _role_manager_form(role)
+            + _policy_action(role["role"], "add")
+            + '<p class="muted">Добави нов модел към тази роля:</p>'
+            + "<label>Доставчик (provider) "
+            '<input type="text" name="provider" placeholder="gemini"></label>'
+            + "<label>Модел (model) "
+            '<input type="text" name="model" placeholder="gemini-3.7-flash"></label>'
+            '<label><input type="checkbox" name="public_only" value="1"> '
+            "само публични материали</label>"
+            '<button class="btn primary" type="submit">Добави</button></form>'
+            + _policy_action(role["role"], "role_budget")
+            + '<p class="muted">Дневни граници на ролята:</p>'
+            f'<input type="text" name="soft_calls_day" value="{role["soft_calls_day"]}">'
+            f'<input type="text" name="hard_calls_day" value="{role["hard_calls_day"]}">'
+            '<button class="btn secondary" type="submit">Запази границите</button></form>'
+            "</section>"
+        )
+
+    body.append(
+        '<section class="card"><h2>Глобални настройки</h2>'
+        + _policy_action("", "global")
+        + '<label><input type="checkbox" name="paid_enabled" value="1"'
+        + (" checked" if view.get("paid_enabled") else "")
+        + "> Разреши платени модели</label>"
+        + '<p class="muted">Платен софт бюджет на ден (USD):</p>'
+        + f'<input type="text" name="soft_paid_budget_usd_day" '
+        f'value="{view.get("soft_paid_budget_usd_day", 0.0)}">'
+        + "<button class="
+        + '"btn" type="submit">Запази</button></form>'
+        + (
+            f"<p>платено днес: ${view['paid_cost_today_usd']:.4f} · "
+            f"заявки днес: {view['usage']['calls']} · "
+            f"успешни {view['usage']['successes']} · паднали {view['usage']['failures']} · "
+            f"пропуснати {view['usage']['skipped']} · "
+            f"лимитни откази {view['usage']['quota_failures']} · "
+            f"невалидни модели {view['usage']['invalid_model_failures']}</p>"
+        )
+        + _policy_action("", "validate")
+        + '<p class="muted">Проверява всеки конфигуриран модел в живите каталози на '
+        "доставчиците. Не изпраща никакъв текст — само заявка за списъка с модели.</p>"
+        '<button class="btn" type="submit">Провери моделите сега</button></form>'
+        "</section>"
+    )
+    return page("AI модели", "\n".join(body), active="models")
+
+
 def render_inbox(view, message="", error=""):
     problems = view.get("problems") or []
     # "Днес" is the Europe/Sofia arrival day, not the lifetime inbox total
@@ -1379,8 +1755,9 @@ def render_inbox(view, message="", error=""):
             f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
         ),
         (
-            '<p class="muted">Това са събрани кандидати, не доказателства и не готови '
-            "материали. Нищо тук не е проверено фактологично.</p>"
+            '<p class="muted">Нови материали от вашите източници. '
+            "Това са събрани кандидати, не доказателства — нищо тук не е проверено "
+            "и не е готово за публикуване.</p>"
         ),
         inbox_status_nav(view),
         _collect_section(view),
@@ -1393,8 +1770,13 @@ def render_inbox(view, message="", error=""):
     items = view["items"]
     if not items:
         body.append(
-            '<p class="muted">Няма елементи за този филтър. Пуснете «Събери новините сега» '
-            'или вижте <a href="/sources">източниците</a>.</p>'
+            '<section class="card hero"><h2>Няма нови материали за този филтър</h2>'
+            '<p class="muted">Стъпки: 1) натиснете «Събери новините сега», '
+            "2) изчакайте събирането, 3) отворете първия материал.</p>"
+            '<div class="hero-actions"><form method="post" action="/inbox">'
+            '<input type="hidden" name="action" value="collect">'
+            '<button class="btn primary" type="submit" data-busy="1">Събери новините сега</button>'
+            '</form><a href="/sources"><button class="btn secondary" type="button">Провери източниците</button></a></div></section>'
         )
         return page("Материали", "\n".join(body), active="inbox")
     body.extend(_inbox_item(item) for item in items)

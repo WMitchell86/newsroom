@@ -86,3 +86,18 @@ def _hermetic_dns(monkeypatch) -> Iterator[None]:
     """Route every `socket.getaddrinfo` call through the deterministic resolver."""
     monkeypatch.setattr(web_fetch.socket, "getaddrinfo", make_test_resolver)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolated_model_state(tmp_path, monkeypatch) -> Iterator[None]:
+    """Keep model routing hermetic (M4D model policy).
+
+    A test must never write the operator's real `var/model_usage/`,
+    `var/model_health.json` or `var/model_policy.json`: the usage ledger feeds
+    budgets and per-model daily limits, so a polluted ledger would make a later
+    test skip a route it expects to call.
+    """
+    monkeypatch.setenv("MODEL_USAGE_DIR", str(tmp_path / "model_usage"))
+    monkeypatch.setenv("MODEL_HEALTH_PATH", str(tmp_path / "model_health.json"))
+    monkeypatch.setenv("MODEL_POLICY_PATH", str(tmp_path / "model_policy.json"))
+    yield

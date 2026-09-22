@@ -1,0 +1,121 @@
+{
+  "role": "story",
+  "note": "Seed corpus for the story role. The primary failure metric is a FALSE MERGE (joining a distinct story), so every DIFFERENT_STORY entry is a near-miss that shares a place, an actor or a number with the existing story. Replace with human-reviewed cases from the real inbox before any production decision.",
+  "cases": [
+    {
+      "id": "same-decision-two-outlets",
+      "candidate_title": "Съветът одобри бюджета на Бургас за 2027 г.",
+      "candidate_publisher": "bnr.bg",
+      "candidate_published_at": "2026-09-21T07:10:00Z",
+      "candidate_summary": "С 33 гласа „за“ съветниците приеха бюджета за следващата година.",
+      "story_title": "Общинският съвет прие бюджета на Бургас за 2027 г.",
+      "story_origin_title": "Бюджетът на Бургас за 2027 г. влиза в зала",
+      "story_publications": [
+        {
+          "title": "Бюджетът на Бургас за 2027 г. влиза в зала",
+          "publisher_domain": "burgas.bg",
+          "published_at": "2026-09-20T06:00:00Z",
+          "relation": "ORIGIN"
+        }
+      ],
+      "relation": "SAME_STORY"
+    },
+    {
+      "id": "new-development-committee-to-council",
+      "candidate_title": "Съветът одобри на второ четене таксата за такситата в Бургас",
+      "candidate_publisher": "dariknews.bg",
+      "candidate_published_at": "2026-09-21T09:30:00Z",
+      "candidate_summary": "След като комисията подкрепи текста, съветът го прие окончателно.",
+      "story_title": "Комисията подкрепи нова такса за такситата в Бургас",
+      "story_origin_title": "Предложение за нова такса за такситата в Бургас",
+      "story_developments": ["Комисията по транспорт подкрепи предложението за нова такса"],
+      "story_publications": [
+        {
+          "title": "Предложение за нова такса за такситата в Бургас",
+          "publisher_domain": "burgas.bg",
+          "published_at": "2026-09-15T06:00:00Z",
+          "relation": "ORIGIN"
+        },
+        {
+          "title": "Комисията по транспорт подкрепи предложението за нова такса",
+          "publisher_domain": "bnr.bg",
+          "published_at": "2026-09-19T08:00:00Z",
+          "relation": "NEW_DEVELOPMENT"
+        }
+      ],
+      "relation": "NEW_DEVELOPMENT"
+    },
+    {
+      "id": "related-background-same-program",
+      "candidate_title": "Как работи програмата за саниране в Бургас",
+      "candidate_publisher": "chernomorie-bg.com",
+      "candidate_published_at": "2026-09-21T10:00:00Z",
+      "candidate_summary": "Обяснителен текст за етапите на програмата за саниране в града.",
+      "story_title": "Бургас подава заявление за саниране на 12 блока",
+      "story_origin_title": "Общината обяви нова вълна по санирането",
+      "story_publications": [
+        {
+          "title": "Общината обяви нова вълна по санирането",
+          "publisher_domain": "burgas.bg",
+          "published_at": "2026-09-18T06:00:00Z",
+          "relation": "ORIGIN"
+        }
+      ],
+      "relation": "RELATED_BACKGROUND"
+    },
+    {
+      "id": "near-miss-same-actors-different-decision",
+      "candidate_title": "Съветът прие нова наредба за платеното паркиране в центъра",
+      "candidate_publisher": "flagman.bg",
+      "candidate_published_at": "2026-09-21T11:00:00Z",
+      "candidate_summary": "Наредбата въвежда зони за платено паркиране от 1 ноември.",
+      "story_title": "Предложение за нова такса за такситата в Бургас",
+      "story_origin_title": "Бургас обсъжда такса за такситата",
+      "story_publications": [
+        {
+          "title": "Бургас обсъжда такса за такситата",
+          "publisher_domain": "burgas.bg",
+          "published_at": "2026-09-15T06:00:00Z",
+          "relation": "ORIGIN"
+        }
+      ],
+      "relation": "DIFFERENT_STORY"
+    },
+    {
+      "id": "near-miss-same-place-different-event",
+      "candidate_title": "Общинският съвет в Бургас откри нова детска градина в „Меден рудник“",
+      "candidate_publisher": "bnr.bg",
+      "candidate_published_at": "2026-09-21T08:00:00Z",
+      "candidate_summary": "Новата сграда приема 120 деца от тази седмица.",
+      "story_title": "Общинският съвет прие бюджета на Бургас за 2027 г.",
+      "story_origin_title": "Бюджетът на Бургас влиза в зала",
+      "story_publications": [
+        {
+          "title": "Бюджетът на Бургас влиза в зала",
+          "publisher_domain": "burgas.bg",
+          "published_at": "2026-09-20T06:00:00Z",
+          "relation": "ORIGIN"
+        }
+      ],
+      "relation": "DIFFERENT_STORY"
+    },
+    {
+      "id": "near-miss-coincidental-number",
+      "candidate_title": "33 нови работни места в новата логистична база",
+      "candidate_publisher": "burgasinfo.bg",
+      "candidate_published_at": "2026-09-21T12:00:00Z",
+      "candidate_summary": "Инвеститорът обяви 33 нови позиции в базата край Бургас.",
+      "story_title": "Общинският съвет прие бюджета с 33 гласа",
+      "story_origin_title": "Бюджетът мина с 33 гласа",
+      "story_publications": [
+        {
+          "title": "Бюджетът мина с 33 гласа",
+          "publisher_domain": "bnr.bg",
+          "published_at": "2026-09-20T07:00:00Z",
+          "relation": "ORIGIN"
+        }
+      ],
+      "relation": "DIFFERENT_STORY"
+    }
+  ]
+}

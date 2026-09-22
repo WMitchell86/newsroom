@@ -959,7 +959,184 @@ def cmd_newsroom(args):
     if args.action == "refresh":
         _run_newsroom_refresh(args)
         return
+    if args.action == "models":
+        _run_newsroom_models(args)
+        return
     raise SystemExit(f"unknown newsroom action: {args.action}")
+
+
+def _run_newsroom_models(args):
+    """M4D: the operator's role-based model policy (status / show / validate / set).
+
+    `validate` is the only action that touches the network, and it performs two
+    read-only catalog GETs — no prompt, article or draft is ever sent to check an
+    id. `set` writes only `var/model_policy.json` (the operator override); the
+    tracked defaults are never edited.
+    """
+    import json
+
+    from editor_assistant.drafting import model_catalog, model_policy, model_router
+
+    action = getattr(args, "models_action", "")
+    if action == "status":
+        report = model_router.status_report()
+        if getattr(args, "json", False):
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(render_models_status(report))
+        return
+    if action == "show":
+        policy = model_policy.load_policy()
+        if getattr(args, "json", False):
+            print(json.dumps(policy, ensure_ascii=False, indent=2))
+            return
+        override = model_policy.policy_path()
+        print(f"defaults: {model_policy.DEFAULT_POLICY_PATH}")
+        print(f"override: {override} ({'има' if override.exists() else 'няма'})")
+        print(
+            "env overrides: GEMINI_<РОЛЯ>_MODELS / OPENROUTER_<РОЛЯ>_MODEL "
+            "(стари настройки; политиката е новият основен източник)"
+        )
+        print(json.dumps(policy, ensure_ascii=False, indent=2))
+        return
+    if action == "validate":
+        report = model_catalog.validate_policy_models(timeout=getattr(args, "timeout", 20.0))
+        if getattr(args, "json", False):
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(model_catalog.render_validation(report))
+        if report["invalid"]:
+            raise SystemExit(1)
+        return
+    if action == "set":
+        _apply_models_set(args)
+        return
+    raise SystemExit(f"unknown newsroom models action: {action}")
+
+
+def render_models_status(report):
+    """Operator-readable routing status: role, ordered routes, today's calls."""
+    lines = [
+        f"AI МОДЕЛИ — {report['day']} (Europe/Sofia) · политика {report['policy_hash']}",
+        (
+            f"платени модели: {'РАЗРЕШЕНИ' if report['paid_enabled'] else 'забранени'}"
+            f" · платено днес: ${report['paid_cost_today_usd']:.4f}"
+            f" (soft ${report['soft_paid_budget_usd_day']:.2f})"
+        ),
+        (
+            f"днес общо: {report['usage']['calls']} заявки · "
+            f"успешни {report['usage']['successes']} · паднали {report['usage']['failures']} · "
+            f"пропуснати {report['usage']['skipped']} · резервни опити {report['usage']['fallbacks']}"
+        ),
+    ]
+    for role in report["roles"]:
+        lines.append(
+            f"\n{role['label']} ({role['role']}) — днес {role['calls_today']} заявки · "
+            f"soft {role['soft_calls_day']} / hard {role['hard_calls_day']}"
+            + (" · SOFT ЛИМИТ ПРЕВИШЕН" if role["soft_exceeded"] else "")
+        )
+        if role["purpose"]:
+            lines.append(f"  цел: {role['purpose']}")
+        lines.append(
+            "  материали: "
+            + ("публични" if role["payload_class"] == "public" else "непубликувани (private)")
+            + f" · при изчерпване: {role['on_exhausted']}"
+        )
+        for route in role["routes"]:
+            limit = f"/{route['daily_call_limit']}" if route["daily_call_limit"] else ""
+            flags = []
+            if not route["enabled"]:
+                flags.append("изключен")
+            if route["public_only"]:
+                flags.append("само публични")
+            if route.get("health", {}).get("status"):
+                flags.append(f"{route['health']['status']}: {route['health'].get('reason', '')}")
+            if route["reason"]:
+                flags.append(route["reason"])
+            lines.append(
+                f"  {'✓' if route['eligible'] else '×'} {route['index']}: "
+                f"{route['provider']}:{route['model']} · {route['billing']} · "
+                f"днес {route['calls_today']}{limit}" + (" · " + " · ".join(flags) if flags else "")
+            )
+    lines.append("\nКаталозите и квотите се променят — пускайте `newsroom models validate`.")
+    return "\n".join(lines)
+
+
+def _apply_models_set(args):
+    """Apply one operator edit to `var/model_policy.json` (never the defaults)."""
+    from editor_assistant.drafting import model_policy
+
+    if getattr(args, "reset", False):
+        path = model_policy.policy_path()
+        if path.exists():
+            path.unlink()
+            print(f"Операторската политика е изтрита: {path}")
+        else:
+            print("Няма операторска политика — използват се defaults.")
+        return
+
+    policy = model_policy.load_policy(env_overrides=False)
+    changes = []
+    role = getattr(args, "role", None)
+    route_ops = [
+        name
+        for name in ("move", "enable", "disable", "remove", "add")
+        if getattr(args, name, None) is not None
+    ]
+    if route_ops and not role:
+        raise SystemExit("models set: --role е задължителен за промяна на маршрути")
+    if len(route_ops) > 1:
+        raise SystemExit("models set: по една промяна на маршрут наведнъж")
+    try:
+        if getattr(args, "paid", None) is not None:
+            model_policy.set_global(policy, paid_enabled=args.paid == "on")
+            changes.append(f"платени модели: {args.paid}")
+        if getattr(args, "soft_paid_budget", None) is not None:
+            model_policy.set_global(policy, soft_paid_budget_usd_day=args.soft_paid_budget)
+            changes.append(f"soft бюджет за платени: ${args.soft_paid_budget:.2f}/ден")
+        if role and getattr(args, "soft_calls", None) is not None:
+            model_policy.set_role_budget(policy, role, soft_calls_day=args.soft_calls)
+            changes.append(f"{role}: soft {args.soft_calls}")
+        if role and getattr(args, "hard_calls", None) is not None:
+            model_policy.set_role_budget(policy, role, hard_calls_day=args.hard_calls)
+            changes.append(f"{role}: hard {args.hard_calls}")
+        if role and getattr(args, "move", None) is not None:
+            model_policy.reorder_route(policy, role, args.move, direction=args.direction)
+            changes.append(f"{role}: маршрут {args.move} се мести {args.direction}")
+        if role and getattr(args, "enable", None) is not None:
+            model_policy.set_route_enabled(policy, role, args.enable, True)
+            changes.append(f"{role}: маршрут {args.enable} включен")
+        if role and getattr(args, "disable", None) is not None:
+            model_policy.set_route_enabled(policy, role, args.disable, False)
+            changes.append(f"{role}: маршрут {args.disable} изключен")
+        if role and getattr(args, "remove", None) is not None:
+            model_policy.remove_route(policy, role, args.remove)
+            changes.append(f"{role}: маршрут {args.remove} премахнат")
+        if role and getattr(args, "add", None) is not None:
+            provider, _, model = str(args.add).partition(":")
+            if not provider or not model:
+                raise model_policy.PolicyError(
+                    "форматът е provider:model (напр. gemini:gemini-3.8-flash)"
+                )
+            route = {
+                "provider": provider,
+                "model": model,
+                "billing": getattr(args, "billing", None)
+                or ("operator_declared" if provider == "gemini" else "free"),
+                "public_only": bool(getattr(args, "public_only", False)),
+            }
+            model_policy.add_route(policy, role, route)
+            changes.append(f"{role}: добавен {provider}:{model}")
+    except model_policy.PolicyError as exc:
+        raise SystemExit(f"models set: {exc}") from exc
+
+    if not changes:
+        raise SystemExit("models set: няма какво да се промени (вижте --help)")
+    path = model_policy.save_policy(policy)
+    print(f"Записано в {path}")
+    for change in changes:
+        print(f"  · {change}")
+    print("Проверете с: newsroom models validate и newsroom models status")
 
 
 def _run_newsroom_stories(args):
@@ -1078,6 +1255,45 @@ def _add_newsroom_subcommands(sub):
     refresh.add_argument("--limit", type=int, default=None, help="collect at most N sources")
     refresh.add_argument("--force", action="store_true", help="ignore cadence")
     refresh.add_argument("--no-semantic", action="store_true", help="deterministic story only")
+
+    models = actions.add_parser(
+        "models", help="M4D role-based model policy (status, validate, operator edits)"
+    )
+    model_actions = models.add_subparsers(dest="models_action", required=True)
+    m_status = model_actions.add_parser(
+        "status", help="per-role routes, today's calls against declared limits, budgets"
+    )
+    m_status.add_argument("--json", action="store_true", help="machine-readable output")
+    m_show = model_actions.add_parser(
+        "show", help="print the effective policy (tracked defaults + operator override)"
+    )
+    m_show.add_argument("--json", action="store_true", help="machine-readable output")
+    m_valid = model_actions.add_parser(
+        "validate", help="check every configured model id against the live provider catalogs"
+    )
+    m_valid.add_argument("--json", action="store_true", help="machine-readable output")
+    m_valid.add_argument("--timeout", type=float, default=20.0, help="per-request timeout (s)")
+    m_set = model_actions.add_parser(
+        "set", help="edit the operator policy (writes var/model_policy.json only)"
+    )
+    m_set.add_argument("--paid", choices=("on", "off"), default=None, help="allow paid routes")
+    m_set.add_argument("--soft-paid-budget", type=float, default=None, help="USD/day soft cap")
+    m_set.add_argument(
+        "--role", default=None, help="role: judge/story/angle/draft/research/extract/utility"
+    )
+    m_set.add_argument("--move", type=int, default=None, help="route index to move")
+    m_set.add_argument("--direction", choices=("up", "down"), default="up")
+    m_set.add_argument("--enable", type=int, default=None, help="route index to enable")
+    m_set.add_argument("--disable", type=int, default=None, help="route index to disable")
+    m_set.add_argument("--remove", type=int, default=None, help="route index to remove")
+    m_set.add_argument("--add", default=None, help="provider:model to append to --role")
+    m_set.add_argument("--billing", choices=("free", "paid", "operator_declared"), default=None)
+    m_set.add_argument(
+        "--public-only", action="store_true", help="new route may only receive public material"
+    )
+    m_set.add_argument("--soft-calls", type=int, default=None, help="soft calls/day for --role")
+    m_set.add_argument("--hard-calls", type=int, default=None, help="hard calls/day for --role")
+    m_set.add_argument("--reset", action="store_true", help="delete the operator override")
     p.set_defaults(func=cmd_newsroom)
 
 

@@ -49,6 +49,23 @@ STRONG_TITLE_OVERLAP = 0.8
 STRONG_DISTINCTIVE_OVERLAP = 0.6
 CLOSE_PUBLICATION_HOURS = 48
 
+#: Candidate-anchor gate (M4D PART 12). A model call is only worth its latency,
+#: non-determinism and failure surface when there is a *genuinely plausible*
+#: existing story. On the first real corpus ~90% of unique publications reached the
+#: semantic path and every sampled answer came back DIFFERENT_STORY — the questions
+#: were not worth asking. A candidate must now clear one real anchor:
+#:
+#: * meaningful title-token overlap, or
+#: * at least two shared distinctive tokens (>=5 chars, or a number), or
+#: * matching material numbers/dates,
+#:
+#: and stay inside a close time window. Anything else becomes a NEW STORY without
+#: a model call. Conservatism is unchanged: no anchor -> separate.
+ANCHOR_TITLE_OVERLAP = 0.34
+ANCHOR_SHARED_STRONG_TOKENS = 2
+ANCHOR_MAX_HOURS = 72
+ANCHOR_STRONG_TOKEN_CHARS = 5
+
 TOKEN_RX = re.compile(r"[а-яёa-z0-9]+", re.UNICODE)
 
 #: Function words / newsroom noise, in Bulgarian and English. Removing them is why
@@ -280,6 +297,28 @@ def shortlist(
     return [(story, detail) for _score, _sid, story, detail in scored[:size]]
 
 
+def strong_anchor(detail):
+    """Is asking a model about this candidate honest, or noise? Returns `(bool, why)`.
+
+    The gate is deterministic and cheap on purpose: it decides *eligibility* for a
+    model call, never a merge. A candidate that fails it is a new story without a
+    model call.
+    """
+    shared = [t for t in (detail.get("shared_tokens") or []) if isinstance(t, str)]
+    strong = [t for t in shared if t.isdigit() or len(t) >= ANCHOR_STRONG_TOKEN_CHARS]
+    hours = detail.get("hours")
+    too_far = hours is not None and hours > ANCHOR_MAX_HOURS
+    if too_far:
+        return False, f"candidate outside the {ANCHOR_MAX_HOURS}h window ({hours}h)"
+    if detail["title"] >= ANCHOR_TITLE_OVERLAP:
+        return True, f"title overlap {detail['title']} ({', '.join(shared[:4])})"
+    if len(strong) >= ANCHOR_SHARED_STRONG_TOKENS:
+        return True, f"shared distinctive tokens: {', '.join(strong[:4])}"
+    if detail["numbers"] >= 0.5 and any(t.isdigit() for t in shared):
+        return True, "matching numbers/dates"
+    return False, "no strong anchor (weak similarity only)"
+
+
 def deterministic_relation(item, story, detail):
     """`(relation, reason)` for an extremely strong match, else `(None, reason)`.
 
@@ -317,6 +356,8 @@ def process_item(item, store, items_by_id, *, semantic=True, call_model=None, no
         "needs_review": False,
         "new_story": False,
         "semantic_call": False,
+        "anchors": [],
+        "anchor_skipped": False,
         "reason": "",
     }
 
@@ -366,10 +407,16 @@ def process_item(item, store, items_by_id, *, semantic=True, call_model=None, no
             )
             return outcome
 
-    # ---- Stage C: narrow semantic relation for the ambiguous shortlist
-    if candidates and semantic:
+    # ---- Stage C: narrow semantic relation, only for an anchored shortlist
+    anchored = []
+    for story, detail in candidates:
+        ok, why = strong_anchor(detail)
+        if ok:
+            anchored.append((story, detail, why))
+    if anchored and semantic:
         outcome["semantic_call"] = True
-        for story, detail in candidates:
+        outcome["anchors"] = [why for _s, _d, why in anchored]
+        for story, detail, _why in anchored:
             answer = story_relation.classify(item, story, items_by_id, call_model=call_model)
             if answer is None:
                 # Infrastructure failure never merges: keep separate, flag review.
@@ -405,19 +452,27 @@ def process_item(item, store, items_by_id, *, semantic=True, call_model=None, no
             outcome.update(
                 action="SEPARATE",
                 needs_review=True,
-                reason="every shortlisted story answered DIFFERENT_STORY; kept separate",
+                reason="every anchored story answered DIFFERENT_STORY; kept separate",
             )
-    elif candidates:
+    elif anchored:
         outcome.update(
             action="REVIEW",
             needs_review=True,
-            reason="ambiguous shortlist but semantic relation is disabled; kept separate",
+            reason="anchored shortlist but semantic relation is disabled; kept separate",
+        )
+    elif candidates:
+        # Candidates existed but none carried a real anchor: a new story, and no
+        # model call. This is the PART 12 gate doing its job.
+        outcome["anchor_skipped"] = True
+        outcome["reason"] = (
+            f"{len(candidates)} weak candidate(s) without a strong anchor; "
+            "no semantic call, kept separate"
         )
 
     # ---- No match: a new story. `uncertain -> separate` is the correct default;
     # the story is flagged so a human can look at the suspicious ones.
     story = story_store.new_story(item, publication_key=key or "")
-    story["needs_review"] = bool(candidates) or bool(outcome["needs_review"])
+    story["needs_review"] = bool(outcome["needs_review"])
     store["stories"] = list(store["stories"]) + [story]
     outcome.update(
         story_id=story["story_id"],
@@ -544,6 +599,8 @@ def _plan(
                     "needs_review": False,
                     "new_story": False,
                     "semantic_call": False,
+                    "anchors": [],
+                    "anchor_skipped": False,
                     "reason": f"издателят {item.get('publisher_domain')} е забранен",
                 }
             )
@@ -559,6 +616,8 @@ def _plan(
                     "story_id": "",
                     "needs_review": True,
                     "semantic_call": False,
+                    "anchors": [],
+                    "anchor_skipped": False,
                     "reason": "editor split/merge decision covers this item",
                 }
             )
@@ -589,6 +648,11 @@ def _summarize(outcomes, *, dry_run, semantic):
         "blocked_publisher": sum(1 for r in outcomes if r["action"] == "BLOCKED_PUBLISHER"),
         "needs_review": sum(1 for r in outcomes if r.get("needs_review")),
         "semantic_calls": sum(1 for r in outcomes if r.get("semantic_call")),
+        # PART 12 accounting: how many items were even eligible for a model call,
+        # and how many were kept separate deterministically because no candidate
+        # carried a strong anchor (no question worth asking).
+        "semantic_eligible": sum(1 for r in outcomes if r.get("semantic_call")),
+        "anchor_skipped": sum(1 for r in outcomes if r.get("anchor_skipped")),
         # A shortlisted-but-separate item is exactly the "model did not help"
         # bucket; it is reported, never hidden.
         "semantic_failures": sum(
@@ -661,7 +725,11 @@ def analyze(*, inbox=None, stories=None, now=None):
         ),
         "exact_duplicate_rows": sum(len(ids) - 1 for ids in exact_groups.values()),
         "deterministic_matches": sum(1 for r in outcomes if r["action"] == "DETERMINISTIC"),
+        # "Ambiguous" now means *anchored* ambiguity: an item whose shortlist
+        # carried a real anchor, i.e. exactly the set a model call would be
+        # asked about (PART 12).
         "remaining_ambiguous": sum(1 for r in outcomes if r["action"] == "REVIEW"),
+        "anchor_skipped": sum(1 for r in outcomes if r.get("anchor_skipped")),
         "new_stories": sum(1 for r in outcomes if r["action"] == "NEW_STORY"),
     }
 
@@ -907,7 +975,8 @@ def render_summary(summary):
         ),
         (
             f"  семантични заявки: {summary['semantic_calls']} · "
-            f"неуспешни/невалидни: {summary['semantic_failures']}"
+            f"неуспешни/невалидни: {summary['semantic_failures']} · "
+            f"без силен ориентир (без заявка): {summary.get('anchor_skipped', 0)}"
         ),
     ]
     relations = summary["relations"]

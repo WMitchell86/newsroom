@@ -772,7 +772,7 @@ class TestHtmlSurfaces:
 
     def test_filter_nav_marks_active(self):
         nav = html.filter_nav("edit")
-        assert 'class="active" href="/?filter=edit"' in nav
+        assert 'class="active" href="/cases?filter=edit"' in nav
 
     def test_finalize_form_exposes_contract_fields(self, wf_dir):
         _normal_case(wf_dir, "LIV-01")
@@ -917,10 +917,18 @@ class TestHttp:
 
     def test_queue_page(self, server, wf_dir):
         _normal_case(wf_dir, "LIV-01")
-        with _get(f"{server}/") as resp:
+        with _get(f"{server}/cases") as resp:
             page = resp.read().decode("utf-8")
         assert resp.status == 200
         assert "LIV-01" in page
+
+    def test_home_landing_shows_daily_entry_point(self, server, wf_dir):
+        _normal_case(wf_dir, "LIV-01")
+        with _get(f"{server}/") as resp:
+            page = resp.read().decode("utf-8")
+        assert resp.status == 200
+        assert "Начало" in page and "Прегледай историите" in page
+        assert "Редакторски работен плот" not in page
 
     def test_unknown_case_404(self, server):
         with pytest.raises(urllib.error.HTTPError) as exc:

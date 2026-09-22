@@ -6,10 +6,11 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-Last updated: 2026-09-21 (**M4B.1 feed stabilization + M4C story identity built,
-real-isolated-evaluated; awaiting review/freeze**; M3D closed and the YouTube
-pipeline is FROZEN; active work is **M4 — Daily Newsroom**, split M4A–M4E in
-`BACKLOG.md`).
+Last updated: 2026-09-21 (**M4-UI Workbench overhaul built, live-proven, awaiting
+review** — `/` is the daily «Начало», the M3A queue moved to `/cases`, nav has
+hierarchy, `/models` compacted 58 KB → 27.6 KB; M4B.1 + M4C + M4D built and
+awaiting review/freeze; M3D closed and the YouTube pipeline is FROZEN; active
+work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
 
 ## Primary project objective (read before choosing any task)
 
@@ -29,10 +30,16 @@ pipeline is FROZEN; active work is **M4 — Daily Newsroom**, split M4A–M4E in
 ## Checkpoint
 
 - Base commit: `075e81d` (M4A.1/M4B + publisher-authority correction).
-- Test baseline: **859 passed**, full suite, offline (was 805 at `075e81d`).
+- Test baseline: **914 passed**, full suite, offline (was 805 at `075e81d`).
 - Gates: `ruff check src tests` + `ruff format --check src tests` clean; M3A smoke 25/25.
 - Last real isolated collection (M4B.1/M4C evaluation, 2026-09-21): 123 source items,
   113 unique publications, 112 stories in a deterministic-only build.
+- Workbench UI (2026-09-21, `m4/review/WORKBENCH_UI_OVERHAUL_REPORT.md`): `/` is the
+  read-only daily landing («Начало»), the frozen M3A queue answers at `/cases` (old
+  `/?filter=…` links still work), CSS is served once at `/static/style.css`, and the
+  `/models` page is one manager form per role. Live isolated proof
+  `ALL CHECKS PASSED`; `EDITORIAL_EFFECTIVENESS` stays PENDING until a real editor
+  uses it.
 
 ## Verdicts
 
@@ -90,6 +97,19 @@ SEMANTIC_STORY_RELATION             = PROMISING (M4C: path proven, sampled answe
 NEW_DEVELOPMENT_DETECTION           = NOT_EVALUATED on real material (hermetic tests pass)
 EDITOR_CORRECTION_WORKFLOW          = PROVEN (M4C split/merge)
 STORY_INBOX_ENGINEERING             = PROVEN (M4C)
+MODEL_POLICY_ENGINEERING            = PROVEN (7 roles, ordered routes, cross-provider fallback)
+MODEL_ROUTER_ENGINEERING            = PROVEN (failure classification, health tracking, bounded retries)
+MODEL_USAGE_LEDGER                  = PROVEN (daily aggregation, no prompts stored)
+MODEL_CATALOG_VALIDATION            = PROVEN (OpenRouter live catalog verified, Gemini skipped without key)
+ROLE_QUALIFICATION_HARNESS          = PROVEN (judge/story/angle/draft/research fixtures, eval runner)
+ANCHOR_GATE_TIGHTENING              = PROVEN (PART 12: weak candidates rejected without model call)
+WORKBENCH_UI_DAILY_ENTRY_POINT      = BUILT (Начало at `/`; M3A queue moved to `/cases`)
+WORKBENCH_UI_NAVIGATION_HIERARCHY   = BUILT (daily vs «Настройки и архив»)
+WORKBENCH_UI_STYLESHEET             = EXTRACTED (`/static/style.css`, inline kept as fallback)
+WORKBENCH_UI_DESTRUCTIVE_CONFIRM    = BUILT (data-danger / data-confirm-route)
+WORKBENCH_UI_MODELS_PAGE            = COMPACTED (58 KB -> 27.6 KB, one manager form per role)
+WORKBENCH_UI_EMPTY_STATES           = ACTIONABLE (three steps + the button in place)
+WORKBENCH_UI_LONG_ACTION_FEEDBACK   = BUILT (busy overlay on collect/refresh)
 ```
 
 Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,
@@ -128,7 +148,7 @@ done. Maintenance only.
   (`PROVIDER_ORDER`); transcript discovery semantics; deterministic-vs-model
   authority; current editor-pilot results.
 - The **M3A case-editing workflow** (`workflow/workbench/` case pages) is frozen.
-  The **M4 newsroom surfaces** (`/sources`, `/inbox`, `/stories`) remain active
+  The **M4 newsroom surfaces** (`/sources`, `/inbox`, `/stories`, `/models`) remain active
   development — they are the product, not the frozen engine.
 - Jev has **zero production authority**: it is invoked only by the eval runner.
 - No drafting, no publishing, no LIVE 6–10 in M3J.
@@ -196,9 +216,21 @@ corpus, the angle-model A/B, final verdicts). Headline:
 
 ## Model / provider selection (how to steer the fallback chain)
 
-One file owns the whole chain: `src/editor_assistant/drafting/generate.py`. Resolution order:
-explicit `api_key` → `GEMINI_API_KEY` → `OPENROUTER_API_KEY` → `RuntimeError`. The `role`
-argument only selects the *model pool*, not the provider.
+**New architecture (M4D):** The policy store (`config/model_policy.default.json`) owns
+the whole routing surface. `model_router.call_role()` walks ordered routes per role,
+with true cross-provider fallback (Gemini → OpenRouter is real, not blocked by key
+presence). Secrets stay in `.env`; the policy file is non-secret operator configuration.
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models status   # per-role view
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models validate   # live catalog check
+PYTHONPATH=src python3 scripts/evals/model_role_eval.py --list                   # qualification plan
+PYTHONPATH=src python3 scripts/evals/model_role_eval.py --role judge --limit 1    # qualify one role
+```
+
+Legacy env knobs (`GEMINI_*_MODELS`, `OPENROUTER_*_MODEL`) still override the
+matching routes, so an existing `.env` keeps working. The policy file is the new
+default surface.
 
 **Set these in `.env` (or export) — all are optional; the file documents the defaults:**
 
@@ -403,18 +435,17 @@ awaiting the human editor. No rubric/threshold change is justified yet.
 
 ## Allowed next work
 
-**Active work: M4 — Daily Newsroom**, sliced M4A–M4E in `BACKLOG.md` (M4A = Source
-Registry + Scheduled Collection). M4 is a product/operations milestone: the largest
-remaining gap is not intelligence, it is that *the editor has no daily system that
-simply opens in the morning and works*. Slice order: **M4A** source registry +
-collection → **M4B** story inbox + source/status UX → **M4C** story identity /
-new development → **M4D** Telegram editorial alerts → **M4E** workflow polish. One
-slice at a time, reviewed and frozen before the next; plan: `m4/review/M4A_PLAN.md`.
+**Active work: M4 — Daily Newsroom**, sliced M4A–M4E in `BACKLOG.md`. M4 is a
+product/operations milestone: the largest remaining gap is not intelligence, it is
+that *the editor has no daily system that simply opens in the morning and works*.
+Slice order: **M4A** source registry + collection → **M4B** story inbox +
+source/status UX → **M4C** story identity / new development → **M4D** model routing
++ editorial alerts → **M4E** workflow polish. One slice at a time, reviewed and
+frozen before the next; plan: `m4/review/M4A_PLAN.md`.
 
-M4 state (2026-09-21): **M4A.1 + M4B frozen by review history; M4B.1 corrections +
-M4C story identity built and real-isolated-evaluated, awaiting review/freeze.**
-Reports: `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
-`m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
+M4 state (2026-09-21): **M4A.1 + M4B frozen; M4B.1 corrections + M4C story identity
+built and real-isolated-evaluated; M4D model routing built, hermetic tests pass,
+live catalog verified.** Awaiting review/freeze of M4C + M4D.
 
 M4B.1 (bounded corrections from `m4/M4_CHECKPOINT_REPO_REVIEW.md`): rolling 72 h news
 recency on **every** run (run 2 can no longer backfill what run 1 excluded); calendar
@@ -485,6 +516,16 @@ which a second structural test keeps free of drafting/publishing/Telegram/transc
 reach-through. Still not allowed: AI angles, research, drafting, ranking, alerts —
 **M4D (Telegram editorial alerts) is next and only after this review**.
 
+M4D (model routing) state (2026-09-21): **BUILT, hermetic tests pass, live catalog
+verified.** New modules `drafting/model_policy.py`, `drafting/model_router.py`,
+`drafting/model_usage.py`, `drafting/model_catalog.py`; new CLI `newsroom models
+status|validate|show`; new Workbench `AI модели` page; role qualification harness
+`scripts/evals/model_role_eval.py` with fixtures for judge/story/angle/draft/research.
+Default policy: `config/model_policy.default.json` (7 roles, ordered routes, Gemini
+Lite for volume work, Gemini Flash for quality, GPT-5.6 Luna/Luna Pro for paid fallback).
+Reports: `m4/review/MODEL_ROUTING_AND_BUDGET_REPORT.md`,
+`m4/review/MODEL_ROLE_QUALIFICATION_REPORT.md`.
+
 YouTube (frozen) — **maintenance only**, and only on observed production pain:
 
 - Tune pacing via `YOUTUBE_*` env values only (never by editing the policy
@@ -539,6 +580,11 @@ Never commit secrets. Missing keys must always degrade explicitly, never fabrica
 
 ## Authoritative reports
 
+- `m4/review/MODEL_ROUTING_AND_BUDGET_REPORT.md` — M4D model routing + budget accounting
+- `m4/review/MODEL_ROLE_QUALIFICATION_REPORT.md` — role qualification harness results
+- `m4/review/M4B1_FEED_STABILIZATION_REPORT.md` — M4B.1 five bounded corrections
+- `m4/review/M4C_STORY_IDENTITY_REPORT.md` — M4C story identity
+- `m4/review/M4C_STORY_REVIEW_PACK.md` — M4C review pack
 - `m3/review/M3D_DISCOVERY_STABILITY_REPORT.md` — discovery stability, flip root cause, L4 cache
 - `m3/review/M3A_EDITOR_WORKBENCH_REPORT.md` — workbench (frozen)
 - `m3/review/M3A_STABILIZATION_REPORT.md` — M3A Part A

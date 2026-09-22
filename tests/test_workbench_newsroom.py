@@ -10,6 +10,7 @@ UI delegates to the same registry functions the CLI uses.
 
 from __future__ import annotations
 
+import json
 import threading
 import urllib.error
 import urllib.parse
@@ -642,3 +643,106 @@ def test_inbox_authority_filter_uses_the_publisher_not_the_discovery_source(seed
 
     body = http.html_mod.render_inbox(newsroom.inbox_view(status="all"))
     assert "издател: burgas.bg" in body and "без авторитет" in body
+
+
+# ---------- AI models page (M4D) ----------
+#
+# The page is operator configuration: it must show every role and route, never
+# echo a key, and every control must go through the same policy helpers the CLI
+# uses (so the UI cannot drift from the store contract).
+
+
+def test_models_page_lists_roles_routes_and_never_echoes_a_key(server, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "super-secret-key-value")
+    html = _get(f"{server}/models").read().decode("utf-8")
+    assert "AI модели" in html
+    assert "Идентичност на история" in html and "Финален текст" in html
+    assert "gemini-3.8-flash" in html
+    assert "openai/gpt-5.6-luna" in html
+    assert "собствена квота" in html  # operator-declared Gemini quota
+    assert "само публични материали" in html  # privacy flag is visible
+    assert "super-secret-key-value" not in html
+    assert "наличен" in html  # the page reports key presence instead
+
+
+def test_models_page_writes_only_a_policy_diff(server, newsroom_dir):
+    """Reordering/enabling through the UI persists without freezing other defaults."""
+    from editor_assistant.drafting import model_policy as policy_mod
+
+    resp = _post(
+        f"{server}/models", {"action": "toggle", "role": "draft", "index": "0", "enabled": "0"}
+    )
+    assert resp.status == 303
+    policy = policy_mod.load_policy()
+    assert policy["roles"]["draft"]["routes"][0]["enabled"] is False
+    payload = json.loads(policy_mod.policy_path().read_text(encoding="utf-8"))
+    assert "judge" not in payload["roles"]
+    assert set(payload["roles"]) == {"draft"}
+
+    resp = _post(
+        f"{server}/models", {"action": "move", "role": "draft", "index": "0", "direction": "down"}
+    )
+    assert resp.status == 303
+    moved = policy_mod.load_policy()["roles"]["draft"]["routes"]
+    assert moved[0]["model"] != policy["roles"]["draft"]["routes"][0]["model"]
+
+
+def test_models_page_refuses_an_impossible_edit_with_a_message(server):
+    resp = _post(f"{server}/models", {"action": "remove", "role": "draft", "index": "99"})
+    assert resp.status == 400
+    body = resp.read().decode("utf-8")
+    assert "AI модели" in body and "маршрут" in body
+
+    resp = _post(f"{server}/models", {"action": "add", "role": "draft", "provider": "gemini"})
+    assert resp.status == 400
+    assert "provider и model" in resp.read().decode("utf-8")
+
+    resp = _post(f"{server}/models", {"action": "nonsense"})
+    assert resp.status == 400
+
+
+def test_models_page_validate_stores_the_catalog_report(server, monkeypatch):
+    """Validation runs only on the explicit action and is shown on the page."""
+    from editor_assistant.drafting import model_catalog
+
+    called = {"n": 0}
+
+    def fake_validate(*_args, **_kwargs):
+        called["n"] += 1
+        return {
+            "gemini_catalog": None,
+            "openrouter_catalog": 24,
+            "gemini_error": "липсва GEMINI_API_KEY",
+            "openrouter_error": "",
+            "rows": [
+                {
+                    "role": "story",
+                    "index": 0,
+                    "provider": "openrouter",
+                    "model": "ghost/model:free",
+                    "status": model_catalog.STATUS_INVALID,
+                    "detail": "моделът липсва в текущия OpenRouter каталог",
+                }
+            ],
+            "invalid": [{"model": "ghost/model:free"}],
+            "mismatches": [],
+            "unchecked": [],
+        }
+
+    monkeypatch.setattr(model_catalog, "validate_policy_models", fake_validate)
+    resp = _post(f"{server}/models", {"action": "validate"})
+    assert resp.status == 303
+    assert called["n"] == 1
+    html = _get(f"{server}/models").read().decode("utf-8")
+    assert "Последна проверка в живите каталози" in html
+    assert "ghost/model:free" in html and "НЕВАЛИДЕН" in html
+
+
+def test_models_page_shows_global_paid_state(server):
+    from editor_assistant.drafting import model_policy as policy_mod
+
+    resp = _post(f"{server}/models", {"action": "global", "soft_paid_budget_usd_day": "1.25"})
+    assert resp.status == 303
+    assert policy_mod.load_policy()["global"]["soft_paid_budget_usd_day"] == 1.25
+    html = _get(f"{server}/models").read().decode("utf-8")
+    assert "1.25" in html

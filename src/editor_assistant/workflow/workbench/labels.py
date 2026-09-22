@@ -270,6 +270,19 @@ def readiness_label(status):
     return READINESS_LABELS.get(status or "", status or "—")
 
 
+MODEL_BILLING_LABELS = {
+    "free": "безплатен",
+    "paid": "платен",
+    "operator_declared": "собствена квота",
+}
+
+
+def route_billing_label(route):
+    """Billing label for a model route on the operator page (free/paid/own quota)."""
+    billing = str(route.get("billing") or "")
+    return MODEL_BILLING_LABELS.get(billing, billing)
+
+
 def gate_label(gate):
     return GATE_LABELS.get(gate or "", gate or "—")
 

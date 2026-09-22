@@ -1,0 +1,51 @@
+{
+  "role": "draft",
+  "note": "Seed corpus for the draft role. Automatic checks cover only factual fidelity and structure (no invented numbers, required mentions present); Bulgarian naturalness and the amount of editing stay a HUMAN score — never another model's verdict. Keep 5-10 real evidence packets here.",
+  "cases": [
+    {
+      "id": "free-medical-cabinet",
+      "facts": [
+        "Община Бургас открива безплатен кабинет за деца с диабет в ДКЦ-1.",
+        "Кабинетът приема от 1 октомври всеки работен ден.",
+        "Услугата е безплатна за деца до 18 години."
+      ],
+      "must_mention": ["кабинет", "1 октомври"],
+      "human_score": {
+        "bulgarian_naturalness": "",
+        "headline_quality": "",
+        "chernomorie_fit": "",
+        "editing_weight": ""
+      }
+    },
+    {
+      "id": "tax-increase",
+      "facts": [
+        "Общинският съвет прие увеличение на годишната такса за таксиметрови превозвачи от 60 на 120 лева.",
+        "В града работят 640 таксиметрови автомобила по данни на общината.",
+        "Промяната влиза в сила от 1 януари."
+      ],
+      "must_mention": ["120", "1 януари"],
+      "human_score": {
+        "bulgarian_naturalness": "",
+        "headline_quality": "",
+        "chernomorie_fit": "",
+        "editing_weight": ""
+      }
+    },
+    {
+      "id": "budget-adopted",
+      "facts": [
+        "Общинският съвет прие бюджета на Бургас за 2027 г. с 33 гласа „за“.",
+        "Капиталовата програма предвижда 18 милиона лева за улици и тротоари.",
+        "Новите приходи идват основно от местни данъци."
+      ],
+      "must_mention": ["33", "18 милиона"],
+      "human_score": {
+        "bulgarian_naturalness": "",
+        "headline_quality": "",
+        "chernomorie_fit": "",
+        "editing_weight": ""
+      }
+    }
+  ]
+}

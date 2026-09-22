@@ -472,3 +472,107 @@ def merge_story(target_id, source_id):
         )
         record_action("story_merged", f"{source_id}->{target_id}")
         return result
+
+
+# ---------- M4D: the role/model policy (operator configuration) ----------
+#
+# This is operator configuration, not editorial workflow: it decides which model
+# serves which role, in what order, within which budget. Reads never call a
+# provider and never expose a key — the page only shows whether a key is present.
+
+
+def validation_store():
+    return newsroom_dir() / "model_validation.json"
+
+
+def models_view():
+    """Per-role routing status for the operator page (no network, no secrets)."""
+    from editor_assistant.drafting import model_policy, model_router
+
+    report = model_router.status_report()
+    override = model_policy.policy_path()
+    report.update(
+        {
+            "defaults_path": str(model_policy.DEFAULT_POLICY_PATH),
+            "override_path": str(override),
+            "override_exists": override.exists(),
+            "keys": {
+                "gemini": bool(os.environ.get("GEMINI_API_KEY")),
+                "openrouter": bool(os.environ.get("OPENROUTER_API_KEY")),
+            },
+            "validation": read_validation(),
+        }
+    )
+    return report
+
+
+def read_validation():
+    path = validation_store()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def validate_models(*, timeout=20.0):
+    """Explicit revalidation: two read-only catalog GETs, no prompt ever sent."""
+    from editor_assistant.drafting import model_catalog
+
+    report = model_catalog.validate_policy_models(timeout=timeout)
+    path = validation_store()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    record_action(
+        "models_validated",
+        f"invalid={len(report['invalid'])} mismatches={len(report['mismatches'])}",
+    )
+    return report
+
+
+def edit_policy(**changes):
+    """Apply one operator edit to the override file and return the new policy.
+
+    `changes` uses the same vocabulary as the CLI (`model_policy` helpers); an
+    invalid edit raises `PolicyError`, which the HTTP layer renders as a message.
+    """
+    from editor_assistant.drafting import model_policy
+
+    with _MUTATION_LOCK:
+        policy = model_policy.load_policy(env_overrides=False)
+        action = changes.pop("action_edit", "")
+        role = changes.pop("role", "")
+        if action == "global":
+            model_policy.set_global(policy, **changes)
+        elif action == "role_budget":
+            model_policy.set_role_budget(policy, role, **changes)
+        elif action == "move":
+            model_policy.reorder_route(
+                policy, role, int(changes["index"]), direction=changes["direction"]
+            )
+        elif action == "toggle":
+            model_policy.set_route_enabled(
+                policy, role, int(changes["index"]), bool(changes["enabled"])
+            )
+        elif action == "add":
+            model_policy.add_route(
+                policy,
+                role,
+                {
+                    "provider": changes["provider"],
+                    "model": changes["model"],
+                    "billing": changes.get("billing") or None,
+                    "public_only": bool(changes.get("public_only")),
+                },
+            )
+        elif action == "remove":
+            model_policy.remove_route(policy, role, int(changes["index"]))
+        else:
+            raise model_policy.PolicyError(f"непознато действие: {action!r}")
+        path = model_policy.save_policy(policy)
+        record_action(f"models_{action}", f"{role or 'global'}:{changes}")
+        return {"path": str(path), "policy": policy}
