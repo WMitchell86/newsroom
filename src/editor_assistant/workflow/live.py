@@ -221,11 +221,15 @@ def live_generate_draft(
     No auto-republish, no regeneration loop beyond the M2.3B single-attempt
     policy.
 
-    M2R: the readiness layer gates drafting - only DRAFT_READY proceeds
-    automatically. RESEARCH_MORE returns the readiness record so the caller
-    can run targeted enrichment; NO_PUBLISHABLE_ANGLE refuses to fabricate a
-    weak article (§25). `force_draft=True` overrides RESEARCH_MORE and is
-    recorded on the result (§32) - it never silently pretends sufficiency.
+    M2R: the readiness layer gates drafting - ONLY DRAFT_READY proceeds
+    automatically; every other status is a refusal or needs the editor's
+    explicit forced override, and an unknown status fails closed (it must
+    never reach generation by falling through the guard). RESEARCH_MORE
+    returns the readiness record so the caller can run targeted enrichment;
+    NO_PUBLISHABLE_ANGLE refuses to fabricate a weak article (§25) and is
+    never forceable. `force_draft=True` overrides RESEARCH_MORE /
+    INSUFFICIENT / EDITOR_DECISION_REQUIRED and is recorded on the result
+    (§32) - it never silently pretends sufficiency.
     """
     assessment = angles.check_angle_gate(packet)
     if assessment:
@@ -240,18 +244,28 @@ def live_generate_draft(
             "reason": readiness["reason"],
             "readiness": readiness,
         }
-    if status == readiness_mod.RESEARCH_MORE and not force_draft:
+    if status == readiness_mod.DRAFT_READY:
+        pass  # §24: only DRAFT_READY proceeds automatically
+    elif status == readiness_mod.RESEARCH_MORE and not force_draft:
         return {
             "status": readiness_mod.RESEARCH_MORE,
             "reason": readiness["reason"],
             "readiness": readiness,
         }
-    if status in (readiness_mod.RESEARCH_MORE, readiness_mod.INSUFFICIENT):
+    elif status in (
+        readiness_mod.RESEARCH_MORE,
+        readiness_mod.INSUFFICIENT,
+        readiness_mod.EDITOR_DECISION,
+    ):
         if not force_draft:
             raise LiveError("editor decision required before drafting from weak evidence")
         readiness = readiness_mod.apply_editor_override(
             readiness, action="FORCE_DRAFT", reason=editor_override_reason
         )
+    else:
+        # Fail closed: an unhandled readiness state must never reach generation
+        # by falling through this guard (it would silently draft).
+        raise LiveError(f"unexpected readiness status {status!r} - refusing to draft")
     voice_profile = _load_profile(voice)
     mode_profile = _load_profile(mode)
     examples = retrieve_examples(

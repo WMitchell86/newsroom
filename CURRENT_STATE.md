@@ -6,6 +6,22 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
+Updated 2026-09-22 (later): **second full code review of every pipeline**
+(owner gate: "logic and pipelines correct first" before approving a modern
+frontend stack) → verdict: pipelines A/B/D and the money/privacy/secret
+invariants are sound; the four findings in the M4F idea→draft bridge are FIXED:
+F1 `prepare_case` now persists idea status changes (was
+`save_ideas(load_ideas())`, a fresh read discarding the mutation), F2
+`ideas.save_ideas` is atomic (validate/serialize before write), F3 the dead,
+broken `submit_angles` service was removed (BACKLOG M4F), F4
+`live_generate_draft` fails closed (only DRAFT_READY drafts automatically;
+force covers RESEARCH_MORE/INSUFFICIENT/EDITOR_DECISION and records the
+override; unknown statuses raise). `tests/test_workbench_articles.py` went
+from fixtures-only (0 tests) to 5 live-server `POST /articles` regression
+tests (+3 guard tests in `test_editorial_readiness.py`). Gates: **922 tests**,
+ruff clean, ui_proof 56/56, M3A smoke 25/25. Deferred to BACKLOG: originality/
+no-copy guard (F5), Gemini key→header (F6), P3 hardening notes.
+
 Updated 2026-09-22: **workbench UI redesigned around a hidden collapsible
 sidebar** (82 px rail → 258 px via a no-JS checkbox toggle; ≤900 px it is an
 overlay drawer), daily-first navigation (Начало · Истории · Материали · Статии
@@ -40,7 +56,7 @@ work is **M4 — Daily Newsroom**, split M4A–M4E in `BACKLOG.md`).
 ## Checkpoint
 
 - Base commit: `075e81d` (M4A.1/M4B + publisher-authority correction).
-- Test baseline: **914 passed**, full suite, offline (was 805 at `075e81d`).
+- Test baseline: **922 passed**, full suite, offline (914 before the 2026-09-22 F1–F4 review fixes; was 805 at `075e81d`).
 - Gates: `ruff check src tests` + `ruff format --check src tests` clean; M3A smoke 25/25.
 - Last real isolated collection (M4B.1/M4C evaluation, 2026-09-21): 123 source items,
   113 unique publications, 112 stories in a deterministic-only build.

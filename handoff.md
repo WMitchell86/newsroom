@@ -1,3 +1,45 @@
+## Handoff — Code-review fix round F1–F4 (idea→draft correctness) (2026-09-22)
+
+Verified: **922 offline tests** (was 914), `ruff check` + `ruff format --check`
+clean (`src tests scripts`), M3A smoke **25/25**, `scripts/ui_proof.py` **56/56**.
+Entry in `MILESTONE.md` (top section).
+
+- Owner gate: one more full code review before approving modern frontend
+  packages ("make sure logic and pipelines are correct first"). Verdict:
+  pipelines A (sources→collect→inbox), B (inbox→story), D (case→finalize) and
+  the money/privacy/secret invariants are correct — paid gate, hard budgets,
+  `public_only`, judge fail-closed, no publish path, `DRY_RUN`/`AUTO_PUBLISH`
+  untouched. All findings sat in the M4F idea→draft bridge:
+- **F1** `prepare_case` persisted `save_ideas(load_ideas())` — a fresh disk
+  read that discarded the `DRAFT_REQUESTED`/`NO_ANGLE` mutation
+  `live_case_request` had just made; «Статии» ideas stayed NEW and NO_ANGLE
+  refusals never landed (the CLI saved the mutated list and was correct).
+  Now saves the loaded list; both branches covered by live-server tests.
+- **F2** `ideas.save_ideas` was the only non-atomic store and validated
+  *while* writing into an already-truncated file — a crash destroyed every
+  idea card. Now validates + serializes first, then temp-file + `os.replace`
+  via `live_store.atomic_write`.
+- **F3** `submit_angles` removed: zero callers and guaranteed to raise (three
+  invented rubric keys instead of `angles.CRITERIA`'s seven;
+  `new_proposition=title` is rejected by `_validate_candidate`). In-UI angle
+  scoring deferred to BACKLOG M4F as a real slice.
+- **F4** `live_generate_draft` now fails closed: only DRAFT_READY proceeds
+  automatically; force covers RESEARCH_MORE/INSUFFICIENT/EDITOR_DECISION
+  (override recorded); NO_ANGLE unforceable; unknown status → `LiveError`.
+  Previously EDITOR_DECISION fell through straight into generation.
+- **F7** `tests/test_workbench_articles.py` had fixtures only (0 tests, and a
+  `server` fixture calling non-existent `http.make_server`). It now boots the
+  real server and covers `POST /articles` request_draft / prepare (happy +
+  NO_ANGLE refusal) / generate-without-prepare (side-effect-free) + the F2
+  atomicity guarantee; +3 fail-closed guard tests in
+  `test_editorial_readiness.py`.
+- **Deferred (BACKLOG M4F):** F5 originality/no-copy guard (owner's earlier
+  requirement — today nothing stops a verbatim-source draft; `audit_claims`
+  even rewards evidence overlap), F6 Gemini key → `x-goog-api-key` header,
+  P3 notes (models-toggle fail-open, lock held across generation, cross-process
+  file locking, `publication_identity` port parse).
+- No UI, route or store-contract changes; no new dependencies.
+
 ## Handoff — UI Sidebar Redesign + /settings hub (2026-09-22)
 
 Verified: **914 offline tests**, `ruff check` + `ruff format --check` clean

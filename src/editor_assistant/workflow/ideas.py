@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from editor_assistant.workflow import live_store
+
 IDEA_STATUSES = ("NEW", "DRAFT_REQUESTED", "IGNORED", "FOLLOW_UP", "NO_PUBLISHABLE_ANGLE")
 REQUIRED_TOP = (
     "idea_id",
@@ -89,12 +91,20 @@ def request_draft(idea):
 
 
 def save_ideas(ideas, path):
+    """Rewrite the idea store durably: validate + serialize BEFORE touching it.
+
+    Same atomicity contract as the case/evidence stores (shared
+    `live_store.atomic_write`: same-directory temp file + `os.replace`). The
+    previous implementation opened the file for writing first, so a crash - or
+    a single invalid idea failing validation mid-loop - truncated the store and
+    destroyed every idea card already in it.
+    """
+    lines = []
+    for idea in ideas:
+        validate_idea(idea)
+        lines.append(json.dumps(idea, ensure_ascii=False, sort_keys=True) + "\n")
     out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", encoding="utf-8") as fh:
-        for idea in ideas:
-            validate_idea(idea)
-            fh.write(json.dumps(idea, ensure_ascii=False, sort_keys=True) + "\n")
+    live_store.atomic_write(out, "".join(lines))
     return out
 
 

@@ -1036,98 +1036,6 @@ def request_draft_for_idea(idea_id):
         return idea
 
 
-def submit_angles(idea_id, evidence_id, candidates, *, select="", override_reason=""):
-    """Editor-supplied research angles, scored by the real rubric (M2S contract).
-
-    candidates: dicts {title, reason, fact_refs} as written in the UI; they are
-    normalized into the exact candidate shape `angles.assess_angles` consumes
-    (the same contract `live-angles` accepts from a JSON file). The assessment
-    is stored on the packet (same as the CLI) and the idea moves to
-    FOLLOW_UP/NO_ANGLE exactly as cmd_live_angles does.
-    """
-    with _MUTATION_LOCK:
-        from editor_assistant.workflow import angles as angles_mod
-
-        if not isinstance(candidates, list) or not 1 <= len(candidates) <= 5:
-            raise WorkbenchError("подай между 1 и 5 ъгъла")
-        row = load_live_rows().get(evidence_id)
-        if row is None or row.get("idea_id") != idea_id:
-            raise WorkbenchError("материалът не принадлежи на тази идея")
-        packet = row.get("packet") or {}
-        fact_ids = {f["id"] for f in packet.get("facts") or ()}
-        norms = []
-        for i, cand in enumerate(candidates, 1):
-            title = str(cand.get("title") or "").strip()
-            reason = str(cand.get("reason") or "").strip()
-            if not title or not reason:
-                raise WorkbenchError(f"ъгъл {i}: заглавието и обосновката са задължителни")
-            refs = sorted(
-                {
-                    r.strip()
-                    for r in str(cand.get("fact_refs") or "").replace(";", ",").split(",")
-                    if r.strip()
-                }
-            )
-            bad = [r for r in refs if r not in fact_ids]
-            if bad:
-                raise WorkbenchError(
-                    f"ъгъл {i}: позовава се на несъществуващи факти {bad} (виж изброените ID-та)"
-                )
-            if not refs:
-                raise WorkbenchError(f"ъгъл {i}: посочи поне един факт (ID) като основание")
-            norms.append(
-                {
-                    "angle_id": f"A{i:02d}",
-                    "title": title,
-                    "reason": reason,
-                    "new_proposition": title,
-                    "fact_ids": refs,
-                    "scores": {
-                        "burgas_novelty": {"score": 2, "reason": reason, "fact_ids": refs},
-                        "reader_relevance": {"score": 2, "reason": reason, "fact_ids": refs},
-                        "evidence_strength": {"score": 2, "reason": reason, "fact_ids": refs},
-                        "falsifiability": {"score": 2, "reason": reason, "fact_ids": refs},
-                    },
-                }
-            )
-        try:
-            assessment = angles_mod.assess_angles(
-                packet,
-                norms,
-                editor_selection=select or None,
-                editor_override_reason=override_reason or None,
-            )
-        except angles_mod.AngleError as exc:
-            raise WorkbenchError(str(exc)) from exc
-        row["packet"]["editorial_assessment"] = assessment
-        if assessment["status"] == angles_mod.NEEDS_RESEARCH:
-            row["last_refusal"] = angles_mod.NEEDS_RESEARCH
-        _save_live_row(row)
-        ideas = load_ideas()
-        idea = next((i for i in ideas if i["idea_id"] == idea_id), None)
-        if idea is not None:
-            idea["status"] = (
-                angles_mod.NO_ANGLE if assessment["status"] == angles_mod.NO_ANGLE else "FOLLOW_UP"
-            )
-            save_ideas(ideas)
-        record_action("angles_submitted", evidence_id)
-        return {
-            "status": assessment["status"],
-            "reason": assessment.get("reason", ""),
-            "ranked": [
-                {
-                    "angle_id": c["angle_id"],
-                    "title": c["title"],
-                    "total": c["total"],
-                    "eligible": c["eligible"],
-                    "semantic_status": c["semantic_status"],
-                }
-                for c in assessment.get("candidates", [])
-            ],
-            "research_questions": assessment.get("research_questions", []),
-        }
-
-
 def prepare_case(idea_id, evidence_id, *, mode=""):
     """Bind voice+mode to an idea's packet via the real live_case_request.
 
@@ -1140,7 +1048,8 @@ def prepare_case(idea_id, evidence_id, *, mode=""):
         from editor_assistant.workflow import angles, live
         from editor_assistant.workflow import modes as modes_mod
 
-        idea = next((i for i in load_ideas() if i["idea_id"] == idea_id), None)
+        ideas = load_ideas()
+        idea = next((i for i in ideas if i["idea_id"] == idea_id), None)
         if idea is None:
             raise WorkbenchError(f"unknown idea_id: {idea_id}")
         row = load_live_rows().get(evidence_id)
@@ -1157,13 +1066,15 @@ def prepare_case(idea_id, evidence_id, *, mode=""):
         except live.LiveError as exc:
             raise WorkbenchError(str(exc)) from exc
         if prepared.get("status") == angles.NO_ANGLE:
-            save_ideas(load_ideas())  # live_case_request set the NO_ANGLE status
+            # NB: save THIS loaded list - live_case_request mutated the idea dict
+            # in place; a fresh load_ideas() here would discard the NO_ANGLE status.
+            save_ideas(ideas)
             record_action("prepare_refused_no_angle", evidence_id)
             return {"status": angles.NO_ANGLE, "reason": prepared.get("reason", "")}
         row["prepared"] = prepared
         row["last_refusal"] = ""
         _save_live_row(row)
-        save_ideas(load_ideas())  # live_case_request set DRAFT_REQUESTED
+        save_ideas(ideas)  # same list live_case_request set to DRAFT_REQUESTED
         record_action("case_prepared", evidence_id)
         return {
             "status": "PREPARED",

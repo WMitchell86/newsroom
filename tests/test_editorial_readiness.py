@@ -504,3 +504,65 @@ def test_live_generate_force_draft_records_override(monkeypatch):
     assert "draft" in result
     assert called["action"] == "FORCE_DRAFT"
     assert result["readiness"]["editor_override"]["reason"] == "редакторско решение"
+
+
+# ---------- fail-closed guard: ONLY DRAFT_READY reaches generation ----------
+
+
+def _guard_packet():
+    p = dict(FIXTURE_C)
+    p["editorial_assessment"] = None
+    return p
+
+
+def _fake_readiness(status):
+    """Minimal readiness record; includes the hook fragment generation needs."""
+
+    def fake(packet, *, mode=None):
+        return {
+            "status": status,
+            "reason": "тест",
+            "reader_interest": {
+                "hook_strategy": "STRONGEST_FACT",
+                "basis_fact_ids": ["F1"],
+                "rationale": "тест",
+                "serious_subject": False,
+            },
+        }
+
+    return fake
+
+
+def test_editor_decision_status_never_reaches_generation(monkeypatch):
+    monkeypatch.setattr(
+        live.readiness_mod, "assess_readiness", _fake_readiness(readiness.EDITOR_DECISION)
+    )
+    monkeypatch.setattr(live.gen, "call_model", lambda *a, **kw: pytest.fail("model called"))
+    with pytest.raises(live.LiveError, match="editor decision required"):
+        live.live_generate_draft(_guard_packet(), voice="VOICE_HOUSE", mode="MODE_EVENT_PREVIEW")
+
+
+def test_unknown_readiness_status_fails_closed(monkeypatch):
+    monkeypatch.setattr(
+        live.readiness_mod, "assess_readiness", _fake_readiness("FUTURE_READINESS_STATUS")
+    )
+    monkeypatch.setattr(live.gen, "call_model", lambda *a, **kw: pytest.fail("model called"))
+    with pytest.raises(live.LiveError, match="unexpected readiness status"):
+        live.live_generate_draft(_guard_packet(), voice="VOICE_HOUSE", mode="MODE_EVENT_PREVIEW")
+
+
+def test_force_draft_overrides_editor_decision_and_records_it(monkeypatch):
+    _stub_generation(monkeypatch)
+    monkeypatch.setattr(
+        live.readiness_mod, "assess_readiness", _fake_readiness(readiness.EDITOR_DECISION)
+    )
+    result = live.live_generate_draft(
+        _guard_packet(),
+        voice="VOICE_HOUSE",
+        mode="MODE_EVENT_PREVIEW",
+        force_draft=True,
+        editor_override_reason="редакторско решение",
+    )
+    assert "draft" in result
+    assert result["readiness"]["editor_override"]["action"] == "FORCE_DRAFT"
+    assert result["readiness"]["pre_override_status"] == readiness.EDITOR_DECISION

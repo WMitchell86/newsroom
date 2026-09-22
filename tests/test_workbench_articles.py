@@ -17,6 +17,7 @@ import urllib.request
 
 import pytest
 
+from editor_assistant.workflow import angles
 from editor_assistant.workflow.workbench import http, state
 
 
@@ -55,20 +56,25 @@ def stores(tmp_path, monkeypatch):
 
 @pytest.fixture
 def server(stores):
-    srv = http.make_server("127.0.0.1", 0)
+    srv = http.serve(0)  # ephemeral port; `make_server` never existed
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
     srv.shutdown()
 
 
-def _add_idea(idea_id="LIVE-TEST-1", title="Тестова идея", status="NEW"):
+def _add_idea(
+    idea_id="LIVE-TEST-1",
+    title="Тестова идея",
+    status="NEW",
+    source_type="council_transcript",
+):
     ideas = state.load_ideas()
     ideas.append(
         {
             "idea_id": idea_id,
             "created_at": "2026-09-17T10:00:00Z",
-            "source_type": "council_transcript",
+            "source_type": source_type,
             "source_url": "transcript://test/1",
             "source_reference": "test",
             "title": title,
@@ -82,19 +88,123 @@ def _add_idea(idea_id="LIVE-TEST-1", title="Тестова идея", status="NE
     state.save_ideas(ideas)
 
 
-def _add_packet(evidence_id="LIVE-TEST-1-EVIDENCE", idea_id="LIVE-TEST-1", prepared=None):
+def _add_packet(
+    evidence_id="LIVE-TEST-1-EVIDENCE",
+    idea_id="LIVE-TEST-1",
+    prepared=None,
+    source_type="council_transcript",
+    assessment=None,
+):
     state._save_live_row(
         {
             "evidence_id": evidence_id,
             "idea_id": idea_id,
             "packet": {
+                "evidence_id": evidence_id,
                 "source_url": "https://example.bg/lead",
-                "source_type": "council_transcript",
-                "facts": [{"fact_id": "f1", "text": "Факт"}],
+                "source_type": source_type,
+                "source_headline": "Заглавие на материала",
+                "facts": [{"id": "f1", "text": "Факт"}],
                 "quotes": [],
                 "unknowns": [],
+                "editorial_assessment": assessment,
             },
             "observed_at": "2026-09-17T10:00:00Z",
             "prepared": prepared,
         }
     )
+
+
+def _weak_assessment():
+    """A real rubric-v2 assessment that the angle gate refuses (NO_ANGLE)."""
+    packet = {"facts": [{"id": "f1", "text": "Факт"}]}
+    candidates = []
+    for i in range(1, 4):
+        candidates.append(
+            {
+                "angle_id": f"A{i:02d}",
+                "title": f"Тема {i}",
+                "reason": "Няма конкретна новост в материала.",
+                "new_proposition": f"Какво ново носи това {i}",
+                "fact_ids": ["f1"],
+                "scores": {
+                    key: {"score": 0, "reason": "", "fact_ids": []} for key in angles.CRITERIA
+                },
+            }
+        )
+    return angles.assess_angles(packet, candidates)
+
+
+def _qs(resp):
+    """Query params of a 303 redirect (the POST handlers always redirect)."""
+    location = resp.headers.get("Location", "")
+    return urllib.parse.parse_qs(urllib.parse.urlparse(location).query)
+
+
+# ---------- F7 regression coverage: the POST /articles write path ----------
+# request_draft / prepare / generate had zero tests (the unfinished fixture
+# file even called a non-existent http.make_server), which is how the F1
+# status-persistence bug survived a green 914-test suite.
+
+
+def test_post_request_draft_persists_status(server):
+    _add_idea()
+    resp = _post(f"{server}/articles", {"action": "request_draft", "idea": "LIVE-TEST-1"})
+    assert resp.code == 303 and "message" in _qs(resp)
+    assert state.load_ideas()[0]["status"] == "DRAFT_REQUESTED"
+    assert "draft_requested" in [a["action"] for a in state.read_actions()]
+
+
+def test_post_prepare_persists_draft_requested_status(server):
+    _add_idea(source_type="upstream_press_release")
+    _add_packet(source_type="upstream_press_release")
+    resp = _post(
+        f"{server}/articles",
+        {"action": "prepare", "idea": "LIVE-TEST-1", "evidence": "LIVE-TEST-1-EVIDENCE"},
+    )
+    assert resp.code == 303
+    assert "message" in _qs(resp) and "error" not in _qs(resp)
+    # F1: the status change made by live_case_request must actually persist.
+    assert state.load_ideas()[0]["status"] == "DRAFT_REQUESTED"
+    row = state.load_live_rows()["LIVE-TEST-1-EVIDENCE"]
+    assert row["prepared"]["voice"] and row["prepared"]["mode"]
+    assert not row.get("last_refusal")
+    assert "case_prepared" in [a["action"] for a in state.read_actions()]
+
+
+def test_post_prepare_no_angle_refusal_persists_status(server):
+    _add_idea()
+    _add_packet(assessment=_weak_assessment())
+    resp = _post(
+        f"{server}/articles",
+        {"action": "prepare", "idea": "LIVE-TEST-1", "evidence": "LIVE-TEST-1-EVIDENCE"},
+    )
+    assert resp.code == 303
+    assert _qs(resp).get("message", [""])[0].startswith("Без публикуем ъгъл")
+    # F1 (refusal branch): the NO_ANGLE verdict must persist too.
+    assert state.load_ideas()[0]["status"] == angles.NO_ANGLE
+    assert "prepare_refused_no_angle" in [a["action"] for a in state.read_actions()]
+
+
+def test_post_generate_without_prepare_refuses_side_effect_free(server, stores):
+    _add_idea(source_type="upstream_press_release")
+    _add_packet(source_type="upstream_press_release")
+    resp = _post(
+        f"{server}/articles",
+        {"action": "generate", "idea": "LIVE-TEST-1", "evidence": "LIVE-TEST-1-EVIDENCE"},
+    )
+    assert resp.code == 303
+    assert "error" in _qs(resp)  # «първо подготви случая (глас и режим)»
+    assert state.load_cases() == []
+    assert not (stores / "live_drafts.jsonl").exists()
+
+
+def test_save_ideas_validation_failure_never_truncates_the_store():
+    # F2: ideas.save_ideas must validate + serialize BEFORE touching the file
+    # (it used to truncate first, so a bad idea destroyed the whole store).
+    _add_idea("IDEA-KEEP-1")
+    _add_idea("IDEA-KEEP-2")
+    keep = state.load_ideas()
+    with pytest.raises(ValueError):
+        state.save_ideas([keep[0], {"idea_id": ""}])
+    assert state.load_ideas() == keep

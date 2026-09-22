@@ -1,4 +1,61 @@
-## M4-UI Sidebar Redesign (hidden rail, /settings hub, daily-first navigation) — 2026-09-22 — BUILT, LIVE-PROVEN, AWAITING REVIEW
+## M4F Code-Review Fix Round (idea→draft correctness F1–F4 + regression tests) — 2026-09-22 — BUILT, AWAITING REVIEW
+
+Base `9938013`. Gate: **922 offline tests** (was 914), `ruff check` +
+`ruff format --check` clean, M3A smoke **25/25**, live UI proof
+`scripts/ui_proof.py` **56/56 ALL CHECKS PASSED**.
+
+Owner-ordered second full code review of every pipeline *before* approving a
+modern frontend stack ("make sure that logic and pipelines are correct
+first"). Verdict: pipelines A (sources→collect→inbox), B (inbox→story), D
+(case→finalize) and the money/privacy/secret invariants are correct — paid
+gate, hard budgets, `public_only` privacy, judge fail-closed, no publish path,
+`DRY_RUN`/`AUTO_PUBLISH` untouched. All findings were in the M4F idea→draft
+bridge:
+
+- **F1 (P1) `prepare_case` silently discarded idea status changes.** It
+  persisted with `save_ideas(load_ideas())` — a *fresh disk read* that threw
+  away the in-memory `DRAFT_REQUESTED`/`NO_ANGLE` mutation `live_case_request`
+  had just made, so «Статии» ideas stayed NEW and a NO_ANGLE refusal never
+  landed (the CLI saves the same mutated list and was correct). Now saves the
+  loaded list; both branches covered by live-server tests.
+- **F2 (P1) `ideas.save_ideas` was the only non-atomic store** — and it
+  validated *while* writing into an already-truncated file, so a crash or one
+  invalid idea destroyed every idea card. Now validates + serializes first,
+  then writes through the shared `live_store.atomic_write` (temp file +
+  `os.replace`), same contract as the case/evidence/blocked/health/policy
+  stores.
+- **F3 (P1) `submit_angles` removed — dead and guaranteed broken.** No caller
+  anywhere, and its candidate normalization could never pass
+  `angles.assess_angles` (three invented criterion keys instead of the rubric's
+  seven; `new_proposition=title` is explicitly rejected). In-UI angle scoring
+  is deferred properly — BACKLOG M4F.
+- **F4 (P2) `live_generate_draft` now fails closed.** Previously only
+  NO_ANGLE/RESEARCH_MORE refused; `EDITOR_DECISION_REQUIRED` — or any future
+  status — fell through the guard straight into generation without force. Now
+  only DRAFT_READY proceeds automatically, force covers RESEARCH_MORE /
+  INSUFFICIENT / EDITOR_DECISION (and records the override, §32), NO_ANGLE
+  stays unforceable, and an unknown status raises `LiveError`.
+- **F7 the tests that let this survive 914 greens.**
+  `tests/test_workbench_articles.py` had fixtures only (zero tests; its
+  `server` fixture called a non-existent `http.make_server`). It now boots the
+  real server and covers `POST /articles` request_draft / prepare (happy path +
+  NO_ANGLE refusal) / generate-without-prepare (side-effect-free), plus the F2
+  truncation guarantee; `tests/test_editorial_readiness.py` gained three
+  fail-closed guard tests (EDITOR_DECISION blocked, unknown status blocked,
+  forced override recorded).
+
+Deferred to BACKLOG (this review's remainder): **F5 originality guard** (the
+owner's earlier requirement that drafts differ from the source — prompt rule +
+n-gram overlap vs `packet.source_text`; today nothing checks it and `audit_claims`
+even rewards evidence overlap), **F6** Gemini API key out of the request URL
+into the `x-goog-api-key` header, and the P3 hardening notes (models-toggle
+fail-open, lock held across network generation, cross-process CLI/UI file
+locking, `publication_identity` port parse).
+
+No UI, route or store-contract changes; no new dependencies.
+
+---
+
 
 Base `ef33c22`. Gate: **914 offline tests** (unchanged), `ruff check` +
 `ruff format --check` clean, M3A smoke **25/25**, live isolated UI proof

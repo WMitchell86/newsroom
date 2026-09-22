@@ -251,6 +251,29 @@ match, and the pre-existing OpenRouter default-model id defect (see the report �
 
 - [ ] Whatever real daily use shows is missing (article workspace, sources panel,
       missing-facts panel). Nothing here is designed speculatively.
+- [ ] **Angles submission UI + service** — `state.submit_angles` was REMOVED by
+      the 2026-09-22 code review: it had no caller, and its normalization could
+      never pass `angles.assess_angles` (invented criterion keys — the rubric
+      has seven — and `new_proposition=title`, which validation rejects). If the
+      editor wants in-UI angle scoring, build it as a real slice: route + form
+      (7 rubric criteria, distinct new_proposition, fact refs) + tests.
+- [ ] **F5 originality guard (owner requirement, 2026-09-22):** drafts must
+      differ from the source and not look copy-pasted. Needs (a) a FORBIDDEN-
+      section prompt rule (reword, never copy sentences) and (b) a deterministic
+      n-gram overlap check vs `packet.source_text` surfaced on the case as an
+      `originality` verdict (like the factual gates). Today nothing checks it:
+      `audit_claims` *rewards* token overlap with evidence, so a verbatim source
+      sentence passes every gate; the style-leak check covers STYLE EXAMPLES only.
+- [ ] **F6 Gemini key in URL** — `_call_gemini` sends `?key=...`; switch to the
+      `x-goog-api-key` header so the secret never appears in a request URL
+      (extends the repo's "never put tokens in URLs" rule beyond Telegram).
+- [ ] **P3 hardening notes (2026-09-22 review):** models-page toggle fails OPEN
+      on a read error (flips a route to *enabled* — should keep state);
+      `_MUTATION_LOCK` is held across the whole model generation, blocking other
+      writes for minutes; no cross-process locking between CLI and UI writers of
+      `cases.jsonl`/`ideas.jsonl` (concurrent runs can lose an update);
+      `publication_identity` `parts.port` raises `ValueError` on a malformed
+      feed URL and would crash `process_item`.
 
 ## M4 (original scoping note, kept for context)
 
