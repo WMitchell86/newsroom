@@ -83,6 +83,21 @@ MODE_LABELS = {
     "MODE_CULTURE_FEATURE": "Културен материал",
 }
 
+IDEA_STATUS_LABELS = {
+    "NEW": "Нова идея",
+    "DRAFT_REQUESTED": "Заявета за чернова",
+    "FOLLOW_UP": "За последваща проверка",
+    "IGNORED": "Игнорирана",
+    "NO_PUBLISHABLE_ANGLE": "Без публикуем ъгъл",
+}
+
+SOURCE_TYPE_LABELS = {
+    "council_transcript": "Протокол от общинския съвет",
+    "upstream_press_release": "Съобщение/публикация",
+    "youtube_intake": "YouTube материал",
+    "editor_supplied": "Подадена от редактора",
+}
+
 VOICE_LABELS = {
     "VOICE_HOUSE": "Глас на сайта (HOUSE)",
     "VOICE_DESISLAVA_RECENT": "Глас Десислава (експериментален)",

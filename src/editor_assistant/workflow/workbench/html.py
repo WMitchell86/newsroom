@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import html as html_mod
 import urllib.parse
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from editor_assistant.workflow import diff as diff_mod
 from editor_assistant.workflow.cases import EDITING_WEIGHTS, TIME_BUCKETS
@@ -14,94 +16,239 @@ from editor_assistant.workflow.workbench import labels as lb
 
 CSS = """
 :root {
-  --ink:#17202b; --line:#d9dee6; --bg:#f4f6f9; --card:#ffffff;
-  --accent:#0f5aa8; --accent-dark:#0b447f; --ok:#15803d; --ok-bg:#dcfce7;
-  --warn:#b45309; --warn-bg:#fef3c7; --bad:#991b1b; --bad-bg:#fee2e2;
-  --info:#1e40af; --info-bg:#dbeafe; --muted:#5b6572;
+  --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --line:#e4e9f2;
+  --bg:#f4f6fb; --card:#ffffff;
+  --accent:#2563eb; --accent-dark:#1d4ed8; --accent-soft:#eff6ff;
+  --ok:#15803d; --ok-bg:#dcfce7; --warn:#b45309; --warn-bg:#fef3c7;
+  --bad:#b91c1c; --bad-bg:#fee2e2; --info:#1d4ed8; --info-bg:#dbeafe;
+  --nav-bg:#0b1220; --nav-ink:#c7d2e2; --nav-dim:#8494ac;
+  --nav-hover:rgba(255,255,255,.07);
+  --rail:82px; --rail-open:258px;
+  --radius:14px;
+  --shadow:0 1px 2px rgba(15,23,42,.05), 0 12px 28px -24px rgba(15,23,42,.5);
 }
-* { box-sizing: border-box; }
-body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
-body { color: var(--ink); background: var(--bg); margin: 0; line-height: 1.45; }
-header.top { background: linear-gradient(180deg, var(--accent), var(--accent-dark)); }
-header.top { color: #fff; padding: .9rem 1.2rem .7rem; }
-header.top h1 { font-size: 1.2rem; margin: 0; }
-header.top a { color: #fff; text-decoration: none; }
-header.top nav a { display: inline-block; padding: .35rem .85rem; margin: .15rem .1rem 0 0; }
-header.top nav a { border-radius: 999px; opacity: .82; transition: background .15s, opacity .15s; }
-header.top nav a:hover { opacity: 1; background: rgba(255, 255, 255, .14); }
-header.top nav a.nav-active { background: #fff; color: var(--accent-dark); opacity: 1; font-weight: 700; }
-.admin-label { color: rgba(255, 255, 255, .65); font-size: .78rem; margin-right: .3rem; }
-main { max-width: 62rem; margin: 0 auto; padding: 1rem 1.2rem 3rem; }
-a { color: var(--accent); }
-table { border-collapse: collapse; width: 100%; background: var(--card); }
-th, td { border: 1px solid var(--line); padding: .5rem .65rem; }
-th, td { text-align: left; vertical-align: top; font-size: .92rem; }
-th { background: #eef1f6; }
-.badge { display: inline-block; padding: .2rem .65rem; border-radius: 999px; }
-.badge { font-size: .82rem; font-weight: 600; background: #e5e7eb; }
-.badge.ok { background: var(--ok-bg); color: var(--ok); }
-.badge.warn { background: var(--warn-bg); color: var(--warn); }
-.badge.block { background: var(--bad-bg); color: var(--bad); }
-.badge.info { background: var(--info-bg); color: var(--info); }
-section.card { background: var(--card); border: 1px solid var(--line); }
-section.card { border-radius: .6rem; padding: 1rem 1.2rem; margin: 1rem 0; }
-section.card h2 { font-size: 1.08rem; margin-top: 0; }
-section.card.hero { border-left: 5px solid var(--accent); }
-.hero-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .8rem; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
-.stats { gap: .7rem; margin: .8rem 0; }
-.stat { background: var(--card); border: 1px solid var(--line); border-radius: .6rem; }
-.stat { padding: .7rem .9rem; }
-.stat .num { font-size: 1.5rem; font-weight: 800; }
-.stat .lbl { color: var(--muted); font-size: .85rem; }
-.howto { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
-.howto { gap: .7rem; margin-top: .6rem; }
-.howto div { background: #f8fafc; border: 1px solid var(--line); border-radius: .5rem; }
-.howto div { padding: .6rem .8rem; font-size: .9rem; }
-textarea { width: 100%; min-height: 16rem; font: inherit; }
-textarea { padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .35rem; }
-input[type=text], input:not([type]), select { padding: .45rem .6rem; }
-input[type=text], input:not([type]), select { border: 1px solid var(--line); }
-input[type=text], input:not([type]), select { border-radius: .35rem; font-size: .92rem; }
-input[type=text]:focus, input:not([type]):focus, select:focus, textarea:focus { outline: 2px solid var(--accent); }
-label { display: block; margin: .6rem 0 .2rem; font-weight: 600; }
-fieldset { border: 1px solid var(--line); border-radius: .5rem; padding: .7rem .9rem; }
-fieldset { margin: .8rem 0; background: #fcfdff; }
-fieldset legend { font-weight: 700; padding: 0 .4rem; }
-button { font: inherit; background: var(--accent); color: #fff; border: 0; }
-button { border-radius: .35rem; padding: .55rem 1.2rem; cursor: pointer; }
-button.secondary { background: #6b7280; }
-button:hover { background: var(--accent-dark); }
-button:disabled { opacity: .6; cursor: wait; }
-.btn { padding: .3rem .7rem; font-size: .85rem; border-radius: .35rem; }
-.btn.danger { background: var(--bad); }
-.btn.primary { background: var(--ok); }
-details form { margin: .3rem 0 .1rem; }
-.notice { padding: .6rem .9rem; border-radius: .35rem; margin: .6rem 0; }
-.notice.error { background: var(--bad-bg); border: 1px solid #fca5a5; }
-.notice.saved { background: var(--ok-bg); border: 1px solid #86efac; }
-.warnbox { background: #fef3c7; border: 1px solid #f59e0b; padding: .6rem .9rem; border-radius: .3rem; margin: .5rem 0; }
-.infobox { background: #e0f2fe; border: 1px solid #7dd3fc; padding: .6rem .9rem; border-radius: .3rem; margin: .5rem 0; }
-.filters a { margin-right: .8rem; }
-.filters .active { font-weight: 700; text-decoration: underline; }
-.muted { color: var(--muted); font-size: .85rem; }
-pre.draft { white-space: pre-wrap; font-family: Georgia, serif; }
-pre.draft { background: #fafafa; border: 1px solid var(--line); padding: .8rem; }
-pre.draft { border-radius: .35rem; }
-.fact { border-bottom: 1px dotted var(--line); padding: .3rem 0; }
-.loc { font-size: .8rem; color: var(--accent); }
-dl.meta dt { font-weight: 600; margin-top: .4rem; }
-dl.meta dd { margin: 0 0 .3rem; }
-.table-wrap { overflow-x: auto; }
-#busy-overlay { display: none; position: fixed; inset: 0; z-index: 50; }
-#busy-overlay { background: rgba(15,30,50,.55); align-items: center; }
-#busy-overlay { justify-content: center; }
-#busy-overlay div { background: #fff; border-radius: .6rem; padding: 1.2rem 1.6rem; }
-@media (max-width: 768px) {
-  main { padding: .8rem .7rem 2.5rem; }
-  th, td { font-size: .85rem; padding: .4rem .45rem; }
-  .hero-actions button { width: 100%; }
-  section.card { padding: .85rem .9rem; }
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--bg); color:var(--ink); line-height:1.5;
+  font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+}
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+code { background:#eef1f6; padding:.05rem .32rem; border-radius:6px; font-size:.86em; }
+
+/* ---- shell: collapsible sidebar (works with JavaScript off) ---- */
+.nav-toggle { position:absolute; width:1px; height:1px; opacity:0; margin:-1px; }
+.nav-toggle:focus-visible ~ .shell .nav-burger { outline:2px solid var(--accent); outline-offset:2px; }
+.shell { min-height:100vh; }
+.sidenav {
+  position:fixed; top:0; left:0; bottom:0; z-index:40;
+  width:var(--rail); background:var(--nav-bg); color:var(--nav-ink);
+  display:flex; flex-direction:column; padding:.75rem .55rem 1rem;
+  overflow-y:auto; transition:width .18s ease, transform .2s ease;
+}
+.brand { padding:.15rem .1rem .7rem; }
+.brand-link { display:flex; align-items:center; justify-content:center; gap:.6rem; color:#fff; }
+.brand-link:hover { text-decoration:none; }
+.brand-mark {
+  flex:0 0 auto; width:2.3rem; height:2.3rem; border-radius:11px;
+  background:var(--accent); color:#fff; font-size:1.1rem;
+  display:flex; align-items:center; justify-content:center;
+}
+.brand-text { display:none; font-weight:700; font-size:.92rem; line-height:1.25; }
+.brand-tag { display:none; margin:.45rem 0 0; font-size:.72rem; color:var(--nav-dim); }
+.nav-group { display:flex; flex-direction:column; gap:.12rem; margin-top:.35rem; }
+.nav-heading {
+  display:none; margin:.9rem .5rem .3rem; font-size:.66rem; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--nav-dim);
+}
+.nav-item {
+  display:flex; flex-direction:column; align-items:center; gap:.12rem;
+  padding:.5rem .15rem; border-radius:10px; color:var(--nav-ink);
+  text-align:center;
+}
+.nav-item:hover { background:var(--nav-hover); color:#fff; text-decoration:none; }
+.nav-item.nav-active { background:var(--accent); color:#fff; font-weight:600; }
+.nav-ico { font-size:1.05rem; line-height:1.2; }
+.nav-label { max-width:100%; font-size:.58rem; line-height:1.15; white-space:nowrap; overflow:hidden; }
+.nav-sub { display:none; }
+.sidenav-backdrop { display:none; }
+.content { margin-left:var(--rail); min-height:100vh; transition:margin-left .18s ease; }
+.nav-toggle:checked ~ .shell .sidenav { width:var(--rail-open); }
+.nav-toggle:checked ~ .shell .content { margin-left:var(--rail-open); }
+.nav-toggle:checked ~ .shell .brand-link { justify-content:flex-start; }
+.nav-toggle:checked ~ .shell .brand-text,
+.nav-toggle:checked ~ .shell .brand-tag { display:block; }
+.nav-toggle:checked ~ .shell .nav-heading { display:block; }
+.nav-toggle:checked ~ .shell .nav-sub { display:flex; flex-direction:column; gap:.12rem; }
+.nav-toggle:checked ~ .shell .nav-item {
+  flex-direction:row; gap:.65rem; padding:.5rem .6rem; text-align:left;
+}
+.nav-toggle:checked ~ .shell .nav-label { font-size:.9rem; }
+.topbar {
+  position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:.8rem;
+  min-height:3.4rem; padding:.5rem 1.2rem; background:rgba(255,255,255,.88);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+}
+.nav-burger {
+  flex:0 0 auto; width:2.25rem; height:2.25rem; border-radius:10px;
+  border:1px solid var(--line); background:#fff; color:var(--ink-2);
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  font-size:1rem; line-height:1; user-select:none;
+}
+.nav-burger:hover { background:var(--accent-soft); border-color:#c9dbff; }
+.topbar-title { margin:0; font-size:1.02rem; font-weight:700; letter-spacing:-.01em; }
+.topbar-sub { margin-left:auto; color:var(--muted); font-size:.8rem; white-space:nowrap; }
+main { max-width:68rem; margin:0 auto; padding:1.2rem 1.2rem 3.5rem; }
+main > h2 { margin:0 0 .8rem; }
+.cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(19rem,1fr)); gap:1rem; }
+.cols > .card { margin:0; }
+
+/* ---- cards, stats, hero ---- */
+.card {
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:1.05rem 1.2rem; margin:1rem 0;
+}
+.card h2 { font-size:1.03rem; margin:0 0 .5rem; }
+.card h3 { font-size:.96rem; margin:1rem 0 .35rem; }
+.card h3:first-child { margin-top:0; }
+.card.hero {
+  border-left:4px solid var(--accent);
+  background:linear-gradient(135deg,#ffffff 55%,#f3f8ff);
+}
+.card.hero h2 { font-size:1.2rem; }
+.hero-actions { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.9rem; align-items:center; }
+.hero-actions .btn, .hero-actions button { padding:.62rem 1.15rem; font-size:.95rem; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr)); gap:.7rem; margin:.9rem 0 .3rem; }
+.stat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:.7rem .9rem; }
+.stat .num { font-size:1.6rem; font-weight:800; letter-spacing:-.02em; }
+.stat .lbl { color:var(--muted); font-size:.8rem; line-height:1.3; }
+.howto { display:grid; grid-template-columns:repeat(auto-fit,minmax(12.5rem,1fr)); gap:.7rem; margin-top:.6rem; }
+.howto div { background:var(--accent-soft); border:1px solid #dbe7ff; border-radius:12px; padding:.65rem .85rem; font-size:.88rem; }
+ol.top-stories { margin:.4rem 0 .2rem; padding-left:1.2rem; }
+ol.top-stories li { margin:.4rem 0; }
+
+/* ---- tables ---- */
+.table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:#fff; }
+table { border-collapse:collapse; width:100%; background:transparent; }
+th, td { text-align:left; vertical-align:top; font-size:.9rem; padding:.6rem .75rem; border-bottom:1px solid var(--line); }
+th {
+  background:#f8fafc; color:var(--muted); font-size:.74rem;
+  text-transform:uppercase; letter-spacing:.05em; white-space:nowrap;
+}
+tbody tr:last-child td, tr:last-child td { border-bottom:0; }
+tbody tr:hover td { background:#f8fbff; }
+
+/* ---- badges ---- */
+.badge { display:inline-block; padding:.17rem .6rem; border-radius:999px; font-size:.78rem; font-weight:600; background:#e9edf3; color:var(--ink-2); }
+.badge.ok { background:var(--ok-bg); color:var(--ok); }
+.badge.warn { background:var(--warn-bg); color:var(--warn); }
+.badge.block { background:var(--bad-bg); color:var(--bad); }
+.badge.info { background:var(--info-bg); color:var(--info); }
+
+/* ---- forms ---- */
+label { display:block; margin:.7rem 0 .25rem; font-weight:600; font-size:.9rem; }
+input[type=text], input:not([type]), input[type=date], select, textarea {
+  width:100%; padding:.5rem .65rem; border:1px solid var(--line); border-radius:9px;
+  font:inherit; font-size:.92rem; background:#fff; color:var(--ink);
+}
+input:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+textarea { min-height:16rem; resize:vertical; }
+input[type=checkbox], input[type=radio] { width:auto; margin-right:.35rem; accent-color:var(--accent); }
+fieldset { border:1px solid var(--line); border-radius:12px; padding:.7rem .95rem; margin:.9rem 0; background:#f8fafd; }
+fieldset legend { font-weight:700; padding:0 .4rem; }
+
+/* ---- buttons ---- */
+button {
+  font:inherit; background:var(--accent); color:#fff; border:0; border-radius:9px;
+  padding:.55rem 1.1rem; cursor:pointer; transition:background .15s;
+}
+button:hover { background:var(--accent-dark); }
+button:disabled { opacity:.65; cursor:progress; }
+button.secondary { background:#e2e8f0; color:var(--ink-2); }
+button.secondary:hover { background:#cbd5e1; }
+a.btn, button.btn {
+  display:inline-block; padding:.34rem .72rem; border-radius:9px; font-size:.86rem;
+  font-weight:600; line-height:1.35; white-space:nowrap;
+}
+a.btn { background:#fff; color:var(--ink-2); border:1px solid var(--line); }
+a.btn:hover { background:#f1f5fb; border-color:#c9d4e5; text-decoration:none; }
+button.btn { border:0; background:#e2e8f0; color:var(--ink-2); }
+button.btn:hover { background:#cbd5e1; }
+a.btn.primary, button.btn.primary { background:var(--ok); border-color:var(--ok); color:#fff; }
+a.btn.primary:hover, button.btn.primary:hover { background:#166534; }
+a.btn.danger, button.btn.danger, button.danger { background:var(--bad); border-color:var(--bad); color:#fff; }
+a.btn.danger:hover, button.btn.danger:hover, button.danger:hover { background:#7f1d1d; }
+a.btn.secondary, button.btn.secondary { background:#e2e8f0; color:var(--ink-2); }
+
+/* ---- notices, boxes ---- */
+.notice { padding:.7rem .95rem; border-radius:11px; margin:.8rem 0; font-size:.93rem; }
+.notice.error { background:var(--bad-bg); border:1px solid #fca5a5; color:#7f1d1d; }
+.notice.saved { background:var(--ok-bg); border:1px solid #86efac; color:#14532d; }
+.warnbox { background:var(--warn-bg); border:1px solid #f59e0b; color:#78350f; padding:.65rem .9rem; border-radius:11px; margin:.55rem 0; font-size:.92rem; }
+.infobox { background:#e0f2fe; border:1px solid #7dd3fc; color:#0c4a6e; padding:.65rem .9rem; border-radius:11px; margin:.55rem 0; font-size:.92rem; }
+
+/* ---- filters as pill tabs ---- */
+.filters { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin:.9rem 0; }
+.filters a { padding:.3rem .78rem; border-radius:999px; background:#fff; border:1px solid var(--line); color:var(--ink-2); font-size:.86rem; }
+.filters a:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
+.filters .active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.filters .muted { margin-left:.3rem; }
+.muted { color:var(--muted); font-size:.87rem; }
+
+/* ---- long-form content ---- */
+pre.draft {
+  white-space:pre-wrap; font-family:Georgia, 'Times New Roman', serif;
+  background:#fbfcfe; border:1px solid var(--line); border-radius:11px;
+  padding:.9rem 1rem; font-size:.98rem; line-height:1.6; overflow-x:auto;
+}
+.fact { border-bottom:1px solid var(--line); padding:.55rem 0; }
+.fact:last-child { border-bottom:0; }
+.loc { font-size:.8rem; color:var(--accent); }
+dl.meta { margin:.6rem 0; }
+dl.meta dt { font-weight:600; margin-top:.45rem; font-size:.88rem; }
+dl.meta dd { margin:0 0 .3rem; }
+
+/* ---- details, misc forms ---- */
+details { margin:.45rem 0; }
+details summary { cursor:pointer; color:var(--accent); font-size:.87rem; }
+details[open] summary { margin-bottom:.45rem; }
+details form { margin:.35rem 0 .1rem; }
+.promote-form { margin-top:.5rem; background:#f8fafd; border:1px solid var(--line); border-radius:11px; padding:.6rem .8rem; }
+.promote-form input[type=text] { width:min(28rem,100%); }
+.promote-form label { display:inline; margin-right:.3rem; }
+.role-manage { margin:.6rem 0; background:#f8fafd; border:1px dashed var(--line); border-radius:11px; padding:.6rem .8rem; }
+.force-box { background:#fff7ed; border:1px solid #fdba74; border-radius:11px; padding:.5rem .8rem; margin:.5rem 0; }
+.force-box summary { color:#9a3412; }
+
+/* ---- busy overlay ---- */
+#busy-overlay {
+  display:none; position:fixed; inset:0; z-index:60; background:rgba(2,6,23,.55);
+  align-items:center; justify-content:center;
+}
+#busy-overlay div { background:#fff; border-radius:14px; padding:1.1rem 1.6rem; font-weight:600; box-shadow:0 24px 60px -24px rgba(0,0,0,.6); }
+
+@media (max-width:900px) {
+  .sidenav { width:264px; transform:translateX(-104%); box-shadow:0 0 44px rgba(2,6,23,.4); }
+  .content { margin-left:0; }
+  .nav-toggle:checked ~ .shell .sidenav { width:264px; transform:translateX(0); }
+  .nav-toggle:checked ~ .shell .content { margin-left:0; }
+  .nav-toggle:checked ~ .shell .sidenav-backdrop { display:block; }
+  .sidenav-backdrop { position:fixed; inset:0; z-index:35; background:rgba(2,6,23,.5); }
+  .brand-link { justify-content:flex-start; }
+  .brand-text, .brand-tag { display:block; }
+  .nav-heading { display:block; }
+  .nav-sub { display:flex; flex-direction:column; gap:.12rem; }
+  .nav-item { flex-direction:row; gap:.65rem; padding:.55rem .6rem; text-align:left; }
+  .nav-label { font-size:.92rem; }
+  .topbar-sub { display:none; }
+  main { padding:.9rem .8rem 3rem; }
+  th, td { font-size:.84rem; padding:.45rem .5rem; }
+  .hero-actions .btn, .hero-actions button { width:100%; text-align:center; }
+  .card { padding:.95rem 1rem; }
+}
+@media (prefers-reduced-motion:reduce) {
+  * { transition:none !important; }
 }
 """
 
@@ -110,47 +257,74 @@ def esc(value):
     return html_mod.escape(str(value if value is not None else ""), quote=True)
 
 
-#: Daily workflow first (what the editor opens every morning), then setup and
-#: archive surfaces. «Случаи» is the frozen M3A queue — kept reachable but not
-#: promoted; «YouTube» is a secondary source view.
+#: Icons for the collapsed sidebar rail (emoji — no asset pipeline, stdlib only).
+ICONS = {
+    "home": "\U0001f3e0",
+    "stories": "\U0001f4f0",
+    "inbox": "\U0001f4e5",
+    "articles": "✍",
+    "settings": "⚙",
+    "sources": "\U0001f4e1",
+    "models": "\U0001f916",
+    "queue": "\U0001f5c2",
+    "intake": "\u25b6",
+}
+
+#: Daily work only — what the editor opens every morning (M4 redesign):
+#: sources/models/archive are advanced and live behind «Настройки».
 NAV_DAILY = (
     ("home", "/", "Начало"),
     ("stories", "/stories", "Истории"),
     ("inbox", "/inbox", "Материали"),
-    ("sources", "/sources", "Източници"),
+    ("articles", "/articles", "Статии"),
 )
+#: Advanced surfaces, grouped under the settings hub (/settings).
 NAV_ADMIN = (
+    ("settings", "/settings", "Настройки"),
+    ("sources", "/sources", "Източници"),
     ("models", "/models", "AI модели"),
     ("queue", "/cases", "Случаи"),
     ("intake", "/intake", "YouTube"),
 )
 #: Back-compat alias table: every key ever used as ``active=`` still resolves.
-NAV = (
-    ("home", "/", "Начало"),
-    ("stories", "/stories", "Истории"),
-    ("inbox", "/inbox", "Материали"),
-    ("sources", "/sources", "Източници"),
-    ("models", "/models", "AI модели"),
-    ("queue", "/cases", "Случаи"),
-    ("intake", "/intake", "YouTube"),
-)
+NAV = NAV_DAILY + NAV_ADMIN
+#: Pages whose active state belongs to the «Настройки и архив» group.
+ADMIN_ACTIVE = frozenset(key for key, _, _ in NAV_ADMIN)
 
 
 def _nav_link(key, href, label, active=""):
-    cls = ' class="nav-active"' if key == active else ""
-    extra = ""
-    if key in ("home", "stories", "inbox"):
-        extra = ' data-daily="1"'
-    return f'<a href="{href}"{cls}{extra}>{esc(label)}</a>'
+    cls = "nav-item"
+    if key == active or (key == "settings" and active in ADMIN_ACTIVE):
+        cls += " nav-active"
+    icon = ICONS.get(key, "\u2022")
+    return (
+        f'<a class="{cls}" href="{href}">'
+        f'<span class="nav-ico" aria-hidden="true">{icon}</span>'
+        f'<span class="nav-label">{esc(label)}</span></a>'
+    )
 
 
-def nav(active=""):
+def sidenav(active=""):
+    """Hidden/collapsible sidebar: rail collapsed by default, toggled by CSS.
+
+    Everything works without JavaScript — the toggle is a checkbox + label,
+    so the daily pages stay usable in any browser and in the smoke harness.
+    """
     daily = "".join(_nav_link(k, h, label, active) for k, h, label in NAV_DAILY)
     admin = "".join(_nav_link(k, h, label, active) for k, h, label in NAV_ADMIN)
     return (
-        '<nav class="primary" aria-label="Ежедневна работа">' + daily + "</nav>"
-        '<nav class="admin" aria-label="Настройки и архив">'
-        '<span class="admin-label">Настройки и архив:</span>' + admin + "</nav>"
+        '<aside class="sidenav">'
+        '<div class="brand"><a class="brand-link" href="/">'
+        '<span class="brand-mark" aria-hidden="true">\U0001f4f0</span>'
+        '<span class="brand-text">Дневен новинарски помощник</span></a>'
+        '<p class="brand-tag">Какво е ново от вашите източници · прочетете · '
+        "отбележете · напишете</p></div>"
+        '<nav class="nav-group" aria-label="Ежедневна работа">'
+        '<p class="nav-heading">Работа</p>'
+        f"{daily}</nav>"
+        '<nav class="nav-group" aria-label="Настройки и архив">'
+        '<p class="nav-heading">Настройки и архив</p>'
+        f"{admin}</nav></aside>"
     )
 
 
@@ -160,12 +334,21 @@ def page(title, body, active=""):
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{esc(title)} — Дневен новинарски помощник</title>\n"
         f'<link rel="stylesheet" href="/static/style.css">\n<style>{CSS}</style>\n</head>\n<body>\n'
-        '<header class="top"><h1><a href="/">Дневен новинарски помощник</a></h1>\n'
-        '<p class="tagline">Какво е ново от вашите източници · прочетете · '
-        "отбележете · напишете</p>\n"
-        f"{nav(active)}</header>\n"
+        '<input type="checkbox" id="nav-toggle" class="nav-toggle">\n'
+        '<div class="shell">\n'
+        f"{sidenav(active)}\n"
+        '<div class="content">\n'
+        '<header class="topbar">\n'
+        '<label for="nav-toggle" class="nav-burger" '
+        'title="Покажи или скрий менюто">☰</label>\n'
+        f'<h1 class="topbar-title">{esc(title)}</h1>\n'
+        '<span class="topbar-sub">Дневен новинарски помощник</span>\n'
+        "</header>\n"
         f"<main>\n{body}\n</main>\n"
-        '<div id="busy-overlay" role="status"><div>Събиране… моля, изчакайте.</div></div>\n'
+        "</div>\n"
+        '<label for="nav-toggle" class="sidenav-backdrop" aria-hidden="true"></label>\n'
+        "</div>\n"
+        '<div id="busy-overlay" role="status"><div>Моля, изчакайте… обработката тече.</div></div>\n'
         "<script>"
         "document.addEventListener('submit',function(e){"
         "var f=e.target;if(f.method&&f.method.toLowerCase()!=='post')return;"
@@ -176,7 +359,7 @@ def page(title, body, active=""):
         "if(b.dataset.confirmRoute){"
         "var op=f.querySelector('select[name=op]');"
         "if(op&&op.value==='remove'&&!confirm('Наистина ли да премахна?')){e.preventDefault();return;}}"
-        "if(b.dataset.busy){"
+        "if(b.dataset.busy||f.dataset.busy){"
         "b.disabled=true;var o=document.getElementById('busy-overlay');"
         "if(o){o.style.display='flex';}"
         "}});</script>\n"
@@ -204,7 +387,7 @@ def filter_nav(active, base="/cases"):
         cls = ' class="active"' if key == active else ""
         href = f"{base}?filter={urllib.parse.quote(key)}"
         parts.append(f'<a{cls} href="{href}">{esc(label)}</a>')
-    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+    return '<nav class="filters">' + "".join(parts) + "</nav>"
 
 
 def queue_table(rows, empty_text):
@@ -243,12 +426,27 @@ def queue_table(rows, empty_text):
     return f'<div class="table-wrap"><table>{head}{"".join(body)}</table></div>'
 
 
+#: Display-only local timezone: the greeting follows the editor's own day.
+_SOFIA_TZ = ZoneInfo("Europe/Sofia")
+
+
+def _greeting():
+    """Time-of-day greeting — a small human touch on the daily landing."""
+    hour = datetime.now(_SOFIA_TZ).hour
+    if hour < 11:
+        return "Добро утро"
+    if hour < 18:
+        return "Добър ден"
+    return "Добър вечер"
+
+
 def render_home(stories, inbox, sources):
     """Daily landing page: «what is new, what do I do next».
 
-    Read-only aggregation over the views the dedicated pages already compute.
-    Keeps the editor's morning in one place: unreviewed counts, today's
-    arrivals, the top new stories and the next step.
+    The morning control panel in one place: unreviewed counts, today's
+    arrivals, the top new stories, the one long daily action (collect) and
+    the next step. Aggregation is read-only over the views the dedicated
+    pages already compute, so it can never drift from the store contract.
     """
     summary = (sources or {}).get("summary") or {}
     story_cards = (stories or {}).get("stories") or []
@@ -270,14 +468,15 @@ def render_home(stories, inbox, sources):
             "</li>"
             for card in top
         )
-        top_block = f"<ol>{top_rows}</ol>"
+        top_block = f'<ol class="top-stories">{top_rows}</ol>'
     else:
         top_block = (
             '<p class="muted">Още няма групирани истории. Ако материалите са събрани, '
             "натиснете „Обнови историите“.</p>"
         )
     hero = (
-        '<section class="card hero"><h2>Добро утро — ето какво е ново</h2>'
+        '<section class="card hero">'
+        f"<h2>{_greeting()} — ето какво е ново</h2>"
         '<p class="muted">Дневен новинарски помощник: събира материали от вашите '
         "източници, групира ги в истории и ви оставя решението. "
         "Нищо не се публикува автоматично.</p>"
@@ -292,11 +491,16 @@ def render_home(stories, inbox, sources):
         '<div class="lbl">активни източници</div></div>'
         "</div>"
         '<div class="hero-actions">'
-        f'<a href="/stories"><button class="btn primary" type="button">'
-        f"Прегледай историите ({new_stories})</button></a> "
-        f'<a href="/inbox"><button class="btn" type="button">'
-        f"Към материалите ({new_materials})</button></a> "
-        "</div></section>"
+        '<form method="post" action="/inbox">'
+        '<input type="hidden" name="action" value="collect">'
+        '<button type="submit" data-busy="1">Събери новините сега</button>'
+        "</form>"
+        f'<a class="btn primary" href="/stories">Прегледай историите ({new_stories})</a>'
+        f'<a class="btn" href="/inbox">Към материалите ({new_materials})</a>'
+        "</div>"
+        '<p class="muted">Събирането проверява всички активни източници и може '
+        "да отнеме минута — изчакайте, страницата ще се върне сама.</p>"
+        "</section>"
     )
     latest = (
         '<section class="card"><h2>Най-нови истории</h2>'
@@ -305,20 +509,143 @@ def render_home(stories, inbox, sources):
         '<a href="/stories">всички истории</a></p></section>'
     )
     howto = (
-        '<section class="card"><h2>Как се работи (3 стъпки)</h2>'
+        '<section class="card"><h2>Как се работи</h2>'
         '<div class="howto">'
         "<div><strong>1. Събери</strong><br>Натисни „Събери новините сега“ "
-        'в <a href="/inbox">Материали</a>.</div>'
+        'тук или в <a href="/inbox">Материали</a>.</div>'
         "<div><strong>2. Прегледай</strong><br>Отвори история в "
         '<a href="/stories">Истории</a> и прочети материалите.</div>'
         "<div><strong>3. Отбележи</strong><br>Маркирай като прегледана, "
         "игнорирай или върни за още информация.</div>"
+        "<div><strong>4. Напиши</strong><br>«Кандидатвай като идея» от историята, после "
+        '<a href="/articles">Статии</a> → «Подготви AI чернова».</div>'
         "</div>"
-        '<p class="muted"><a href="/sources">Източници</a> и '
-        '<a href="/models">AI модели</a> са настройки — отварят се рядко.</p>'
+        '<p class="muted"><a href="/settings">Настройки</a> (източници, AI модели, '
+        "архив) се отварят рядко — ежедневната работа е горе.</p>"
         "</section>"
     )
-    return page("Начало", f"{hero}\n{latest}\n{howto}", active="home")
+    body = f'{hero}\n<div class="cols">{latest}{howto}</div>'
+    return page("Начало", body, active="home")
+
+
+#: One advanced surface on the /settings hub: (href, title, explanation, CTA).
+SETTINGS_CARDS = (
+    (
+        "/sources",
+        "Източници",
+        (
+            "Кои сайтове и емисии се следят, колко често, тяхното здраве и "
+            "забранените домейни. Отваря се, когато искате да добавите, спрете "
+            "или заглушите източник."
+        ),
+        "Отвори източниците",
+    ),
+    (
+        "/models",
+        "AI модели",
+        (
+            "Кой AI модел изпълнява всяка стъпка, дневните лимити и безплатно/"
+            "платено. Техническа настройка — не е нужна за ежедневната работа."
+        ),
+        "Отвори AI моделите",
+    ),
+    (
+        "/intake",
+        "YouTube",
+        (
+            "Готови резултати от вторичния видеоизточник. Нов запис се добавя "
+            "от компютъра; тук само се преглежда."
+        ),
+        "Отвори YouTube",
+    ),
+    (
+        "/cases",
+        "Случаи (архив)",
+        (
+            "Опашката от по-ранен етап от работата. Ежедневната работа вече "
+            "минава през Истории и Статии."
+        ),
+        "Отвори архива",
+    ),
+)
+
+
+def render_settings(message="", error=""):
+    """«Настройки» — one plain hub for every advanced surface (M4 redesign).
+
+    The editor's morning never needs this page: model routing, the registry,
+    the YouTube view and the frozen M3A archive are grouped here with a plain
+    sentence each, so the daily navigation stays four items long.
+    """
+    cards = "".join(
+        '<section class="card">'
+        f"<h2>{esc(title)}</h2>"
+        f"<p>{esc(text)}</p>"
+        f'<p><a class="btn primary" href="{href}">{esc(cta)}</a></p>'
+        "</section>"
+        for href, title, text, cta in SETTINGS_CARDS
+    )
+    body = [
+        (
+            '<p class="muted">Тук се променя системата, не днешната работа. Сутрин '
+            'се работи от <a href="/">Начало</a>, <a href="/stories">Истории</a>, '
+            '<a href="/inbox">Материали</a> и <a href="/articles">Статии</a> — '
+            "тази страница се отваря рядко.</p>"
+        )
+    ]
+    if message:
+        body.append(f'<div class="notice saved">{esc(message)}</div>')
+    if error:
+        body.append(f'<div class="notice error">{esc(error)}</div>')
+    body.append(f'<div class="cols">{cards}</div>')
+    body.append(
+        '<section class="card"><h2>Ежедневна работа</h2>'
+        '<p class="muted">Тук нищо не се променя — само се отваря.</p>'
+        '<p class="hero-actions">'
+        '<a class="btn primary" href="/">Начало</a>'
+        '<a class="btn" href="/stories">Истории</a>'
+        '<a class="btn" href="/inbox">Материали</a>'
+        '<a class="btn" href="/articles">Статии</a>'
+        "</p>"
+        '<p class="muted">Нищо не се публикува автоматично: всеки финален текст '
+        "е изрично решение на редактора.</p>"
+        "</section>"
+    )
+    return page("Настройки", "\n".join(body), active="settings")
+
+
+def render_intake(rows):
+    """«YouTube» — completed intake results (initiation stays CLI-only, M3B Part J).
+
+    Transcription + discovery are long and model-driven, so the local server
+    never runs them; this page only displays records written by
+    `workflow.cli youtube-intake`. The markup lives here with the rest of the
+    UI so every page shares one shell and one stylesheet.
+    """
+    cards = []
+    for row in rows:
+        outcome = row.get("outcome") or "—"
+        cards.append(
+            '<section class="card">'
+            f"<h3>{esc(row.get('title') or row.get('video_id') or '')}</h3>"
+            f'<p class="muted">{esc(row.get("canonical_url") or "")}</p>'
+            f"<p><strong>Резултат:</strong> {esc(outcome)} · "
+            f"теми {row.get('topics', 0)} · факти {row.get('facts', 0)} · "
+            f"отхвърлени {row.get('dropped_facts', 0)}</p>"
+            f'<p class="muted">ъгъл: {esc(row.get("assessment_status") or "—")} · '
+            f"готовност: {esc(row.get('readiness_status') or '—')}</p>"
+            "</section>"
+        )
+    body = [
+        (
+            '<p class="muted">Нов запис се добавя от компютъра с командата '
+            "<code>youtube-intake &lt;URL&gt;</code> (транскрипцията е дълга). "
+            "Тук се показват готовите резултати. YouTube е вторичен източник — "
+            'основната работа е в <a href="/stories">Истории</a>.</p>'
+        ),
+        "".join(cards) or "<p>Няма добавени YouTube източници.</p>",
+    ]
+    return page("YouTube източници", "\n".join(body), active="intake")
 
 
 def render_queue(queue, active_filter="all", message="", error=""):
@@ -1160,7 +1487,7 @@ def inbox_status_nav(view):
     for key, label in lb.INBOX_STATUS_FILTERS:
         cls = ' class="active"' if filters["status"] == key else ""
         parts.append(f'<a{cls} href="/inbox?{_inbox_qs(filters, status=key)}">{esc(label)}</a>')
-    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+    return '<nav class="filters">' + "".join(parts) + "</nav>"
 
 
 def _inbox_filter_form(view):
@@ -1209,7 +1536,7 @@ def _pager(view):
     parts.append(f'<span class="muted">Страница {page_no} / {page_count}</span>')
     if page_no < page_count:
         parts.append(f'<a href="/inbox?{_inbox_qs(filters, page=page_no + 1)}">Следваща →</a>')
-    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+    return '<nav class="filters">' + "".join(parts) + "</nav>"
 
 
 def _collect_section(view):
@@ -1338,7 +1665,7 @@ def story_status_nav(view):
         f'<a href="/stories?{_story_qs(filters, review="1" if not filters.get("review") else "")}">'
         f"Само за преглед{marker}</a>"
     )
-    return '<nav class="filters">' + " | ".join(parts) + "</nav>"
+    return '<nav class="filters">' + "".join(parts) + "</nav>"
 
 
 def _story_actions(story, *, detail=False):
@@ -1364,7 +1691,18 @@ def _story_actions(story, *, detail=False):
         if not detail
         else '<a class="btn" href="/inbox?status=all">Материали</a>'
     )
-    return f"<p>{' '.join(forms)} {link}</p>"
+    promote = ""
+    if detail:
+        promote = (
+            '<form method="post" action="/articles" class="promote-form">'
+            '<input type="hidden" name="action" value="promote">'
+            f'<input type="hidden" name="story" value="{esc(story["story_id"])}">'
+            '<label for="angle-' + esc(story["story_id"]) + '">Ъгъл (по избор)</label> '
+            '<input type="text" id="angle-' + esc(story["story_id"]) + '" name="angle" '
+            'placeholder="напр. какво се променя за читателя">'
+            '<button class="btn primary" type="submit">Кандидатвай като идея</button></form>'
+        )
+    return f"<p>{' '.join(forms)} {link}</p>{promote}"
 
 
 def _count_label(count, singular, plural):
@@ -1465,8 +1803,157 @@ def render_stories(view, message="", error=""):
             parts.append(
                 f'<a href="/stories?{_story_qs(filters, page=view["page"] + 1)}">Следваща →</a>'
             )
-        body.append('<nav class="filters">' + " | ".join(parts) + "</nav>")
+        body.append('<nav class="filters">' + "".join(parts) + "</nav>")
     return page("Истории", "\n".join(body), active="stories")
+
+
+def render_articles(view, message="", error=""):
+    """«Статии»: ideas -> prepared packets -> AI drafts -> open cases."""
+    counts = view["counts"]
+    body = ["<h2>Статии</h2>"]
+    body.append(
+        '<p class="muted">Пътят от материал до готов текст: идея → подготовка (глас и режим) '
+        "→ AI чернова с проверка на фактите → случай за редактиране. Черновите са immutable; "
+        "работи се върху тях в страницата на случая.</p>"
+    )
+    if message:
+        body.append(f'<div class="notice saved">{esc(message)}</div>')
+    if error:
+        body.append(f'<div class="notice error">{esc(error)}</div>')
+    body.append(
+        "<p>"
+        f'<span class="badge info">{counts["ideas"]} идеи</span> '
+        f'<span class="badge ok">{counts["prepared"]} подготвени</span> '
+        f'<span class="badge">{counts["drafts"]} AI чернови</span> '
+        f'<span class="badge warn">{counts["live_cases"]} отворени случая</span>'
+        "</p>"
+    )
+    if not view["ideas"]:
+        body.append(
+            '<div class="howto"><div>Няма идеи още. Отвори <a href="/stories">Истории</a> '
+            "и натисни «Кандидатвай като идея» на материал, който си струва статия.</div></div>"
+        )
+    for row in view["ideas"]:
+        body.append(_article_idea_card(row))
+    return page("Статии", "".join(body), active="articles")
+
+
+def _article_idea_card(row):
+    """One idea: status, evidence packets, prepare/generate forms, drafts."""
+    idea = row["idea"]
+    status = idea.get("status") or "NEW"
+    out = ['<section class="card">']
+    out.append(f"<h3>{esc(idea['title'])}</h3>")
+    status_badge = _badge(
+        lb.IDEA_STATUS_LABELS.get(status, status),
+        "info" if status in ("NEW", "FOLLOW_UP") else "ok",
+    )
+    src = lb.SOURCE_TYPE_LABELS.get(idea.get("source_type"), idea.get("source_type") or "—")
+    out.append(
+        f'<p>{status_badge} <span class="muted">'
+        f"{esc(str(idea.get('created_at') or '')[:16].replace('T', ' '))} · {esc(src)}</span></p>"
+    )
+    if idea.get("what_changed"):
+        out.append(f"<p>{esc(idea['what_changed'])}</p>")
+    if idea.get("possible_angle"):
+        out.append(f'<p class="muted">{esc(idea["possible_angle"])}</p>')
+    if status in ("NEW", "FOLLOW_UP"):
+        out.append(
+            '<form method="post" action="/articles">'
+            '<input type="hidden" name="action" value="request_draft">'
+            f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
+            '<button class="btn primary" type="submit">Заяви чернова</button></form>'
+        )
+    if not row["evidence"]:
+        out.append('<p class="muted">Още няма материал (EvidencePacket) за тази идея.</p>')
+    for ev in row["evidence"]:
+        out.append(_article_evidence_card(idea, ev))
+    out.append("</section>")
+    return "".join(out)
+
+
+def _article_evidence_card(idea, ev):
+    """One EvidencePacket: prepare -> generate -> case, with honest states."""
+    out = ['<div class="fact">']
+    out.append(
+        f"<p><strong>{esc(ev['evidence_id'])}</strong> "
+        f'<span class="muted">· {ev["fact_count"]} факта · '
+        f"открит {esc(str(ev['observed_at'])[:16].replace('T', ' '))}</span></p>"
+    )
+    for d in ev["drafts"]:
+        gate_badge = (
+            '<span class="badge ok">проверена</span>'
+            if d["gate"] == "FACTUAL_GATE_PASS"
+            else '<span class="badge warn">за проверка</span>'
+        )
+        out.append(
+            f"<p>AI чернова: {esc(d['headline'] or '(без заглавие)')} {gate_badge}"
+            f' <span class="muted">{esc(str(d["generated_at"])[:16].replace("T", " "))}'
+            + (f" · {esc(d['model'])}" if d.get("model") else "")
+            + "</span></p>"
+        )
+    if ev["case_id"]:
+        out.append(
+            f'<p><span class="badge ok">случай {esc(ev["case_id"])}</span> '
+            f'<a href="/case/{esc(ev["case_id"])}">Редактирай черновата: '
+            f"{esc(ev['case_headline'] or '(без заглавие)')}</a></p>"
+        )
+    if ev["prepared"]:
+        mode_line = esc(lb.MODE_LABELS.get(ev["mode"], ev["mode"] or "—"))
+        if ev["suggested_mode"] and ev["suggested_mode"] != ev["mode"]:
+            mode_line += (
+                f' <span class="muted">(предложение: '
+                f"{esc(lb.MODE_LABELS.get(ev['suggested_mode'], ev['suggested_mode']))} — "
+                f"{esc(ev['suggestion_reason'])})</span>"
+            )
+        out.append(f"<p>Режим: {mode_line}</p>")
+        if not ev["case_id"]:
+            out.append(
+                '<form method="post" action="/articles" data-busy="1">'
+                '<input type="hidden" name="action" value="generate">'
+                f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
+                f'<input type="hidden" name="evidence" value="{esc(ev["evidence_id"])}">'
+                '<button class="btn primary" type="submit">Подготви AI чернова</button> '
+                '<span class="muted">използва AI модел; резултатът минава през '
+                "лексикална и семантична проверка на фактите.</span></form>"
+            )
+            if ev.get("last_refusal") == "RESEARCH_MORE":
+                out.append(
+                    '<details class="force-box"><summary>Принудителна генерация въпреки '
+                    "недостатъчния материал (записва се причина)</summary>"
+                    '<form method="post" action="/articles">'
+                    '<input type="hidden" name="action" value="generate">'
+                    f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
+                    f'<input type="hidden" name="evidence" value="{esc(ev["evidence_id"])}">'
+                    '<input type="hidden" name="force" value="1">'
+                    '<label for="fr-' + esc(ev["evidence_id"]) + '">Причина</label> '
+                    '<input type="text" id="fr-' + esc(ev["evidence_id"]) + '" name="force_reason" '
+                    'placeholder="напр. редакторът преценява материала за достатъчен">'
+                    '<button class="btn danger" type="submit">Генерирай въпреки отказа</button></form></details>'
+                )
+    elif idea.get("status") in ("NEW", "FOLLOW_UP", "DRAFT_REQUESTED"):
+        options = "".join(
+            f'<option value="{m}">{esc(lb.MODE_LABELS.get(m, m))}</option>'
+            for m in (
+                "MODE_BRIEF",
+                "MODE_STANDARD_NEWS",
+                "MODE_EVENT_PREVIEW",
+                "MODE_CULTURE_FEATURE",
+            )
+        )
+        eid = esc(ev["evidence_id"])
+        out.append(
+            '<form method="post" action="/articles">'
+            '<input type="hidden" name="action" value="prepare">'
+            f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
+            f'<input type="hidden" name="evidence" value="{eid}">'
+            f'<label for="mode-{eid}">Режим на статията</label> '
+            f'<select id="mode-{eid}" name="mode">'
+            f'<option value="">— каквото предложи инструментът —</option>{options}</select> '
+            '<button class="btn" type="submit">Подготви</button></form>'
+        )
+    out.append("</div>")
+    return "".join(out)
 
 
 def render_story(detail, message="", error=""):

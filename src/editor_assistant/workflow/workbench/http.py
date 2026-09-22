@@ -1,7 +1,8 @@
 """M3A HTTP layer: stdlib http.server, no framework, Bulgarian-first responses.
 
 Routing (paths only; query params parsed in handlers):
-  GET  /                 queue (filtered by ?filter=...)
+  GET  /                 daily landing (Начало; ?filter=... still opens the archive)
+  GET  /settings         settings hub: every advanced surface, explained
   GET  /intake           M3B YouTube intake results (display only; initiation is CLI)
   GET  /case/{case_id}   case detail
   POST /case/{case_id}/save
@@ -72,6 +73,8 @@ def _route(path: str) -> tuple[str, str | None]:
         return "static_css", None
     if parts == ["intake"]:
         return "intake", None
+    if parts == ["settings"]:
+        return "settings", None
     if parts == ["cases"]:
         return "cases", None
     if parts == ["sources"]:
@@ -80,6 +83,8 @@ def _route(path: str) -> tuple[str, str | None]:
         return "inbox", None
     if parts == ["stories"]:
         return "stories", None
+    if parts == ["articles"]:
+        return "articles", None
     if parts == ["models"]:
         return "models", None
     if len(parts) == 2 and parts[0] == "stories":
@@ -165,6 +170,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._get_cases()
             elif route == "intake":
                 self._get_intake()
+            elif route == "settings":
+                self._get_settings()
             elif route == "case":
                 self._get_case(case_id)
             elif route == "sources":
@@ -173,6 +180,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._get_inbox()
             elif route == "stories":
                 self._get_stories()
+            elif route == "articles":
+                self._get_articles()
             elif route == "models":
                 self._get_models()
             elif route == "story":
@@ -200,6 +209,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self._post_inbox()
             elif route == "stories":
                 self._post_stories()
+            elif route == "articles":
+                self._post_articles()
             elif route == "models":
                 self._post_models()
             elif route == "quit":
@@ -292,27 +303,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         rows.sort(
             key=lambda r: (r.get("generated_at") or "", r.get("video_id") or ""), reverse=True
         )
-        cards = []
-        for row in rows:
-            outcome = row.get("outcome") or "—"
-            cards.append(
-                "<div class='card'>"
-                f"<h3>{html_mod.esc(row.get('title') or row.get('video_id') or '')}</h3>"
-                f"<p class='muted'>{html_mod.esc(row.get('canonical_url') or '')}</p>"
-                f"<p><b>Резултат:</b> {html_mod.esc(outcome)} · "
-                f"теми {row.get('topics', 0)} · факти {row.get('facts', 0)} · "
-                f"отхвърлени {row.get('dropped_facts', 0)}</p>"
-                f"<p class='muted'>ъгъл: {html_mod.esc(row.get('assessment_status') or '—')} · "
-                f"готовност: {html_mod.esc(row.get('readiness_status') or '—')}</p>"
-                "</div>"
-            )
-        body = html_mod.page(
-            "YouTube източници (M3B)",
-            "<p class='muted'>Нов запис се добавя с командата "
-            "<code>youtube-intake &lt;URL&gt;</code> (транскрипцията е дълга и се пуска от CLI). "
-            "Тук се показват готовите резултати.</p>"
-            + ("".join(cards) if cards else "<p>Няма добавени YouTube източници.</p>"),
-            active="intake",
+        _respond(self, 200, html_mod.render_intake(rows))
+
+    def _get_settings(self):
+        """«Настройки»: the one hub that explains every advanced surface."""
+        params = self._query()
+        body = html_mod.render_settings(
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
         )
         _respond(self, 200, body)
 
@@ -584,6 +582,90 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             f"/stories/{urllib.parse.quote(story_id)}?"
             + urllib.parse.urlencode({"message": message}),
         )
+
+    # ---------- M4F: ideas -> drafts («Статии») ----------
+
+    def _get_articles(self):
+        params = self._query()
+        try:
+            view = wb_state.articles_view()
+        except Exception as e:  # noqa: BLE001 - page must render even on bad stores
+            _respond(self, 500, html_mod.render_articles({"ideas": [], "counts": {}}, error=str(e)))
+            return
+        body = html_mod.render_articles(
+            view,
+            message=_first(params, "message", ""),
+            error=_first(params, "error", ""),
+        )
+        _respond(self, 200, body)
+
+    def _post_articles(self):
+        form = _post_form(self)
+        action = _first(form, "action", "")
+        idea_id = _first(form, "idea", "")
+        try:
+            if action == "request_draft":
+                idea = wb_state.request_draft_for_idea(idea_id)
+                message = f"Заявета чернова за «{idea['title'][:60]}»."
+                _redirect(self, "/articles?" + urllib.parse.urlencode({"message": message}))
+                return
+            if action == "prepare":
+                idea_id = _required(form, "idea")
+                evidence_id = _required(form, "evidence")
+                result = wb_state.prepare_case(idea_id, evidence_id, mode=_first(form, "mode", ""))
+                if result["status"] == "PREPARED":
+                    message = (
+                        f"Пакетът е подготвен (режим: "
+                        f"{html_mod.lb.MODE_LABELS.get(result['mode'], result['mode'])}). "
+                        "Сега «Подготви AI чернова»."
+                    )
+                else:  # NO_ANGLE refusal from the angle gate
+                    message = f"Без публикуем ъгъл: {result.get('reason', '')}"
+                _redirect(self, "/articles?" + urllib.parse.urlencode({"message": message}))
+                return
+            if action == "generate":
+                idea_id = _required(form, "idea")
+                evidence_id = _required(form, "evidence")
+                result = wb_state.generate_draft(
+                    idea_id,
+                    evidence_id,
+                    force=bool(_first(form, "force", "")),
+                    force_reason=_first(form, "force_reason", ""),
+                )
+                if result["status"] == "DRAFTED":
+                    _redirect(
+                        self,
+                        f"/case/{urllib.parse.quote(result['case_id'])}?"
+                        + urllib.parse.urlencode(
+                            {"message": "AI черновата е готова и отворена като случай."}
+                        ),
+                    )
+                    return
+                message = (
+                    f"Генерацията беше отказана ({result['status']}): {result.get('reason', '')}"
+                )
+                _redirect(self, "/articles?" + urllib.parse.urlencode({"message": message}))
+                return
+            if action == "promote":
+                story_id = _required(form, "story")
+                result = wb_state.promote_story_to_idea(
+                    story_id,
+                    inbox_path=wb_newsroom.inbox_store_path(),
+                    stories_path=wb_newsroom.stories_store(),
+                    why_now=_first(form, "why_now", ""),
+                    angle=_first(form, "angle", ""),
+                )
+                message = (
+                    f"Историята стана идея «{result['title'][:60]}» "
+                    f"с {result['fact_count']} факта. Отвори «Статии»."
+                )
+                _redirect(self, "/articles?" + urllib.parse.urlencode({"message": message}))
+                return
+            raise wb_state.WorkbenchError(f"непознато действие: {action!r}")
+        except wb_state.WorkbenchError as exc:
+            _redirect(self, "/articles?" + urllib.parse.urlencode({"error": str(exc)}))
+        except Exception as e:  # noqa: BLE001 - generation failures must stay visible
+            _redirect(self, "/articles?" + urllib.parse.urlencode({"error": str(e)}))
 
     # ---------- M4D: the AI models policy page ----------
 

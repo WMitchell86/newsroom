@@ -1,3 +1,59 @@
+## M4-UI Sidebar Redesign (hidden rail, /settings hub, daily-first navigation) — 2026-09-22 — BUILT, LIVE-PROVEN, AWAITING REVIEW
+
+Base `ef33c22`. Gate: **914 offline tests** (unchanged), `ruff check` +
+`ruff format --check` clean, M3A smoke **25/25**, live isolated UI proof
+`PYTHONPATH=src python3 scripts/ui_proof.py` **56/56 ALL CHECKS PASSED**.
+
+Second design round, triggered by the owner reviewing the 2026-09-21 overhaul:
+*"the frontend is unfinished … make it easy to operate from a non-tech guy …
+leave the advanced stuff for settings … modern hidden sidebar for saving space"*.
+
+### What the editor sees now
+
+- **Hidden collapsible sidebar instead of the two-row header.** A fixed left rail
+  (82 px) shows an icon + micro-label for every daily item; the ☰ toggle expands
+  it to 258 px (full labels + section headings). ≤900 px: the same toggle opens
+  it as an overlay drawer with a backdrop. The toggle is a checkbox + label, so
+  it works with JavaScript off; a slim sticky topbar (menu + page title) replaces
+  the old gradient banner.
+- **Navigation is four daily items + settings.** «Работа»: Начало · Истории ·
+  Материали · Статии. «Настройки и архив»: Настройки, with Източници · AI модели ·
+  Случаи · YouTube behind it (hidden while the rail is collapsed).
+- **New `/settings` hub**: one plain sentence per advanced surface, links back to
+  the daily work, and the safety line «Нищо не се публикува автоматично».
+- **`/` carries the daily action now:** the hero keeps the four counters and the
+  counted review buttons and gains «Събери новините сега» (same one-shot service
+  as `/inbox`, `data-busy`), a time-of-day greeting (Europe/Sofia), and the
+  latest-stories + howto cards side by side.
+- **New design system in `html.CSS`** (still served once at `/static/style.css`,
+  inline copy kept as fallback): dark slate sidebar, soft-shadow 14 px cards,
+  pill filter tabs, restyled tables/badges/forms/buttons, focus states,
+  `prefers-reduced-motion`, one mobile breakpoint (900 px).
+
+### Structure
+
+- `html.py`: new shell (`sidenav()`/`page()`), `ICONS`, `NAV_DAILY`/`NAV_ADMIN`
+  split (sources moved out of the daily group), `render_settings`,
+  `render_intake` (markup moved out of `http._get_intake`; the page no longer
+  says «M3B»), redesigned `render_home`, dead shadowed `_article_idea_card` /
+  `_article_evidence_card` definitions removed (they referenced the
+  non-existent `lb.IDEA_STATUS_LABEL`).
+- `http.py`: `GET /settings` route + handler; `_get_intake` delegates rendering.
+- `scripts/ui_proof.py`: reproducible live proof (temp stores, real HTTP,
+  tag-balance check on every page + shell/settings assertions).
+- Also committed the M4F surface work found uncommitted in the tree (idea/source
+  labels, `last_refusal` force-generation box, articles test scaffolding) so the
+  tree is coherent with the pages that render it.
+
+### Not changed
+
+No backend semantics (every button still calls the same service functions), no
+new dependency, no JS framework; routes/stores/POST contracts unchanged
+(`/settings` is read-only); M3A case flow, finalization guards, `/intake` and
+`/healthz` semantics untouched; `EDITORIAL_EFFECTIVENESS` still PENDING.
+
+---
+
 ## M4-UI Workbench UI Overhaul (daily entry point, navigation, /models) — 2026-09-21 — BUILT, LIVE-PROVEN, AWAITING REVIEW
 
 Base `6410d77`. Gate: **914 offline tests** (was 913), ruff check/format clean,

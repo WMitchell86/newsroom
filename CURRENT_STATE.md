@@ -6,6 +6,16 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
+Updated 2026-09-22: **workbench UI redesigned around a hidden collapsible
+sidebar** (82 px rail → 258 px via a no-JS checkbox toggle; ≤900 px it is an
+overlay drawer), daily-first navigation (Начало · Истории · Материали · Статии
+plus a Настройки group), a new read-only `/settings` hub that holds every
+advanced surface (Източници, AI модели, YouTube, Случаи-архив), `/` gained the
+«Събери новините сега» action, and `html.CSS` was replaced with the new
+design system (still served once at `/static/style.css`). Gates: 914 tests,
+ruff clean, `PYTHONPATH=src python3 scripts/ui_proof.py` 56/56, M3A smoke
+25/25. Details: `MILESTONE.md` (top section) + `handoff.md` (top section).
+
 Last updated: 2026-09-21 (**M4-UI Workbench overhaul built, live-proven, awaiting
 review** — `/` is the daily «Начало», the M3A queue moved to `/cases`, nav has
 hierarchy, `/models` compacted 58 KB → 27.6 KB; M4B.1 + M4C + M4D built and
@@ -110,6 +120,9 @@ WORKBENCH_UI_DESTRUCTIVE_CONFIRM    = BUILT (data-danger / data-confirm-route)
 WORKBENCH_UI_MODELS_PAGE            = COMPACTED (58 KB -> 27.6 KB, one manager form per role)
 WORKBENCH_UI_EMPTY_STATES           = ACTIONABLE (three steps + the button in place)
 WORKBENCH_UI_LONG_ACTION_FEEDBACK   = BUILT (busy overlay on collect/refresh)
+WORKBENCH_UI_SIDEBAR                = BUILT (hidden 82px rail → 258px, no-JS toggle, mobile drawer)
+WORKBENCH_UI_SETTINGS_HUB           = BUILT (/settings — advanced surfaces behind one page)
+WORKBENCH_UI_DAILY_ACTION_ON_HOME   = BUILT («Събери новините сега» in the hero)
 ```
 
 Jev was evaluated live (TypeSafe SDK 0.6.0, effective model `jev-1.13.0`,

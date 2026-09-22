@@ -1,3 +1,43 @@
+## Handoff — UI Sidebar Redesign + /settings hub (2026-09-22)
+
+Verified: **914 offline tests**, `ruff check` + `ruff format --check` clean
+(`src tests scripts`), M3A smoke **25/25**, live proof
+`PYTHONPATH=src python3 scripts/ui_proof.py` **56/56 ALL CHECKS PASSED**.
+Entry in `MILESTONE.md` (top section).
+
+- **Owner request:** the frontend is unfinished — redesign it for a non-technical
+  editor, hide advanced features in settings, use a modern hidden sidebar to save
+  space. The 2026-09-21 two-row header was replaced accordingly.
+- **Hidden sidebar (no-JS safe):** fixed left rail 82 px (icon + micro-label),
+  ☰ toggles it to 258 px (checkbox + `<label>`, so it works with JavaScript off);
+  ≤900 px it becomes an overlay drawer with backdrop. Slim sticky topbar shows
+  menu + page title; the product name lives in the sidebar brand.
+- **Navigation = 4 daily items + Настройки.** Начало · Истории · Материали ·
+  Статии are always visible; Източници · AI модели · Случаи · YouTube sit under
+  «Настройки и архив» and are hidden while the rail is collapsed.
+- **New read-only `/settings` hub** explains each advanced surface in one plain
+  sentence and links back to daily work; old routes and `/?filter=…` back-compat
+  unchanged.
+- **`/` hero gained «Събери новините сега»** (the same one-shot collect service
+  `/inbox` uses, `data-busy`), a Europe/Sofia time-of-day greeting, and a
+  two-column latest-stories + howto layout. Required strings («Начало»,
+  «Прегледай историите», «Дневен новинарски помощник») kept — tests/smoke assert them.
+- **New stylesheet** in `html.CSS`, still served once at `/static/style.css` with
+  the inline fallback: dark slate rail, soft-shadow cards, pill filter tabs,
+  restyled tables/badges/forms, focus states, `prefers-reduced-motion`, single
+  900 px breakpoint.
+- **Cleanups:** intake markup moved `http._get_intake` → `html.render_intake`
+  (title no longer «M3B»); dead shadowed `_article_idea_card`/
+  `_article_evidence_card` definitions deleted; M4F leftovers that were
+  uncommitted in the tree (idea/source labels, `last_refusal`, articles test
+  scaffolding) committed together — `html.py` depends on them.
+- **Proof script is reproducible:** `scripts/ui_proof.py` (temp stores, real
+  HTTP, tag-balance + shell/settings assertions). Re-run before touching the UI.
+- **Next:** put it in front of the editor-in-chief (EDITORIAL_EFFECTIVENESS is
+  still PENDING), then M4E (Telegram alerts) or the next round from real use.
+
+---
+
 ## Handoff — M4-UI Workbench UI Overhaul (2026-09-21)
 
 Verified: **914 offline tests**, ruff check/format clean, M3A smoke 25/25, a live
