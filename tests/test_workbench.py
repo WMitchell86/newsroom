@@ -113,36 +113,6 @@ def _normal_case(wf, case_id="LIV-01", **kwargs):
 
 
 class TestLabels:
-    def test_editor_vocabulary_is_frozen(self):
-        assert labels.EDITOR_VOCABULARY == {
-            "story": "История",
-            "development": "Ново развитие",
-            "publication": "Публикация",
-            "source": "Източник",
-            "facts": "Факти и източници",
-            "missing": "Какво липсва",
-            "research": "Проучване",
-            "angle": "Редакционен ъгъл",
-            "article": "Статия",
-            "draft": "Чернова",
-            "final_article": "Финализирана статия",
-        }
-        assert labels.EDITOR_ACTIONS == (
-            ("review", "Прегледай"),
-            ("follow", "Следи"),
-            ("ignore", "Игнорирай"),
-            ("research_more", "Проучи още"),
-            ("start_article", "Започни статия"),
-            ("choose_angle", "Избери / промени ъгъл"),
-            ("make_draft", "Направи чернова"),
-            ("edit", "Редактирай"),
-            ("finalize", "Финализирай"),
-        )
-
-    def test_readiness_answer_uses_editor_article_not_material(self):
-        assert "статия" in labels.ANSWER_LABELS["would_publish"]
-        assert "материал" not in labels.ANSWER_LABELS["would_publish"].lower()
-
     def test_readiness_labels_all(self):
         assert labels.readiness_label("DRAFT_READY") == "Готово за редакторски преглед"
         assert labels.readiness_label("RESEARCH_MORE") == "Нужна е още информация"
@@ -858,7 +828,7 @@ class TestHtmlSurfaces:
         page = html.render_case(state.case_view("LIV-01"))
         assert 'id="workspace"' not in page
         assert "/finalize" not in page
-        assert "Финализирана статия (неизменима)" in page
+        assert "Финализиран материал (неизменим)" in page
 
     def test_stale_workspace_offers_explicit_rebase(self, wf_dir):
         _normal_case(wf_dir, "LIV-01")

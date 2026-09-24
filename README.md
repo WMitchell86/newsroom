@@ -145,10 +145,10 @@ PYTHONPATH=src python3 scripts/evals/model_role_eval.py --list                  
 
 The Workbench is meant for a **non-technical editor**, so the first screen answers
 "what is new?": `/` = **«Начало»** (read-only daily landing — unreviewed stories,
-unreviewed publications, arrived-today counts in Europe/Sofia, the newest stories,
+unreviewed materials, arrived-today counts in Europe/Sofia, the newest stories,
 and a three-step «Как се работи» card with the very button to press). The
-navigation has two levels: `Начало · Истории · Публикации · Статии` and
-`AI модели · Архив · YouTube` under «Настройки и архив:». The frozen M3A case
+navigation has two levels: `Начало · Истории · Материали · Източници` and
+`AI модели · Случаи · YouTube` under «Настройки и архив:». The frozen M3A case
 queue lives at `/cases` (old `/?filter=…` links still resolve), the stylesheet is
 served once at `/static/style.css`, and long actions disable their button and show
 a «Събиране…» overlay. Destructive buttons ask for confirmation first.
@@ -160,7 +160,7 @@ publications grouped by publisher, and editor **split** / **merge** corrections)
 **«Източници»** (`/sources`: table with health, next collection,
 add/edit/enable/disable/mute-until/priority/monitoring-only/factual-authority, a
 compact **«Забранени домейни»** policy and additive default controls) and
-**«Публикации»** (`/inbox`: default **NEW** view, real Europe/Sofia daily counts,
+**«Материали»** (`/inbox`: default **NEW** view, real Europe/Sofia daily counts,
 filters, pagination, per-item actions and **«Събери новите сега»** /
 **«Пробен преглед»**).
 

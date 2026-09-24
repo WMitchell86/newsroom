@@ -59,9 +59,9 @@ no-copy guard (F5), Gemini key→header (F6), P3 hardening notes.
 
 Updated 2026-09-22: **workbench UI redesigned around a hidden collapsible
 sidebar** (82 px rail → 258 px via a no-JS checkbox toggle; ≤900 px it is an
-overlay drawer), daily-first navigation (Начало · Истории · Публикации · Статии
+overlay drawer), daily-first navigation (Начало · Истории · Материали · Статии
 plus a Настройки group), a new read-only `/settings` hub that holds every
-advanced surface (Източници, AI модели, YouTube, Архив), `/` gained the
+advanced surface (Източници, AI модели, YouTube, Случаи-архив), `/` gained the
 «Събери новините сега» action, and `html.CSS` was replaced with the new
 design system (still served once at `/static/style.css`). Gates: 914 tests,
 ruff clean, `PYTHONPATH=src python3 scripts/ui_proof.py` 56/56, M3A smoke
