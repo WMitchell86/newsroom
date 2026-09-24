@@ -275,7 +275,7 @@ ICONS = {
 NAV_DAILY = (
     ("home", "/", "Начало"),
     ("stories", "/stories", "Истории"),
-    ("inbox", "/inbox", "Материали"),
+    ("inbox", "/inbox", "Публикации"),
     ("articles", "/articles", "Статии"),
 )
 #: Advanced surfaces, grouped under the settings hub (/settings).
@@ -283,7 +283,7 @@ NAV_ADMIN = (
     ("settings", "/settings", "Настройки"),
     ("sources", "/sources", "Източници"),
     ("models", "/models", "AI модели"),
-    ("queue", "/cases", "Случаи"),
+    ("queue", "/cases", "Архив"),
     ("intake", "/intake", "YouTube"),
 )
 #: Back-compat alias table: every key ever used as ``active=`` still resolves.
@@ -394,7 +394,7 @@ def queue_table(rows, empty_text):
     if not rows:
         return f'<p class="muted">{esc(empty_text)}</p>'
     head = (
-        "<tr><th>Случай</th><th>Заглавие / ъгъл</th><th>Състояние</th>"
+        "<tr><th>Статия</th><th>Заглавие / ъгъл</th><th>Състояние</th>"
         "<th>Проверка на фактите</th><th>Последна промяна</th></tr>"
     )
     body = []
@@ -471,20 +471,20 @@ def render_home(stories, inbox, sources):
         top_block = f'<ol class="top-stories">{top_rows}</ol>'
     else:
         top_block = (
-            '<p class="muted">Още няма групирани истории. Ако материалите са събрани, '
+            '<p class="muted">Още няма групирани истории. Ако публикациите са събрани, '
             "натиснете „Обнови историите“.</p>"
         )
     hero = (
         '<section class="card hero">'
         f"<h2>{_greeting()} — ето какво е ново</h2>"
-        '<p class="muted">Дневен новинарски помощник: събира материали от вашите '
+        '<p class="muted">Дневен новинарски помощник: събира публикации от вашите '
         "източници, групира ги в истории и ви оставя решението. "
         "Нищо не се публикува автоматично.</p>"
         '<div class="stats">'
         f'<div class="stat"><div class="num">{new_stories}</div>'
         '<div class="lbl">нови истории за преглед</div></div>'
         f'<div class="stat"><div class="num">{new_materials}</div>'
-        '<div class="lbl">непрегледани материали</div></div>'
+        '<div class="lbl">непрегледани публикации</div></div>'
         f'<div class="stat"><div class="num">{today_new}</div>'
         f'<div class="lbl">пристигнали днес ({esc(today_date)})</div></div>'
         f'<div class="stat"><div class="num">{esc(active_sources)}</div>'
@@ -496,7 +496,7 @@ def render_home(stories, inbox, sources):
         '<button type="submit" data-busy="1">Събери новините сега</button>'
         "</form>"
         f'<a class="btn primary" href="/stories">Прегледай историите ({new_stories})</a>'
-        f'<a class="btn" href="/inbox">Към материалите ({new_materials})</a>'
+        f'<a class="btn" href="/inbox">Към публикациите ({new_materials})</a>'
         "</div>"
         '<p class="muted">Събирането проверява всички активни източници и може '
         "да отнеме минута — изчакайте, страницата ще се върне сама.</p>"
@@ -512,13 +512,12 @@ def render_home(stories, inbox, sources):
         '<section class="card"><h2>Как се работи</h2>'
         '<div class="howto">'
         "<div><strong>1. Събери</strong><br>Натисни „Събери новините сега“ "
-        'тук или в <a href="/inbox">Материали</a>.</div>'
+        'тук или в <a href="/inbox">Публикации</a>.</div>'
         "<div><strong>2. Прегледай</strong><br>Отвори история в "
-        '<a href="/stories">Истории</a> и прочети материалите.</div>'
-        "<div><strong>3. Отбележи</strong><br>Маркирай като прегледана, "
-        "игнорирай или върни за още информация.</div>"
-        "<div><strong>4. Напиши</strong><br>«Кандидатвай като идея» от историята, после "
-        '<a href="/articles">Статии</a> → «Подготви AI чернова».</div>'
+        '<a href="/stories">Истории</a> и прочети публикациите.</div>'
+        "<div><strong>3. Избери</strong><br>Продължи, проучи още или избери ъгъл.</div>"
+        "<div><strong>4. Започни статия</strong><br>Натисни „Започни статия“, после "
+        '<a href="/articles">Статии</a> → «Направи чернова».</div>'
         "</div>"
         '<p class="muted"><a href="/settings">Настройки</a> (източници, AI модели, '
         "архив) се отварят рядко — ежедневната работа е горе.</p>"
@@ -560,11 +559,8 @@ SETTINGS_CARDS = (
     ),
     (
         "/cases",
-        "Случаи (архив)",
-        (
-            "Опашката от по-ранен етап от работата. Ежедневната работа вече "
-            "минава през Истории и Статии."
-        ),
+        "Архив",
+        ("Архив на по-старата редакторска опашка. Не е част от ежедневния редакционен процес."),
         "Отвори архива",
     ),
 )
@@ -589,7 +585,7 @@ def render_settings(message="", error=""):
         (
             '<p class="muted">Тук се променя системата, не днешната работа. Сутрин '
             'се работи от <a href="/">Начало</a>, <a href="/stories">Истории</a>, '
-            '<a href="/inbox">Материали</a> и <a href="/articles">Статии</a> — '
+            '<a href="/inbox">Публикации</a> и <a href="/articles">Статии</a> — '
             "тази страница се отваря рядко.</p>"
         )
     ]
@@ -604,7 +600,7 @@ def render_settings(message="", error=""):
         '<p class="hero-actions">'
         '<a class="btn primary" href="/">Начало</a>'
         '<a class="btn" href="/stories">Истории</a>'
-        '<a class="btn" href="/inbox">Материали</a>'
+        '<a class="btn" href="/inbox">Публикации</a>'
         '<a class="btn" href="/articles">Статии</a>'
         "</p>"
         '<p class="muted">Нищо не се публикува автоматично: всеки финален текст '
@@ -651,7 +647,7 @@ def render_intake(rows):
 def render_queue(queue, active_filter="all", message="", error=""):
     sections = []
     if active_filter == "all":
-        sections.append(("<h2>Пилотни случаи (LIVE)</h2>", queue["live"]))
+        sections.append(("<h2>Пилотни статии (LIVE)</h2>", queue["live"]))
         sections.append(("<h2>Сравнителен еталон (без усилийни показатели)</h2>", queue["dryrun"]))
     else:
         merged = queue["live"] + queue["dryrun"]
@@ -666,16 +662,16 @@ def render_queue(queue, active_filter="all", message="", error=""):
     for heading, rows in sections:
         shown = [r for r in rows if active_filter == "all" or r["filter"] == active_filter]
         body.append(heading)
-        body.append(queue_table(shown, "Няма случаи в тази категория."))
+        body.append(queue_table(shown, "Няма статии в тази категория."))
     body.append(
         '<p class="muted">Работният плот не публикува автоматично: финализирането е '
-        "изрично действие на редактора и не променя AI черновите.</p>"
+        "изрично действие на редактора и не променя черновите.</p>"
     )
     body.append(
-        '<p class="muted">Това е архивната опашка от по-ранен етап. '
+        '<p class="muted">Това е архив на по-стари редакционни записи. '
         + 'Ежедневната работа започва от <a href="/">Начало</a>.</p>'
     )
-    return page("Случаи (архив)", "\n".join(body), active="queue")
+    return page("Архив", "\n".join(body), active="queue")
 
 
 def _diff_section(view):
@@ -747,7 +743,7 @@ def _final_surface(view):
         "OTHER": "Друго",
     }.get(dom, dom)
     return (
-        '<section class="card" id="final"><h2>Финализиран материал (неизменим)</h2>'
+        '<section class="card" id="final"><h2>Финализирана статия (неизменима)</h2>'
         f"<h3>{esc(case.get('final_headline', ''))}</h3>"
         f'<pre class="draft">{esc(case.get("final_text", ""))}</pre>'
         '<dl class="meta">'
@@ -852,7 +848,7 @@ def _sources_surface(view):
     if view["sources"]:
         out.extend(_source_card(source) for source in view["sources"])
     else:
-        out.append('<p class="muted">Няма записани външни източници за този случай.</p>')
+        out.append('<p class="muted">Няма записани външни източници за тази статия.</p>')
     attached = view["packet"]["attached"]
     if attached:
         out.append("<h3>Места в източниците (проверимо)</h3>")
@@ -920,7 +916,7 @@ def _decision_surface(view):
         decisions = ("REJECT_STORY", "REQUEST_MORE_RESEARCH")
     elif kind == "decision":
         intro = (
-            '<p class="muted">Данните не са достатъчни за уверен материал. '
+            '<p class="muted">Данните не са достатъчни за уверена статия. '
             "Изберете изрично действие.</p>"
         )
         missed_label = "Какъв ъгъл е пропуснат? (по избор)"
@@ -975,7 +971,7 @@ def _finalize_surface(view):
     if case.get("track") == "GROUND_TRUTH_DRYRUN":
         return (
             '<section class="card" id="finalize"><h2>Финализиране</h2>'
-            '<p class="muted">Еталонен случай (сравнителен еталон): няма усилийни показатели '
+            '<p class="muted">Еталонна статия (сравнителен еталон): няма усилийни показатели '
             "(време/тежест/резултат). Финализирането става чрез CLI еталона, не от работния плот.</p></section>"
         )
     base_draft_id = case.get("draft_id", "")
@@ -1011,7 +1007,7 @@ def _finalize_surface(view):
         )
     return (
         '<section class="card" id="finalize"><h2>Финализиране</h2>'
-        '<p class="muted">Финализирането записва окончателния материал и е изрично действие. '
+        '<p class="muted">Финализирането записва окончателната статия и е изрично действие. '
         "AI черновата остава неизменима.</p>"
         + stale_block
         + f'<form method="post" action="/case/{esc(view["case_id"])}/finalize">'
@@ -1037,18 +1033,17 @@ def _finalize_surface(view):
         '<label for="final_notes">Бележка на редактора (незадължително)</label>'
         '<textarea id="final_notes" name="notes" style="min-height:5rem"></textarea>'
         '<p><button type="submit">Финализирай редакторската версия</button> '
-        '<span class="muted">След финализирането материалът е неизменим.</span></p>'
+        '<span class="muted">След финализирането статията е неизменима.</span></p>'
         "</form></section>"
     )
 
 
 def _draft_surface(view):
-    """А. Immutable AI draft; Д. editor workspace (draft cases only).
+    """One article editor surface backed by the existing immutable draft contract.
 
-    Special no-draft cases (NO_PUBLISHABLE_ANGLE / RESEARCH_MORE /
-    EDITOR_DECISION_REQUIRED) never get an empty article editor: their draft
-    surface only appears when a draft actually exists (harness §14/§15).
-    Finalized cases get no workspace either: no action could apply it.
+    Special no-draft cases never get an empty article editor: their draft
+    surface only appears when a draft actually exists. Finalized articles get no
+    workspace either: no action could apply it.
     """
     case = view["case"]
     draft = view["draft"]
@@ -1070,7 +1065,7 @@ def _draft_surface(view):
             + esc(lb.VOICE_LABELS.get(draft["voice"], draft["voice"] or "—"))
             + "</p>"
             + '<div class="muted">Черновата остава неизменима; всички редакторски '
-            "промени се пазят отделно като работно копие.</div>" + "</section>"
+            "промени се пазят отделно като текуща чернова.</div>" + "</section>"
         )
     if view["kind"] in ("nostory", "research", "decision"):
         return "".join(parts)
@@ -1107,7 +1102,7 @@ def _draft_surface(view):
         + "<label>Отговори на редакторските въпроси (незадължително)</label>"
         + _answer_rows(answers)
         + rebase
-        + '<p><button type="submit">Запази работно копие</button> '
+        + '<p><button type="submit">Запази текущата чернова</button> '
         + '<span class="muted">Запазването не финализира и не променя AI черновата.</span></p>'
         + "</form></section>"
     )
@@ -1174,7 +1169,7 @@ def render_case(view, message="", error=""):
     case = view["case"]
     status = (view["readiness"] or {}).get("status", "")
     head = (
-        '<p><a href="/cases">← Случаи (архив)</a></p>'
+        '<p><a href="/articles">← Статии</a></p>'
         f'<h2 id="casehead">{esc(view["case_id"])} — '
         f"{esc(case.get('draft_headline') or case.get('final_headline') or '—')}</h2>"
         "<p>"
@@ -1409,7 +1404,7 @@ def render_sources(view, message="", error="", values=None):
         (
             '<p class="muted">Тук се управлява кои източници се проверяват и колко често. '
             "Събирането върви автоматично по график; ръчно пускане има в "
-            '<a href="/inbox">Материали</a> («Събери новините сега»). '
+            '<a href="/inbox">Публикации</a> («Събери новините сега»). '
             "Редовете по-долу показват и кога източникът е работил за последно.</p>"
         ),
     ]
@@ -1554,7 +1549,7 @@ def _collect_section(view):
     parts = [
         (
             '<section class="card" id="collect"><h2>Събиране</h2>'
-            '<p class="muted">Проверява всички активни източници за нови материали. '
+            '<p class="muted">Проверява всички активни източници за нови публикации. '
             "Може да отнеме минута — не затваряйте страницата.</p>"
         ),
         info,
@@ -1689,7 +1684,7 @@ def _story_actions(story, *, detail=False):
     link = (
         f'<a class="btn" href="/stories/{esc(story["story_id"])}">Отвори историята</a>'
         if not detail
-        else '<a class="btn" href="/inbox?status=all">Материали</a>'
+        else '<a class="btn" href="/inbox?status=all">Публикации</a>'
     )
     promote = ""
     if detail:
@@ -1700,7 +1695,7 @@ def _story_actions(story, *, detail=False):
             '<label for="angle-' + esc(story["story_id"]) + '">Ъгъл (по избор)</label> '
             '<input type="text" id="angle-' + esc(story["story_id"]) + '" name="angle" '
             'placeholder="напр. какво се променя за читателя">'
-            '<button class="btn primary" type="submit">Кандидатвай като идея</button></form>'
+            '<button class="btn primary" type="submit">Започни статия</button></form>'
         )
     return f"<p>{' '.join(forms)} {link}</p>{promote}"
 
@@ -1759,13 +1754,13 @@ def render_stories(view, message="", error=""):
             f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
         ),
         (
-            '<p class="muted">История = нови материали, групирани като едно събитие. '
-            "Броим отделно материалите и издателите.</p>"
+            '<p class="muted">История = нови публикации, групирани като едно събитие. '
+            "Броим отделно публикациите и източниците.</p>"
         ),
         story_status_nav(view),
         (
             '<section class="card"><h2>Обновяване на историите</h2>'
-            '<p class="muted">Групира вече събраните материали. Пробният преглед не записва.</p>'
+            '<p class="muted">Групира вече събраните публикации. Пробният преглед не записва.</p>'
             '<div class="hero-actions"><form method="post" action="/stories">'
             '<input type="hidden" name="action" value="update">'
             '<button class="btn primary" type="submit" data-busy="1">Обнови историите</button></form> '
@@ -1782,12 +1777,12 @@ def render_stories(view, message="", error=""):
     if not stories:
         body.append(
             '<section class="card hero"><h2>Няма истории за този филтър</h2>'
-            '<p class="muted">Стъпки: 1) съберете материалите, 2) обновете историите, '
+            '<p class="muted">Стъпки: 1) съберете публикациите, 2) обновете историите, '
             "3) отворете история и маркирайте като прегледана.</p>"
             '<div class="hero-actions"><form method="post" action="/stories">'
             '<input type="hidden" name="action" value="update">'
             '<button class="btn primary" type="submit" data-busy="1">Обнови историите сега</button>'
-            '</form><a href="/inbox"><button class="btn secondary" type="button">Към материалите</button></a></div></section>'
+            '</form><a href="/inbox"><button class="btn secondary" type="button">Към публикациите</button></a></div></section>'
         )
         return page("Истории", "\n".join(body), active="stories")
     body.extend(_story_card(card) for card in stories)
@@ -1808,13 +1803,13 @@ def render_stories(view, message="", error=""):
 
 
 def render_articles(view, message="", error=""):
-    """«Статии»: ideas -> prepared packets -> AI drafts -> open cases."""
+    """«Статии»: editorial decision -> facts and sources -> draft -> article."""
     counts = view["counts"]
     body = ["<h2>Статии</h2>"]
     body.append(
-        '<p class="muted">Пътят от материал до готов текст: идея → подготовка (глас и режим) '
-        "→ AI чернова с проверка на фактите → случай за редактиране. Черновите са immutable; "
-        "работи се върху тях в страницата на случая.</p>"
+        '<p class="muted">Пътят от история до готова статия: факти и източници → '
+        "редакционен ъгъл → чернова с проверка на фактите → редакция. "
+        "Черновите са неизменими; финализирането е изрично решение на редактора.</p>"
     )
     if message:
         body.append(f'<div class="notice saved">{esc(message)}</div>')
@@ -1822,16 +1817,16 @@ def render_articles(view, message="", error=""):
         body.append(f'<div class="notice error">{esc(error)}</div>')
     body.append(
         "<p>"
-        f'<span class="badge info">{counts["ideas"]} идеи</span> '
-        f'<span class="badge ok">{counts["prepared"]} подготвени</span> '
-        f'<span class="badge">{counts["drafts"]} AI чернови</span> '
-        f'<span class="badge warn">{counts["live_cases"]} отворени случая</span>'
+        f'<span class="badge info">{counts["ideas"]} започнати статии</span> '
+        f'<span class="badge ok">{counts["prepared"]} с факти и източници</span> '
+        f'<span class="badge">{counts["drafts"]} чернови</span> '
+        f'<span class="badge warn">{counts["live_cases"]} редакционни статии</span>'
         "</p>"
     )
     if not view["ideas"]:
         body.append(
-            '<div class="howto"><div>Няма идеи още. Отвори <a href="/stories">Истории</a> '
-            "и натисни «Кандидатвай като идея» на материал, който си струва статия.</div></div>"
+            '<div class="howto"><div>Няма започнати статии. Отвори <a href="/stories">Истории</a> '
+            "и натисни «Започни статия» за публикация, която си струва статия.</div></div>"
         )
     for row in view["ideas"]:
         body.append(_article_idea_card(row))
@@ -1862,10 +1857,10 @@ def _article_idea_card(row):
             '<form method="post" action="/articles">'
             '<input type="hidden" name="action" value="request_draft">'
             f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
-            '<button class="btn primary" type="submit">Заяви чернова</button></form>'
+            '<button class="btn primary" type="submit">Направи чернова</button></form>'
         )
     if not row["evidence"]:
-        out.append('<p class="muted">Още няма материал (EvidencePacket) за тази идея.</p>')
+        out.append('<p class="muted">Още няма факти и източници за тази статия.</p>')
     for ev in row["evidence"]:
         out.append(_article_evidence_card(idea, ev))
     out.append("</section>")
@@ -1873,7 +1868,7 @@ def _article_idea_card(row):
 
 
 def _article_evidence_card(idea, ev):
-    """One EvidencePacket: prepare -> generate -> case, with honest states."""
+    """One facts-and-sources packet: prepare -> generate -> article, with honest states."""
     out = ['<div class="fact">']
     out.append(
         f"<p><strong>{esc(ev['evidence_id'])}</strong> "
@@ -1894,7 +1889,7 @@ def _article_evidence_card(idea, ev):
         )
     if ev["case_id"]:
         out.append(
-            f'<p><span class="badge ok">случай {esc(ev["case_id"])}</span> '
+            f'<p><span class="badge ok">статия {esc(ev["case_id"])}</span> '
             f'<a href="/case/{esc(ev["case_id"])}">Редактирай черновата: '
             f"{esc(ev['case_headline'] or '(без заглавие)')}</a></p>"
         )
@@ -1913,14 +1908,14 @@ def _article_evidence_card(idea, ev):
                 '<input type="hidden" name="action" value="generate">'
                 f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
                 f'<input type="hidden" name="evidence" value="{esc(ev["evidence_id"])}">'
-                '<button class="btn primary" type="submit">Подготви AI чернова</button> '
+                '<button class="btn primary" type="submit">Направи чернова</button> '
                 '<span class="muted">използва AI модел; резултатът минава през '
                 "лексикална и семантична проверка на фактите.</span></form>"
             )
             if ev.get("last_refusal") == "RESEARCH_MORE":
                 out.append(
                     '<details class="force-box"><summary>Принудителна генерация въпреки '
-                    "недостатъчния материал (записва се причина)</summary>"
+                    "недостатъчни факти и източници (записва се причина)</summary>"
                     '<form method="post" action="/articles">'
                     '<input type="hidden" name="action" value="generate">'
                     f'<input type="hidden" name="idea" value="{esc(idea["idea_id"])}">'
@@ -1928,7 +1923,7 @@ def _article_evidence_card(idea, ev):
                     '<input type="hidden" name="force" value="1">'
                     '<label for="fr-' + esc(ev["evidence_id"]) + '">Причина</label> '
                     '<input type="text" id="fr-' + esc(ev["evidence_id"]) + '" name="force_reason" '
-                    'placeholder="напр. редакторът преценява материала за достатъчен">'
+                    'placeholder="напр. редакторът преценява дали фактите са достатъчни">'
                     '<button class="btn danger" type="submit">Генерирай въпреки отказа</button></form></details>'
                 )
     elif idea.get("status") in ("NEW", "FOLLOW_UP", "DRAFT_REQUESTED"):
@@ -1998,13 +1993,13 @@ def render_story(detail, message="", error=""):
             '<input type="hidden" name="action" value="split">'
             f'<input type="hidden" name="story" value="{esc(detail["story_id"])}">'
             f'<input type="hidden" name="item" value="{esc(row["item_id"])}">'
-            '<button class="btn danger" type="submit" data-danger="1">Този материал не е част от историята</button>'
+            '<button class="btn danger" type="submit" data-danger="1">Тази публикация не е част от историята</button>'
             "</form></div>"
         )
-    body.append("<h3>Материали</h3>")
+    body.append("<h3>Публикации</h3>")
     body.append(
         '<p class="muted">Уникални публикации, групирани по издател. Различните наблюдения на '
-        "един и същ материал са откривания, не независими източници.</p>"
+        "един и съща публикация са откривания, не независими източници.</p>"
     )
     for pub in detail["publications"]:
         blocked = _badge("забранен издател", "block") if pub.get("blocked_publisher") else ""
@@ -2148,7 +2143,7 @@ def render_models(view, message="", error="", values=None):
                 f"<td>{route['index']}</td>"
                 f"<td>{esc(route['provider'])}:{esc(route['model'])}"
                 + (
-                    '<br><span class="muted">само публични материали</span>'
+                    '<br><span class="muted">само публични публикации</span>'
                     if route.get("public_only")
                     else ""
                 )
@@ -2167,9 +2162,9 @@ def render_models(view, message="", error="", values=None):
             f"<p>днес {role['calls_today']} заявки · soft {role['soft_calls_day']} / "
             f"hard {role['hard_calls_day']} · "
             + (
-                "публични материали"
+                "публични публикации"
                 if role["payload_class"] == "public"
-                else "непубликувани материали"
+                else "непубликувани публикации"
             )
             + f" · при изчерпване: {esc(role['on_exhausted'])}"
             + (" · <strong>SOFT ЛИМИТ ПРЕВИШЕН</strong>" if role["soft_exceeded"] else "")
@@ -2189,14 +2184,14 @@ def render_models(view, message="", error="", values=None):
             # the operator's own quota (operator_declared) and never as free/paid.
             "<fieldset><legend>Тип (billing) — избира се явно</legend>"
             '<label><input type="radio" name="billing" value="free" required> '
-            "Безплатен (OpenRouter) — само публични материали</label>"
+            "Безплатен (OpenRouter) — само публични публикации</label>"
             '<label><input type="radio" name="billing" value="paid"> '
             "Платен (OpenRouter) — изисква разрешен платен режим</label>"
             '<label><input type="radio" name="billing" value="operator_declared"> '
             "Собствена квота (Gemini) — не се пита безплатен/платен</label>"
             "</fieldset>"
             '<label><input type="checkbox" name="public_only" value="1"> '
-            "само публични материали</label>"
+            "само публични публикации</label>"
             '<button class="btn primary" type="submit">Добави</button></form>'
             + _policy_action(role["role"], "role_budget")
             + '<p class="muted">Дневни граници на ролята:</p>'
@@ -2261,7 +2256,7 @@ def render_inbox(view, message="", error=""):
             f' <span class="muted">(показани {view["total"]} от филтъра)</span></p>'
         ),
         (
-            '<p class="muted">Нови материали от вашите източници. '
+            '<p class="muted">Нови публикации от вашите източници. '
             "Това са събрани кандидати, не доказателства — нищо тук не е проверено "
             "и не е готово за публикуване.</p>"
         ),
@@ -2276,15 +2271,15 @@ def render_inbox(view, message="", error=""):
     items = view["items"]
     if not items:
         body.append(
-            '<section class="card hero"><h2>Няма нови материали за този филтър</h2>'
+            '<section class="card hero"><h2>Няма нови публикации за този филтър</h2>'
             '<p class="muted">Стъпки: 1) натиснете «Събери новините сега», '
-            "2) изчакайте събирането, 3) отворете първия материал.</p>"
+            "2) изчакайте събирането, 3) отворете първата публикация.</p>"
             '<div class="hero-actions"><form method="post" action="/inbox">'
             '<input type="hidden" name="action" value="collect">'
             '<button class="btn primary" type="submit" data-busy="1">Събери новините сега</button>'
             '</form><a href="/sources"><button class="btn secondary" type="button">Провери източниците</button></a></div></section>'
         )
-        return page("Материали", "\n".join(body), active="inbox")
+        return page("Публикации", "\n".join(body), active="inbox")
     body.extend(_inbox_item(item) for item in items)
     body.append(_pager(view))
-    return page("Материали", "\n".join(body), active="inbox")
+    return page("Публикации", "\n".join(body), active="inbox")

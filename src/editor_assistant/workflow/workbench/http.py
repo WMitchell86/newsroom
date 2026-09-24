@@ -146,7 +146,7 @@ def _render_error(kind: str, case_id: str | None, message: str) -> str:
         title = "Грешка"
     extra = ""
     if case_id:
-        extra = f'<p><a href="/case/{html_mod.esc(case_id)}">Назад към случая</a></p>'
+        extra = f'<p><a href="/case/{html_mod.esc(case_id)}">Назад към статията</a></p>'
     return html_mod.page(title, f'<div class="notice error">{html_mod.esc(message)}</div>\n{extra}')
 
 
@@ -541,7 +541,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 summary = wb_newsroom.refresh_stories(dry_run=action == "update_preview")
                 if action == "update_preview":
                     message = (
-                        f"Пробен преглед: {summary['scanned']} материала · "
+                        f"Пробен преглед: {summary['scanned']} публикации · "
                         f"нови истории {summary['new_stories']} · без запис."
                     )
                 else:
@@ -558,7 +558,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             elif action == "split":
                 result = wb_newsroom.split_story_item(story_id, _first(form, "item", ""))
                 story_id = result["to_story"]
-                message = "Материалът е отделен като нова история."
+                message = "Публикацията е отделена като нова история."
             elif action == "merge":
                 result = wb_newsroom.merge_story(
                     _first(form, "target", ""), _first(form, "source", "")
@@ -615,9 +615,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 result = wb_state.prepare_case(idea_id, evidence_id, mode=_first(form, "mode", ""))
                 if result["status"] == "PREPARED":
                     message = (
-                        f"Пакетът е подготвен (режим: "
+                        f"Пакетът с факти и източници е подготвен (режим: "
                         f"{html_mod.lb.MODE_LABELS.get(result['mode'], result['mode'])}). "
-                        "Сега «Подготви AI чернова»."
+                        "Сега «Направи чернова»."
                     )
                 else:  # NO_ANGLE refusal from the angle gate
                     message = f"Без публикуем ъгъл: {result.get('reason', '')}"
@@ -637,7 +637,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                         self,
                         f"/case/{urllib.parse.quote(result['case_id'])}?"
                         + urllib.parse.urlencode(
-                            {"message": "AI черновата е готова и отворена като случай."}
+                            {"message": "Черновата е готова и статията е отворена за редакция."}
                         ),
                     )
                     return
@@ -656,7 +656,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     angle=_first(form, "angle", ""),
                 )
                 message = (
-                    f"Историята стана идея «{result['title'][:60]}» "
+                    f"Историята е започната като статия «{result['title'][:60]}» "
                     f"с {result['fact_count']} факта. Отвори «Статии»."
                 )
                 _redirect(self, "/articles?" + urllib.parse.urlencode({"message": message}))
@@ -835,7 +835,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         accept_base = _first(form, "accept_base", "")
         case = wb_state.find_case(case_id)
         if not case:
-            _respond(self, 404, _render_error("save", case_id, f"случай {case_id} не съществува"))
+            _respond(self, 404, _render_error("save", case_id, f"статия {case_id} не съществува"))
             return
         try:
             wb_state.save_working_copy(
@@ -881,12 +881,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         case = wb_state.find_case(case_id)
         if not case:
             _respond(
-                self, 404, _render_error("finalize", case_id, f"случай {case_id} не съществува")
+                self, 404, _render_error("finalize", case_id, f"статия {case_id} не съществува")
             )
             return
         if case.get("track") == wb_state.TRACK_DRYRUN:
             view = wb_state.case_view(case_id)
-            msg = "Еталонен случай: финализирането на усилийни показатели не е позволено от работния плот."
+            msg = "Еталонна статия: финализирането на усилийни показатели не е позволено от работния плот."
             body_html = (
                 html_mod.render_case(view, error=msg)
                 if view
@@ -924,7 +924,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if not out.get("final_text"):
             _respond(self, 400, _render_error("finalize", case_id, "Финализирането не успя."))
             return
-        qs = urllib.parse.urlencode({"message": "Материалът е финализиран."})
+        qs = urllib.parse.urlencode({"message": "Статията е финализирана."})
         _redirect(self, f"/case/{case_id}?{qs}")
 
     def _post_decision(self, case_id):
@@ -941,7 +941,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         case = wb_state.find_case(case_id)
         if not case:
             _respond(
-                self, 404, _render_error("decision", case_id, f"случай {case_id} не съществува")
+                self, 404, _render_error("decision", case_id, f"статия {case_id} не съществува")
             )
             return
         if case.get("final_text"):

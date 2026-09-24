@@ -194,7 +194,7 @@ def main() -> int:
         final_page = read(get(f"{base}/case/LIV-02"))
         check(
             "10. Final + editor metrics render",
-            "Финализиран материал (неизменим)" in final_page
+            "Финализирана статия (неизменима)" in final_page
             and "Умерена" in final_page
             and "Ъгълът е приет" in final_page,
         )

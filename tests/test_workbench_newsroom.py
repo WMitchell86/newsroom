@@ -257,9 +257,9 @@ def test_unknown_action_is_refused(server):
 
 
 def test_inbox_page_shows_collected_items(server):
-    # M4C renamed the raw view «Материали»; the route and the store are unchanged.
+    # M4C renamed the editor-facing raw view «Публикации»; route and store are unchanged.
     body = _get(f"{server}/inbox").read().decode("utf-8")
-    assert "Материали" in body
+    assert "Публикации" in body
     assert "Общинският съвет прие бюджета" in body
     assert "Общински съвет Бургас" in body  # source name, not only the id
     assert "Нов" in body
@@ -474,7 +474,7 @@ def test_story_detail_shows_chronology_and_publications(server):
     _add_pair()
     _post(f"{server}/stories", {"action": "update"})
     detail = _get(f"{server}/stories/{_pair_story()['story_id']}").read().decode("utf-8")
-    assert "Хронология" in detail and "Материали" in detail
+    assert "Хронология" in detail and "Публикации" in detail
     assert "Откривания" in detail
     assert "bta.bg" in detail and "bnr.bg" in detail
     assert "0.4" not in detail and "jaccard" not in detail.lower()
@@ -660,7 +660,7 @@ def test_models_page_lists_roles_routes_and_never_echoes_a_key(server, monkeypat
     assert "gemini-3.8-flash" in html
     assert "openai/gpt-5.6-luna" in html
     assert "собствена квота" in html  # operator-declared Gemini quota
-    assert "само публични материали" in html  # privacy flag is visible
+    assert "само публични публикации" in html  # privacy flag is visible
     assert "super-secret-key-value" not in html
     assert "наличен" in html  # the page reports key presence instead
 

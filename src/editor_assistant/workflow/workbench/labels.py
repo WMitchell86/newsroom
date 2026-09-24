@@ -8,6 +8,33 @@ from __future__ import annotations
 
 import re
 
+# Editor Vocabulary v0.1 — display contract only; stored backend keys stay unchanged.
+EDITOR_VOCABULARY = {
+    "story": "История",
+    "development": "Ново развитие",
+    "publication": "Публикация",
+    "source": "Източник",
+    "facts": "Факти и източници",
+    "missing": "Какво липсва",
+    "research": "Проучване",
+    "angle": "Редакционен ъгъл",
+    "article": "Статия",
+    "draft": "Чернова",
+    "final_article": "Финализирана статия",
+}
+
+EDITOR_ACTIONS = (
+    ("review", "Прегледай"),
+    ("follow", "Следи"),
+    ("ignore", "Игнорирай"),
+    ("research_more", "Проучи още"),
+    ("start_article", "Започни статия"),
+    ("choose_angle", "Избери / промени ъгъл"),
+    ("make_draft", "Направи чернова"),
+    ("edit", "Редактирай"),
+    ("finalize", "Финализирай"),
+)
+
 READINESS_LABELS = {
     "DRAFT_READY": "Готово за редакторски преглед",
     "RESEARCH_MORE": "Нужна е още информация",
@@ -32,7 +59,7 @@ READINESS_OUTCOME_LABELS = {
 # (`record_editor_final(prefer_ai_start=...)`) and must NOT be sent inside
 # `readiness_answers`, so it lives in its own label block below.
 ANSWER_LABELS = {
-    "would_publish": "Бихте ли публикували материал по тази тема?",
+    "would_publish": "Бихте ли публикували статия по тази тема?",
     "angle_right": "Правилен ли е избраният ъгъл?",
     "headline_strong": "Достатъчно силно ли е заглавието?",
     "opening_engaging": "Грабва ли началото вниманието?",
@@ -60,7 +87,7 @@ EDITING_WEIGHT_LABELS = {
     "MODERATE": "Умерена",
     "HEAVY": "Сериозна",
     "REWRITE": "Пренаписване",
-    "REJECTED": "Отхвърлен материал",
+    "REJECTED": "Отхвърлена статия",
 }
 
 TIME_BUCKET_LABELS = {
@@ -80,21 +107,21 @@ MODE_LABELS = {
     "MODE_STANDARD_NEWS": "Стандартна новина",
     "MODE_BRIEF": "Кратка бележка",
     "MODE_EVENT_PREVIEW": "Преглед на събитие",
-    "MODE_CULTURE_FEATURE": "Културен материал",
+    "MODE_CULTURE_FEATURE": "Културна статия",
 }
 
 IDEA_STATUS_LABELS = {
-    "NEW": "Нова идея",
-    "DRAFT_REQUESTED": "Заявета за чернова",
-    "FOLLOW_UP": "За последваща проверка",
+    "NEW": "Нова статия",
+    "DRAFT_REQUESTED": "Чернова е поискана",
+    "FOLLOW_UP": "Продължаваме",
     "IGNORED": "Игнорирана",
-    "NO_PUBLISHABLE_ANGLE": "Без публикуем ъгъл",
+    "NO_PUBLISHABLE_ANGLE": "Без редакционен ъгъл",
 }
 
 SOURCE_TYPE_LABELS = {
     "council_transcript": "Протокол от общинския съвет",
     "upstream_press_release": "Съобщение/публикация",
-    "youtube_intake": "YouTube материал",
+    "youtube_intake": "YouTube публикация",
     "editor_supplied": "Подадена от редактора",
 }
 
@@ -104,7 +131,7 @@ VOICE_LABELS = {
 }
 
 TRACK_LABELS = {
-    "LIVE_EDITORIAL_PILOT": "LIVE пилотен случай",
+    "LIVE_EDITORIAL_PILOT": "Пилотна редакционна статия",
     "GROUND_TRUTH_DRYRUN": "Сравнителен еталон (без усилийни показатели)",
 }
 
