@@ -190,7 +190,12 @@ def _extract_facts_for_topic(topic, doc=None, *, api_key=None, timeout=120):
     # role="extract" (M4D model policy): structured fact extraction is high-volume
     # and schema-first, so it runs on the cheap Lite/free routes — not on the
     # quality-sensitive angle pool and not on the mechanical judge pool.
-    raw, _meta = gen.call_model(prompt, api_key=api_key, timeout=timeout, role="extract")
+    # H: the input is already-public transcript/source material, so the call
+    # site declares it public — this is what lets the named free OpenRouter
+    # fallbacks serve it when Gemini is unavailable.
+    raw, _meta = gen.call_model(
+        prompt, api_key=api_key, timeout=timeout, role="extract", payload_class="public"
+    )
     # Per-topic failure taxonomy (M3D Part E): a truly empty completion, prose
     # without JSON, and unparsable JSON are three different execution outcomes
     # and none of them is evidence that the topic has no facts.
@@ -466,19 +471,24 @@ true САМО ако всяко твърдение (деятел, отношен
 """
 
 
-def judge_fact_with_model(fact_text, support_texts, *, api_key=None, timeout=120):
-    """Optional model cross-check; None when unavailable (offline-safe)."""
-    try:
-        raw, _m = gen.call_model(
-            _ENTAIL_JUDGE_PROMPT.replace("@@FACT@@", fact_text).replace(
-                "@@SUPPORT@@", "\n---\n".join(support_texts or [])
-            ),
-            api_key=api_key,
-            timeout=timeout,
-            role="judge",
-        )
-    except (RuntimeError, ValueError, OSError):
-        return None
+def render_entail_prompt(fact_text, support_texts):
+    """The production fact-entailment prompt, rendered for one check.
+
+    Split out of `judge_fact_with_model` so the role-qualification harness
+    sends the *same* prompt production sends (pre-frontend gate I2), instead of
+    a harness-local copy that can drift.
+    """
+    return _ENTAIL_JUDGE_PROMPT.replace("@@FACT@@", fact_text).replace(
+        "@@SUPPORT@@", "\n---\n".join(support_texts or [])
+    )
+
+
+def parse_entail_answer(raw):
+    """Production validation of an entailment answer; None when unusable.
+
+    Shared by `judge_fact_with_model` and the eval harness (I2): an answer only
+    counts when it is JSON carrying a boolean `entailed`.
+    """
     match = re.search(r"\{.*\}", raw or "", re.DOTALL)
     if not match:
         return None
@@ -489,6 +499,26 @@ def judge_fact_with_model(fact_text, support_texts, *, api_key=None, timeout=120
     if not isinstance(payload.get("entailed"), bool):
         return None
     return {"entailed": payload["entailed"], "reason": str(payload.get("reason", ""))[:300]}
+
+
+def judge_fact_with_model(fact_text, support_texts, *, api_key=None, timeout=120):
+    """Optional model cross-check; None when unavailable (offline-safe).
+
+    H: entailment over already-public transcript/source material is declared
+    `public` at the call site (the semantic check of an unpublished draft stays
+    `private` — see `generate.verify_claims_semantic`).
+    """
+    try:
+        raw, _m = gen.call_model(
+            render_entail_prompt(fact_text, support_texts),
+            api_key=api_key,
+            timeout=timeout,
+            role="judge",
+            payload_class="public",
+        )
+    except (RuntimeError, ValueError, OSError):
+        return None
+    return parse_entail_answer(raw)
 
 
 # ---------- procedural scope contract (S10) ----------
@@ -682,8 +712,13 @@ def propose_angles(facts, *, max_angles=4):
     prompt = _ANGLES_PROMPT.replace("{facts}", listing)
     # role="angle" — M3D measured that angle quality is model-capacity-sensitive,
     # so proposals must never ride the weak judge pool (M4D PART 7).
+    # H: proposals are made from public transcript evidence → declared public.
     raw, _meta = gen.call_model(
-        prompt, api_key=os.environ.get("GEMINI_API_KEY", "") or None, timeout=120, role="angle"
+        prompt,
+        api_key=os.environ.get("GEMINI_API_KEY", "") or None,
+        timeout=120,
+        role="angle",
+        payload_class="public",
     )
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if not match:
@@ -822,21 +857,29 @@ unexpected_fact, strong_quote, burgas_novelty
 """
 
 
-def _model_assess(proposal, refs, *, api_key=None, timeout=120):
+def render_assess_prompt(proposal, refs):
+    """The production seven-criterion assessment prompt, rendered for one case.
+
+    Split out of `_model_assess` so the role-qualification harness exercises
+    the *real* production contract (pre-frontend gate I3: seven criteria, real
+    semantic statuses) rather than a simplified status-only eval prompt.
+    """
     listing = "\n".join(f"- {f['fact_id']}: {f['text']}" for f in refs)
-    try:
-        # Angle *assessment* shares the angle role with proposal (M4D PART 7).
-        raw, _m = gen.call_model(
-            _ASSESS_PROMPT.replace("@@TITLE@@", proposal.get("title", ""))
-            .replace("@@PROP@@", proposal.get("new_proposition", ""))
-            .replace("@@REASON@@", proposal.get("reason", ""))
-            .replace("@@FACTS@@", listing),
-            api_key=api_key,
-            timeout=timeout,
-            role="angle",
-        )
-    except (RuntimeError, ValueError, OSError):
-        return None
+    return (
+        _ASSESS_PROMPT.replace("@@TITLE@@", proposal.get("title", ""))
+        .replace("@@PROP@@", proposal.get("new_proposition", ""))
+        .replace("@@REASON@@", proposal.get("reason", ""))
+        .replace("@@FACTS@@", listing)
+    )
+
+
+def parse_assess_answer(raw, refs):
+    """Production validation of an assessment answer; None when unusable.
+
+    Shared by `_model_assess` and the eval harness (I3): JSON only, all seven
+    rubric criteria scored 0/1/2, positive scores must cite fact ids that exist
+    in `refs`, and `semantic_status` must be one of the three real values.
+    """
     match = re.search(r"\{.*\}", raw or "", re.DOTALL)
     if not match:
         return None
@@ -872,6 +915,22 @@ def _model_assess(proposal, refs, *, api_key=None, timeout=120):
             q for q in (payload.get("research_questions") or []) if isinstance(q, str) and q.strip()
         ][:6],
     }
+
+
+def _model_assess(proposal, refs, *, api_key=None, timeout=120):
+    try:
+        # Angle *assessment* shares the angle role with proposal (M4D PART 7).
+        # H: assessment input is public transcript evidence → declared public.
+        raw, _m = gen.call_model(
+            render_assess_prompt(proposal, refs),
+            api_key=api_key,
+            timeout=timeout,
+            role="angle",
+            payload_class="public",
+        )
+    except (RuntimeError, ValueError, OSError):
+        return None
+    return parse_assess_answer(raw, refs)
 
 
 def assess_candidates(proposals, facts, *, api_key=None, use_model_judge=True, repeated=None):

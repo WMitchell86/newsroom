@@ -196,15 +196,20 @@ def test_paid_route_runs_when_the_operator_enables_paid(monkeypatch):
 
 
 def test_true_cross_provider_fallback_gemini_to_openrouter(monkeypatch):
-    """The old code returned early on GEMINI_API_KEY, so this never happened."""
+    """The old code returned early on GEMINI_API_KEY, so this never happened.
+
+    The backup route is free OpenRouter, so under the A2 invariant it is
+    public-only and the payload class is public (transcript/public entailment).
+    """
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     policy = _policy_with(
         "judge",
         [
             _route("gemini", "dry-model"),
-            _route("openrouter", "backup/model:free", billing="free", public_only=False),
+            _route("openrouter", "backup/model:free", billing="free"),
         ],
+        default_payload_class="public",
     )
 
     def exhausted(_prompt, **_kwargs):
@@ -225,8 +230,9 @@ def test_invalid_model_marks_the_route_unhealthy_until_the_policy_changes(monkey
         "judge",
         [
             _route("gemini", "removed-model"),
-            _route("openrouter", "working/model:free", billing="free", public_only=False),
+            _route("openrouter", "working/model:free", billing="free"),
         ],
+        default_payload_class="public",
     )
 
     def gone(_prompt, **_kwargs):
@@ -257,8 +263,9 @@ def test_quota_exhaustion_skips_the_route_for_the_provider_period(monkeypatch):
         "judge",
         [
             _route("gemini", "quota-model"),
-            _route("openrouter", "backup/model:free", billing="free", public_only=False),
+            _route("openrouter", "backup/model:free", billing="free"),
         ],
+        default_payload_class="public",
     )
 
     def quota(_prompt, **_kwargs):
@@ -308,8 +315,9 @@ def test_transient_failure_retries_are_bounded(monkeypatch):
         "judge",
         [
             _route("gemini", "flaky"),
-            _route("openrouter", "backup/model:free", billing="free", public_only=False),
+            _route("openrouter", "backup/model:free", billing="free"),
         ],
+        default_payload_class="public",
     )
     attempts = {"n": 0}
 
@@ -332,7 +340,7 @@ def test_empty_output_retries_once_then_continues(monkeypatch):
         "story",
         [
             _route("gemini", "silent"),
-            _route("openrouter", "backup/model:free", billing="free", public_only=False),
+            _route("openrouter", "backup/model:free", billing="free"),
         ],
     )
     calls = {"n": 0}
@@ -399,8 +407,9 @@ def test_per_model_daily_limit_is_respected(monkeypatch):
         "judge",
         [
             _route("gemini", "limited", limit=1),
-            _route("openrouter", "backup/model:free", billing="free", public_only=False),
+            _route("openrouter", "backup/model:free", billing="free"),
         ],
+        default_payload_class="public",
     )
     first = _Callers()
     _text, meta = model_router.call_role("judge", "p", policy=policy, call_map=first.as_map())
@@ -526,8 +535,9 @@ def test_usage_ledger_aggregates_and_never_stores_prompts(monkeypatch):
         "judge",
         [
             _route("gemini", "bad"),
-            _route("openrouter", "good/model:free", billing="free", public_only=False),
+            _route("openrouter", "good/model:free", billing="free"),
         ],
+        default_payload_class="public",
     )
     callers = _Callers(gemini=lambda *_a, **_k: (_ for _ in ()).throw(_FakeHTTPError(503, "")))
     model_router.call_role(
@@ -539,12 +549,14 @@ def test_usage_ledger_aggregates_and_never_stores_prompts(monkeypatch):
     day = json.loads(raw)
     assert set(day["calls"][0]) == {
         "at",
+        "request_id",
         "role",
         "provider",
         "model",
         "route_index",
         "status",
         "category",
+        "provider_attempts",
         "latency_ms",
         "input_tokens",
         "output_tokens",
@@ -555,7 +567,16 @@ def test_usage_ledger_aggregates_and_never_stores_prompts(monkeypatch):
     summary = model_usage.daily_summary()
     assert summary["calls"] == 2
     assert summary["successes"] == 1 and summary["failures"] == 1
-    assert summary["role_calls"]["judge"] == 2
+    # PART B: one call_role() invocation = ONE logical request, even though it
+    # wrote a FAILED row (2 provider attempts) and an OK row (1 attempt).
+    assert summary["role_calls"]["judge"] == 1
+    assert summary["requests"] == 1
+    assert summary["model_calls"] == {
+        "gemini:bad": 2,  # bounded transient retries are real provider attempts
+        "openrouter:good/model:free": 1,
+    }
+    # And the same request counted once no matter how many rows it wrote.
+    assert model_usage.role_calls_today("judge") == 1
 
 
 def test_status_report_lists_every_role_and_route():
@@ -736,3 +757,340 @@ def test_fetch_gemini_models_sends_the_key_as_a_header_never_in_the_url(monkeypa
     assert model_catalog.fetch_gemini_models("k-secret") == ["gemini-test"]
     assert "?key=" not in seen["url"] and "k-secret" not in seen["url"]
     assert seen["key"] == "k-secret"
+
+
+# ---------------------------------------------------------------- pre-frontend gate (PART A)
+
+
+def test_openrouter_route_never_gets_an_implicit_billing_class():
+    """A1: billing omitted on an OpenRouter route is a refusal, never `free`."""
+    policy = model_policy.normalize(model_policy.load_defaults())
+    with pytest.raises(model_policy.PolicyError, match="billing"):
+        model_policy.add_route(
+            policy, "draft", {"provider": "openrouter", "model": "openai/gpt-5.6-luna"}
+        )
+    # The same hole in a raw policy file fails closed at load time.
+    broken = json.loads(json.dumps(model_policy.load_defaults()))
+    broken["roles"]["draft"]["routes"].append({"provider": "openrouter", "model": "mystery/model"})
+    with pytest.raises(model_policy.PolicyError):
+        model_policy.normalize(broken)
+    # operator_declared is not an OpenRouter billing class either.
+    with pytest.raises(model_policy.PolicyError, match="free или paid"):
+        model_policy.add_route(
+            policy,
+            "draft",
+            {
+                "provider": "openrouter",
+                "model": "mystery/model",
+                "billing": "operator_declared",
+            },
+        )
+
+
+def test_adding_the_paid_luna_model_without_billing_is_refused():
+    """A6: the exact review example — `openai/gpt-5.6-luna` without billing."""
+    policy = model_policy.normalize(model_policy.load_defaults())
+    with pytest.raises(model_policy.PolicyError):
+        model_policy.add_route(
+            policy, "draft", {"provider": "openrouter", "model": "openai/gpt-5.6-luna"}
+        )
+
+
+def test_free_openrouter_route_cannot_declare_public_only_false():
+    """A2: policy files declaring free + public_only=false are rejected."""
+    broken = json.loads(json.dumps(model_policy.load_defaults()))
+    broken["roles"]["judge"]["routes"].append(
+        {
+            "provider": "openrouter",
+            "model": "free/model:free",
+            "billing": "free",
+            "public_only": False,
+        }
+    )
+    with pytest.raises(model_policy.PolicyError, match="public_only"):
+        model_policy.normalize(broken)
+    # The valid combination (free, public-only by default) still loads.
+    policy = model_policy.normalize(model_policy.load_defaults())
+    model_policy.add_route(
+        policy, "draft", {"provider": "openrouter", "model": "free/model:free", "billing": "free"}
+    )
+    added = policy["roles"]["draft"]["routes"][-1]
+    assert added["billing"] == "free" and added["public_only"] is True
+
+
+def test_known_billing_is_empty_for_undeclared_models():
+    """A3: an id nobody declared is NOT free."""
+    policy = model_policy.load_policy()
+    assert model_policy.known_billing(policy, "never/seen-model") == ""
+    assert model_policy.known_billing(policy, "openai/gpt-5.6-luna") == "paid"
+    assert model_policy.known_billing(policy, "qwen/qwen3.8-27b:free") == "free"
+
+
+def test_unknown_explicit_model_cannot_bypass_paid_gating(monkeypatch):
+    """A3/A6: unknown explicit id fails paid-safe BEFORE any transport call."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    callers = _Callers()
+    policy = _policy_with("story", [_route("gemini", "unused")])
+
+    with pytest.raises(model_router.RoleUnavailable):
+        model_router.call_role(
+            "story",
+            "p",
+            policy=policy,
+            model="brand/new-model",
+            payload_class="private",
+            call_map=callers.as_map(),
+        )
+    assert callers.openrouter_calls == [] and callers.gemini_calls == []
+
+    # The same id runs once the operator explicitly enables paid models.
+    paid_on = json.loads(json.dumps(policy))
+    paid_on["global"]["paid_enabled"] = True
+    paid_on = model_policy.normalize(paid_on)
+    text, meta = model_router.call_role(
+        "story",
+        "p",
+        policy=paid_on,
+        model="brand/new-model",
+        payload_class="private",
+        call_map=callers.as_map(),
+    )
+    assert text == "openrouter-answer" and meta["route_index"] == 0
+
+
+def test_free_route_added_as_free_cannot_receive_a_private_payload(monkeypatch):
+    """A2/A6: free OpenRouter stays public-only even through the add path."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    policy = _policy_with("draft", [_route("gemini", "unused")])
+    model_policy.add_route(
+        policy, "draft", {"provider": "openrouter", "model": "free/model:free", "billing": "free"}
+    )
+    callers = _Callers()
+    with pytest.raises(model_router.RoleUnavailable) as exc:
+        model_router.call_role("draft", "p", policy=policy, call_map=callers.as_map())
+    assert callers.openrouter_calls == []  # private draft payload refused
+    assert "само за публични" in json.dumps(exc.value.trace, ensure_ascii=False)
+    # The very same route serves a public payload.
+    model_router.call_role(
+        "draft", "p", policy=policy, payload_class="public", call_map=callers.as_map()
+    )
+    assert callers.openrouter_calls == ["free/model:free"]
+
+
+def test_cached_catalog_validation_contradicting_free_refuses_the_add():
+    """A5: a cached validation that saw the model as paid refuses `free`."""
+    report = {
+        "rows": [
+            {
+                "provider": "openrouter",
+                "model": "sneaky/paid-model",
+                "observed_free": False,
+                "observed_price_usd_per_mtok": [0.2, 1.2],
+            }
+        ]
+    }
+    refusal = model_catalog.cached_billing_contradiction(report, "sneaky/paid-model", "free")
+    assert refusal and "платен" in refusal and "validate" in refusal
+    # Declaring it PAID is fine, and an unrelated/unknown model is not blocked.
+    assert model_catalog.cached_billing_contradiction(report, "sneaky/paid-model", "paid") == ""
+    assert model_catalog.cached_billing_contradiction(report, "fresh/model:free", "free") == ""
+    assert model_catalog.cached_billing_contradiction(None, "sneaky/paid-model", "free") == ""
+
+
+# ---------------------------------------------------------------- payload classes (PART H)
+
+
+def test_payload_class_is_declared_at_every_production_call_site(monkeypatch):
+    """H: known-public transcript calls are `public` at the call site; the
+    unpublished-draft semantic judge is explicitly `private`. No whole role
+    flips — each caller classifies its own input."""
+    seen = []
+
+    def capture(prompt, **kwargs):
+        role = kwargs.get("role")
+        seen.append((role, kwargs.get("payload_class")))
+        if role == "extract":
+            return json.dumps({"facts": []}), {"model": "m"}
+        if role == "angle":
+            return json.dumps({"angles": []}), {"model": "m"}
+        return '{"entailed": true, "reason": "x"}', {"model": "m"}
+
+    monkeypatch.setattr(generate, "call_model", capture)
+
+    discovery._extract_facts_for_topic(
+        {"label": "t", "segment_ids": ["s1"], "text": "Текст."}, doc=None
+    )
+    assert seen[-1] == ("extract", "public")  # public transcript material
+
+    discovery.judge_fact_with_model("Факт.", ["Факт."], api_key="k")
+    assert seen[-1] == ("judge", "public")  # entailment over public material
+
+    facts = [{"fact_id": "f1", "text": "Факт.", "risk_flags": []}]
+    discovery.propose_angles(facts)
+    assert seen[-1] == ("angle", "public")
+
+    discovery._model_assess({"title": "t", "new_proposition": "p", "reason": "r"}, facts)
+    assert seen[-1] == ("angle", "public")
+
+    generate.verify_claims_semantic({"facts": [{"id": "f1", "text": "Факт."}]}, "Изречение.")
+    assert seen[-1] == ("judge", "private")  # unpublished draft stays private
+
+
+def test_a_public_transcript_call_reaches_the_named_free_route_but_a_private_one_cannot(
+    monkeypatch,
+):
+    """H: the point of classifying transcript calls public — they may fall
+    through to the named free OpenRouter route; private payloads may not."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    policy = _policy_with("judge", [_route("openrouter", "vendor/transcript:free", billing="free")])
+    public_callers = _Callers()
+    text, _meta = model_router.call_role(
+        "judge", "p", policy=policy, payload_class="public", call_map=public_callers.as_map()
+    )
+    assert text == "openrouter-answer"
+    assert public_callers.openrouter_calls == ["vendor/transcript:free"]
+
+    private_callers = _Callers()
+    with pytest.raises(model_router.RoleUnavailable):
+        model_router.call_role(
+            "judge",
+            "p",
+            policy=policy,
+            payload_class="private",
+            call_map=private_callers.as_map(),
+        )
+    assert private_callers.openrouter_calls == []
+
+
+# ---------------------------------------------------------------- accounting (PART B)
+
+
+def test_b7_disabled_route_then_success_counts_one_request_zero_one_attempts(monkeypatch):
+    """Exact B7 reproduction: route0 disabled, route1 succeeds.
+
+    Expected: 1 logical role request, 0 provider attempts on route0, 1 on
+    route1 — a skip must never consume a model quota or a role budget.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    policy = _policy_with(
+        "judge",
+        [
+            _route("gemini", "disabled-model", enabled=False),
+            _route("openrouter", "backup/model:free", billing="free"),
+        ],
+        default_payload_class="public",
+    )
+    callers = _Callers()
+    text, meta = model_router.call_role("judge", "p", policy=policy, call_map=callers.as_map())
+    assert text == "openrouter-answer" and meta["route_index"] == 1
+    assert model_usage.role_calls_today("judge") == 1
+    assert model_usage.model_calls_today("gemini", "disabled-model") == 0
+    assert model_usage.model_calls_today("openrouter", "backup/model:free") == 1
+    summary = model_usage.daily_summary()
+    assert summary["requests"] == 1 and summary["role_calls"]["judge"] == 1
+
+
+def test_b7_transient_retry_is_two_attempts_but_one_request(monkeypatch):
+    """route0 429-transient then success -> attempts=2, role requests=1."""
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    policy = _policy_with("judge", [_route("gemini", "flaky-once")])
+    calls = {"n": 0}
+
+    def flaky(_prompt, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _FakeHTTPError(429, "Too Many Requests")
+        return "gemini-answer", {"model": "flaky-once", "provider": "gemini"}
+
+    callers = _Callers(gemini=flaky)
+    text, meta = model_router.call_role(
+        "judge", "p", policy=policy, call_map=callers.as_map(), sleep=lambda _s: None
+    )
+    assert text == "gemini-answer" and meta["route_index"] == 0
+    assert model_usage.model_calls_today("gemini", "flaky-once") == 2  # attempts
+    assert model_usage.role_calls_today("judge") == 1  # logical requests
+    summary = model_usage.daily_summary()
+    assert summary["requests"] == 1
+    assert summary["model_calls"] == {"gemini:flaky-once": 2}
+
+
+def test_old_ledger_rows_stay_readable_without_rewriting(monkeypatch, tmp_path):
+    """B6: legacy rows (no request_id/provider_attempts) keep working."""
+    legacy = {
+        "version": 1,
+        "day": model_usage.sofia_day(),
+        "updated_at": "2026-09-21T10:00:00Z",
+        "calls": [
+            {
+                "at": "2026-09-21T09:00:00Z",
+                "role": "judge",
+                "provider": "gemini",
+                "model": "m1",
+                "status": "SKIPPED",
+            },
+            {
+                "at": "2026-09-21T09:00:01Z",
+                "role": "judge",
+                "provider": "gemini",
+                "model": "m1",
+                "status": "OK",
+            },
+            {
+                "at": "2026-09-21T09:00:02Z",
+                "role": "judge",
+                "provider": "openrouter",
+                "model": "m2",
+                "status": "FAILED",
+            },
+        ],
+        "by_role": {},
+        "by_model": {},
+        "paid_cost_usd": 0.0,
+    }
+    path = model_usage.usage_dir() / f"{model_usage.sofia_day()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    summary = model_usage.daily_summary()
+    # old OK/FAILED = 1 attempt each, old SKIPPED = 0
+    assert summary["model_calls"] == {"gemini:m1": 1, "openrouter:m2": 1}
+    # old OK/FAILED rows each count as one logical request, skips never do
+    assert model_usage.role_calls_today("judge") == 2
+
+
+# ---------------------------------------------------------------- paid soft budget (PART C)
+
+
+def test_paid_soft_budget_warning_is_visible_and_never_blocks(monkeypatch):
+    """PART C: `paid_soft_exceeded` warns in CLI + page, routing continues."""
+    from editor_assistant.workflow import cli as cli_mod
+
+    policy = model_policy.load_policy()
+    budget = policy["global"]["soft_paid_budget_usd_day"]
+    assert budget > 0
+    assert model_router.status_report()["paid_soft_exceeded"] is False
+
+    model_usage.record(
+        {
+            "role": "draft",
+            "provider": "openrouter",
+            "model": "openai/gpt-5.6-luna",
+            "status": model_usage.STATUS_OK,
+            "cost_usd": budget + 0.5,
+        }
+    )
+    report = model_router.status_report()
+    assert report["paid_soft_exceeded"] is True
+    rendered = cli_mod.render_models_status(report)
+    assert "ПРЕВИШЕН СОФТ БЮДЖЕТ" in rendered
+    # Non-blocking: paid routing still works because paid_enabled is explicit.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    paid_on = model_policy.load_policy()
+    paid_on["global"]["paid_enabled"] = True
+    paid_on = model_policy.normalize(paid_on)
+    text, _meta = model_router.call_role("draft", "p", policy=paid_on, call_map=_Callers().as_map())
+    assert text == "openrouter-answer"

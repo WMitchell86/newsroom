@@ -6,6 +6,27 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
+**NEXT (single, owner-approved): after this pre-frontend correctness gate is
+reviewed, start `frontend/` — Vite + React + TS SPA over a JSON API, strangler
+migration.** Telegram (M4E) stays backlog unless the owner changes priority.
+The only newer-than-history naming: in current history **M4D = model routing**
+(done); Telegram was once *called* "M4D" in old plans — that name is historical,
+not a directive.
+
+Updated 2026-09-24: **pre-frontend correctness round BUILT, awaiting review** —
+model-route billing/privacy safety (explicit OpenRouter billing, free ⇒
+public_only, unknown = paid-safe, catalog-contradiction refusal, billing radio
+in the add form), usage accounting (request_id + provider_attempts; role budgets
+count logical requests, model quotas count real attempts, SKIPPED costs nothing),
+soft paid-budget warning (CLI + /models), lineage model provenance (G1),
+canonical idea-status guard (G2), style retrieval preflight + real style bodies
+in the live prompt (G3 + body hydration), call-site payload classes, and the
+role-qualification harness rebuilt on production contracts (research =
+NOT_IMPLEMENTED; no model is qualified). Gates: **978 tests**, ruff clean,
+ui_proof 56/56, M3A smoke 25/25. Report:
+`m4/review/PRE_FRONTEND_CORRECTNESS_REPORT.md` (+ ROUND 1:
+`m4/review/ROUND1_MODEL_ROUTING_SAFETY_REPORT.md`).
+
 Updated 2026-09-22 (fix round 2): **review remainder DONE** — F5 originality
 guard (prompt `m2.3b-prompt-3` FORBIDDEN no-copy rule + deterministic
 `generate.originality_check`: longest shared word run ≥ 8 = copy-paste,
@@ -556,8 +577,11 @@ Boundary after M4B.1/M4C: the collection stack (`default_sources.py`,
 semantics live **only** in the explicit M4C modules (`publication_identity.py`,
 `story_store.py`, `story_identity.py`, `story_relation.py`, the story Workbench views),
 which a second structural test keeps free of drafting/publishing/Telegram/transcript
-reach-through. Still not allowed: AI angles, research, drafting, ranking, alerts —
-**M4D (Telegram editorial alerts) is next and only after this review**.
+reach-through. Still not allowed from that slice's boundary: AI angles, research,
+drafting, ranking, alerts (those live in their own modules). (Historical note,
+2026-09-21: this paragraph used to say "M4D (Telegram editorial alerts) is
+next" — stale even then; M4D became model routing, and the owner-approved next
+milestone after the pre-frontend gate is the frontend SPA, not Telegram.)
 
 M4D (model routing) state (2026-09-21): **BUILT, hermetic tests pass, live catalog
 verified.** New modules `drafting/model_policy.py`, `drafting/model_router.py`,

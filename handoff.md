@@ -1,3 +1,45 @@
+## Handoff — Pre-frontend correctness gate (2026-09-24)
+
+Report: `m4/review/PRE_FRONTEND_CORRECTNESS_REPORT.md` (ROUND 1 sub-report:
+`m4/review/ROUND1_MODEL_ROUTING_SAFETY_REPORT.md`). Gates: **978 offline tests**
+(was 934), `ruff check` + `ruff format --check` clean, M3A smoke **25/25**,
+`scripts/ui_proof.py` **56/56**. One scope-locked commit; STOP for review.
+
+- **Billing/privacy safety (PART A)**: OpenRouter billing explicit free|paid
+  (`PolicyError` otherwise, no default); free ⇒ public_only=true enforced
+  everywhere (policy/CLI/UI); unknown explicit model fails paid-safe;
+  `model_catalog.cached_billing_contradiction` refuses free when the cache says
+  paid; `/models` add form has a required billing radio; CLI `models set --add`
+  requires `--billing`.
+- **Accounting (PART B)**: one `request_id` per `call_role()`; every ledger row
+  carries `provider_attempts` (SKIPPED=0, retries counted); role budgets count
+  distinct logical requests, model RPD counts real attempts, fallbacks aggregate
+  per request; legacy rows stay readable.
+- **Soft paid budget (PART C)**: `paid_soft_exceeded` surfaced in CLI +
+  `/models` — a warning, never a blocker.
+- **G1 lineage**: `live_generate_draft` threads the successful router model into
+  `make_lineage` (static `MODEL_ID` only as documented fallback).
+- **G2 status parity**: canonical `ideas.assert_draftable_status` in CLI
+  live-case and Workbench `prepare_case` (Bulgarian refusal, stores untouched).
+- **G3 + style bodies**: `retrieve_examples_for_generation` preflight (exactly 3
+  unique examples or refuse BEFORE any model call) + `include_body` hydration
+  for the prompt (persisted metadata stays body-free).
+- **PART H**: call-site payload classes — transcript extract/judge + story =
+  public; draft generation + draft semantic check = private.
+- **PART I harness**: judge/angle/draft send production prompts through
+  production render/parse helpers (`discovery.render_entail_prompt`,
+  `render_assess_prompt`, `prompt.build_prompt`); angle fixture carries the 7
+  M3D disagreement cases; draft fixture = frozen EvidencePackets + human review
+  sheet; research = `RESEARCH_ROLE_PRODUCTION_WIRING = NOT_IMPLEMENTED`;
+  extract/utility = `NOT_EVALUATED`; paid evals need `--allow-paid`.
+- **PART K docs**: `MODEL_ROUTING_AND_BUDGET_REPORT.md` +
+  `MODEL_ROLE_QUALIFICATION_REPORT.md` created (honest: engineering proven,
+  LIVE_ROLE_QUALIFICATION = PENDING); single NEXT statement in CURRENT_STATE.md;
+  stale "M4D = Telegram next" text corrected (M4D = model routing; Telegram =
+  backlog).
+- Owner-approved **next**: `frontend/` Vite + React + TS SPA (strangler), after
+  review of this gate.
+
 ## Handoff — Fix round 2: F5 originality + F6 key header + P3 hardening (2026-09-22)
 
 Verified: **934 offline tests** (was 922), `ruff check` + `ruff format --check`

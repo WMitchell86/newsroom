@@ -46,6 +46,7 @@ import json
 import os
 import time
 import urllib.error
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -379,6 +380,12 @@ def _record(entry, *, fallbacks=0, payload_class="", latency_ms=0):
     )
 
 
+def _new_request_id() -> str:
+    """One id per `call_role()` invocation: the unit role budgets count (B1).
+    No prompt content ever enters the ledger — the id is opaque."""
+    return uuid.uuid4().hex
+
+
 def call_role(
     role,
     prompt_text,
@@ -408,12 +415,15 @@ def call_role(
     gemini_key = _gemini_key(api_key)
     keys = _keys_available(api_key)
     trace = []
+    # B1: every ledger row of this invocation carries the same request id.
+    request_id = _new_request_id()
 
     routes = [dict(r) for r in role_raw["routes"]]
     if model:
         # An explicit model (legacy callers, eval harness) is tried FIRST, but it
         # may not bypass the paid gate: billing comes from whatever the policy
-        # already declares for that id, else from the price snapshot.
+        # already declares for that id, else it fails paid-safe (A3); a free
+        # explicit route is public-only like every other free route (A2).
         routes.insert(0, _explicit_route(policy, model))
 
     attempts = 0
@@ -443,22 +453,26 @@ def call_role(
         if reasons:
             # A skipped route still counts as a fallback step: the operator's
             # "how many fallbacks did this answer need" number stays honest.
+            # It is NOT a provider call: provider_attempts=0 keeps disabled /
+            # privacy / paid / missing-key skips out of every budget (B3/B4).
             fallbacks += 1
             _record(
                 {
+                    "request_id": request_id,
                     "role": role,
                     "provider": route.get("provider"),
                     "model": route.get("model"),
                     "route_index": index,
                     "status": model_usage.STATUS_SKIPPED,
                     "category": _skip_category(reasons),
+                    "provider_attempts": 0,
                 },
                 fallbacks=fallbacks - 1,
                 payload_class=payload,
             )
             continue
 
-        text, meta, category = _try_route(
+        text, meta, category, provider_attempts = _try_route(
             route,
             role,
             prompt_text,
@@ -493,12 +507,15 @@ def call_role(
             meta["trace"] = trace
             model_usage.record(
                 {
+                    "request_id": request_id,
                     "role": role,
                     "provider": route.get("provider"),
                     "model": route.get("model"),
                     "route_index": index,
                     "status": model_usage.STATUS_OK,
                     "category": "",
+                    # B2: retries on this route are real provider attempts.
+                    "provider_attempts": provider_attempts,
                     "input_tokens": meta.get("input_tokens") or 0,
                     "output_tokens": meta.get("output_tokens") or 0,
                     "cost_usd": meta.get("cost_usd") or 0.0,
@@ -511,12 +528,14 @@ def call_role(
         fallbacks += 1
         _record(
             {
+                "request_id": request_id,
                 "role": role,
                 "provider": route.get("provider"),
                 "model": route.get("model"),
                 "route_index": index,
                 "status": model_usage.STATUS_FAILED,
                 "category": category,
+                "provider_attempts": provider_attempts,
             },
             fallbacks=fallbacks - 1,
             payload_class=payload,
@@ -534,15 +553,21 @@ def call_role(
 
 
 def _explicit_route(policy, model) -> dict:
-    billing = model_policy.known_billing(policy, model)
-    if billing != "paid" and model in model_usage.PRICES_USD_PER_MTOK:
+    # A3: an id the policy never declared is paid-safe — an unknown model may
+    # not bypass the paid gate just because nobody wrote it down. The price
+    # snapshot still forces `paid` for known-priced ids, and a free explicit
+    # route stays public-only (A2) like every other free OpenRouter route.
+    billing = model_policy.known_billing(policy, model) or "paid"
+    if billing not in ("free", "paid"):
+        billing = "paid"
+    if model in model_usage.PRICES_USD_PER_MTOK:
         billing = "paid"
     return {
         "provider": "openrouter",
         "model": model,
         "enabled": True,
         "billing": billing,
-        "public_only": False,
+        "public_only": billing == "free",
         "explicit": True,
     }
 
@@ -578,7 +603,13 @@ def _try_route(
     reasons,
     now,
 ):
-    """Try one route with bounded retries. Returns `(text|None, meta|None, category)`."""
+    """Try one route with bounded retries.
+
+    Returns `(text|None, meta|None, category, provider_attempts)`: the last
+    value is how many real transport calls this route made (B2) — a success
+    after one 429 retry reports 2, a route never entered reports 0 (the skip
+    path never reaches this function).
+    """
     gemini_call = callers.get("gemini")
     openrouter_call = callers.get("openrouter")
     if not callers:
@@ -658,14 +689,14 @@ def _try_route(
             if attempt < allowed:
                 sleep(min(2**attempt, 5))
                 continue
-            return None, None, category
+            return None, None, category, attempt
         latency_ms = int((time.monotonic() - started) * 1000)
         if not (text or "").strip():
             allowed = attempts_allowed[EMPTY_OUTPUT]
             if attempt < allowed:
                 sleep(1)
                 continue
-            return None, None, EMPTY_OUTPUT
+            return None, None, EMPTY_OUTPUT, attempt
         meta = dict(meta or {})
         inp, out = _tokens_from_meta(meta)
         if meta.get("provider") == "openrouter":
@@ -685,19 +716,24 @@ def _try_route(
         meta["cost_usd"] = model_usage.estimate_cost(
             route.get("model"), inp, out, reported=meta.get("cost_usd")
         )
-        return text, meta, ""
+        return text, meta, "", attempt
 
 
 def status_report(*, policy=None, now=None) -> dict:
     """Per-role + per-route status for the operator page and `models status`."""
     policy = policy or model_policy.load_policy()
     digest = model_policy.policy_hash(policy)
+    paid_cost = model_usage.paid_cost_today()
+    soft_paid_budget = float(policy["global"].get("soft_paid_budget_usd_day") or 0.0)
     return {
         "day": model_usage.sofia_day(now),
         "policy_hash": digest,
         "paid_enabled": bool(policy["global"].get("paid_enabled")),
-        "soft_paid_budget_usd_day": float(policy["global"].get("soft_paid_budget_usd_day") or 0.0),
-        "paid_cost_today_usd": model_usage.paid_cost_today(),
+        "soft_paid_budget_usd_day": soft_paid_budget,
+        "paid_cost_today_usd": paid_cost,
+        # PART C: a SOFT, non-blocking warning — routing continues because the
+        # paid gate itself is the operator's explicit `paid_enabled` switch.
+        "paid_soft_exceeded": bool(soft_paid_budget) and paid_cost >= soft_paid_budget,
         "roles": [plan_routes(role, policy=policy, now=now) for role in model_policy.ROLES],
         "usage": model_usage.daily_summary(),
         "health": read_health(),

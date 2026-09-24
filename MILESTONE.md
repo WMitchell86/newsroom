@@ -1,3 +1,42 @@
+## Pre-Frontend Correctness Gate — 2026-09-24 — BUILT, AWAITING REVIEW
+
+Harness: `m4/HARNESS_PROMPT_PRE_FRONTEND_CORRECTNESS.md`; report:
+`m4/review/PRE_FRONTEND_CORRECTNESS_REPORT.md`. Gates: **978 offline tests**
+(was 934), `ruff check` + `ruff format --check` clean, M3A smoke **25/25**,
+`scripts/ui_proof.py` **56/56**, eval `--list` + `models status` OK (no live
+calls). One scope-locked commit, then STOP for review before the approved
+`frontend/` Vite + React + TS SPA.
+
+- **A — billing/privacy safety**: OpenRouter billing explicit `free|paid`
+  (missing → `PolicyError`; the old default normalized omissions to `free`);
+  `free` forces `public_only=true`; `free + public_only=false` rejected;
+  unknown explicit model fails paid-safe (`known_billing` returns `""`);
+  `cached_billing_contradiction` refuses free-vs-cached-paid; `/models` add
+  form sends a required billing radio; CLI `--billing` mandatory.
+- **B/C — accounting + soft budget**: `request_id` + `provider_attempts` per
+  ledger row; role budgets = distinct logical requests, model RPD = real
+  attempts, fallbacks per request; legacy rows readable; `paid_soft_exceeded`
+  warned in CLI + `/models` (non-blocking).
+- **D/E — provenance + parity (G1/G2)**: lineage carries the successful router
+  model; canonical `ideas.assert_draftable_status` guards CLI + Workbench
+  prepare (closed statuses refuse in Bulgarian, stores byte-identical).
+- **F/G — style preflight (G3 + bodies)**: exactly-3-unique-examples contract
+  before any model call (`StyleRetrievalError`), honest fallback metadata, real
+  prose in the live prompt (persisted metadata body-free).
+- **H — payload classes at call sites**: transcript extract/judge + story =
+  public; draft + draft semantic check = private.
+- **I — harness fidelity**: production prompts/parsers for judge/angle/draft;
+  7 M3D disagreement cases; frozen EvidencePackets; human-review sheet;
+  research = NOT_IMPLEMENTED; extract/utility = NOT_EVALUATED; `--allow-paid`
+  guard. No model is qualified by this round.
+- **K — docs**: the two missing M4D reports created (honest banners); single
+  NEXT statement; stale "M4D = Telegram" drift corrected.
+
+Deferred (BACKLOG): mutation lock across generation, cross-process locking,
+angles UI, Telegram, SPA.
+
+---
+
 ## M4F Fix Round 2 (F5 originality guard + F6 key-in-URL + P3 hardening) — 2026-09-22 — BUILT, AWAITING REVIEW
 
 Base `f718234`. Gates: **934 offline tests** (was 922), `ruff check` +

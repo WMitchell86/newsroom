@@ -23,7 +23,11 @@ from editor_assistant.drafting.evidence import (
 )
 from editor_assistant.drafting.generate import draft_id_for, make_lineage
 from editor_assistant.drafting.prompt import PROMPT_VERSION, SECTIONS, build_prompt
-from editor_assistant.drafting.retrieval import retrieve_examples
+from editor_assistant.drafting.retrieval import (
+    StyleRetrievalError,
+    retrieve_examples,
+    retrieve_examples_for_generation,
+)
 from editor_assistant.style.profiles import (
     ProfileError,
     compose_draft_spec,
@@ -343,3 +347,96 @@ def test_scorecard_validation_bounds():
         validate_scorecard(dict(card, needs_editing=0))
     with pytest.raises(ValueError):
         validate_scorecard(dict(card, would_publish_after_edit="maybe"))
+
+
+# ---------- G3: style retrieval is a PRE-GENERATION contract ----------
+
+
+def test_generation_preflight_returns_three_unique_bodies_without_fallback():
+    result = retrieve_examples_for_generation(
+        _packet(),
+        voice="VOICE_HOUSE",
+        mode="MODE_STANDARD_NEWS",
+        corpus_path=CORPUS,
+        analysis_dir=ANALYSIS,
+    )
+    examples = result["examples"]
+    assert len(examples) == 3
+    assert len({e["article_id"] for e in examples}) == 3
+    # G: bodies are hydrated for the prompt (the legacy helper still omits them)
+    assert all(e["body"].strip() for e in examples)
+    assert result["fallback_used"] is False
+    assert len(result["fallback_trail"]) == 1
+    assert "VOICE_HOUSE+MODE_STANDARD_NEWS" in result["retrieval_reason"]
+
+
+def test_legacy_retrieve_examples_keeps_the_bodyless_shape_by_default():
+    out = retrieve_examples(
+        _packet(),
+        voice="VOICE_HOUSE",
+        mode="MODE_STANDARD_NEWS",
+        corpus_path=CORPUS,
+        analysis_dir=ANALYSIS,
+    )
+    assert len(out) == 3 and all("body" not in e for e in out)
+
+
+def test_generation_preflight_walks_only_the_documented_fallback_chain(monkeypatch):
+    """VOICE+MODE -> HOUSE same MODE -> HOUSE STANDARD_NEWS, deduplicated."""
+    from editor_assistant.drafting import retrieval as retrieval_mod
+
+    seen = []
+    pools = {
+        ("VOICE_DESISLAVA_RECENT", "MODE_BRIEF"): ["d1"],
+        ("VOICE_HOUSE", "MODE_BRIEF"): ["h1", "h2"],
+        ("VOICE_HOUSE", "MODE_STANDARD_NEWS"): ["s1"],
+    }
+
+    def scripted(packet, *, voice, mode, **_kwargs):
+        seen.append((voice, mode))
+        return [
+            {
+                "article_id": aid,
+                "headline": aid,
+                "body": f"текст {aid}",
+                "url": "",
+                "author": "",
+                "category": "",
+                "published_date": "",
+            }
+            for aid in pools[(voice, mode)]
+        ]
+
+    monkeypatch.setattr(retrieval_mod, "retrieve_examples", scripted)
+    result = retrieval_mod.retrieve_examples_for_generation(
+        _packet(),
+        voice="VOICE_DESISLAVA_RECENT",
+        mode="MODE_BRIEF",
+        corpus_path=CORPUS,
+        analysis_dir=ANALYSIS,
+    )
+    assert seen == [
+        ("VOICE_DESISLAVA_RECENT", "MODE_BRIEF"),  # requested
+        ("VOICE_HOUSE", "MODE_BRIEF"),  # HOUSE + same MODE
+        # HOUSE + STANDARD_NEWS never needed: three unique ids were reached
+    ]
+    assert [e["article_id"] for e in result["examples"]] == ["d1", "h1", "h2"]
+    assert result["fallback_used"] is True
+    assert "fallback:" in result["retrieval_reason"]
+    assert "VOICE_HOUSE+MODE_BRIEF" in result["retrieval_reason"]
+
+
+def test_generation_preflight_refuses_when_three_unique_examples_are_impossible(
+    monkeypatch,
+):
+    from editor_assistant.drafting import retrieval as retrieval_mod
+
+    monkeypatch.setattr(retrieval_mod, "retrieve_examples", lambda *_a, **_k: [])
+    with pytest.raises(StyleRetrievalError, match="уникални"):
+        retrieval_mod.retrieve_examples_for_generation(
+            _packet(),
+            voice="VOICE_HOUSE",
+            mode="MODE_STANDARD_NEWS",
+            corpus_path=CORPUS,
+            analysis_dir=ANALYSIS,
+        )

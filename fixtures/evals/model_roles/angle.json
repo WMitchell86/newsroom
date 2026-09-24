@@ -1,10 +1,12 @@
 {
   "role": "angle",
-  "note": "Seed corpus for the angle role, shaped like the M3D material where routine procedural items must NOT be called publishable. Replace with the adjudicated M3D recordings and the editor's disagreement cases before any production decision.",
+  "note": "Production-shaped corpus for the angle role: each case carries the real seven-criterion assessment contract (title / new_proposition / reason / facts with fact_ids) rendered by discovery.render_assess_prompt and validated by discovery.parse_assess_answer. Expected `status` uses the three production semantic values. The first four cases are seed cases; the seven `m3d_*` cases are the M3D shadow-disagreement cases from fixtures/evals/jev/transcript_angles_v2.jsonl (routine-vs-concrete boundary). For those, `status` is the DETERMINISTIC assessment (the production-authoritative label); `shadow_status` and `audit_hypothesis_label` are recorded as metadata only — the audit labels are hypotheses (see the Jev fixture README), never ground truth, and human adjudication stays pending.",
   "cases": [
     {
       "id": "routine-report-needs-no-article",
-      "proposal": "Съветът прие годишния отчет за дейността на общинското предприятие",
+      "title": "Годишен отчет за дейността на общинското предприятие „Чистота“",
+      "new_proposition": "Съветът прие годишния отчет за дейността на общинското предприятие „Чистота“",
+      "reason": "процедурна точка от редовното заседание, приета без разисквания",
       "facts": [
         "Точка трета от заседанието: годишен отчет за дейността на общинското предприятие „Чистота“.",
         "Отчетът е приет без разисквания."
@@ -13,7 +15,9 @@
     },
     {
       "id": "concrete-new-service",
-      "proposal": "В Бургас отваря безплатен кабинет за деца с диабет",
+      "title": "Безплатен кабинет за деца с диабет в Бургас",
+      "new_proposition": "В Бургас отваря безплатен кабинет за деца с диабет",
+      "reason": "конкретна нова услуга с обявена дата на старта",
       "facts": [
         "Общината открива безплатен кабинет за деца с диабет в ДКЦ-1.",
         "Кабинетът приема от 1 октомври, записан е график всеки работен ден.",
@@ -23,7 +27,9 @@
     },
     {
       "id": "incomplete-development-needs-research",
-      "proposal": "Общината обмисля нова линия за градския транспорт до кв. „Лозово“",
+      "title": "Нова автобусна линия до кв. „Лозово“",
+      "new_proposition": "Общината обмисля нова линия за градския транспорт до кв. „Лозово“",
+      "reason": "обсъждане без решение за маршрут, разписание или финансиране",
       "facts": [
         "Общината обмисля нова автобусна линия до кв. „Лозово“.",
         "Няма решение за маршрут, разписание или финансиране."
@@ -32,13 +38,166 @@
     },
     {
       "id": "money-and-people-impact",
-      "proposal": "Таксата за такситата в Бургас се вдига от 60 на 120 лева годишно",
+      "title": "Годишна такса за такситата: 60 → 120 лева",
+      "new_proposition": "Таксата за такситата в Бургас се вдига от 60 на 120 лева годишно",
+      "reason": "приета промяна в тарифата, влизаща в сила от 1 януари",
       "facts": [
         "Общинският съвет прие увеличение на годишната такса за таксиметрови превозвачи от 60 на 120 лева.",
         "В града работят 640 таксиметрови автомобила по данни на общината.",
         "Промяната влиза в сила от 1 януари."
       ],
       "status": "PUBLISHABLE_ANGLE"
+    },
+    {
+      "id": "m3d-concessions_funding",
+      "title": "Комисия 7k-FZXrcmq8 (автоматични субтитри)",
+      "new_proposition": "Разкрити са данни за разпределението на средствата от концесии, при които общината получава половината от договорените суми съгласно Приложение 12.",
+      "reason": "Информацията за финансовите постъпления от концесии е от обществен интерес и разкрива конкретен процент на разпределение.",
+      "facts": [
+        {
+          "fact_id": "7k-FZXrcmq8-f003",
+          "text": "Приложение 12 съдържа информация за концесиите и средствата, получени от Министерството на енергетиката."
+        },
+        {
+          "fact_id": "7k-FZXrcmq8-f004",
+          "text": "Средствата се предоставят на общината в определен размер спрямо общия размер на договора, като в таблицата фигурира стойност от 50%."
+        }
+      ],
+      "status": "NO_PUBLISHABLE_ANGLE",
+      "m3d_disagreement": true,
+      "shadow_status": "PUBLISHABLE_ANGLE",
+      "audit_hypothesis_label": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "audit_note": "hypothesis-1: concrete-but-incomplete action"
+    },
+    {
+      "id": "m3d-social_aid",
+      "title": "Комисия 8h51zs_NUbw (автоматични субтитри)",
+      "new_proposition": "Заместник-кметът Михаил Ненов е внесъл предложение за отпускане на безвъзмездни финансови средства за физически лица.",
+      "reason": "Директната социална подкрепа за гражданите е от висок обществен интерес.",
+      "facts": [
+        {
+          "fact_id": "8h51zs_NUbw-f008",
+          "text": "Михаил Ненов, заместник-кмет на община Бургас, внася записка относно предоставяне на безвъзмездни финансови помощи в полза на физически лица."
+        }
+      ],
+      "status": "NO_PUBLISHABLE_ANGLE",
+      "m3d_disagreement": true,
+      "shadow_status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "audit_hypothesis_label": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "audit_note": "hypothesis-1: concrete-but-incomplete action"
+    },
+    {
+      "id": "m3d-budget_execution_2026",
+      "title": "Комисия CIs4AIKuOiw (автоматични субтитри)",
+      "new_proposition": "Кметът на Бургас внесе за разглеждане информация за касовото изпълнение на приходите и разходите, включително европейските сметки, за първото полугодие на 2026 година.",
+      "reason": "Фокус върху актуалното състояние на общинските финанси към средата на текущата година.",
+      "facts": [
+        {
+          "fact_id": "CIs4AIKuOiw-f008",
+          "text": "Димитър Николов, кмет на община Бургас, представя доклад относно информация за отчета за касовото изпълнение на приходите и разходите на бюджета."
+        },
+        {
+          "fact_id": "CIs4AIKuOiw-f009",
+          "text": "Докладът се отнася за отчета за касовото изпълнение на приходите и разходите на бюджета и сметките за средства от Европейския съюз на община Бургас към 30.06.26 година."
+        }
+      ],
+      "status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "m3d_disagreement": true,
+      "shadow_status": "NO_PUBLISHABLE_ANGLE",
+      "audit_hypothesis_label": "NO_PUBLISHABLE_ANGLE",
+      "audit_note": "hypothesis-2: routine report/presence"
+    },
+    {
+      "id": "m3d-financial_management_meeting",
+      "title": "Комисия YsqD4T0D850 (автоматични субтитри)",
+      "new_proposition": "Заседанието включва ключово участие на ресорния кмет по бюджет и финанси Станимир Апостолов при разглеждането на финансовите отчети.",
+      "reason": "Присъствието на ресорния кмет подчертава важността на финансовия контрол и отчетност пред общинския съвет.",
+      "facts": [
+        {
+          "fact_id": "YsqD4T0D850-f002",
+          "text": "На заседанието присъства Станимир Апостолов, ресорен кмет по бюджет и финанси."
+        },
+        {
+          "fact_id": "YsqD4T0D850-f004",
+          "text": "Представен е доклад относно годишен отчет за изпълнение на бюджета и на сметките за средства от Европейския съюз на община Бургас към 3112 и25 година."
+        },
+        {
+          "fact_id": "YsqD4T0D850-f006",
+          "text": "Димитър Николов, кмет на община Бургас, представя информация за отчета на касовото изпълнение на приходите и разходите по бюджета и сметните средства от Европейския съюз на община Бургас към 30 юни 26 година."
+        }
+      ],
+      "status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "m3d_disagreement": true,
+      "shadow_status": "NO_PUBLISHABLE_ANGLE",
+      "audit_hypothesis_label": "NO_PUBLISHABLE_ANGLE",
+      "audit_note": "hypothesis-2: routine report/presence"
+    },
+    {
+      "id": "m3d-midyear_budget_2026",
+      "title": "Комисия YsqD4T0D850 (автоматични субтитри)",
+      "new_proposition": "Кметът на Бургас внесе информация за касовото изпълнение на приходите и разходите за първите шест месеца на текущата година.",
+      "reason": "Информацията за текущото изпълнение на бюджета към юни 2026 г. дава актуална картина за финансовата стабилност на общината.",
+      "facts": [
+        {
+          "fact_id": "YsqD4T0D850-f006",
+          "text": "Димитър Николов, кмет на община Бургас, представя информация за отчета на касовото изпълнение на приходите и разходите по бюджета и сметните средства от Европейския съюз на община Бургас към 30 юни 26 година."
+        }
+      ],
+      "status": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "m3d_disagreement": true,
+      "shadow_status": "NO_PUBLISHABLE_ANGLE",
+      "audit_hypothesis_label": "NO_PUBLISHABLE_ANGLE",
+      "audit_note": "hypothesis-2: routine report/presence"
+    },
+    {
+      "id": "m3d-museum_funding_refusal",
+      "title": "Комисия xvsdi_j7s5c (автоматични субтитри)",
+      "new_proposition": "Искането на инициативен комитет „Памет“ и Съюза на офицерите и сержантите от запаса за ремонт на помещение и изграждане на музей е отхвърлено поради липса на правно основание.",
+      "reason": "Налице е конфликт между искане на граждански организации и законовите ограничения пред общината.",
+      "facts": [
+        {
+          "fact_id": "xvsdi_j7s5c-f006",
+          "text": "Георги Метров е председател на областен съвет на съюза на офицерите и сержантите от запаса и резерва."
+        },
+        {
+          "fact_id": "xvsdi_j7s5c-f014",
+          "text": "Инициативен комитет „Памет“ и Областният съвет на Съюза на офицерите и сержантите от запаса и резерва в Бургас са отправили писмо с искане за финансово подпомагане за реновиране на помещение и оформяне на музейна експозиция."
+        },
+        {
+          "fact_id": "xvsdi_j7s5c-f015",
+          "text": "Към момента Общината няма основание и право да подпомага финансово инициативата, тъй като не е уточнен статутът на музейната експозиция и тя се намира на чужда територия."
+        }
+      ],
+      "status": "NO_PUBLISHABLE_ANGLE",
+      "m3d_disagreement": true,
+      "shadow_status": "PUBLISHABLE_ANGLE",
+      "audit_hypothesis_label": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "audit_note": "hypothesis-1: concrete-but-incomplete action"
+    },
+    {
+      "id": "m3d-school_funding",
+      "title": "Комисия xvsdi_j7s5c (автоматични субтитри)",
+      "new_proposition": "Кметската администрация предлага осигуряване на финансово подпомагане за училищни паралелки, които не достигат минималния брой ученици.",
+      "reason": "Това е конкретна мярка за подкрепа на учебния процес, която засяга второстепенните разпоредители с бюджетни средства.",
+      "facts": [
+        {
+          "fact_id": "xvsdi_j7s5c-f004",
+          "text": "Докладна записка от кмета на община Бургас касае осигуряване на допълнителни средства за учебния процес на паралелки с брой ученици под минималния."
+        },
+        {
+          "fact_id": "xvsdi_j7s5c-f011",
+          "text": "Институциите в предучилищното и училищното образование разполагат със собствен бюджет като второстепенни разпоредители с бюджетни средства."
+        },
+        {
+          "fact_id": "xvsdi_j7s5c-f012",
+          "text": "Има докладна записка от Димитър Конов, кмет на община Бургас, относно осигуряване на допълнителни средства за учебния процес на паралелки с брой ученици под минималния норматив."
+        }
+      ],
+      "status": "NO_PUBLISHABLE_ANGLE",
+      "m3d_disagreement": true,
+      "shadow_status": "PUBLISHABLE_ANGLE",
+      "audit_hypothesis_label": "POTENTIALLY_PUBLISHABLE_NEEDS_RESEARCH",
+      "audit_note": "hypothesis-1: concrete-but-incomplete action"
     }
   ]
 }

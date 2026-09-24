@@ -183,6 +183,30 @@ def validate_policy_models(
     return report
 
 
+def cached_billing_contradiction(report, model, billing) -> str:
+    """A5: refuse a route addition a catalog validation already disproved.
+
+    Takes the *cached* validation report (the Workbench store of the last
+    explicit `models validate`) — no network call. Returns a Bulgarian refusal
+    when the catalog saw this OpenRouter model as paid while the operator tries
+    to declare it `free`; `""` when the cache says nothing contradicting.
+    """
+    if not isinstance(report, dict) or billing != "free":
+        return ""
+    for row in report.get("rows") or []:
+        if row.get("model") != model or row.get("provider") != "openrouter":
+            continue
+        if row.get("observed_free") is False:
+            price = row.get("observed_price_usd_per_mtok")
+            return (
+                f"последната проверка показва, че {model} е платен модел"
+                + (f" ({price} USD / 1M токена)" if price else "")
+                + " — пуснете проверката наново (newsroom models validate) или го "
+                "добавете като Платен; нищо не е променено"
+            )
+    return ""
+
+
 def render_validation(report) -> str:
     lines = ["Проверка на моделите в политиката (живи каталози, без изпращане на текст):"]
     gemini_seen = (

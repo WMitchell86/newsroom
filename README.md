@@ -189,7 +189,8 @@ deleted: stories reference them.
 Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
 `m4/review/M4B_DAILY_INBOX_REPORT.md`, `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
 `m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
-**Next milestone: M4D Telegram editorial alerts** — see `BACKLOG.md`.
+**Next milestone: `frontend/` — Vite + React + TS SPA over a JSON API (owner-approved,
+after the pre-frontend correctness gate).** Telegram alerts stay backlog — see `BACKLOG.md`.
 
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 

@@ -19,7 +19,10 @@ from pathlib import Path
 from editor_assistant.drafting import generate as gen
 from editor_assistant.drafting.evidence import build_packet_from_record, validate_packet
 from editor_assistant.drafting.prompt import PROMPT_VERSION, build_prompt
-from editor_assistant.drafting.retrieval import retrieve_examples
+from editor_assistant.drafting.retrieval import (
+    StyleRetrievalError,
+    retrieve_examples_for_generation,
+)
 from editor_assistant.workflow import angles
 from editor_assistant.workflow import ideas as ideas_mod
 from editor_assistant.workflow import modes as modes_mod
@@ -142,9 +145,14 @@ def live_case_request(
 
     Always records the tool suggestion (suggested_mode + reason); the
     selected mode may equal it (confirmed) or differ (editor override).
+
+    The canonical draftability check (`ideas.assert_draftable_status`) runs
+    here — at the single service boundary — so the CLI and the Workbench can
+    never revive a closed idea between them (Review G2).
     """
     from editor_assistant.workflow.cases import _DEFAULT_VOICE, _OPT_IN_VOICE
 
+    ideas_mod.assert_draftable_status(idea)
     if voice not in (_DEFAULT_VOICE, _OPT_IN_VOICE):
         raise LiveError(f"unknown voice: {voice!r} (DESISLAVA is explicit opt-in)")
     assessment = angles.check_angle_gate({**packet, "source_type": idea["source_type"]})
@@ -269,9 +277,16 @@ def live_generate_draft(
         raise LiveError(f"unexpected readiness status {status!r} - refusing to draft")
     voice_profile = _load_profile(voice)
     mode_profile = _load_profile(mode)
-    examples = retrieve_examples(
-        packet, voice=voice, mode=mode, corpus_path=CORPUS, analysis_dir=ANALYSIS
-    )
+    # F/G: style retrieval is a GENERATION PRECONDITION — exactly three unique
+    # examples (with hydrated bodies for the prompt) must exist before ANY
+    # model call; otherwise this raises before any spend.
+    try:
+        retrieval = retrieve_examples_for_generation(
+            packet, voice=voice, mode=mode, corpus_path=CORPUS, analysis_dir=ANALYSIS
+        )
+    except StyleRetrievalError as exc:
+        raise LiveError(str(exc)) from exc
+    examples = retrieval["examples"]  # prompt-time records: bodies included
     hook = readiness["reader_interest"]
     prompt_spec = build_prompt(
         packet,
@@ -281,7 +296,15 @@ def live_generate_draft(
         style_examples=examples,
         task_extra=readiness_mod.hook_task_extra(hook),
     )
-    raw, _meta = gen.call_model(prompt_spec["text"], api_key=api_key, timeout=timeout, role="draft")
+    raw, generation_meta = gen.call_model(
+        prompt_spec["text"],
+        api_key=api_key,
+        timeout=timeout,
+        role="draft",
+        # H: an unpublished final draft is private material, stated at the call
+        # site so it can never inherit a looser role default later.
+        payload_class="private",
+    )
     draft = gen.parse_draft_json(raw)
     lexical = gen.audit_claims(draft["body"], packet, style_texts=[e["headline"] for e in examples])
     semantic = gen.verify_claims_semantic(packet, draft["body"], api_key=api_key, timeout=timeout)
@@ -295,6 +318,11 @@ def live_generate_draft(
         mode_id=mode,
         style_example_ids=[e["article_id"] for e in examples],
         prompt_version=PROMPT_VERSION,
+        # D (Review G1): the model that ACTUALLY produced this draft — the
+        # router metadata of the successful route, never the static MODEL_ID
+        # when a fallback fired. The fallback exists only for old/mock callers
+        # that return no metadata.
+        model=(generation_meta or {}).get("model") or gen.MODEL_ID,
     )
     return {
         "draft": draft,
@@ -305,8 +333,13 @@ def live_generate_draft(
         "originality": originality,
         "readiness": readiness,
         "retrieval": {
-            "examples": examples,
-            "retrieval_reason": "same VOICE+MODE preferred (M2.3 rules)",
-            "fallback_used": False,
+            # G: prompt-time records carried `body`; the persisted/draft-facing
+            # metadata keeps IDs/URLs/reasons only — archive prose never lands
+            # in the live draft or case JSON.
+            "examples": [{k: v for k, v in example.items() if k != "body"} for example in examples],
+            # F2: truthful metadata instead of a hard-coded fallback_used=False.
+            "retrieval_reason": retrieval["retrieval_reason"],
+            "fallback_used": retrieval["fallback_used"],
+            "fallback_trail": retrieval["fallback_trail"],
         },
     }

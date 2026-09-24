@@ -77,6 +77,12 @@ def test_openrouter_malformed_body_is_empty_not_an_exception(monkeypatch):
 
 
 def test_call_model_reaches_openrouter_only_without_gemini_key(monkeypatch):
+    """A policy-declared FREE model reaches OpenRouter when Gemini has no key.
+
+    The id is declared `free` in the tracked policy, so it is eligible for a
+    public payload (story role) — an UNDECLARED id would fail paid-safe (A3)
+    and never reach a transport at all.
+    """
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     captured = {}
@@ -86,9 +92,9 @@ def test_call_model_reaches_openrouter_only_without_gemini_key(monkeypatch):
         return "ok", {"provider": "openrouter"}
 
     monkeypatch.setattr(gen, "_call_openrouter", fake_openrouter)
-    text, _meta = gen.call_model("ping", model="m/free")
+    text, _meta = gen.call_model("ping", model="qwen/qwen3.8-27b:free", role="story")
     assert text == "ok"
-    assert captured == {"api_key": "or-key", "model": "m/free"}
+    assert captured == {"api_key": "or-key", "model": "qwen/qwen3.8-27b:free"}
 
 
 def test_paid_openrouter_model_is_refused_before_any_call(monkeypatch):

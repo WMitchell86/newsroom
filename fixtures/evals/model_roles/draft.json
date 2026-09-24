@@ -1,15 +1,47 @@
 {
   "role": "draft",
-  "note": "Seed corpus for the draft role. Automatic checks cover only factual fidelity and structure (no invented numbers, required mentions present); Bulgarian naturalness and the amount of editing stay a HUMAN score — never another model's verdict. Keep 5-10 real evidence packets here.",
+  "note": "Production-shaped corpus for the draft role: each case carries a FROZEN EvidencePacket that goes through the real build_prompt() path (Site DNA + VOICE + MODE + three real style examples via retrieve_examples_for_generation) and the real parse_draft_json / audit_claims / originality_check scoring. Automatic checks cover only JSON validity, invented numbers, required mentions, unsupported sentences and the originality warning; Bulgarian naturalness, headline quality, Chernomorie fit and editing effort stay a HUMAN score on the generated review sheet — never another model's verdict. Keep 5-10 real evidence packets here.",
   "cases": [
     {
       "id": "free-medical-cabinet",
-      "facts": [
-        "Община Бургас открива безплатен кабинет за деца с диабет в ДКЦ-1.",
-        "Кабинетът приема от 1 октомври всеки работен ден.",
-        "Услугата е безплатна за деца до 18 години."
-      ],
+      "voice": "VOICE_HOUSE",
+      "mode": "MODE_STANDARD_NEWS",
       "must_mention": ["кабинет", "1 октомври"],
+      "packet": {
+        "evidence_id": "EVAL-D1",
+        "source_url": "https://example-burgas.local/press/child-diabetes-cabinet",
+        "source_type": "upstream_press_release",
+        "observed_at": "2026-09-15",
+        "source_headline": "Община Бургас открива безплатен кабинет за деца с диабет",
+        "facts": [
+          {
+            "id": "EVAL-D1-f01",
+            "text": "Община Бургас открива безплатен кабинет за деца с диабет в ДКЦ-1.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          },
+          {
+            "id": "EVAL-D1-f02",
+            "text": "Кабинетът приема от 1 октомври всеки работен ден.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          },
+          {
+            "id": "EVAL-D1-f03",
+            "text": "Услугата е безплатна за деца до 18 години.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          }
+        ],
+        "people": [],
+        "organizations": ["Община Бургас", "ДКЦ-1"],
+        "places": ["Бургас"],
+        "dates": ["1 октомври"],
+        "numbers": ["18"],
+        "quotes": [],
+        "unknowns": ["Не е посочена цена за разкриването на кабинета."],
+        "source_text": "Община Бургас открива безплатен кабинет за деца с диабет в ДКЦ-1. Кабинетът приема от 1 октомври всеки работен ден. Услугата е безплатна за деца до 18 години."
+      },
       "human_score": {
         "bulgarian_naturalness": "",
         "headline_quality": "",
@@ -19,12 +51,44 @@
     },
     {
       "id": "tax-increase",
-      "facts": [
-        "Общинският съвет прие увеличение на годишната такса за таксиметрови превозвачи от 60 на 120 лева.",
-        "В града работят 640 таксиметрови автомобила по данни на общината.",
-        "Промяната влиза в сила от 1 януари."
-      ],
+      "voice": "VOICE_HOUSE",
+      "mode": "MODE_STANDARD_NEWS",
       "must_mention": ["120", "1 януари"],
+      "packet": {
+        "evidence_id": "EVAL-D2",
+        "source_url": "https://example-burgas.local/council/taxi-fee-2027",
+        "source_type": "upstream_council_record",
+        "observed_at": "2026-09-16",
+        "source_headline": "Общинският съвет вдигна годишната такса за такситата",
+        "facts": [
+          {
+            "id": "EVAL-D2-f01",
+            "text": "Общинският съвет прие увеличение на годишната такса за таксиметрови превозвачи от 60 на 120 лева.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          },
+          {
+            "id": "EVAL-D2-f02",
+            "text": "В града работят 640 таксиметрови автомобила по данни на общината.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          },
+          {
+            "id": "EVAL-D2-f03",
+            "text": "Промяната влиза в сила от 1 януари.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          }
+        ],
+        "people": [],
+        "organizations": ["Общински съвет — Бургас"],
+        "places": ["Бургас"],
+        "dates": ["1 януари"],
+        "numbers": ["60", "120", "640"],
+        "quotes": [],
+        "unknowns": ["Приходите от таксата не са разпределени по пера."],
+        "source_text": "Общинският съвет прие увеличение на годишната такса за таксиметрови превозвачи от 60 на 120 лева. В града работят 640 таксиметрови автомобила по данни на общината. Промяната влиза в сила от 1 януари."
+      },
       "human_score": {
         "bulgarian_naturalness": "",
         "headline_quality": "",
@@ -34,12 +98,44 @@
     },
     {
       "id": "budget-adopted",
-      "facts": [
-        "Общинският съвет прие бюджета на Бургас за 2027 г. с 33 гласа „за“.",
-        "Капиталовата програма предвижда 18 милиона лева за улици и тротоари.",
-        "Новите приходи идват основно от местни данъци."
-      ],
+      "voice": "VOICE_HOUSE",
+      "mode": "MODE_STANDARD_NEWS",
       "must_mention": ["33", "18 милиона"],
+      "packet": {
+        "evidence_id": "EVAL-D3",
+        "source_url": "https://example-burgas.local/council/budget-2027",
+        "source_type": "upstream_council_record",
+        "observed_at": "2026-09-17",
+        "source_headline": "Бургас прие бюджета за 2027 г.",
+        "facts": [
+          {
+            "id": "EVAL-D3-f01",
+            "text": "Общинският съвет прие бюджета на Бургас за 2027 г. с 33 гласа „за“.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          },
+          {
+            "id": "EVAL-D3-f02",
+            "text": "Капиталовата програма предвижда 18 милиона лева за улици и тротоари.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          },
+          {
+            "id": "EVAL-D3-f03",
+            "text": "Новите приходи идват основно от местни данъци.",
+            "source_reference": "source_text",
+            "scope": "current_event"
+          }
+        ],
+        "people": [],
+        "organizations": ["Общински съвет — Бургас"],
+        "places": ["Бургас"],
+        "dates": ["2027"],
+        "numbers": ["33", "18"],
+        "quotes": [],
+        "unknowns": ["Разбивката по улици не е публикувана."],
+        "source_text": "Общинският съвет прие бюджета на Бургас за 2027 г. с 33 гласа „за“. Капиталовата програма предвижда 18 милиона лева за улици и тротоари. Новите приходи идват основно от местни данъци."
+      },
       "human_score": {
         "bulgarian_naturalness": "",
         "headline_quality": "",

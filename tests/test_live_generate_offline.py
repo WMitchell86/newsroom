@@ -11,6 +11,8 @@ import json
 import pytest
 
 from editor_assistant.drafting import generate as gen
+from editor_assistant.drafting import model_policy, model_usage
+from editor_assistant.drafting.retrieval import StyleRetrievalError
 from editor_assistant.workflow import angles, cases, cli, live
 from editor_assistant.workflow.ideas import save_ideas
 
@@ -126,6 +128,150 @@ def test_offline_end_to_end_generation_path(store, stub_gemini):
     # M4F F5: the deterministic originality verdict rides into both stores.
     assert draft["originality"]["pass"] is True
     assert case["audit"]["originality"]["checked"] is True
+
+
+def _ready_case():
+    """Build a real rubric-v2 assessment so readiness reaches DRAFT_READY."""
+    row = cli._live_rows()["EV-M"]
+    facts = row["packet"]["facts"]
+    candidates = []
+    for n, fact in enumerate(facts):
+        scores = {k: {"score": 0} for k in angles.CRITERIA}
+        if n == 0:
+            for key in ("concrete_change", "people_impact", "burgas_novelty"):
+                scores[key] = {
+                    "score": 2,
+                    "reason": "Нов безплатен кабинет за деца в Бургас.",
+                    "fact_ids": [fact["id"]],
+                }
+        candidates.append(
+            {
+                "angle_id": f"A{n}",
+                "title": fact["text"],
+                "fact_ids": [fact["id"]],
+                "scores": scores,
+                "new_proposition": f"Ново: {fact['text']}",
+                "reason": "Нов местен достъп до лечение." if n == 0 else "Процедурна точка.",
+            }
+        )
+    row["packet"]["editorial_assessment"] = angles.assess_angles(row["packet"], candidates)
+    cli._save_live_row(row)
+    return row
+
+
+def _draft_json():
+    return json.dumps(
+        {
+            "headlines": ["Заглавие"],
+            "headline": "Заглавие",
+            "body": "В Бургас отварят безплатен кабинет за деца.",
+        },
+        ensure_ascii=False,
+    )
+
+
+def _judge_jsonl():
+    lines = [
+        {
+            "sentence": "В Бургас отварят безплатен кабинет за деца.",
+            "verdict": "SUPPORTED",
+            "issue": "none",
+            "supporting_fact_ids": ["EV-M-f01"],
+            "note": "ok",
+        },
+    ]
+    return "\n".join(json.dumps(x, ensure_ascii=False) for x in lines)
+
+
+def test_lineage_reports_the_route_that_actually_drafted(store, monkeypatch):
+    """Review G1 / PART D: draft route 0 fails, route 1 succeeds -> the stored
+    live_draft lineage, the opened case lineage AND the usage ledger must all
+    name route 1 — never the static MODEL_ID."""
+    _ready_case()
+    cli.main(["live-case", "EV-M", "--idea", store["idea_id"], "--mode", "MODE_BRIEF"])
+
+    routes = model_policy.load_policy()["roles"]["draft"]["routes"]
+    first_model, second_model = routes[0]["model"], routes[1]["model"]
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    class _DailyQuota429(gen.urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__("https://example.invalid", 429, "Too Many Requests", None, None)
+            self._chernomorie_body = "You exceeded your current quota per day"
+
+        def read(self):  # pragma: no cover - body carried on the exception
+            return self._chernomorie_body.encode()
+
+    def fake(prompt_text, *, api_key, timeout, role="draft", model=None, **_kw):
+        if role == "draft" and model == first_model:
+            raise _DailyQuota429()
+        if role == "draft":
+            return _draft_json(), {"model": model, "provider": "gemini"}
+        return _judge_jsonl(), {"model": model}
+
+    monkeypatch.setattr(gen, "_call_gemini", fake)
+    cli.main(["live-generate", "EV-M", "--case-id", "LIV-01"])
+
+    draft = json.loads(cli.LIVE_DRAFTS_PATH.read_text(encoding="utf-8"))
+    assert draft["lineage"]["model"] == second_model
+    case = cases.read_cases(cli.CASES_PATH)[0]
+    assert case["lineage"]["model"] == second_model
+
+    # The ledger agrees with lineage: OK row on route 1, quota failure on route 0.
+    calls = model_usage.read_day().get("calls") or []
+    ok_models = [c["model"] for c in calls if c["role"] == "draft" and c["status"] == "OK"]
+    assert ok_models == [second_model]
+    quota_rows = [
+        c for c in calls if c["role"] == "draft" and c.get("category") == "QUOTA_EXHAUSTED"
+    ]
+    assert [c["model"] for c in quota_rows] == [first_model]
+    assert model_usage.model_calls_today("gemini", first_model) == 1
+    assert model_usage.model_calls_today("gemini", second_model) == 1
+    assert model_usage.role_calls_today("draft") == 1
+
+
+def test_live_prompt_carries_real_style_prose_from_all_three_examples(store, stub_gemini):
+    """Review G / PART G: the drafting model must SEE the three style bodies
+    (non-empty P1/LAST), while the persisted draft JSON keeps IDs only."""
+    _ready_case()
+    cli.main(["live-case", "EV-M", "--idea", store["idea_id"], "--mode", "MODE_BRIEF"])
+    cli.main(["live-generate", "EV-M", "--case-id", "LIV-01"])
+
+    prompt = next(s["prompt"] for s in stub_gemini if s["role"] == "draft")
+    p1_lines = [line[4:].strip() for line in prompt.splitlines() if line.startswith("P1: ")]
+    last_lines = [line[6:].strip() for line in prompt.splitlines() if line.startswith("LAST: ")]
+    assert len(p1_lines) == 3 and all(p1_lines), p1_lines
+    assert len(last_lines) == 3 and all(last_lines), last_lines
+    # style prose stays under STYLE_EXAMPLES and explicitly STYLE ONLY
+    assert "STYLE EXAMPLE" in prompt and "STYLE ONLY" in prompt
+    assert prompt.index("STYLE EXAMPLE") < prompt.index("TASK")
+
+    # G: nothing persisted carries an archive body; F2: fallback metadata honest.
+    stored = json.loads(cli.LIVE_DRAFTS_PATH.read_text(encoding="utf-8"))
+    assert stored["retrieval_example_ids"] and len(stored["retrieval_example_ids"]) == 3
+    retrieval_meta = stored["retrieval"]
+    assert "examples" not in retrieval_meta  # IDs only, no bodies anywhere
+    assert isinstance(retrieval_meta["fallback_used"], bool)
+    assert retrieval_meta["retrieval_reason"]
+    assert isinstance(retrieval_meta["fallback_trail"], list)
+    assert "body" not in json.dumps(stored["retrieval"], ensure_ascii=False)
+
+
+def test_style_preflight_failure_refuses_before_any_model_call(store, stub_gemini, monkeypatch):
+    """Review G3 / PART F: a retrieval refusal happens BEFORE call_model —
+    no draft request, no semantic judge request, no spend."""
+    row = _ready_case()
+
+    def boom(*_args, **_kwargs):
+        raise StyleRetrievalError("стилови примери: само 0/3 уникални")
+
+    monkeypatch.setattr(live, "retrieve_examples_for_generation", boom)
+    with pytest.raises(live.LiveError, match="уникални"):
+        live.live_generate_draft(row["packet"], voice=live.DEFAULT_VOICE, mode="MODE_BRIEF")
+    assert stub_gemini == []  # not a single provider call happened
+    assert not cli.LIVE_DRAFTS_PATH.exists() and not cli.CASES_PATH.exists()
 
 
 def test_gemini_retries_503_then_succeeds(monkeypatch):

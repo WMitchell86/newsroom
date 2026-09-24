@@ -37,12 +37,21 @@ Contract for a route (enforced by `validate_policy` and by the router):
 * a role may mix providers, and a missing/unavailable provider is a *skip*, not
   a stop (this is what makes Gemini -> OpenRouter fallback real);
 * `billing`: `free` (no cost), `paid` (needs `global.paid_enabled`), or
-  `operator_declared` (the operator's own quota, e.g. Gemini free tier);
+  `operator_declared` (the operator's own quota, e.g. Gemini free tier).
+  **OpenRouter routes must state `free` or `paid` explicitly — there is no
+  billing default for OpenRouter** (pre-frontend gate A1: an omitted billing
+  class must never silently become free and bypass `paid_enabled`);
 * `public_only: true` routes must never receive unpublished material
-  (`payload_class = "private"`), which the router enforces before any call;
+  (`payload_class = "private"`), which the router enforces before any call.
+  **`openrouter` + `billing=free` always means `public_only=true`** — a policy
+  that declares the combination `free + public_only=false` is rejected (A2);
 * `daily_call_limit` is the operator-declared per-model quota (Gemini meters
-  each model separately). The router counts local calls per model per
-  Europe/Sofia day and skips a spent route; provider 429 signals win over it.
+  each model separately). The router counts local *provider attempts* per model
+  per Europe/Sofia day and skips a spent route; provider 429 signals win over
+  it. The role `soft_calls_day`/`hard_calls_day` caps count *logical requests*
+  (one `call_role()` invocation is one request regardless of skips/fallbacks) —
+  per-model quotas and role caps are two different controls, both adjustable
+  from `/models` or `newsroom models set`.
 
 Legacy env knobs stay supported as policy overrides (`GEMINI_<ROLE>_MODELS`,
 `OPENROUTER_<ROLE>_MODEL`), so an existing `.env` keeps working; the policy file
@@ -147,10 +156,35 @@ def _normalize_route(route, *, role):
         raise PolicyError(f"{role}: неизвестен provider {provider!r}")
     if not model:
         raise PolicyError(f"{role}: route без model")
-    billing = str(route.get("billing") or ("operator_declared" if provider == "gemini" else "free"))
-    if billing not in BILLING:
-        raise PolicyError(f"{role}: непознат billing {billing!r}")
-    public_only = bool(route.get("public_only", provider == "openrouter" and billing == "free"))
+    raw_billing = route.get("billing")
+    if provider == "openrouter":
+        # A1/A2 (pre-frontend gate): OpenRouter billing is always explicit and
+        # free always means public-only — neither is ever defaulted.
+        if not raw_billing:
+            raise PolicyError(
+                f"{role}: OpenRouter маршрут {model!r} трябва да посочи billing "
+                "(free | paid) — безплатен не се предполага никога"
+            )
+        billing = str(raw_billing)
+        if billing not in ("free", "paid"):
+            raise PolicyError(
+                f"{role}: OpenRouter billing трябва да е free или paid, не {billing!r}"
+            )
+        if billing == "free":
+            declared = route.get("public_only")
+            if declared is not None and not bool(declared):
+                raise PolicyError(
+                    f"{role}: free OpenRouter маршрут {model!r} изисква public_only=true — "
+                    "безплатните endpoints не получават непубликувани материали"
+                )
+            public_only = True
+        else:
+            public_only = bool(route.get("public_only", False))
+    else:
+        billing = str(raw_billing or "operator_declared")
+        if billing not in BILLING:
+            raise PolicyError(f"{role}: непознат billing {billing!r}")
+        public_only = bool(route.get("public_only", False))
     out = {
         "provider": provider,
         "model": model,
@@ -372,17 +406,19 @@ def role_policy(policy: dict, role: str) -> dict:
 
 
 def known_billing(policy: dict, model: str) -> str:
-    """Billing class the policy already declares for a model id.
+    """Billing class the policy already declares for a model id; `""` when
+    the id is undeclared.
 
     Used when a legacy caller passes an explicit `model=`: the explicit id is
-    tried first, but it may not silently bypass the paid gate (`unknown` ids are
-    treated as free only because the router also consults the price snapshot).
+    tried first, but it may not silently bypass the paid gate. An **unknown id
+    is NOT free** (A3): the router fails paid-safe until a policy declaration
+    or a live catalog validation proves the model free.
     """
     for role in policy.get("roles", {}).values():
         for route in role.get("routes") or []:
             if route.get("model") == model:
-                return str(route.get("billing") or "free")
-    return "free"
+                return str(route.get("billing") or "")
+    return ""
 
 
 def route_label(route) -> str:

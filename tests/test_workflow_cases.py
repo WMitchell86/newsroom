@@ -7,6 +7,7 @@ import json
 import pytest
 
 from editor_assistant.workflow import cases as cases_mod
+from editor_assistant.workflow import ideas as ideas_mod
 from editor_assistant.workflow.ideas import (
     ANGLE_PREFIX,
     IdeaError,
@@ -124,6 +125,32 @@ def test_ideacard_serialization_roundtrip(tmp_path):
     loaded = read_ideas(path)
     assert loaded == [idea]
     assert loaded[0]["possible_angle"].startswith(ANGLE_PREFIX)
+
+
+# ---------- G2: one canonical "may this idea enter drafting?" guard ----------
+
+
+def test_assert_draftable_status_allows_only_new_follow_up_and_draft_requested():
+    for status in ideas_mod.DRAFTABLE_STATUSES:
+        idea = make_idea(**_idea(status=status))
+        assert ideas_mod.assert_draftable_status(idea) is idea
+    assert ideas_mod.DRAFTABLE_STATUSES == ("NEW", "FOLLOW_UP", "DRAFT_REQUESTED")
+
+
+def test_assert_draftable_status_refuses_closed_and_unknown_states_without_mutation():
+    for status in ("IGNORED", "NO_PUBLISHABLE_ANGLE", "AUTO_PUBLISH", None):
+        idea = make_idea(**_idea(status="NEW"))
+        idea["status"] = status  # bypass validate_idea to model unknown on-disk states
+        before = json.dumps(idea, ensure_ascii=False, sort_keys=True)
+        with pytest.raises(IdeaError):
+            ideas_mod.assert_draftable_status(idea)
+        # The refusal never mutates the idea — the store stays byte-identical.
+        assert json.dumps(idea, ensure_ascii=False, sort_keys=True) == before
+    # Readable Bulgarian refusal names the closed state.
+    with pytest.raises(IdeaError, match="IGNORED"):
+        ideas_mod.assert_draftable_status(make_idea(**_idea(status="IGNORED")))
+    with pytest.raises(IdeaError, match="NO_PUBLISHABLE_ANGLE"):
+        ideas_mod.assert_draftable_status(make_idea(**_idea(status="NO_PUBLISHABLE_ANGLE")))
 
 
 def test_ideacard_validation_rejects_unlabeled_angle_and_bad_status():

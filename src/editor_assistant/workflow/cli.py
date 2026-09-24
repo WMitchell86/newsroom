@@ -34,6 +34,7 @@ from pathlib import Path
 
 from editor_assistant.workflow import angles, live_store
 from editor_assistant.workflow import cases as cases_mod
+from editor_assistant.workflow import ideas as ideas_mod
 from editor_assistant.workflow import live as live_mod
 from editor_assistant.workflow import readiness as readiness_mod
 from editor_assistant.workflow import transcriber as transcriber_mod
@@ -244,11 +245,16 @@ def cmd_live_case(args):
     if args.idea != row["idea_id"]:
         sys.exit("idea does not belong to this evidence packet")
     idea = _idea_by_id(args.idea, ideas)
-    if idea["status"] == angles.NO_ANGLE:
-        print(f"{args.evidence_id}: {angles.NO_ANGLE}; no article")
-        return
-    if idea["status"] not in ("NEW", "FOLLOW_UP", "DRAFT_REQUESTED"):
-        sys.exit(f"idea {idea['idea_id']} status {idea['status']!r} cannot be drafted")
+    try:
+        # Canonical G2 guard — the same check the Workbench prepare path runs.
+        ideas_mod.assert_draftable_status(idea)
+    except ideas_mod.IdeaError as exc:
+        if idea["status"] == angles.NO_ANGLE:
+            # A closed NO_ANGLE idea: readable outcome, zero mutation, and no
+            # prepared row is ever written for it.
+            print(f"{args.evidence_id}: {angles.NO_ANGLE}; no article")
+            return
+        sys.exit(f"{args.evidence_id}: {exc}")
     prepared = live_mod.live_case_request(
         idea,
         row["packet"],
@@ -1029,9 +1035,11 @@ def render_models_status(report):
             f"платени модели: {'РАЗРЕШЕНИ' if report['paid_enabled'] else 'забранени'}"
             f" · платено днес: ${report['paid_cost_today_usd']:.4f}"
             f" (soft ${report['soft_paid_budget_usd_day']:.2f})"
+            + (" · ⚠ ПРЕВИШЕН СОФТ БЮДЖЕТ ЗА ПЛАТЕНИ" if report.get("paid_soft_exceeded") else "")
         ),
         (
-            f"днес общо: {report['usage']['calls']} заявки · "
+            f"днес: {report['usage'].get('requests', report['usage']['calls'])} логически "
+            f"заявки ({report['usage']['calls']} реда в дневника) · "
             f"успешни {report['usage']['successes']} · паднали {report['usage']['failures']} · "
             f"пропуснати {report['usage']['skipped']} · резервни опити {report['usage']['fallbacks']}"
         ),
@@ -1125,15 +1133,32 @@ def _apply_models_set(args):
                 raise model_policy.PolicyError(
                     "форматът е provider:model (напр. gemini:gemini-3.8-flash)"
                 )
+            billing = getattr(args, "billing", None)
+            if provider == "openrouter" and billing not in ("free", "paid"):
+                # A1: an OpenRouter route never gets an implicit billing class.
+                raise model_policy.PolicyError(
+                    "OpenRouter маршрут изисква явен --billing free|paid "
+                    "(безплатен не се предполага)"
+                )
+            if provider == "gemini" and not billing:
+                billing = "operator_declared"
             route = {
                 "provider": provider,
                 "model": model,
-                "billing": getattr(args, "billing", None)
-                or ("operator_declared" if provider == "gemini" else "free"),
-                "public_only": bool(getattr(args, "public_only", False)),
+                "billing": billing,
+                # A2: free OpenRouter can only be public-only.
+                "public_only": (
+                    True
+                    if provider == "openrouter" and billing == "free"
+                    else bool(getattr(args, "public_only", False))
+                ),
             }
+            if provider == "gemini":
+                limit = model_policy.GEMINI_DAILY_LIMITS.get(model)
+                if limit:
+                    route["daily_call_limit"] = limit
             model_policy.add_route(policy, role, route)
-            changes.append(f"{role}: добавен {provider}:{model}")
+            changes.append(f"{role}: добавен {provider}:{model} [{billing}]")
     except model_policy.PolicyError as exc:
         raise SystemExit(f"models set: {exc}") from exc
 

@@ -1074,6 +1074,15 @@ def prepare_case(idea_id, evidence_id, *, mode=""):
         idea = next((i for i in ideas if i["idea_id"] == idea_id), None)
         if idea is None:
             raise WorkbenchError(f"unknown idea_id: {idea_id}")
+        try:
+            # Canonical G2 guard (same helper as the CLI `live-case`): a closed
+            # editor state (IGNORED / NO_PUBLISHABLE_ANGLE / unknown) refuses
+            # here — no prepared row, no audit action, all stores untouched.
+            from editor_assistant.workflow import ideas as ideas_mod
+
+            ideas_mod.assert_draftable_status(idea)
+        except ideas_mod.IdeaError as exc:
+            raise WorkbenchError(str(exc)) from exc
         row = load_live_rows().get(evidence_id)
         if row is None or row.get("idea_id") != idea_id:
             raise WorkbenchError("материалът не принадлежи на тази идея")
@@ -1085,7 +1094,7 @@ def prepare_case(idea_id, evidence_id, *, mode=""):
         chosen = mode if mode in EDITING_MODES else suggestion["suggested_mode"]
         try:
             prepared = live.live_case_request(idea, packet, voice=live.DEFAULT_VOICE, mode=chosen)
-        except live.LiveError as exc:
+        except (live.LiveError, ideas_mod.IdeaError) as exc:
             raise WorkbenchError(str(exc)) from exc
         if prepared.get("status") == angles.NO_ANGLE:
             # NB: save THIS loaded list - live_case_request mutated the idea dict

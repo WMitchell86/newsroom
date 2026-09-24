@@ -33,6 +33,17 @@ MODE_PRED = {
     ),
 }
 _WORD_RE = re.compile(r"[\w\-]+", re.UNICODE)
+
+
+class StyleRetrievalError(RuntimeError):
+    """Not enough usable style examples — a GENERATION precondition failure.
+
+    Raised by `retrieve_examples_for_generation` BEFORE any model call, so a
+    thin corpus can no longer burn one or two model calls and only then fail
+    the `exactly 3 style_example_ids` lineage rule (Review G3).
+    """
+
+
 _BG_STOP = frozenset(
     [
         "и",
@@ -194,7 +205,16 @@ def score_candidate(row, *, voice, mode, packet):
 
 
 def retrieve_examples(
-    packet, *, voice, mode, corpus_path, analysis_dir, top_n=3, exclude_ids=(), target_chars=None
+    packet,
+    *,
+    voice,
+    mode,
+    corpus_path,
+    analysis_dir,
+    top_n=3,
+    exclude_ids=(),
+    target_chars=None,
+    include_body=False,
 ):
     rows = _load_rows(corpus_path, analysis_dir)
     pkt = dict(packet)
@@ -216,17 +236,88 @@ def retrieve_examples(
     best = scored[:top_n]
     out = []
     for total, _date, _aid, row, parts in best:
-        out.append(
-            {
-                "article_id": row["article_id"],
-                "url": row["url"],
-                "headline": row["headline"],
-                "author": row["author"],
-                "category": row["category"],
-                "published_date": row["date"],
-                "score": total,
-                "score_parts": parts,
-                "why_selected": f"style reference only ({voice}+{mode}); score {total} parts {parts}",
-            }
-        )
+        record = {
+            "article_id": row["article_id"],
+            "url": row["url"],
+            "headline": row["headline"],
+            "author": row["author"],
+            "category": row["category"],
+            "published_date": row["date"],
+            "score": total,
+            "score_parts": parts,
+            "why_selected": f"style reference only ({voice}+{mode}); score {total} parts {parts}",
+        }
+        if include_body:
+            # G: prompt-time records carry the prose the drafting prompt
+            # actually renders (`prompt._example_text` expects `body`); the
+            # default keeps the legacy body-less shape for callers that only
+            # persist IDs/URLs/reasons.
+            record["body"] = row["body"]
+        out.append(record)
     return out
+
+
+def retrieve_examples_for_generation(
+    packet, *, voice, mode, corpus_path, analysis_dir, top_n=3, exclude_ids=(), target_chars=None
+):
+    """Generation preflight (Review G3): return exactly `top_n` unique style
+    examples — WITH bodies for the prompt — or raise before any model call.
+
+    Composition fallback uses the already documented M2.3 chain, never a new
+    taxonomy:
+
+    ```text
+    requested VOICE + MODE
+    -> HOUSE + same MODE          (only when a non-HOUSE voice was requested)
+    -> HOUSE + STANDARD_NEWS      (only when the mode itself differs)
+    ```
+
+    Article IDs are deduplicated across steps. Returns
+    `{examples, fallback_used, fallback_trail, retrieval_reason}`; the trail and
+    reason are truthful, so the caller persists what really happened instead of
+    a hard-coded `fallback_used=False`.
+    """
+    steps = [(voice, mode)]
+    if voice != "VOICE_HOUSE":
+        steps.append(("VOICE_HOUSE", mode))
+    if mode != "MODE_STANDARD_NEWS":
+        steps.append(("VOICE_HOUSE", "MODE_STANDARD_NEWS"))
+    picked: dict = {}
+    trail = []
+    excluded = set(exclude_ids or ())
+    for step_voice, step_mode in steps:
+        if len(picked) >= top_n:
+            break
+        found = retrieve_examples(
+            packet,
+            voice=step_voice,
+            mode=step_mode,
+            corpus_path=corpus_path,
+            analysis_dir=analysis_dir,
+            top_n=top_n,
+            exclude_ids=sorted(excluded),
+            target_chars=target_chars,
+            include_body=True,
+        )
+        for example in found:
+            picked.setdefault(example["article_id"], example)
+        excluded = set(picked)
+        trail.append({"voice": step_voice, "mode": step_mode, "found": len(found)})
+    examples = list(picked.values())[:top_n]
+    if len(examples) < top_n:
+        raise StyleRetrievalError(
+            f"стилови примери: само {len(examples)}/{top_n} уникални за "
+            f"{voice}+{mode} (верига: {trail}) — отказана генерация преди моден разход"
+        )
+    fallback_used = len(trail) > 1
+    if fallback_used:
+        fallback_steps = " -> ".join(f"{v}+{m}" for v, m in steps[1 : len(trail)])
+        retrieval_reason = f"fallback: {voice}+{mode} -> {fallback_steps}"
+    else:
+        retrieval_reason = f"{voice}+{mode} (requested composition, no fallback needed)"
+    return {
+        "examples": examples,
+        "fallback_used": fallback_used,
+        "fallback_trail": trail,
+        "retrieval_reason": retrieval_reason,
+    }

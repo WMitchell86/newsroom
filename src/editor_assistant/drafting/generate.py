@@ -829,9 +829,16 @@ def _parse_semantic(raw):
 def verify_claims_semantic(packet, draft_text, *, api_key=None, timeout=240, model=None):
     """M2.3B second-pass semantic claim check. The deterministic audit is lexical and
     can mark a relationally-wrong or mis-attributed sentence SUPPORTED when tokens overlap.
-    This asks the model to check entailment, attribution, relationship and temporal binding."""
+    This asks the model to check entailment, attribution, relationship and temporal binding.
+
+    H: the draft under check is UNPUBLISHED material — the call site declares
+    `payload_class="private"`, so it can never fall through to a public-only
+    (free) route even though transcript judge calls are public.
+    """
     prompt_text = _semantic_judge_prompt(packet, draft_text)
-    raw, meta = call_model(prompt_text, api_key=api_key, timeout=timeout, role="judge")
+    raw, meta = call_model(
+        prompt_text, api_key=api_key, timeout=timeout, role="judge", payload_class="private"
+    )
     claims, errors = _parse_semantic(raw)
     unsupported = [c for c in claims if c["verdict"] == "UNSUPPORTED"]
     return {

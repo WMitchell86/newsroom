@@ -199,6 +199,49 @@ def test_post_generate_without_prepare_refuses_side_effect_free(server, stores):
     assert not (stores / "live_drafts.jsonl").exists()
 
 
+# ---------- G2 parity: a closed idea can no longer be revived from the UI ----------
+
+
+@pytest.mark.parametrize("closed_status", ["IGNORED", "NO_PUBLISHABLE_ANGLE"])
+def test_post_prepare_refuses_a_closed_idea_without_touching_any_store(server, closed_status):
+    """The Workbench runs the SAME canonical `assert_draftable_status` guard
+    the CLI uses: readable Bulgarian refusal, zero mutation, no audit success."""
+    _add_idea(status=closed_status)
+    _add_packet()
+    before_ideas = state.ideas_path().read_bytes()
+
+    resp = _post(
+        f"{server}/articles",
+        {"action": "prepare", "idea": "LIVE-TEST-1", "evidence": "LIVE-TEST-1-EVIDENCE"},
+    )
+    assert resp.code == 303
+    params = _qs(resp)
+    assert "error" in params and closed_status in params["error"][0]
+    assert "message" not in params
+    # every store byte-identical: idea unchanged, no prepared row, no audit
+    assert state.ideas_path().read_bytes() == before_ideas
+    row = state.load_live_rows()["LIVE-TEST-1-EVIDENCE"]
+    assert not row.get("prepared")
+    actions = [a["action"] for a in state.read_actions()]
+    assert "case_prepared" not in actions and "prepare_refused_no_angle" not in actions
+    assert state.load_cases() == []
+
+
+def test_post_prepare_still_works_for_draftable_statuses(server):
+    """Parity cut both ways: NEW/FOLLOW_UP/DRAFT_REQUESTED keep preparing."""
+    _add_idea(source_type="upstream_press_release", status="FOLLOW_UP")
+    _add_packet(source_type="upstream_press_release")
+    resp = _post(
+        f"{server}/articles",
+        {"action": "prepare", "idea": "LIVE-TEST-1", "evidence": "LIVE-TEST-1-EVIDENCE"},
+    )
+    assert resp.code == 303
+    params = _qs(resp)
+    assert "message" in params and "error" not in params
+    assert state.load_ideas()[0]["status"] == "DRAFT_REQUESTED"
+    assert state.load_live_rows()["LIVE-TEST-1-EVIDENCE"].get("prepared")
+
+
 def test_save_ideas_validation_failure_never_truncates_the_store():
     # F2: ideas.save_ideas must validate + serialize BEFORE touching the file
     # (it used to truncate first, so a bad idea destroyed the whole store).

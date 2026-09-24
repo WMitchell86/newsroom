@@ -13,6 +13,15 @@ from pathlib import Path
 from editor_assistant.workflow import live_store
 
 IDEA_STATUSES = ("NEW", "DRAFT_REQUESTED", "IGNORED", "FOLLOW_UP", "NO_PUBLISHABLE_ANGLE")
+#: The ONLY statuses that may enter drafting. One canonical tuple, one
+#: canonical check (`assert_draftable_status`) — the CLI `live-case`, the
+#: Workbench `prepare_case` and the future JSON API boundary all call it, so
+#: the allowed set is never duplicated across surfaces (Review G2).
+DRAFTABLE_STATUSES = ("NEW", "FOLLOW_UP", "DRAFT_REQUESTED")
+_CLOSED_STATUS_REASONS = {
+    "IGNORED": "идеята е затворена от редактора (IGNORED)",
+    "NO_PUBLISHABLE_ANGLE": "няма публикуем ъгъл (NO_PUBLISHABLE_ANGLE)",
+}
 REQUIRED_TOP = (
     "idea_id",
     "created_at",
@@ -88,6 +97,29 @@ def request_draft(idea):
         raise IdeaError(f"cannot request draft from status {idea['status']!r}")
     idea["status"] = "DRAFT_REQUESTED"
     return idea
+
+
+def assert_draftable_status(idea):
+    """Canonical "may this idea enter drafting?" guard (Review G2).
+
+    Returns the idea when its status is draftable; otherwise raises
+    `IdeaError` with a readable Bulgarian refusal. Never mutates the idea,
+    never writes a store — closed editor states (`IGNORED`,
+    `NO_PUBLISHABLE_ANGLE`) and anything unknown fail closed, so a UI call
+    can no longer silently revive a rejected idea.
+    """
+    if not isinstance(idea, dict):
+        raise IdeaError("idea must be a dict")
+    status = idea.get("status")
+    if status in DRAFTABLE_STATUSES:
+        return idea
+    reason = _CLOSED_STATUS_REASONS.get(status)
+    if reason is None:
+        reason = (
+            f"непозволен статус {status!r} "
+            f"(за чернова се допускат: {', '.join(DRAFTABLE_STATUSES)})"
+        )
+    raise IdeaError(f"идеята не може да влезе в чернова: {reason}")
 
 
 def save_ideas(ideas, path):

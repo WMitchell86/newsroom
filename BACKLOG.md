@@ -70,7 +70,8 @@ M4B   Daily Inbox UX                               DONE (frozen)
 M4B.1 Feed stabilization (review F1-F7)            DONE (awaiting review/freeze)
 M4C   Story Identity / New Development             DONE (awaiting review/freeze)
 M4D   Model Routing + Role Budget                  DONE (awaiting review/freeze)
-M4E   Telegram Editorial Alerts                    <-- next
+M4E   Telegram Editorial Alerts                    BACKLOG (owner-approved next:
+                                                     frontend/ Vite+React+TS SPA)
 M4F   Editorial workflow polish
 ```
 

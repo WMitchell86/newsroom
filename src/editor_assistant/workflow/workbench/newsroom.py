@@ -559,16 +559,39 @@ def edit_policy(**changes):
                 policy, role, int(changes["index"]), bool(changes["enabled"])
             )
         elif action == "add":
-            model_policy.add_route(
-                policy,
-                role,
-                {
-                    "provider": changes["provider"],
-                    "model": changes["model"],
-                    "billing": changes.get("billing") or None,
-                    "public_only": bool(changes.get("public_only")),
-                },
-            )
+            provider = str(changes.get("provider") or "").strip()
+            model = str(changes.get("model") or "").strip()
+            if not provider or not model:
+                raise model_policy.PolicyError("попълнете provider и model")
+            billing = changes.get("billing")
+            route = {"provider": provider, "model": model, "billing": billing or None}
+            if provider == "gemini":
+                # A4: the operator never picks paid/free for Gemini — the route
+                # runs on the operator's own quota, pre-filled with known RPD.
+                route["billing"] = "operator_declared"
+                limit = model_policy.GEMINI_DAILY_LIMITS.get(model)
+                if limit:
+                    route["daily_call_limit"] = limit
+                route["public_only"] = bool(changes.get("public_only"))
+            else:
+                if billing not in ("free", "paid"):
+                    raise model_policy.PolicyError(
+                        "OpenRouter маршрут трябва да посочи тип: Безплатен или Платен "
+                        "(безплатен не се предполага)"
+                    )
+                from editor_assistant.drafting import model_catalog
+
+                contradiction = model_catalog.cached_billing_contradiction(
+                    read_validation(), model, billing
+                )
+                if contradiction:
+                    raise model_policy.PolicyError(contradiction)
+                # A2: free OpenRouter is public-only; the checkbox may only
+                # narrow a PAID route, never weaken the free invariant.
+                route["public_only"] = (
+                    True if billing == "free" else bool(changes.get("public_only"))
+                )
+            model_policy.add_route(policy, role, route)
         elif action == "remove":
             model_policy.remove_route(policy, role, int(changes["index"]))
         else:

@@ -450,7 +450,7 @@ def collect(
     today=None,
     fetch_bytes=None,
     news_provider=None,
-    now=_now,
+    now=None,
     force=False,
     health_path=None,
     blocked_path=None,
@@ -458,7 +458,12 @@ def collect(
     root=None,
     use_lock=True,
 ):
-    """Run the collectors once. `dry_run=True` makes no network call and no write."""
+    """Run the collectors once. `dry_run=True` makes no network call and no write.
+
+    `now` is resolved at call time (same contract as `plan`), so tests can pin
+    the clock and the 72 h recency window never depends on the wall clock.
+    """
+    now = now or _now
     started = now()
     run_plan = plan(
         path,

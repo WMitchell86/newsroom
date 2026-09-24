@@ -767,3 +767,142 @@ def test_models_page_shows_global_paid_state(server):
     assert policy_mod.load_policy()["global"]["soft_paid_budget_usd_day"] == 1.25
     html = _get(f"{server}/models").read().decode("utf-8")
     assert "1.25" in html
+
+
+# ---------- pre-frontend gate: add-route billing/privacy safety (A) + soft paid (C) ----------
+
+
+def test_models_add_openrouter_requires_an_explicit_billing_choice(server):
+    """A1/A6: no billing in the form -> 400, nothing stored, no free default."""
+    from editor_assistant.drafting import model_policy as policy_mod
+
+    before = len(policy_mod.load_policy()["roles"]["draft"]["routes"])
+    resp = _post(
+        f"{server}/models",
+        {
+            "action": "add",
+            "role": "draft",
+            "provider": "openrouter",
+            "model": "openai/gpt-5.6-luna",
+        },
+    )
+    assert resp.status == 400
+    body = resp.read().decode("utf-8")
+    assert "Безплатен или Платен" in body
+    after = policy_mod.load_policy()
+    assert len(after["roles"]["draft"]["routes"]) == before
+    assert after["global"]["paid_enabled"] is False
+
+
+def test_models_add_free_openrouter_is_stored_public_only(server):
+    """A2: billing=free forces public_only=true; the checkbox cannot weaken it."""
+    from editor_assistant.drafting import model_policy as policy_mod
+
+    resp = _post(
+        f"{server}/models",
+        {
+            "action": "add",
+            "role": "judge",
+            "provider": "openrouter",
+            "model": "vendor/new-free:free",
+            "billing": "free",
+            # deliberately NO public_only checkbox — the service must force it
+        },
+    )
+    assert resp.status == 303
+    route = next(
+        r
+        for r in policy_mod.load_policy()["roles"]["judge"]["routes"]
+        if r["model"] == "vendor/new-free:free"
+    )
+    assert route["billing"] == "free" and route["public_only"] is True
+
+
+def test_models_add_gemini_uses_operator_declared_with_known_rpd(server):
+    """A4: Gemini additions never ask paid/free and inherit the local RPD."""
+    from editor_assistant.drafting import model_policy as policy_mod
+
+    resp = _post(
+        f"{server}/models",
+        {
+            "action": "add",
+            "role": "draft",
+            "provider": "gemini",
+            "model": "gemini-3.7-flash",
+            "billing": "free",  # ignored for Gemini: the operator's own quota
+        },
+    )
+    assert resp.status == 303
+    route = next(
+        r
+        for r in policy_mod.load_policy()["roles"]["draft"]["routes"]
+        if r["model"] == "gemini-3.7-flash" and r["provider"] == "gemini"
+    )
+    assert route["billing"] == "operator_declared"
+    assert route["daily_call_limit"] == policy_mod.GEMINI_DAILY_LIMITS["gemini-3.7-flash"]
+
+
+def test_models_add_refuses_free_when_the_cached_validation_saw_paid(server, newsroom_dir):
+    """A5: a contradicting cached catalog validation refuses the edit (no network)."""
+    from editor_assistant.drafting import model_policy as policy_mod
+
+    newsroom_dir.mkdir(parents=True, exist_ok=True)
+    (newsroom_dir / "model_validation.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "provider": "openrouter",
+                        "model": "looks-free-but-paid",
+                        "observed_free": False,
+                        "observed_price_usd_per_mtok": [0.2, 1.2],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = len(policy_mod.load_policy()["roles"]["judge"]["routes"])
+    resp = _post(
+        f"{server}/models",
+        {
+            "action": "add",
+            "role": "judge",
+            "provider": "openrouter",
+            "model": "looks-free-but-paid",
+            "billing": "free",
+        },
+    )
+    assert resp.status == 400
+    body = resp.read().decode("utf-8")
+    assert "платен" in body and "validate" in body
+    assert len(policy_mod.load_policy()["roles"]["judge"]["routes"]) == before
+
+
+def test_models_page_renders_the_explicit_billing_choice(server):
+    """A4: the add form shows Безплатен/Платен with no blank default."""
+    html = _get(f"{server}/models").read().decode("utf-8")
+    assert 'name="billing"' in html
+    assert "Безплатен (OpenRouter)" in html and "Платен (OpenRouter)" in html
+    assert "Собствена квота (Gemini)" in html
+
+
+def test_models_page_warns_when_the_paid_soft_budget_is_exceeded(server):
+    """PART C: visible, non-blocking warning on the operator page."""
+    from editor_assistant.drafting import model_policy as policy_mod
+    from editor_assistant.drafting import model_usage
+
+    budget = policy_mod.load_policy()["global"]["soft_paid_budget_usd_day"]
+    html = _get(f"{server}/models").read().decode("utf-8")
+    assert "ПРЕВИШЕН" not in html
+    model_usage.record(
+        {
+            "role": "draft",
+            "provider": "openrouter",
+            "model": "openai/gpt-5.6-luna",
+            "status": model_usage.STATUS_OK,
+            "cost_usd": budget + 0.25,
+        }
+    )
+    html = _get(f"{server}/models").read().decode("utf-8")
+    assert "Платеният софт бюджет" in html and "не блокада" in html

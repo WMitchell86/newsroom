@@ -780,6 +780,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     role=role,
                     provider=provider,
                     model=model,
+                    billing=_first(form, "billing", "").strip() or None,
                     public_only=bool(_first(form, "public_only", "")),
                 )
                 message = f"{role}: добавен {provider}:{model}."

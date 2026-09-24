@@ -56,6 +56,9 @@ def stores(tmp_path, monkeypatch):
     monkeypatch.setenv("NEWSROOM_SOURCES_PATH", str(tmp_path / "sources.json"))
     monkeypatch.setenv("NEWSROOM_INBOX_PATH", str(tmp_path / "inbox.jsonl"))
     monkeypatch.setenv("NEWSROOM_DIR", str(tmp_path))
+    # Pin the runner clock: the fixtures are dated 2026-09-21 and the 72 h news
+    # window must not rotate them out of range as the real date advances.
+    monkeypatch.setattr(newsroom_run, "_now", lambda: NOW)
     return tmp_path
 
 

@@ -2183,6 +2183,18 @@ def render_models(view, message="", error="", values=None):
             '<input type="text" name="provider" placeholder="gemini"></label>'
             + "<label>Модел (model) "
             '<input type="text" name="model" placeholder="gemini-3.7-flash"></label>'
+            # A4: no blank implicit billing default — the operator must choose.
+            # Free OpenRouter can only receive public material (the service
+            # forces public_only=true for `billing=free`); Gemini is declared as
+            # the operator's own quota (operator_declared) and never as free/paid.
+            "<fieldset><legend>Тип (billing) — избира се явно</legend>"
+            '<label><input type="radio" name="billing" value="free" required> '
+            "Безплатен (OpenRouter) — само публични материали</label>"
+            '<label><input type="radio" name="billing" value="paid"> '
+            "Платен (OpenRouter) — изисква разрешен платен режим</label>"
+            '<label><input type="radio" name="billing" value="operator_declared"> '
+            "Собствена квота (Gemini) — не се пита безплатен/платен</label>"
+            "</fieldset>"
             '<label><input type="checkbox" name="public_only" value="1"> '
             "само публични материали</label>"
             '<button class="btn primary" type="submit">Добави</button></form>'
@@ -2207,11 +2219,18 @@ def render_models(view, message="", error="", values=None):
         + '"btn" type="submit">Запази</button></form>'
         + (
             f"<p>платено днес: ${view['paid_cost_today_usd']:.4f} · "
-            f"заявки днес: {view['usage']['calls']} · "
+            f"заявки днес: {view['usage'].get('requests', view['usage']['calls'])} · "
             f"успешни {view['usage']['successes']} · паднали {view['usage']['failures']} · "
             f"пропуснати {view['usage']['skipped']} · "
             f"лимитни откази {view['usage']['quota_failures']} · "
             f"невалидни модели {view['usage']['invalid_model_failures']}</p>"
+        )
+        + (
+            '<div class="notice error">⚠ Платеният софт бюджет за деня е превишен '
+            "(${} ≥ ${:.2f}). Роутингът продължава — това е предупреждение, не блокада."
+            "</div>".format(view["paid_cost_today_usd"], view.get("soft_paid_budget_usd_day", 0.0))
+            if view.get("paid_soft_exceeded")
+            else ""
         )
         + _policy_action("", "validate")
         + '<p class="muted">Проверява всеки конфигуриран модел в живите каталози на '
