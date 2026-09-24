@@ -10,6 +10,7 @@ invariants: append-only drafts, LIV-nn case ids, audit rows.
 
 from __future__ import annotations
 
+import json
 import threading
 import urllib.error
 import urllib.parse
@@ -240,6 +241,52 @@ def test_post_prepare_still_works_for_draftable_statuses(server):
     assert "message" in params and "error" not in params
     assert state.load_ideas()[0]["status"] == "DRAFT_REQUESTED"
     assert state.load_live_rows()["LIVE-TEST-1-EVIDENCE"].get("prepared")
+
+
+def test_articles_page_shows_the_lineage_model_of_the_actual_drafter(server, stores):
+    """Review ROUND 2 A1/A2: the model the editor sees in the Workbench comes
+    from the persisted `lineage.model` — i.e. the route that ACTUALLY drafted,
+    never a static default. A "mock/second" lineage must surface verbatim."""
+    _add_idea(source_type="upstream_press_release")
+    _add_packet(source_type="upstream_press_release")
+    draft_row = {
+        "evidence_id": "LIVE-TEST-1-EVIDENCE",
+        "idea_id": "LIVE-TEST-1",
+        "draft": {"headline": "Заглавие", "body": "Тяло на черновата."},
+        "lineage": {
+            "draft_id": "dtest1234567",
+            "evidence_id": "LIVE-TEST-1-EVIDENCE",
+            "voice_id": "VOICE_HOUSE",
+            "mode_id": "MODE_BRIEF",
+            "style_example_ids": ["a1", "a2", "a3"],
+            "prompt_version": "m2.3b-prompt-3",
+            "model": "mock/second",
+            "generation_settings": {"temperature": 0.4, "max_tokens": 8192},
+            "generated_at": "2026-09-24T08:00:00+00:00",
+        },
+        "semantic": {"pass": True},
+        "lexical": {},
+        "factual_gate": "FACTUAL_GATE_PASS",
+        "voice": "VOICE_HOUSE",
+        "mode": "MODE_BRIEF",
+        "retrieval": {
+            "fallback_used": False,
+            "retrieval_reason": "VOICE_HOUSE+MODE_BRIEF",
+            "fallback_trail": [],
+        },
+        "retrieval_example_ids": ["a1", "a2", "a3"],
+    }
+    (stores / "live_drafts.jsonl").write_text(
+        json.dumps(draft_row, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    view = state.articles_view()
+    drafts = [d for r in view["ideas"] for e in r["evidence"] for d in e["drafts"]]
+    assert drafts and all(d["model"] == "mock/second" for d in drafts)
+
+    with _get(f"{server}/articles") as resp:
+        html = resp.read().decode("utf-8")
+    assert "mock/second" in html  # visible to the editor, not just in the view dict
 
 
 def test_save_ideas_validation_failure_never_truncates_the_store():

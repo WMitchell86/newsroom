@@ -440,3 +440,109 @@ def test_generation_preflight_refuses_when_three_unique_examples_are_impossible(
             corpus_path=CORPUS,
             analysis_dir=ANALYSIS,
         )
+
+
+# ---------- G3 ROUND 2: hermetic thin corpus, dedupe, MID prose ----------
+def _house_row(aid, paras=3):
+    """A usable VOICE_HOUSE + MODE_STANDARD_NEWS corpus row (house author, date)."""
+    return {
+        "article_id": aid,
+        "url": f"https://chernomorie-bg.com/post/{aid}",
+        "headline": f"Пример {aid}",
+        "author": "Черноморие-бг",
+        "category": "Община",
+        "published_date": "2025-06-01",
+        "body": "\n\n".join(f"Абзац {i} на {aid}." for i in range(1, paras + 1)),
+    }
+
+
+def _thin_corpus(tmp_path, rows):
+    corpus = tmp_path / "articles.jsonl"
+    corpus.write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8"
+    )
+    return corpus
+
+
+def test_thin_corpus_with_only_two_usable_examples_refuses(tmp_path):
+    """C1, corpus level: a REAL corpus yielding only two usable examples fails
+    the exactly-3 precondition with the truthful count in the refusal."""
+    corpus = _thin_corpus(tmp_path, [_house_row("thin-1"), _house_row("thin-2")])
+    with pytest.raises(StyleRetrievalError, match="2/3"):
+        retrieve_examples_for_generation(
+            _packet(),
+            voice="VOICE_HOUSE",
+            mode="MODE_STANDARD_NEWS",
+            corpus_path=corpus,
+            analysis_dir=ANALYSIS,
+        )
+
+
+def test_generation_preflight_dedupes_overlapping_fallback_steps(monkeypatch):
+    """C2: the same article_id returned by two chain steps counts ONCE, the
+    requested-composition example keeps its preferred first position, and the
+    exclusion is real (the next step actually receives the exclude list)."""
+    from editor_assistant.drafting import retrieval as retrieval_mod
+
+    def _ex(aid):
+        return {
+            "article_id": aid,
+            "headline": aid,
+            "body": f"текст {aid}",
+            "url": "",
+            "author": "",
+            "category": "",
+            "published_date": "",
+        }
+
+    seen = []
+
+    def scripted(packet, *, voice, mode, exclude_ids=(), **_kwargs):
+        seen.append((voice, mode, tuple(sorted(exclude_ids))))
+        if (voice, mode) == ("VOICE_DESISLAVA_RECENT", "MODE_BRIEF"):
+            return [_ex("d1")]
+        if (voice, mode) == ("VOICE_HOUSE", "MODE_BRIEF"):
+            pool = ["d1", "h1"]  # d1 already picked by the requested step
+            return [_ex(a) for a in pool if a not in set(exclude_ids)]
+        return [_ex("s1")]
+
+    monkeypatch.setattr(retrieval_mod, "retrieve_examples", scripted)
+    result = retrieval_mod.retrieve_examples_for_generation(
+        _packet(),
+        voice="VOICE_DESISLAVA_RECENT",
+        mode="MODE_BRIEF",
+        corpus_path=CORPUS,
+        analysis_dir=ANALYSIS,
+    )
+    ids = [e["article_id"] for e in result["examples"]]
+    assert ids == ["d1", "h1", "s1"]  # no duplicates, requested pick kept first
+    assert len(set(ids)) == 3
+    assert ("VOICE_HOUSE", "MODE_BRIEF", ("d1",)) in seen  # exclusion traveled
+    assert result["fallback_used"] is True
+
+
+def test_prompt_mid_paragraphs_carry_real_prose_for_all_three_examples():
+    """D2: with a >3-paragraph archive shape, every example contributes a MID
+    block with REAL source prose after the elision marker - not just headers.
+
+    (`_example_text` renders MID as the label, a blank line, the [...] marker,
+    then the archive paragraph - so this is asserted on content, not on a
+    single line parse.)"""
+    profs, dna = _profiles()
+    examples = [_house_row(f"mid-{i}", paras=5) for i in (1, 2, 3)]
+    prompt = build_prompt(
+        _packet(),
+        site_dna=dna,
+        voice_profile=profs["VOICE_HOUSE"],
+        mode_profile=profs["MODE_STANDARD_NEWS"],
+        style_examples=examples,
+    )
+    text = prompt["text"]
+    assert text.count("MID:") == 3 and text.count("[...]") == 3
+    for i in (1, 2, 3):
+        # the genuine middle archive paragraph of each example is present
+        assert f"Абзац 3 на mid-{i}." in text
+    # and each example still carries its real first and last paragraphs
+    for i in (1, 2, 3):
+        assert f"Абзац 1 на mid-{i}." in text
+        assert f"Абзац 5 на mid-{i}." in text

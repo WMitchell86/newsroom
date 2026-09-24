@@ -111,11 +111,59 @@ def test_live_case_cli_refuses_a_closed_idea_and_changes_nothing(tmp_path, monke
     }
     cli._save_live_row({"evidence_id": "EV-T", "idea_id": idea["idea_id"], "packet": packet})
     before_ideas = cli.IDEAS_PATH.read_bytes()
+    before_evidence = cli.LIVE_EVIDENCE_PATH.read_bytes()
 
     with pytest.raises(SystemExit) as exit_info:
         cli.main(["live-case", "EV-T", "--idea", idea["idea_id"]])
     assert "IGNORED" in str(exit_info.value)
     # Refusal leaves every store byte-identical: no prepared row, no rewrite.
     assert cli.IDEAS_PATH.read_bytes() == before_ideas
+    assert cli.LIVE_EVIDENCE_PATH.read_bytes() == before_evidence
+
+
+def test_live_case_cli_refuses_no_publishable_angle_with_readable_print(
+    tmp_path, monkeypatch, capsys
+):
+    """G2 parity (NO_PUBLISHABLE_ANGLE): the canonical guard refuses the closed
+    idea BEFORE any mutation, and the CLI surfaces it as a friendly Bulgarian
+    print — no raw traceback, no stores touched, no DRAFT_REQUESTED revival."""
+    for name, filename in (
+        ("IDEAS_PATH", "ideas.jsonl"),
+        ("LIVE_EVIDENCE_PATH", "evidence.jsonl"),
+        ("LIVE_DRAFTS_PATH", "drafts.jsonl"),
+        ("CASES_PATH", "cases.jsonl"),
+    ):
+        monkeypatch.setattr(cli, name, tmp_path / filename)
+    idea = live.new_idea(
+        source_type="organizer",
+        source_url="https://official.example/event",
+        title="Event",
+        what_changed="New event",
+    )
+    idea["status"] = "NO_PUBLISHABLE_ANGLE"
+    from editor_assistant.workflow.ideas import validate_idea
+
+    validate_idea(idea)
+    save_ideas([idea], cli.IDEAS_PATH)
+    packet = {
+        "evidence_id": "EV-T",
+        "source_url": "https://official.example/event",
+        "source_headline": "Event",
+        "facts": [{"id": "F1", "text": "Бургас приема ново събитие на 1 октомври."}],
+        "quotes": [],
+        "unknowns": [],
+    }
+    cli._save_live_row({"evidence_id": "EV-T", "idea_id": idea["idea_id"], "packet": packet})
+    before_ideas = cli.IDEAS_PATH.read_bytes()
+    before_evidence = cli.LIVE_EVIDENCE_PATH.read_bytes()
+
+    cli.main(["live-case", "EV-T", "--idea", idea["idea_id"]])  # no SystemExit
+
+    out = capsys.readouterr().out
+    # the CLI's friendly NO_ANGLE branch: one readable line, no traceback
+    assert "NO_PUBLISHABLE_ANGLE" in out and "no article" in out
+    assert cli.IDEAS_PATH.read_bytes() == before_ideas
+    assert cli.LIVE_EVIDENCE_PATH.read_bytes() == before_evidence
+    assert not cli.LIVE_DRAFTS_PATH.exists() and not cli.CASES_PATH.exists()
     assert "prepared" not in cli._live_rows()["EV-T"]
     assert not cli.CASES_PATH.exists() and not cli.LIVE_DRAFTS_PATH.exists()

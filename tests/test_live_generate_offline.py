@@ -259,6 +259,27 @@ def test_live_prompt_carries_real_style_prose_from_all_three_examples(store, stu
     assert "body" not in json.dumps(stored["retrieval"], ensure_ascii=False)
 
 
+def test_legacy_caller_without_model_metadata_gets_the_documented_static_model(store, monkeypatch):
+    """Review G1 / A3: the production router always names the model that ran;
+    the `or gen.MODEL_ID` fallback in live_generate_draft exists only for
+    legacy/mock callers that return no metadata at all — it must never be
+    reachable on the router path (see model_router._try_route: meta always
+    carries the route's model)."""
+    _ready_case()
+
+    def fake_call_model(prompt_text, *, api_key=None, timeout=240, role="draft", **_kw):
+        if role == "draft":
+            return _draft_json(), {}  # legacy shape: no model key at all
+        return _judge_jsonl(), {}
+
+    monkeypatch.setattr(gen, "call_model", fake_call_model)
+    cli.main(["live-case", "EV-M", "--idea", store["idea_id"], "--mode", "MODE_BRIEF"])
+    cli.main(["live-generate", "EV-M", "--case-id", "LIV-01"])
+
+    draft = json.loads(cli.LIVE_DRAFTS_PATH.read_text(encoding="utf-8"))
+    assert draft["lineage"]["model"] == gen.MODEL_ID
+
+
 def test_style_preflight_failure_refuses_before_any_model_call(store, stub_gemini, monkeypatch):
     """Review G3 / PART F: a retrieval refusal happens BEFORE call_model —
     no draft request, no semantic judge request, no spend."""
@@ -272,6 +293,63 @@ def test_style_preflight_failure_refuses_before_any_model_call(store, stub_gemin
         live.live_generate_draft(row["packet"], voice=live.DEFAULT_VOICE, mode="MODE_BRIEF")
     assert stub_gemini == []  # not a single provider call happened
     assert not cli.LIVE_DRAFTS_PATH.exists() and not cli.CASES_PATH.exists()
+
+
+def test_hermetic_idea_to_draft_happy_path_with_stubbed_retrieval(store, stub_gemini, monkeypatch):
+    """ROUND 2 PART E: the full idea→draft happy path, hermetic.
+
+    Retrieval is stubbed at the same seam the thin-corpus test fails at, so
+    the run needs no real corpus: exactly 3 examples WITH bodies reach the
+    prompt, IDs + truthful metadata (body-free) are persisted, and the opened
+    case keeps the same lineage as the stored live draft.
+    """
+    _ready_case()
+
+    def fake_retrieval(packet, *, voice, mode, **_kwargs):
+        return {
+            "examples": [
+                {
+                    "article_id": f"m{i}",
+                    "url": f"https://archive.example/{i}",
+                    "headline": f"Архив {i}",
+                    "author": "Черноморие-бг",
+                    "category": "Община",
+                    "published_date": "2025-06-01",
+                    "score": 100.0,
+                    "score_parts": {},
+                    "why_selected": "style reference only",
+                    "body": f"Архивно тяло {i}.",
+                }
+                for i in (1, 2, 3)
+            ],
+            "fallback_used": True,
+            "fallback_trail": [
+                {"voice": voice, "mode": mode, "found": 0},
+                {"voice": "VOICE_HOUSE", "mode": "MODE_BRIEF", "found": 3},
+            ],
+            "retrieval_reason": f"fallback: {voice}+{mode} -> VOICE_HOUSE+MODE_BRIEF",
+        }
+
+    monkeypatch.setattr(live, "retrieve_examples_for_generation", fake_retrieval)
+    cli.main(["live-case", "EV-M", "--idea", store["idea_id"], "--mode", "MODE_BRIEF"])
+    cli.main(["live-generate", "EV-M", "--case-id", "LIV-01"])
+
+    draft = json.loads(cli.LIVE_DRAFTS_PATH.read_text(encoding="utf-8"))
+    case = cases.read_cases(cli.CASES_PATH)[0]
+    # exactly the three stubbed examples, persisted as IDs only
+    assert draft["retrieval_example_ids"] == ["m1", "m2", "m3"]
+    # the prompt really saw the archive prose (D1)
+    prompt = next(s["prompt"] for s in stub_gemini if s["role"] == "draft")
+    assert "Архивно тяло 1." in prompt and "Архивно тяло 3." in prompt
+    # persisted metadata is truthful (F2) but body-free (G persistence boundary)
+    assert draft["retrieval"]["fallback_used"] is True
+    assert draft["retrieval"]["fallback_trail"][0]["found"] == 0
+    assert draft["retrieval"]["retrieval_reason"].startswith("fallback:")
+    assert "Архивно тяло" not in json.dumps(draft["retrieval"], ensure_ascii=False)
+    assert "body" not in json.dumps(draft["retrieval"], ensure_ascii=False)
+    # lineage is 1:1 between the live draft and the opened case
+    assert draft["lineage"] == case["lineage"]
+    assert case["case_id"] == "LIV-01" and case["track"] == cases.TRACK_LIVE
 
 
 def test_gemini_retries_503_then_succeeds(monkeypatch):
