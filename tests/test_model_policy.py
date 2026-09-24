@@ -172,6 +172,28 @@ def test_disabled_route_is_skipped(monkeypatch):
     assert any(row["event"] == "SKIPPED" for row in trace)
 
 
+def test_privacy_gate_off_allows_free_route_for_private_editorial_payload(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    policy = _policy_with(
+        "draft",
+        [_route("openrouter", "free/model:free", billing="free", public_only=True)],
+    )
+    callers = _Callers()
+    model_router.call_role("draft", "private editorial", policy=policy, call_map=callers.as_map())
+    assert callers.openrouter_calls == ["free/model:free"]
+    assert policy["global"]["privacy_gate_enabled"] is False
+
+
+def test_privacy_gate_status_is_auditable():
+    policy = model_policy.load_policy()
+    report = model_router.status_report(policy=policy)
+    assert report["privacy_gate_enabled"] is False
+    assert report["roles"]
+    for role in report["roles"]:
+        for route in role["routes"]:
+            assert "public_only" in route
+
+
 def test_paid_route_is_skipped_when_paid_is_disabled(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     policy = _policy_with("draft", [_route("openrouter", "paid/model", billing="paid")])
@@ -368,6 +390,7 @@ def test_privacy_gate_blocks_public_only_routes_for_private_material(monkeypatch
         ],
     )
     policy["global"]["paid_enabled"] = True
+    policy["global"]["privacy_gate_enabled"] = True
     policy = model_policy.normalize(policy)
     callers = _Callers()
     _text, meta = model_router.call_role("draft", "p", policy=policy, call_map=callers.as_map())
@@ -864,6 +887,7 @@ def test_free_route_added_as_free_cannot_receive_a_private_payload(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     policy = _policy_with("draft", [_route("gemini", "unused")])
+    policy["global"]["privacy_gate_enabled"] = True
     model_policy.add_route(
         policy, "draft", {"provider": "openrouter", "model": "free/model:free", "billing": "free"}
     )
@@ -946,6 +970,7 @@ def test_a_public_transcript_call_reaches_the_named_free_route_but_a_private_one
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     policy = _policy_with("judge", [_route("openrouter", "vendor/transcript:free", billing="free")])
+    policy["global"]["privacy_gate_enabled"] = True
     public_callers = _Callers()
     text, _meta = model_router.call_role(
         "judge", "p", policy=policy, payload_class="public", call_map=public_callers.as_map()

@@ -70,7 +70,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from editor_assistant.drafting import generate as gen
-from editor_assistant.drafting import model_policy, model_router
+from editor_assistant.drafting import model_catalog, model_policy, model_router
 from editor_assistant.drafting import prompt as prompt_mod
 from editor_assistant.drafting import retrieval as retrieval_mod
 from editor_assistant.drafting.evidence import EvidenceError, validate_packet
@@ -119,6 +119,57 @@ class EvalAssetsError(RuntimeError):
 
 class EvalPaidError(RuntimeError):
     """Paid candidate routes selected without the explicit opt-in (I7)."""
+
+
+#: Eval-only candidate syntax: ``provider:model`` for Gemini, and
+#: ``openrouter:model#free|paid`` when billing is paid.  A model whose canonical
+#: OpenRouter id ends in ``:free`` is an explicit free declaration by itself.
+EVAL_ONLY = "EVAL_ONLY"
+
+
+class EvalCandidateError(RuntimeError):
+    """Malformed, unvalidated, or ambiguous eval-only candidate."""
+
+
+def parse_eval_candidate(spec: str) -> dict:
+    """Parse and normalize one explicit eval candidate without touching policy."""
+    raw = str(spec or "").strip()
+    if not raw or ":" not in raw:
+        raise EvalCandidateError("кандидатът трябва да е provider:model")
+    provider, model_and_billing = raw.split(":", 1)
+    model, marker, billing = model_and_billing.partition("#")
+    provider = provider.strip().lower()
+    model = model.strip()
+    if provider == "gemini":
+        if marker or not model:
+            raise EvalCandidateError("Gemini кандидатът не приема billing marker")
+        route = {"provider": provider, "model": model}
+    elif provider == "openrouter":
+        if not model:
+            raise EvalCandidateError("OpenRouter кандидатът няма model id")
+        if marker:
+            billing = billing.strip().lower()
+        elif model.endswith(":free"):
+            billing = "free"
+        else:
+            raise EvalCandidateError("OpenRouter eval кандидатът изисква #free или #paid")
+        route = {"provider": provider, "model": model, "billing": billing}
+    else:
+        raise EvalCandidateError(f"непознат provider: {provider!r}")
+    try:
+        normalized = model_policy.normalize(
+            _policy_with_only_candidate(model_policy.load_defaults(), route)
+        )["roles"]["judge"]["routes"][0]
+    except model_policy.PolicyError as exc:
+        raise EvalCandidateError(str(exc)) from exc
+    return {**normalized, "eval_only": EVAL_ONLY}
+
+
+def _policy_with_only_candidate(base: dict, route: dict) -> dict:
+    policy = json.loads(json.dumps(base))
+    for role in model_policy.ROLES:
+        policy["roles"][role]["routes"] = [dict(route)]
+    return policy
 
 
 # ---------------------------------------------------------------- fixtures
@@ -322,6 +373,9 @@ def score(role, case, answer, raw, latency_ms, ok, context=None):
         "false_positive": False,
         "latency_ms": latency_ms,
         "detail": "",
+        "label_basis": "HUMAN_ADJUDICATED" if case.get("adjudicated") else "DETERMINISTIC_BASELINE",
+        "infrastructure_class": "" if ok else "UNKNOWN_INFRA",
+        "infrastructure_detail": "",
     }
     if not ok:
         out["detail"] = "no model answer"
@@ -377,11 +431,15 @@ def score(role, case, answer, raw, latency_ms, ok, context=None):
             return out
         status = parsed["semantic_status"]
         out["predicted"] = status
+        out["deterministic_label"] = case.get("status")
+        out["candidate_label"] = status
         out["correct"] = status == case["status"]
-        # Catastrophic error: calling a routine, non-newsworthy item publishable.
-        out["false_positive"] = status == "PUBLISHABLE_ANGLE" and case["status"] == (
-            "NO_PUBLISHABLE_ANGLE"
+        out["stable"] = None
+        out["routine_publishable_concern"] = (
+            status == "PUBLISHABLE_ANGLE" and case["status"] == "NO_PUBLISHABLE_ANGLE"
         )
+        # Catastrophic error: calling a routine, non-newsworthy item publishable.
+        out["false_positive"] = out["routine_publishable_concern"]
         out["detail"] = f"scores {sum(v['score'] for v in parsed['scores'].values())}/14"
         return out
 
@@ -424,12 +482,14 @@ def score(role, case, answer, raw, latency_ms, ok, context=None):
         # Deterministic originality guard (warns, never blocks — same as prod).
         originality = gen.originality_check(body, packet.get("source_text", ""))
         out["invented_numbers"] = invented
+        out["invented_names"] = _invented_names(text, packet)
         out["missing_mentions"] = missing
         out["unsupported"] = lexical["unsupported"]
         out["unsupported_count"] = len(lexical["unsupported"])
         out["leak_hits"] = lexical["leak_hits"]
         out["originality_pass"] = bool(originality.get("pass", True))
         out["originality_longest_run"] = int(originality.get("longest_run_words") or 0)
+        out["word_count"] = len(text.split())
         out["correct"] = not invented and not missing
         out["detail"] = (
             f"invented: {invented or '—'}; missing: {missing or '—'}; "
@@ -463,6 +523,26 @@ def score(role, case, answer, raw, latency_ms, ok, context=None):
     raise SystemExit(f"unknown role: {role}")
 
 
+def _invented_names(text: str, packet: dict) -> list:
+    """Bounded proper-name check against frozen packet entities.
+
+    This is a conservative eval signal, not a new production NER contract.  A
+    capitalised phrase is reported only when it is absent from every frozen
+    people/organization/place/source string.
+    """
+    known = " ".join(
+        [
+            *(packet.get("people") or []),
+            *(packet.get("organizations") or []),
+            *(packet.get("places") or []),
+            str(packet.get("source_headline") or ""),
+            str(packet.get("source_text") or ""),
+        ]
+    ).casefold()
+    phrases = re.findall(r"\b[А-Я][а-яА-Я-]+(?:\s+[А-Я][а-яА-Я-]+){1,3}\b", text)
+    return sorted({p for p in phrases if p.casefold() not in known})
+
+
 def summarize(role, rows, repeats):
     calls = [r for r in rows if r.get("ok")]
     valid = [r for r in calls if r.get("valid")]
@@ -476,6 +556,8 @@ def summarize(role, rows, repeats):
         "false_merges": sum(1 for r in rows if r.get("false_merge")),
         "false_developments": sum(1 for r in rows if r.get("false_development")),
         "false_positives": sum(1 for r in rows if r.get("false_positive")),
+        "invented_names": sum(len(r.get("invented_names") or []) for r in rows),
+        "word_count": sum(int(r.get("word_count") or 0) for r in rows),
         # Draft-only deterministic counters (I4): recorded for the human review
         # decision; they warn, they do not replace it.
         "unsupported_total": sum(int(r.get("unsupported_count") or 0) for r in rows),
@@ -487,6 +569,35 @@ def summarize(role, rows, repeats):
         "repeats": repeats,
         "verdict": "",
     }
+    if role == "angle":
+        by_case = {}
+        for row in calls:
+            by_case.setdefault(row.get("case"), []).append(row)
+        for case_rows in by_case.values():
+            labels = {row.get("candidate_label") for row in case_rows if row.get("valid")}
+            stable = (
+                len(case_rows) > 1 and len(labels) == 1 and all(r.get("valid") for r in case_rows)
+            )
+            for row in case_rows:
+                row["stable"] = stable
+        seed = [r for r in rows if not r.get("m3d_disagreement")]
+        disagreements = [r for r in rows if r.get("m3d_disagreement")]
+        summary["seed"] = {
+            "cases": len(seed),
+            "valid": sum(1 for r in seed if r.get("valid")),
+            "correct": sum(1 for r in seed if r.get("correct")),
+            "false_positive": sum(1 for r in seed if r.get("false_positive")),
+        }
+        summary["m3d_disagreement"] = {
+            "cases": len(disagreements),
+            "valid": sum(1 for r in disagreements if r.get("valid")),
+            "stable": sum(1 for r in disagreements if r.get("stable")),
+            "routine_publishable_concern": sum(
+                1 for r in disagreements if r.get("routine_publishable_concern")
+            ),
+            "label_basis": "DETERMINISTIC_BASELINE_NOT_HUMAN_ADJUDICATION",
+        }
+
     if not calls:
         summary["verdict"] = "NO_ANSWER"
     elif role == "story" and summary["false_merges"]:
@@ -516,10 +627,21 @@ def summarize(role, rows, repeats):
 # ---------------------------------------------------------------- runner
 
 
-def _single_route_policy(base, role, route):
+def _single_route_policy(base, role, route, *, allow_paid=False):
     policy = json.loads(json.dumps(base))
     policy["roles"][role]["routes"] = [dict(route)]
-    return model_policy.normalize(policy)
+    if route.get("eval_only"):
+        # Evaluation must not be blocked by today's production role ledger. Keep
+        # the shared provider/model ledger intact, but give this derived policy
+        # a bounded role budget for the fixture run.
+        policy["roles"][role]["soft_calls_day"] = 1000
+        policy["roles"][role]["hard_calls_day"] = 1000
+    normalized = model_policy.normalize(policy)
+    if allow_paid and route.get("billing") == "paid":
+        normalized["global"]["paid_enabled"] = True
+    if route.get("eval_only"):
+        normalized["roles"][role]["routes"][0]["eval_only"] = route["eval_only"]
+    return normalized
 
 
 def candidates_for(policy, role, limit=None):
@@ -548,11 +670,16 @@ def write_human_review_sheet(out_dir, *, role, report):
     naturalness / headline quality / site-fit / editing verdicts are blank
     ON PURPOSE — they are filled by a human, never by another model.
     """
+    candidates = report.get("candidates") or []
+    labels = {
+        f"{c.get('provider')}:{c.get('model')}": chr(65 + i) for i, c in enumerate(candidates)
+    }
     entries = []
-    for candidate in report.get("candidates") or []:
+    for candidate in candidates:
+        label = labels[f"{candidate.get('provider')}:{candidate.get('model')}"]
         for row in candidate.get("rows") or []:
             if row.get("valid") and row.get("headline") and row.get("body"):
-                entries.append((candidate, row))
+                entries.append((candidate, row, label))
     if not entries:
         return None
     lines = [
@@ -564,26 +691,25 @@ def write_human_review_sheet(out_dir, *, role, report):
         "българския естественост/заглавие/стил е ЧОВЕШКА — попълнете полетата",
         "ръчно; не се дава на друг модел.",
     ]
-    for candidate, row in entries:
+    for candidate, row, label in entries:
         lines += [
             "",
             "---",
             "",
-            (
-                f"## {candidate.get('provider')}:{candidate.get('model')} — кандидат {row['case']} "
-                f"(repeat {row.get('repeat', 0)})"
-            ),
-            "",
-            f"- auto: {row.get('detail', '')}",
-            "- invented numbers: " + (", ".join(row.get("invented_numbers") or []) or "—"),
-            "- missing mentions: " + (", ".join(row.get("missing_mentions") or []) or "—"),
-            f"- unsupported sentences: {row.get('unsupported_count', 0)}",
-            f"- originality: {'pass' if row.get('originality_pass', True) else 'REVIEW'}",
+            f"## CASE: {row['case']} · Candidate {label} (repeat {row.get('repeat', 0)})",
             "",
             f"headline: {row['headline']}",
             "",
             "body:",
             row["body"],
+            "",
+            "auto:",
+            "  invented facts: " + (", ".join(row.get("invented_names") or []) or "—"),
+            "  invented numbers: " + (", ".join(row.get("invented_numbers") or []) or "—"),
+            "  missing: " + (", ".join(row.get("missing_mentions") or []) or "—"),
+            f"  unsupported: {row.get('unsupported_count', 0)}",
+            f"  originality: {'pass' if row.get('originality_pass', True) else 'REVIEW'}",
+            f"  style leak: {len(row.get('leak_hits') or [])}",
             "",
             "Bulgarian naturalness: ___",
             "headline quality: ___",
@@ -591,6 +717,9 @@ def write_human_review_sheet(out_dir, *, role, report):
             "editing needed: ___",
             "notes: ___",
         ]
+    lines += ["", "---", "", "## Blinding key (reveal only after review)", ""]
+    for route, label in labels.items():
+        lines.append(f"Candidate {label} = `{route}`")
     path = out_dir / f"{role}_human_review.md"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -609,6 +738,7 @@ def run_role(
     semantic_gate=False,
     semantic_judge=None,
     allow_paid=False,
+    candidates=None,
 ):
     call_role = call_role or model_router.call_role
     cases = load_cases(role)
@@ -620,6 +750,7 @@ def run_role(
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "policy_hash": model_policy.policy_hash(policy),
         "wiring": WIRING[role],
+        "privacy_gate_enabled": bool(policy["global"].get("privacy_gate_enabled")),
     }
     if role == "research":
         report_head["RESEARCH_ROLE_PRODUCTION_WIRING"] = RESEARCH_ROLE_PRODUCTION_WIRING
@@ -644,10 +775,13 @@ def run_role(
     # I7: a live eval refuses paid candidates unless the caller passed the
     # explicit opt-in. The CLI surfaces this as `--allow-paid`; a paid model
     # merely present in the policy file is never consent to spend money.
+    selected_routes = (
+        candidates_for(policy, role, limit=limit) if candidates is None else candidates
+    )
     if not allow_paid:
         paid = [
             f"{route['provider']}:{route['model']}"
-            for route in candidates_for(policy, role, limit=limit)
+            for route in selected_routes
             if route.get("billing") == "paid"
         ]
         if paid:
@@ -665,8 +799,8 @@ def run_role(
             prompts[key], contexts[key] = build_prompt_for(role, case)
         except EvalAssetsError as exc:
             prompt_errors[key] = str(exc)
-    for route in candidates_for(policy, role, limit=limit):
-        route_policy = _single_route_policy(policy, role, route)
+    for route in selected_routes:
+        route_policy = _single_route_policy(policy, role, route, allow_paid=allow_paid)
         rows = []
         for repeat in range(max(1, min(repeats, MAX_REPEATS))):
             for case in cases:
@@ -689,10 +823,26 @@ def run_role(
                 raw, ok = "", True
                 try:
                     raw, _meta = call_role(role, prompts[key], policy=route_policy, timeout=timeout)
-                except model_router.RoleUnavailable:
+                except model_router.RoleUnavailable as exc:
                     ok = False
+                    failures = [
+                        row.get("reason", "") for row in exc.trace if row.get("event") == "FAILED"
+                    ]
+                    skipped = [
+                        row.get("reason", "") for row in exc.trace if row.get("event") == "SKIPPED"
+                    ]
+                    infra_class = failures[-1].split(":", 1)[0] if failures else "NO_USABLE_ROUTE"
+                    infra_detail = failures[-1] if failures else "; ".join(skipped)
+                    if (
+                        infra_class == model_router.QUOTA_EXHAUSTED
+                        and route["provider"] == "gemini"
+                    ):
+                        infra_class = "DEFERRED_QUOTA"
                 latency_ms = int((time.monotonic() - started) * 1000)
                 row = score(role, case, None, raw, latency_ms, ok, context=contexts.get(key))
+                if not ok:
+                    row["infrastructure_class"] = infra_class
+                    row["infrastructure_detail"] = infra_detail
                 if semantic_gate and role == "draft" and row.get("valid"):
                     row["semantic_gate"] = _semantic_verdict(
                         case, row, semantic_judge=semantic_judge, timeout=timeout
@@ -703,10 +853,22 @@ def run_role(
                         "repeat": repeat,
                         "model": route["model"],
                         "provider": route["provider"],
+                        "m3d_disagreement": bool(str(case.get("id") or "").startswith("m3d-")),
+                        "short_note": str(case.get("audit_note") or ""),
                         "raw": (raw or "")[:600] if show_raw else "",
                     }
                 )
                 rows.append(row)
+                if not ok and row.get("infrastructure_class") in {
+                    "DEFERRED_QUOTA",
+                    model_router.RATE_LIMITED,
+                    model_router.INVALID_MODEL,
+                    model_router.AUTH_FAILED,
+                    model_router.PAYMENT_REQUIRED,
+                }:
+                    # A route-level health failure is authoritative. Never spend
+                    # the remaining fixture cases rediscovering the same outage.
+                    break
                 if show_raw:
                     print(f"    raw[{route['model']}][{row['case']}]: {row['raw'][:200]!r}")
         results.append(
@@ -714,6 +876,17 @@ def run_role(
                 "model": route["model"],
                 "provider": route["provider"],
                 "billing": route.get("billing"),
+                "public_only": bool(route.get("public_only")),
+                "eval_only": route.get("eval_only", "POLICY_DERIVED"),
+                "catalog_status": route.get("catalog_status", "POLICY_DERIVED"),
+                "availability": next(
+                    (
+                        row.get("infrastructure_class")
+                        for row in rows
+                        if row.get("infrastructure_class")
+                    ),
+                    "RUNTIME_AVAILABLE" if any(row.get("ok") for row in rows) else "NOT_EVALUATED",
+                ),
                 "summary": summarize(role, rows, repeats),
                 "rows": rows,
             }
@@ -774,6 +947,21 @@ def main(argv=None):
     )
     parser.add_argument("--limit", type=int, default=None, help="max candidates per role")
     parser.add_argument(
+        "--candidate",
+        action="append",
+        default=[],
+        metavar="PROVIDER:MODEL[#free|paid]",
+        help=(
+            "eval-only exact candidate; repeatable and restricted to --role (never writes policy). "
+            "OpenRouter requires #free or #paid, except canonical ids ending in :free"
+        ),
+    )
+    parser.add_argument(
+        "--validate-candidates",
+        action="store_true",
+        help="explicitly request live catalog validation (eval candidates are validated automatically unless --list)",
+    )
+    parser.add_argument(
         "--repeats", type=int, default=1, help=f"repeats per case (1-{MAX_REPEATS})"
     )
     parser.add_argument("--timeout", type=float, default=240.0, help="per-call timeout (s)")
@@ -800,6 +988,35 @@ def main(argv=None):
 
     policy = model_policy.load_policy()
     roles = list(model_policy.ROLES) if args.role == "all" else [args.role]
+    try:
+        eval_candidates = [parse_eval_candidate(spec) for spec in args.candidate]
+    except EvalCandidateError as exc:
+        parser.error(str(exc))
+    if eval_candidates and args.role == "all":
+        parser.error("--candidate изисква конкретна --role")
+    if eval_candidates and not args.list:
+        validation_policy = _policy_with_only_candidate(policy, eval_candidates[0])
+        for candidate in eval_candidates[1:]:
+            validation_policy["roles"][args.role]["routes"].append(candidate)
+        validation_policy = model_policy.normalize(validation_policy)
+        catalog_report = model_catalog.validate_policy_models(validation_policy)
+        selected_keys = {(r["provider"], r["model"]) for r in eval_candidates}
+        selected_rows = [
+            row
+            for row in catalog_report["rows"]
+            if (row["provider"], row["model"]) in selected_keys and row["role"] == args.role
+        ]
+        status_by_key = {(row["provider"], row["model"]): row["status"] for row in selected_rows}
+        for candidate in eval_candidates:
+            candidate["catalog_status"] = status_by_key.get(
+                (candidate["provider"], candidate["model"]), "NOT_CHECKED"
+            )
+        for row in selected_rows:
+            print(f"CATALOG_{row['status']}: {row['provider']}:{row['model']} — {row['detail']}")
+        if len(selected_rows) != len(eval_candidates) or any(
+            row["status"] == model_catalog.STATUS_INVALID for row in selected_rows
+        ):
+            parser.error("eval candidate catalog validation failed; no inference attempted")
 
     if args.list:
         for role in roles:
@@ -817,9 +1034,11 @@ def main(argv=None):
                     "  fixture subtypes: fact_entailment=PRODUCTION_FAITHFUL, "
                     "draft_semantic=PENDING_NO_FIXTURE"
                 )
-            for route in candidates_for(policy, role, limit=args.limit):
+            selected = eval_candidates or candidates_for(policy, role, limit=args.limit)
+            for route in selected:
                 print(
                     f"  - {route['provider']}:{route['model']} [{route.get('billing')}]"
+                    f" [{route.get('eval_only', 'POLICY_DERIVED')}]"
                     f"{' (paid disabled)' if route.get('billing') == 'paid' and not policy['global']['paid_enabled'] else ''}"
                 )
         return 0
@@ -829,7 +1048,7 @@ def main(argv=None):
     paid_candidates = [
         f"{role}:{route['provider']}:{route['model']}"
         for role in roles
-        for route in candidates_for(policy, role, limit=args.limit)
+        for route in (eval_candidates or candidates_for(policy, role, limit=args.limit))
         if route.get("billing") == "paid"
     ]
     if paid_candidates and not args.allow_paid:
@@ -850,6 +1069,7 @@ def main(argv=None):
             show_raw=args.show_raw,
             semantic_gate=args.semantic_gate,
             allow_paid=args.allow_paid,
+            candidates=eval_candidates or None,
         )
         if not report["candidates"]:
             print(render(report))

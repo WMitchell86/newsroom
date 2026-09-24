@@ -12,9 +12,10 @@
       "story_origin_title": "Бюджетът на Бургас за 2027 г. влиза в зала",
       "story_publications": [
         {
-          "title": "Бюджетът на Бургас за 2027 г. влиза в зала",
+          "title": "Общинският съвет прие бюджета на Бургас за 2027 г.",
           "publisher_domain": "burgas.bg",
           "published_at": "2026-09-20T06:00:00Z",
+          "summary": "Съветниците приеха бюджета за 2027 г. с 33 гласа „за“.",
           "relation": "ORIGIN"
         }
       ],
@@ -34,12 +35,14 @@
           "title": "Предложение за нова такса за такситата в Бургас",
           "publisher_domain": "burgas.bg",
           "published_at": "2026-09-15T06:00:00Z",
+          "summary": "Общината предлага нова такса за такситата в града.",
           "relation": "ORIGIN"
         },
         {
           "title": "Комисията по транспорт подкрепи предложението за нова такса",
           "publisher_domain": "bnr.bg",
           "published_at": "2026-09-19T08:00:00Z",
+          "summary": "Комисията подкрепи предложението за нова такса.",
           "relation": "NEW_DEVELOPMENT"
         }
       ],
@@ -58,6 +61,7 @@
           "title": "Общината обяви нова вълна по санирането",
           "publisher_domain": "burgas.bg",
           "published_at": "2026-09-18T06:00:00Z",
+          "summary": "Общината обяви нова вълна по санирането в града.",
           "relation": "ORIGIN"
         }
       ],
@@ -76,6 +80,7 @@
           "title": "Бургас обсъжда такса за такситата",
           "publisher_domain": "burgas.bg",
           "published_at": "2026-09-15T06:00:00Z",
+          "summary": "Градът обсъжда нова такса за такситата.",
           "relation": "ORIGIN"
         }
       ],
@@ -94,6 +99,7 @@
           "title": "Бюджетът на Бургас влиза в зала",
           "publisher_domain": "burgas.bg",
           "published_at": "2026-09-20T06:00:00Z",
+          "summary": "Бюджетът на Бургас влиза в зала за обсъждане.",
           "relation": "ORIGIN"
         }
       ],
@@ -112,6 +118,7 @@
           "title": "Бюджетът мина с 33 гласа",
           "publisher_domain": "bnr.bg",
           "published_at": "2026-09-20T07:00:00Z",
+          "summary": "Бюджетът мина с 33 гласа.",
           "relation": "ORIGIN"
         }
       ],

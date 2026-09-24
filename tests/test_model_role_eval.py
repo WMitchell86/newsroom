@@ -689,3 +689,49 @@ def test_run_role_writes_a_report_without_touching_a_provider(monkeypatch, tmp_p
     written = json.loads((tmp_path / "judge.json").read_text(encoding="utf-8"))
     assert written["role"] == "judge" and written["policy_hash"]
     assert written["wiring"] == "PRODUCTION_FAITHFUL"
+
+
+def test_story_fixture_publications_have_summaries_and_render_them():
+    cases = ROLE_EVAL.load_cases("story")
+    assert cases
+    for case in cases:
+        for publication in case["story_publications"]:
+            assert publication.get("summary")
+        text = ROLE_EVAL.prompt_for("story", case)
+        for publication in case["story_publications"]:
+            assert publication["summary"] in text
+
+
+def test_m3d_rows_are_reported_separately_from_seed_rows():
+    rows = [
+        {"ok": True, "valid": True, "correct": True, "case": "seed", "latency_ms": 1},
+        {
+            "ok": True,
+            "valid": True,
+            "correct": True,
+            "case": "m3d-x",
+            "m3d_disagreement": True,
+            "candidate_label": "NO_PUBLISHABLE_ANGLE",
+            "latency_ms": 1,
+        },
+    ]
+    summary = ROLE_EVAL.summarize("angle", rows, 1)
+    assert summary["seed"]["cases"] == 1
+    assert summary["m3d_disagreement"]["cases"] == 1
+    assert summary["m3d_disagreement"]["label_basis"].startswith("DETERMINISTIC_BASELINE")
+
+
+def test_eval_only_candidates_do_not_mutate_policy_file():
+    original = json.dumps(ROLE_EVAL.model_policy.load_policy(), sort_keys=True)
+    candidate = ROLE_EVAL.parse_eval_candidate("gemini:gemini-3.5-flash")
+    assert candidate["eval_only"] == ROLE_EVAL.EVAL_ONLY
+    assert json.dumps(ROLE_EVAL.model_policy.load_policy(), sort_keys=True) == original
+
+
+def test_eval_only_openrouter_requires_explicit_billing():
+    with pytest.raises(ROLE_EVAL.EvalCandidateError):
+        ROLE_EVAL.parse_eval_candidate("openrouter:qwen/qwen3.8-27b")
+    free = ROLE_EVAL.parse_eval_candidate("openrouter:qwen/qwen3.8-27b:free")
+    assert free["billing"] == "free"
+    paid = ROLE_EVAL.parse_eval_candidate("openrouter:openai/gpt-5.6-luna#paid")
+    assert paid["billing"] == "paid"

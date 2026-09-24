@@ -1032,7 +1032,8 @@ def render_models_status(report):
     lines = [
         f"AI МОДЕЛИ — {report['day']} (Europe/Sofia) · политика {report['policy_hash']}",
         (
-            f"платени модели: {'РАЗРЕШЕНИ' if report['paid_enabled'] else 'забранени'}"
+            f"privacy gate: {'ВКЛЮЧЕН' if report['privacy_gate_enabled'] else 'ИЗКЛЮЧЕН'}"
+            f" · платени модели: {'РАЗРЕШЕНИ' if report['paid_enabled'] else 'забранени'}"
             f" · платено днес: ${report['paid_cost_today_usd']:.4f}"
             f" (soft ${report['soft_paid_budget_usd_day']:.2f})"
             + (" · ⚠ ПРЕВИШЕН СОФТ БЮДЖЕТ ЗА ПЛАТЕНИ" if report.get("paid_soft_exceeded") else "")

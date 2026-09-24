@@ -2,6 +2,7 @@
   "version": 1,
   "note": "Tracked defaults for role-based model routing. The operator override lives in var/model_policy.json (editor-owned, never committed). Route order is authoritative: first enabled+allowed route wins. Provider catalogs change: run `newsroom models validate` to check ids against the live catalogs instead of trusting this file. daily_call_limit is the operator-declared per-model quota (Gemini AI Studio, per model, 2026-09-21: Flash-Lite 500 RPD, Flash 20 RPD); it is a local guardrail, and provider signals (429 quota) still win.",
   "global": {
+    "privacy_gate_enabled": false,
     "paid_enabled": false,
     "soft_paid_budget_usd_day": 2.0,
     "max_transient_attempts": 2,

@@ -32,7 +32,7 @@ Both files describe the same schema:
 Contract for a route (enforced by `validate_policy` and by the router):
 
 * **order is authoritative** — the first route that is enabled, allowed by the
-  paid gate, within budget, not blocked by the privacy class and not known
+  paid gate, within budget, not blocked by the active privacy gate and not known
   unhealthy wins;
 * a role may mix providers, and a missing/unavailable provider is a *skip*, not
   a stop (this is what makes Gemini -> OpenRouter fallback real);
@@ -41,8 +41,10 @@ Contract for a route (enforced by `validate_policy` and by the router):
   **OpenRouter routes must state `free` or `paid` explicitly — there is no
   billing default for OpenRouter** (pre-frontend gate A1: an omitted billing
   class must never silently become free and bypass `paid_enabled`);
-* `public_only: true` routes must never receive unpublished material
-  (`payload_class = "private"`), which the router enforces before any call.
+* **privacy routing**: `public_only: true` is always retained in the policy and
+  status report. A private payload is blocked only when the project-level
+  `global.privacy_gate_enabled` is true; this project defaults it to false, as
+  decided by the owner. This switch does not alter billing or secret hygiene.
   **`openrouter` + `billing=free` always means `public_only=true`** — a policy
   that declares the combination `free + public_only=false` is rejected (A2);
 * `daily_call_limit` is the operator-declared per-model quota (Gemini meters
@@ -228,6 +230,9 @@ def normalize(policy: dict) -> dict:
     if not isinstance(global_raw, dict):
         raise PolicyError("policy.global must be an object")
     out_global = {
+        # Public/private remains auditable on every route.  This project-level
+        # switch controls only whether that metadata blocks editorial payloads.
+        "privacy_gate_enabled": bool(global_raw.get("privacy_gate_enabled", False)),
         "paid_enabled": bool(global_raw.get("paid_enabled", False)),
         "soft_paid_budget_usd_day": float(global_raw.get("soft_paid_budget_usd_day", 0.0) or 0.0),
         "max_transient_attempts": int(global_raw.get("max_transient_attempts", 2) or 0),
@@ -285,12 +290,22 @@ def _env_openrouter_model(role):
     return None
 
 
-def apply_env_overrides(policy: dict) -> dict:
-    """Legacy env knobs override the matching routes (documented in `.env.example`).
+def _classify_env_openrouter_model(model: str) -> str:
+    """Classify legacy env substitutions without inheriting stale billing."""
+    if model in known_free_models():
+        return "free"
+    # Unknown explicit ids fail paid-safe. This prevents a paid model from
+    # inheriting a free slot (and a free private payload from bypassing policy).
+    return "paid"
 
-    Only the *model id* (and the Gemini route list) changes; billing, the privacy
-    class and the daily limit are inherited, so an env edit can never silently
-    turn a free route paid or a private route public.
+
+def apply_env_overrides(policy: dict) -> dict:
+    """Legacy env knobs override matching routes (documented in `.env.example`).
+
+    Gemini substitutions retain the operator-declared quota class. OpenRouter
+    substitutions are reclassified from the exact id: known free ids stay free;
+    every other explicit id is paid-safe. The normalized result remains auditable
+    and never inherits stale billing from the replaced route slot.
     """
     out = json.loads(json.dumps(policy))
     for role in ROLES:
@@ -319,6 +334,8 @@ def apply_env_overrides(policy: dict) -> dict:
             for route in routes:
                 if route["provider"] == "openrouter":
                     route["model"] = model
+                    route["billing"] = _classify_env_openrouter_model(model)
+                    route["public_only"] = route["billing"] == "free"
                     break
         free_model = os.environ.get("OPENROUTER_FREE_MODEL", "").strip()
         if free_model:
@@ -328,7 +345,9 @@ def apply_env_overrides(policy: dict) -> dict:
             )
             if route is not None:
                 route["model"] = free_model
-    return out
+                route["billing"] = "free"
+                route["public_only"] = True
+    return normalize(out)
 
 
 def load_policy(path=None, *, env_overrides=True) -> dict:
@@ -491,7 +510,7 @@ def remove_route(policy: dict, role: str, index: int) -> dict:
 
 
 def set_global(policy: dict, **changes) -> dict:
-    allowed = {"paid_enabled", "soft_paid_budget_usd_day"}
+    allowed = {"privacy_gate_enabled", "paid_enabled", "soft_paid_budget_usd_day"}
     unknown = sorted(set(changes) - allowed)
     if unknown:
         raise PolicyError(f"непознати глобални настройки: {unknown}")

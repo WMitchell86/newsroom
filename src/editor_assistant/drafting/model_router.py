@@ -7,7 +7,7 @@ policy store (`drafting/model_policy.py`) and:
 for route in role.routes:
     skip if disabled
     skip if paid and paid is not enabled
-    skip if the route is public-only and the payload is private
+    skip if the project privacy gate is enabled and the route is public-only
     skip if the route/model budget for today is spent
     skip if the route is temporarily exhausted / unhealthy
     try the route
@@ -355,7 +355,11 @@ def _skip_reasons(
     billing = route.get("billing")
     if billing == "paid" and not policy["global"].get("paid_enabled"):
         reasons.append("платените модели са изключени")
-    if route.get("public_only") and payload_class == "private":
+    if (
+        policy["global"].get("privacy_gate_enabled")
+        and route.get("public_only")
+        and payload_class == "private"
+    ):
         reasons.append("маршрутът е само за публични материали")
     limit = route.get("daily_call_limit")
     if limit and model_usage.model_calls_today(route.get("provider"), route.get("model")) >= int(
@@ -728,6 +732,7 @@ def status_report(*, policy=None, now=None) -> dict:
     return {
         "day": model_usage.sofia_day(now),
         "policy_hash": digest,
+        "privacy_gate_enabled": bool(policy["global"].get("privacy_gate_enabled")),
         "paid_enabled": bool(policy["global"].get("paid_enabled")),
         "soft_paid_budget_usd_day": soft_paid_budget,
         "paid_cost_today_usd": paid_cost,
