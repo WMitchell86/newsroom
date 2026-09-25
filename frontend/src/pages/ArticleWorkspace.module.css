@@ -1,0 +1,281 @@
+.listPage {
+  min-width: 0;
+}
+
+.searchNote {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.storyLink {
+  color: var(--color-accent);
+  text-decoration-color: var(--color-border);
+  text-underline-offset: 3px;
+}
+
+.storyLink:hover {
+  color: var(--color-accent-hover);
+  text-decoration-color: currentColor;
+}
+
+.workspace {
+  min-width: 0;
+}
+
+.workspaceHeader {
+  margin-bottom: var(--space-10);
+}
+
+.workspaceHeader h1 {
+  max-width: 940px;
+}
+
+.workspaceHeader .kicker {
+  display: none;
+}
+
+.headingLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.linkedStory {
+  max-width: 940px;
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.linkedStory a {
+  color: var(--color-accent);
+  text-underline-offset: 3px;
+}
+
+.workspaceGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 940px) 300px;
+  align-items: start;
+  gap: 32px;
+  min-width: 0;
+}
+
+.editorialColumn {
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius);
+  padding: var(--space-10);
+}
+
+.contextLabel,
+.contentHeading,
+.evidenceHeading {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.focus {
+  padding-bottom: var(--space-8);
+}
+
+.focusText {
+  max-width: 760px;
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 24px;
+}
+
+.focusEmpty {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.content {
+  padding: var(--space-8) 0 var(--space-10);
+  border-top: 3px solid var(--color-accent);
+}
+
+.contentHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.contentTitle {
+  max-width: 780px;
+  margin: 0 0 var(--space-6);
+  font-family: var(--font-editorial);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 33px;
+}
+
+.contentBody {
+  max-width: 780px;
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 17px;
+  line-height: 27px;
+}
+
+.readiness {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-4) 0 0;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.readiness div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.readiness dt {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.readiness dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.warnings {
+  margin-top: var(--space-10);
+}
+
+.warningList,
+.factList,
+.missingList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.warningList {
+  margin-top: var(--space-3);
+}
+
+.warning {
+  padding: var(--space-4) 0 var(--space-4) var(--space-4);
+  border-left: 3px solid var(--color-warning);
+}
+
+.warningBlocking {
+  border-color: var(--color-error);
+}
+
+.warningMessage,
+.affectedText {
+  margin: 0;
+}
+
+.warningMessage {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.affectedText {
+  margin-top: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.noWarnings {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.evidenceColumn {
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-evidence);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.evidenceSection + .evidenceSection {
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+}
+
+.evidenceHeading {
+  margin-bottom: var(--space-3);
+}
+
+.evidenceMeta,
+.evidenceEmpty {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.fact,
+.missingItem {
+  padding: var(--space-3) 0 var(--space-3) var(--space-3);
+  border-left: 1px solid var(--color-border);
+}
+
+.factText,
+.missingQuestion,
+.missingReason {
+  margin: 0;
+}
+
+.factText,
+.missingQuestion {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.source,
+.missingReason,
+.sourceLink {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.source {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+}
+
+.source strong {
+  color: var(--color-text);
+}
+
+.sourceLink {
+  display: inline-block;
+  margin-top: var(--space-1);
+}
+
+.missingItem {
+  border-left-color: var(--color-warning);
+}
+
+.missingReason {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+}

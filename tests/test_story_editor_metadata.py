@@ -190,6 +190,42 @@ def test_follow_rejects_unknown_story_without_creating_metadata(metadata_root):
     assert not metadata.story_editor_metadata_path(root=metadata_root).exists()
 
 
+@pytest.mark.parametrize(
+    "stored",
+    [
+        None,
+        {
+            "version": 1,
+            "stories": [
+                {
+                    "story_id": "s-other",
+                    "followed": True,
+                    "last_reviewed_at": "2026-09-25T09:00:00Z",
+                    "reviewed_development_ids": [],
+                }
+            ],
+        },
+    ],
+    ids=["missing-store", "partial-store"],
+)
+def test_missing_or_partial_story_metadata_reads_safe_defaults_without_writes(
+    metadata_root, stored
+):
+    path = metadata.story_editor_metadata_path(root=metadata_root)
+    if stored is not None:
+        metadata.write_story_editor_metadata(stored, root=metadata_root)
+    before = path.read_bytes() if path.exists() else None
+
+    assert metadata.get_story_editor_metadata("s-one", root=metadata_root) == {
+        "story_id": "s-one",
+        "followed": False,
+        "last_reviewed_at": None,
+        "reviewed_development_ids": [],
+    }
+
+    assert (path.read_bytes() if path.exists() else None) == before
+
+
 def test_review_restores_both_stores_on_metadata_failure(metadata_root, monkeypatch):
     _seed_story(metadata_root, _canonical_story(("item-a",)))
     dev_a = editor_projections.development_id_for("s-one", "item-a")

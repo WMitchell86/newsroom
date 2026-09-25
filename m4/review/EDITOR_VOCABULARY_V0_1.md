@@ -37,15 +37,21 @@ The editor action vocabulary is:
 
 ```text
 Прегледай → Следи → Игнорирай → Проучи още → Започни статия
-→ Избери фокус / Промени фокуса → Направи чернова → Редактирай → Финализирай
+→ Избери фокус / Промени фокуса → Направи чернова → Редактирай
+→ Отбележи като готова → Финализирай
 ```
 
-The important distinction is:
+The important distinctions are:
 
 ```text
-Започни статия  = the editor decides to produce an article from a story
-Направи чернова  = a draft is created for that article
+Започни статия         = the editor decides to produce an article from a story
+Направи чернова        = a draft is created for that article
+Отбележи като готова   = the editor declares the draft ready for finalization
+Финализирай            = the article becomes a Финализирана статия
 ```
+
+`Отбележи като готова` is a deliberate editorial checkpoint. It does not
+finalize the Article and does not publish it.
 
 ## Invariants
 
@@ -64,12 +70,18 @@ This freeze is a **specification only**. No Workbench, frontend, route,
 storage, or backend implementation is part of this correction. UI changes
 require a separately reviewed and approved implementation step.
 
-The next permitted product step is a discussion-only **Step 2 — Information
-Architecture** proposal covering:
+The owner-approved Step 2 Information Architecture is frozen in
+`m4/review/INFORMATION_ARCHITECTURE_V0_1.md` and uses:
 
 ```text
-Днес / Истории / Работна маса / Архив / Настройки
+Днес / Истории / Статии / Архив / Настройки
 ```
 
-It must define the role of each area and what belongs in it, without code or
-frontend changes.
+The owner-approved Step 3 workflow specification is frozen in
+`m4/review/EDITOR_WORKFLOWS_V0_1.md`. It preserves the approved five-area IA,
+the three Article states, and the explicit
+`Отбележи като готова → Финализирай` sequence.
+
+After owner review of the Step 3 documentation diff, the next permitted UX
+phase is low-fidelity wireframes. No implementation is authorized by this
+vocabulary freeze.

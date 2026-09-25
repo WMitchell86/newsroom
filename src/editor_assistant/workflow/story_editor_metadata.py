@@ -157,6 +157,13 @@ def _empty(story_id: str) -> dict:
     }
 
 
+def default_story_editor_metadata(story_id: str) -> dict:
+    """Return safe read-only metadata for a canonical Story with no stored row."""
+    if not isinstance(story_id, str) or not story_id.strip():
+        raise StoryEditorMetadataError("story_id is required")
+    return _empty(story_id.strip())
+
+
 def get_story_editor_metadata(story_id: str, *, root=None) -> dict:
     if not isinstance(story_id, str):
         raise StoryEditorMetadataError("story_id must be a string")
@@ -166,7 +173,7 @@ def get_story_editor_metadata(story_id: str, *, root=None) -> dict:
     store = read_story_editor_metadata_store(root=root)
     return next(
         (deepcopy(row) for row in store["stories"] if row["story_id"] == wanted),
-        _empty(wanted),
+        default_story_editor_metadata(wanted),
     )
 
 

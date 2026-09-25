@@ -1,0 +1,214 @@
+
+.page {
+  width: 100%;
+  max-width: 1180px;
+}
+
+.headingRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.refresh {
+  flex: 0 0 auto;
+  margin-top: var(--space-1);
+  padding: 9px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-accent);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent);
+}
+
+.refresh:disabled {
+  cursor: default;
+  color: var(--color-text-secondary);
+  background: var(--color-evidence);
+}
+
+.list,
+.problemList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attentionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-6) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.attentionKind {
+  margin: 0 0 var(--space-2);
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.itemTitle {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.itemTitle a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.itemTitle a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.summary {
+  max-width: 900px;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 23px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
+  padding: 9px 16px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  color: var(--color-surface);
+  background: var(--color-accent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.action:hover {
+  color: var(--color-surface);
+  background: var(--color-accent-hover);
+}
+
+.problem {
+  padding: var(--space-4) 0 var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warning);
+}
+
+.problemLink {
+  display: inline-block;
+  margin-top: var(--space-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.searchForm {
+  max-width: 760px;
+  margin: 0 0 var(--space-6);
+}
+
+.searchLabel {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.searchControls {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.searchButton {
+  padding: 9px 16px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  color: var(--color-surface);
+  background: var(--color-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.searchButton:hover {
+  background: var(--color-accent-hover);
+}
+
+.filterNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.filterLink {
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  text-decoration: none;
+}
+
+.filterLink:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.filterActive {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-selected);
+}

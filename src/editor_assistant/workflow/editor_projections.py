@@ -52,13 +52,14 @@ def project_editor_article(
     article: dict,
     content: dict,
     current_validation_digest: str | None,
+    story_reference: dict | None = None,
 ) -> dict:
     """Return the narrow Article editor projection without internal artifacts."""
     state = derive_article_state(article, content, current_validation_digest)
     ready = readiness_is_current(article, content, current_validation_digest)
     return {
         "id": article["article_id"],
-        "story": {"id": article["story_id"]},
+        "story": story_reference or {"id": article["story_id"]},
         "title": article["working_title"],
         "focus": {
             "text": article["editorial_focus"],
@@ -93,7 +94,8 @@ def development_id_for(story_id: str, item_id: str) -> str:
     return "dev_" + hashlib.sha256(seed).hexdigest()[:15]
 
 
-def _meaningful_developments(story: dict, items_by_id: dict) -> list[dict]:
+def meaningful_developments(story: dict, items_by_id: dict) -> list[dict]:
+    """Return editor-facing New Developments, newest first."""
     rows = []
     for member in story.get("members") or []:
         if member.get("relation") != "NEW_DEVELOPMENT":
@@ -111,6 +113,9 @@ def _meaningful_developments(story: dict, items_by_id: dict) -> list[dict]:
             }
         )
     return sorted(rows, key=lambda row: (row["changed_at"], row["id"]), reverse=True)
+
+
+_meaningful_developments = meaningful_developments
 
 
 def unreviewed_development_ids(story: dict, metadata: dict) -> list[str]:
@@ -174,7 +179,7 @@ def project_story_editor(
 ) -> dict:
     """Small Story foundation for later API work; no raw backend artifacts."""
     metadata = _metadata_for_story(story, metadata)
-    developments = _meaningful_developments(story, items_by_id)
+    developments = meaningful_developments(story, items_by_id)
     reviewed = set(metadata.get("reviewed_development_ids") or [])
     unreviewed = [row for row in developments if row["id"] not in reviewed]
     related = [

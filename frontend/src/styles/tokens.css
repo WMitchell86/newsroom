@@ -1,0 +1,82 @@
+@font-face {
+  font-family: "Noto Sans";
+  src: url("../fonts/noto-sans-cyrillic.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Noto Sans";
+  src: url("../fonts/noto-sans-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+2000-206F, U+20AC;
+}
+@font-face {
+  font-family: "Noto Serif";
+  src: url("../fonts/noto-serif-cyrillic.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Noto Serif";
+  src: url("../fonts/noto-serif-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+2000-206F, U+20AC;
+}
+
+:root {
+  --color-canvas: #f6f4ef;
+  --color-surface: #fffdf8;
+  --color-evidence: #f0eee8;
+  --color-text: #20211e;
+  --color-text-secondary: #68665f;
+  --color-accent: #294e54;
+  --color-accent-hover: #1f3f44;
+  --color-success: #3f6b4f;
+  --color-warning: #9a681f;
+  --color-error: #963b33;
+  --color-border: #d8d3c8;
+  --color-border-light: #e7e2d8;
+  --color-selected: #e5ece8;
+  --color-warning-surface: #f5ebd8;
+  --color-error-surface: #f4e2df;
+  --font-ui: "Noto Sans", system-ui, sans-serif;
+  --font-editorial: "Noto Serif", Georgia, serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --radius: 5px;
+  --nav-height: 64px;
+  --page-margin: 76px;
+  font-family: var(--font-ui);
+  color: var(--color-text);
+  background: var(--color-canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 1180px; background: var(--color-canvas); }
+body { margin: 0; min-width: 1180px; min-height: 100vh; background: var(--color-canvas); }
+button, input { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: var(--color-accent); }
+button { color: inherit; }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 52%, transparent); outline-offset: 3px; }
+::selection { background: var(--color-selected); }
+
+h1, h2, h3, p { margin-top: 0; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }

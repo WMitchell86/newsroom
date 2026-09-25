@@ -33,15 +33,31 @@ def read_editor_article_projection(
     *,
     current_validation_digest: str | None,
     stories_path,
+    inbox_path=None,
     article_root=None,
 ) -> dict:
     """Read one Article with its canonical Story reference and current content."""
     stories = story_store.read_store(stories_path)["stories"]
+    stories_by_id = {story["story_id"]: story for story in stories}
     article = editor_article_store.get_editor_article(article_id, root=article_root)
-    if article["story_id"] not in _story_ids(stories):
+    if article["story_id"] not in stories_by_id:
         raise EditorQueryError(f"Article references an unknown Story: {article['story_id']}")
     content = editor_article_store.get_article_content(article_id, root=article_root)
-    return editor_projections.project_editor_article(article, content, current_validation_digest)
+    story = stories_by_id[article["story_id"]]
+    title = ""
+    if inbox_path is not None:
+        items_by_id = {row["item_id"]: row for row in inbox_store.read_items(inbox_path)}
+        representative = items_by_id.get(story.get("representative_item_id")) or {}
+        meaningful = editor_projections.meaningful_developments(story, items_by_id)
+        title = str(
+            representative.get("title") or (meaningful[0].get("title") if meaningful else "") or ""
+        )
+    story_reference = {"id": story["story_id"]}
+    if title:
+        story_reference["title"] = title
+    return editor_projections.project_editor_article(
+        article, content, current_validation_digest, story_reference
+    )
 
 
 def read_story_editor_projection(
@@ -85,10 +101,9 @@ def project_today(
     story_entries = []
     for story in stories:
         story_id = story["story_id"]
-        try:
-            story_metadata = metadata[story_id]
-        except KeyError as exc:
-            raise EditorQueryError(f"missing Story editor metadata: {story_id}") from exc
+        story_metadata = metadata.get(
+            story_id, story_editor_metadata.default_story_editor_metadata(story_id)
+        )
         projected = editor_projections.project_story_editor(
             story, story_metadata, items_by_id, article_records
         )

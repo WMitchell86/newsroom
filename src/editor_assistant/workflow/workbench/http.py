@@ -25,6 +25,7 @@ from editor_assistant.workflow import blocked_domains as blocked_mod
 from editor_assistant.workflow import inbox_store as inbox_mod
 from editor_assistant.workflow import sources_registry as sources_mod
 from editor_assistant.workflow import story_store as story_store_mod
+from editor_assistant.workflow.workbench import api as api_mod
 from editor_assistant.workflow.workbench import html as html_mod
 from editor_assistant.workflow.workbench import newsroom as wb_newsroom
 from editor_assistant.workflow.workbench import state as wb_state
@@ -160,6 +161,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        if api_mod.owns_path(path):
+            api_mod.dispatch(self, "GET")
+            return
         route, case_id = _route(path)
         try:
             if route == "root":
@@ -193,8 +197,29 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 - any handler error must become an HTTP response
             self._handle_error(e)
 
+    def do_PATCH(self):
+        if api_mod.owns_path(urllib.parse.urlparse(self.path).path):
+            api_mod.dispatch(self, "PATCH")
+            return
+        self.send_error(501, "Unsupported method")
+
+    def do_PUT(self):
+        if api_mod.owns_path(urllib.parse.urlparse(self.path).path):
+            api_mod.dispatch(self, "PUT")
+            return
+        self.send_error(501, "Unsupported method")
+
+    def do_DELETE(self):
+        if api_mod.owns_path(urllib.parse.urlparse(self.path).path):
+            api_mod.dispatch(self, "DELETE")
+            return
+        self.send_error(501, "Unsupported method")
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if api_mod.owns_path(path):
+            api_mod.dispatch(self, "POST")
+            return
         route, case_id = _route(path)
         try:
             if route == "save":
