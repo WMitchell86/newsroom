@@ -195,10 +195,18 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if api_mod.owns_path(path):
             api_mod.dispatch(self, "GET")
             return
-        # D1: SPA mode is opt-in and only takes the approved client routes.
-        # The compatibility prefix is operational (rollback/testing) and is
-        # rewritten back onto the legacy dispatcher before anything else.
-        compat = spa_mod.strip_legacy_prefix(path)
+        # D1/D2B: the SPA is the default editor frontend and only takes the
+        # approved client routes. The compatibility prefix is operational
+        # (rollback/testing) and is rewritten back onto the legacy dispatcher
+        # before anything else.
+        try:
+            compat = spa_mod.strip_legacy_prefix(path)
+        except spa_mod.FrontendConfigError as exc:
+            # The mode is validated at startup, so this is only reachable if it
+            # was changed to an invalid value while serving. Answer loudly
+            # instead of silently picking one of the two editors.
+            self._respond_bad_config(exc)
+            return
         if compat is not None:
             path = compat
         elif spa_mod.is_spa_enabled() and spa_mod.owns_spa_route(path):
@@ -299,7 +307,21 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             content_type="text/css; charset=utf-8",
         )
 
-    # ---------- D1: production SPA serving (opt-in) ----------
+    # ---------- D1/D2B: production SPA serving (the default frontend) ----------
+
+    def _respond_bad_config(self, exc):
+        """Loud plain-text refusal for an invalid ``WB_EDITOR_FRONTEND``.
+
+        Same shape as the missing-build 503: never an editor page, so a
+        misconfiguration cannot be mistaken for a working editor.
+        """
+        _respond_bytes(
+            self,
+            500,
+            f"Editor frontend is misconfigured.\n\n{exc}\n".encode(),
+            content_type="text/plain; charset=utf-8",
+            cache_control="no-store",
+        )
 
     def _get_spa_entry(self):
         """Serve the compiled SPA entry document for an approved client route.
@@ -1129,9 +1151,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
 
 def serve(port, host="127.0.0.1", quit_allowed=False):
-    """Start the workbench HTTP server. Returns the HTTPServer instance."""
+    """Start the workbench HTTP server. Returns the HTTPServer instance.
+
+    The editor frontend mode is resolved here, once, so an invalid
+    ``WB_EDITOR_FRONTEND`` is a startup failure for every embedder (the CLI, the
+    proof scripts and the test harnesses) rather than a per-request surprise.
+    """
     global ENABLE_QUIT
     ENABLE_QUIT = quit_allowed
+    spa_mod.validate_frontend_mode()
     httpd = ThreadingHTTPServer((host, port), WorkbenchHandler)
     httpd.timeout = 1.0
     return httpd

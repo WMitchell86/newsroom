@@ -26,7 +26,7 @@ from editor_assistant.workflow import (
     sources_registry,
 )
 from editor_assistant.workflow import story_store as story_store_mod
-from editor_assistant.workflow.workbench import http, newsroom
+from editor_assistant.workflow.workbench import http, newsroom, spa
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -95,7 +95,12 @@ def seeded(newsroom_dir):
 
 
 @pytest.fixture
-def server(seeded):
+def server(seeded, monkeypatch):
+    # D2B: this module asserts the *server-rendered* Workbench's HTML. Those
+    # primary routes belong to the SPA by default now, so the legacy mode is
+    # requested explicitly — the documented rollback path. The Workbench is not
+    # retired; it is simply no longer the default frontend.
+    monkeypatch.setenv(spa.FRONTEND_MODE_ENV, spa.MODE_LEGACY)
     httpd = http.serve(0, host="127.0.0.1")
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()

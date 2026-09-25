@@ -58,6 +58,12 @@ SUPPORTED_BODY = (
 CLEAN_FACT = "Общинският съвет одобри 400 000 лева за обновяване на централния парк."
 CLEAN_BODY = "Града получиха средства за обновяване на централния парк."
 
+#: D2B: how long the substituted draft provider takes. Deliberately longer than
+#: the ~2-second client polling budget D2A found insufficient, so the browser
+#: generation proof only passes while the hardened budget is in place. A real
+#: external provider is routinely this slow or slower.
+SLOW_DRAFT_PROVIDER_SECONDS = 4.0
+
 SOURCE_ROW = {"id": "vestnik", "name": "Вестник", "url": "https://vestnik.example.test/2026/budget"}
 
 
@@ -301,6 +307,19 @@ def build_fixture(*, newsroom: Path, editorial: Path) -> dict:
     )
     ids["preparation_article_id"] = preparation
 
+    # D2B: a dedicated Preparation Article for the slow-generation proof, so the
+    # §17 draft test above keeps its own row and the two can never interfere.
+    slow_draft = _new_article(
+        stories_path=stories_path,
+        editorial=editorial,
+        story_id="s-d2a-clean",
+        key="d2a-slow-draft",
+        title="Бавно създадена чернова за проверка на изчакването",
+        focus="Да се покаже, че бавното създаване не се обявява за провал.",
+        now="2026-09-25T09:01:00Z",
+    )
+    ids["slow_draft_article_id"] = slow_draft
+
     # A second Preparation Article, so the §16 title/focus proof never consumes
     # the row the §17 generation proof needs.
     focus_only = _new_article(
@@ -472,6 +491,8 @@ def build_fixture(*, newsroom: Path, editorial: Path) -> dict:
 
 def install_boundary_substitutes(monkeypatch) -> None:
     """Substitute only the three outbound edges. Everything between stays real."""
+    import time
+
     from editor_assistant.drafting import generate as gen
     from editor_assistant.sources import fetcher, web_fetch
     from editor_assistant.workflow import newsroom_run, search
@@ -479,10 +500,19 @@ def install_boundary_substitutes(monkeypatch) -> None:
     # -- 1. model transport: the only outbound call for drafting, the semantic
     #       story grouping and the claim judge. `generate.call_model` routes
     #       through the real role policy/router, which then reaches this seam.
+    #
+    # D2B: the *draft* role deliberately takes longer than the old 2-second client
+    # polling budget. A real external provider does, and that is exactly the
+    # condition the previous budget mishandled: the operation was still correctly
+    # running while the UI already declared the Draft lost. The substitute models
+    # that realistic latency, so this suite fails if the fix is ever reverted.
     def fake_call_gemini(prompt_text, *, api_key="", timeout=0, role="draft", **_kw):
+        if role == "draft":
+            time.sleep(SLOW_DRAFT_PROVIDER_SECONDS)
         return _model_answer(role), {"model": "d2a-substitute", "provider": "substitute"}
 
     def fake_call_openrouter(prompt_text, *, api_key="", timeout=0, model="", **_kw):
+        time.sleep(SLOW_DRAFT_PROVIDER_SECONDS)
         return _model_answer("draft"), {"model": "d2a-substitute"}
 
     monkeypatch.setattr(gen, "_call_gemini", fake_call_gemini)

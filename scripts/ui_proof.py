@@ -18,6 +18,10 @@ import urllib.request
 TMP = tempfile.mkdtemp(prefix="ui_proof_")
 os.environ["WB_NEWSROOM_DIR"] = os.path.join(TMP, "newsroom")
 os.environ["WB_EDITORIAL_WORKFLOW_DIR"] = os.path.join(TMP, "editorial_workflow")
+# D2B: this proof verifies the server-rendered Workbench's markup, so it requests
+# the legacy frontend explicitly. The Workbench is retained for rollback and for
+# the operator surfaces; the SPA is the default editor frontend.
+os.environ["WB_EDITOR_FRONTEND"] = "legacy"
 os.makedirs(os.environ["WB_NEWSROOM_DIR"], exist_ok=True)
 os.makedirs(os.environ["WB_EDITORIAL_WORKFLOW_DIR"], exist_ok=True)
 

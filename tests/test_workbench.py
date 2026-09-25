@@ -24,7 +24,7 @@ import urllib.request
 import pytest
 
 from editor_assistant.workflow import cases as cases_mod
-from editor_assistant.workflow.workbench import html, http, labels, state
+from editor_assistant.workflow.workbench import html, http, labels, spa, state
 
 # --------------------------------------------------------------------------
 # fixtures / helpers
@@ -920,7 +920,11 @@ def _post(url, data):
 
 
 @pytest.fixture
-def server(wf_dir):  # depends on wf_dir so the env is set before the server starts
+def server(wf_dir, monkeypatch):  # depends on wf_dir so the env is set before the server starts
+    # D2B: this module asserts the *server-rendered* Workbench's HTML, so the
+    # legacy mode is requested explicitly. It is the documented rollback, not a
+    # retirement: the Workbench still serves these routes on request.
+    monkeypatch.setenv(spa.FRONTEND_MODE_ENV, spa.MODE_LEGACY)
     httpd = http.serve(0, host="127.0.0.1")
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()

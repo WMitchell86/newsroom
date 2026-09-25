@@ -1,8 +1,9 @@
 """D2A §29-§35: assets, fonts, screenshots, route ownership, a11y, performance.
 
-Also the §32/§33 legacy proofs: the same Python runtime in `legacy` mode still
-serves the server-rendered Workbench, and in `spa` mode the operator and compat
-routes stay backend-rendered.
+Also the §32/§33 legacy proofs, which are D2B's rollback release gate: the same
+Python runtime with ``WB_EDITOR_FRONTEND=legacy`` still serves the
+server-rendered Workbench on the primary routes, and in the default (SPA) mode
+the operator and ``/wb-legacy`` compat routes stay backend-rendered.
 """
 
 from __future__ import annotations

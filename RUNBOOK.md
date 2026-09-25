@@ -13,31 +13,41 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127
 Binds **127.0.0.1** by default; `--host` is opt-in and there is **no auth** on
 this local MVP. `POST /quit` is refused unless `WB_ALLOW_QUIT=1` (test-only).
 
-### 0.1 Frontend serving mode (D1 — opt-in, default `legacy`)
+### 0.1 Frontend serving mode (D2B — SPA is the default)
 
-The same Python process can also serve the compiled React SPA. There is **no
-Node production server, no nginx and no second service** — Vite is build-time
-tooling only, and the browser talks to `/api/v1` on this same origin.
+The Python process serves the compiled React SPA. There is **no Node production
+server, no nginx and no second service** — Vite is build-time tooling only, and
+the browser talks to `/api/v1` on this same origin.
 
 The build is not committed (`frontend/dist/` is ignored). Produce it
-deterministically:
+deterministically — this is the whole production build:
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
 ```
 
-Select the serving mode with one deployment variable:
+Then start the application normally. **No environment variable is required** —
+the SPA is the default:
+
+```bash
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench
+```
+
+Startup prints which editor owns the primary routes, so the running topology is
+never a guess:
+
+```text
+[workbench] Editor frontend: SPA (serving /home/…/frontend/dist/index.html)
+```
 
 | `WB_EDITOR_FRONTEND` | Behavior |
 | --- | --- |
-| `legacy` (**default**) | Server-rendered Workbench owns the current routes, exactly as before. |
-| `spa` | Python serves the compiled SPA **on the approved editor routes only**. |
+| unset (or empty) — **default** | Python serves the compiled SPA on the approved editor routes. |
+| `spa` | Identical to the default; stated explicitly. |
+| `legacy` | **Rollback.** The server-rendered Workbench owns the current routes. |
+| anything else | **Loud startup failure.** The process refuses to start. |
 
-```bash
-WB_EDITOR_FRONTEND=spa PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench
-```
-
-In `spa` mode the SPA owns exactly `/`, `/stories`, `/stories/:id`, `/articles`,
+In SPA mode the SPA owns exactly `/`, `/stories`, `/stories/:id`, `/articles`,
 `/articles/:id`, `/archive`, `/archive/:id`, `/settings`. Nothing else changes
 route owner: `/api/v1/*`, `/healthz`, `/static/style.css` and the operator
 surfaces `/cases`, `/inbox`, `/sources`, `/models`, `/intake` stay backend, and
@@ -45,30 +55,67 @@ any other URL is a real 404 — the SPA is never a catch-all.
 
 - **Cache policy:** hashed `/assets/*` are immutable; `index.html` is `no-cache`;
   `/api/v1` keeps its existing `no-store`.
-- **Missing build:** the process refuses to start and prints how to build. It
-  never silently serves legacy pages in `spa` mode, which would hide a broken
-  deployment.
+- **Missing build:** because the SPA is the default, a missing build is a **startup
+  failure** with instructions to build. It never silently serves legacy pages,
+  which would hide a broken deployment. Editor routes answer a loud plain-text
+  `503` in that case; `/api/v1` and `/healthz` keep working.
+- **Invalid value:** a typo (`WB_EDITOR_FRONTEND=spaa`) is a configuration error,
+  not a fallback. Silently choosing an editor would be worse than failing.
 - **Override the build root:** `WB_SPA_DIST=/path/to/dist` (used by tests).
 
-**Rollback is one variable** — no redeploy of code, no data change:
+**Rollback is one variable** — no redeploy of code, no rebuild, no migration, no
+data conversion:
 
 ```bash
 WB_EDITOR_FRONTEND=legacy PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench
 ```
 
-In `spa` mode the server-rendered pages also stay reachable under the technical
+In SPA mode the server-rendered pages also stay reachable under the technical
 prefix `/wb-legacy/…` (e.g. `/wb-legacy/stories`) for validation and rollback.
 This is operational infrastructure, not product navigation: it is never linked
 from the SPA and never shown to editors.
 
-> D1 status: SPA serving is proven but **not** the default. Primary-route
-> cutover is a separate, owner-approved phase.
+> D2B status: cutover complete. The SPA is the default editor frontend; the
+> server-rendered Workbench is **retained and reachable**, not retired. Removing it
+> is a separate, later decision after real operational use.
+
+**Rollback period.** `WB_EDITOR_FRONTEND=legacy` and `/wb-legacy/…` stay
+supported for at least the whole V1 operational period. Keep them until a
+post-V1 review explicitly decides otherwise; there is no announced end date and
+no code is scheduled for removal. Until that decision, assume the Workbench is
+part of the production surface.
+
+### 0.2 Production deployment sequence
+
+The SPA is the default, so the compiled build is a **required build artifact**.
+The whole sequence is:
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench
+```
+
+`scripts/build_frontend.sh` wraps exactly those three build steps and then
+verifies the entry document exists, so a deployment fails here rather than at the
+editor's first click:
+
+```bash
+scripts/build_frontend.sh
+```
+
+It is intentionally just the documented commands plus one existence check — there
+is no deployment system, no service manager and no CI pipeline implied by it.
+`npm ci` (not `npm install`) is what makes the build reproducible from the
+committed lockfile.
 
 ### D2A — browser parity proof
 
-D2A proves the same bundle in a **real browser** (hydration, React Router
+D2A proved the same bundle in a **real browser** (hydration, React Router
 navigation, deep links, refresh, back/forward), which D1 could not reach. It
-does **not** change the default: `WB_EDITOR_FRONTEND` still defaults to `legacy`.
+does **not** change any product behavior; D2B made the SPA the default.
 
 ```bash
 python3 -m pip install playwright==1.63.0 && python3 -m playwright install chromium
@@ -76,11 +123,16 @@ cd frontend && npm ci && npm run build && cd ..
 PYTHONPATH=src python3 -m pytest tests/browser -p no:cacheprovider
 ```
 
-The suite runs against a real `ThreadingHTTPServer` in `spa` mode with isolated
+The suite runs against a real `ThreadingHTTPServer` **in the default mode — with
+no `WB_EDITOR_FRONTEND` set at all**, which is the cutover proof — using isolated
 store roots, and it hashes the real `var/` runtime stores before and after to
 prove nothing leaked. Screenshots for review land in `var/d2a_screenshots/`.
 Full details, including exactly which three outbound edges are substituted, are
 in `tests/browser/README.md`.
+
+The substituted draft provider deliberately takes ~4s, longer than the ~2s
+client polling budget D2A found insufficient, so the suite fails if the Draft
+polling hardening is ever reverted.
 
 Verify the real build through the real Python server (not Vite):
 

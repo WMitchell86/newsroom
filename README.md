@@ -47,12 +47,13 @@ Binds `127.0.0.1` by default; `--host`/`--port` exist, and `--host` is opt-in
 (there is **no auth** on this local MVP). Stdlib only — no framework; JavaScript
 is optional feedback only (confirm dialogs + busy overlay).
 
-The same process can optionally serve the compiled React SPA
-(`frontend/`, Vite + React + TS) over the JSON API — see
-`RUNBOOK.md` §0.1. It is **opt-in and off by default** (`WB_EDITOR_FRONTEND`
-defaults to `legacy`), so this legacy surface above is unchanged until primary-
-route cutover is explicitly approved. There is no Node production server: Vite
-builds, Python serves.
+The same process serves the compiled React SPA (`frontend/`, Vite + React + TS)
+over the JSON API — see `RUNBOOK.md` §0.1. It is the **default** editor frontend:
+after `cd frontend && npm ci && npm run build`, a normal start serves the SPA on
+`/`, `/stories`, `/articles`, `/archive` and `/settings`. Set
+`WB_EDITOR_FRONTEND=legacy` to roll back to the server-rendered Workbench on
+those same routes — one variable, no migration, no rebuild, no data conversion.
+There is no Node production server: Vite builds, Python serves.
 
 The workbench lives under `workflow/`, which the M0 smoke guard's token scan
 `src/editor_assistant/{*.py,sources,notify}` does not cover — so it adds **no**

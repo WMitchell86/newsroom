@@ -212,21 +212,20 @@ export async function makeArticleDraft(articleId: string, idempotencyKey: string
     { "Idempotency-Key": idempotencyKey },
   );
   if (isRecord(value) && typeof value.operationToken === "string") {
-    for (let attempt = 0; attempt < DRAFT_POLL_ATTEMPTS; attempt += 1) {
-      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, DRAFT_POLL_DELAY_MS));
-      const operation = await getData<unknown>(`/operations/${encodeURIComponent(value.operationToken)}`);
-      if (!isResearchOperation(operation)) {
-        throw new ApiError(0, "INTERNAL_ERROR", "Черновата не можа да бъде създадена. Опитайте отново.", true);
-      }
-      const article = operationArticle(operation);
-      if (article) return article;
-      const status = operation.status.toUpperCase();
-      if (status === "FAILED" || status === "ERROR") throw operationFailure(operation);
-      if (status === "SUCCEEDED" || status === "COMPLETED") {
-        throw new ApiError(0, "INTERNAL_ERROR", "Операцията не върна създадената чернова.", true);
-      }
-    }
-    throw new ApiError(0, "INTERNAL_ERROR", "Черновата още не е готова. Опитайте отново.", true);
+    // D2B: this polls for up to a minute of real provider time. The previous
+    // ~2s budget ended while the backend operation was still correctly running,
+    // and the editor was told the Draft was not ready. An exhausted budget is a
+    // transport message about the wait, never a claim that generation failed.
+    const article = await pollOperationFor<ArticleDetail>(value.operationToken, {
+      budget: DRAFT_POLL_BUDGET,
+      malformed: "Черновата не можа да бъде създадена. Опитайте отново.",
+      succeededWithoutResult: "Операцията не върна създадената чернова.",
+      exhausted: "Черновата все още се създава. Опитайте отново след малко.",
+      extract: operationArticle,
+    });
+    // A successful draft operation always carries the Article, so the helper
+    // throws before it could resolve `null` here.
+    return article as ArticleDetail;
   }
   if (isRecord(value) && "content" in value) return value as unknown as ArticleDetail;
   throw new ApiError(200, "INTERNAL_ERROR", "Черновата не върна актуализирана статия.", true);
@@ -240,10 +239,80 @@ export interface ResearchOperation {
   error?: unknown;
 }
 
-const RESEARCH_POLL_ATTEMPTS = 8;
-const RESEARCH_POLL_DELAY_MS = 250;
-const DRAFT_POLL_ATTEMPTS = 8;
-const DRAFT_POLL_DELAY_MS = 250;
+/**
+ * The one bounded-poll policy for `GET /api/v1/operations/{token}`.
+ *
+ * Every long-running editor action (Research, Refresh, Draft) answers `202` with
+ * an operation token and settles later on that same endpoint, so they share this
+ * loop instead of each carrying its own copy. The budget is still *bounded*: an
+ * exhausted budget is a transport outcome ("still working, ask again shortly"),
+ * never a claim that the work failed.
+ */
+export interface OperationPollBudget {
+  attempts: number;
+  delayMs: number;
+}
+
+/**
+ * A real external model provider takes far longer than a couple of seconds.
+ * D2B replaced Draft's previous 8 x 250ms (~2s) budget with this one, because a
+ * still-correctly-running operation must never be reported to the editor as a
+ * failure. It matches the budget «Обнови» already used for a real collection
+ * round, so all long operations now share one policy.
+ */
+export const DRAFT_POLL_BUDGET: OperationPollBudget = { attempts: 60, delayMs: 1000 };
+
+// A Story research round keeps its existing budget. Only Draft's budget changed,
+// and every operation here is still bounded.
+const RESEARCH_POLL_BUDGET: OperationPollBudget = { attempts: 8, delayMs: 250 };
+
+interface OperationPollOptions<T> {
+  budget: OperationPollBudget;
+  /** Said when the server answered something that is not an operation at all. */
+  malformed: string;
+  /** Said when the bounded client budget ran out. Must not imply failure. */
+  exhausted: string;
+  /**
+   * Said when the operation reported success but carried no payload. Omitted for
+   * operations with no payload to unwrap, whose success *is* the result: the
+   * helper then resolves with `null` instead of throwing.
+   */
+  succeededWithoutResult?: string;
+  /** The payload the editor is waiting for, or `null` while still running. */
+  extract: (value: ResearchOperation) => T | null;
+}
+
+/**
+ * Poll one operation to a terminal state.
+ *
+ * Resolves with the extracted payload, or `null` for a successful operation that
+ * had no payload to unwrap. Throws an :class:`ApiError` for a malformed answer, a
+ * real backend failure, a success with a missing payload, or an exhausted client
+ * budget.
+ */
+async function pollOperationFor<T>(
+  operationToken: string,
+  options: OperationPollOptions<T>,
+): Promise<T | null> {
+  const { budget } = options;
+  for (let attempt = 0; attempt < budget.attempts; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, budget.delayMs));
+    const value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
+    if (!isResearchOperation(value)) {
+      throw new ApiError(0, "INTERNAL_ERROR", options.malformed, true);
+    }
+    // A payload is authoritative whenever it is present, exactly as before.
+    const payload = options.extract(value);
+    if (payload !== null) return payload;
+    const status = value.status.toUpperCase();
+    if (status === "FAILED" || status === "ERROR") throw operationFailure(value);
+    if (status === "SUCCEEDED" || status === "COMPLETED") {
+      if (options.succeededWithoutResult === undefined) return null;
+      throw new ApiError(0, "INTERNAL_ERROR", options.succeededWithoutResult, true);
+    }
+  }
+  throw new ApiError(0, "INTERNAL_ERROR", options.exhausted, true);
+}
 
 function isResearchOperation(value: unknown): value is ResearchOperation {
   return isRecord(value) && typeof value.status === "string";
@@ -274,19 +343,16 @@ function operationFailure(value: ResearchOperation): ApiError {
 }
 
 async function pollResearchOperation(operationToken: string): Promise<StoryDetail> {
-  for (let attempt = 0; attempt < RESEARCH_POLL_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, RESEARCH_POLL_DELAY_MS));
-    const value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
-    if (!isResearchOperation(value)) throw new ApiError(0, "INTERNAL_ERROR", "Проучването не можа да се изпълни. Опитайте отново.", true);
-    const story = operationStory(value);
-    if (story) return story;
-    const status = value.status.toUpperCase();
-    if (status === "FAILED" || status === "ERROR") throw operationFailure(value);
-    if (status === "SUCCEEDED" || status === "COMPLETED") {
-      throw new ApiError(0, "INTERNAL_ERROR", "Проучването не върна актуализирана история.", true);
-    }
-  }
-  throw new ApiError(0, "INTERNAL_ERROR", "Проучването все още не е готово. Опитайте отново.", true);
+  const story = await pollOperationFor<StoryDetail>(operationToken, {
+    budget: RESEARCH_POLL_BUDGET,
+    malformed: "Проучването не можа да се изпълни. Опитайте отново.",
+    succeededWithoutResult: "Проучването не върна актуализирана история.",
+    exhausted: "Проучването все още не е готово. Опитайте отново.",
+    extract: operationStory,
+  });
+  // A successful research operation always carries its Story, so the helper
+  // throws before it could resolve `null` here.
+  return story as StoryDetail;
 }
 
 export async function researchMoreStory(storyId: string): Promise<StoryDetail> {
@@ -305,22 +371,18 @@ export const researchStory = researchMoreStory;
 
 // A newsroom refresh performs real network collection, so its bounded poll is
 // longer than a Story research round. It is still bounded: the editor is never
-// left waiting on a job monitor, and a stalled run ends in a calm retry.
-const REFRESH_POLL_ATTEMPTS = 60;
-const REFRESH_POLL_DELAY_MS = 1000;
+// left waiting on a job monitor, and a stalled run ends in a calm retry. This
+// is also the budget Draft now shares, which is why both are one minute.
+const REFRESH_POLL_BUDGET: OperationPollBudget = { attempts: 60, delayMs: 1000 };
 
 async function pollOperation(operationToken: string): Promise<void> {
-  for (let attempt = 0; attempt < REFRESH_POLL_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_DELAY_MS));
-    const value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
-    if (!isResearchOperation(value)) {
-      throw new ApiError(0, "INTERNAL_ERROR", "Новините не можаха да се обновят. Опитайте отново.", true);
-    }
-    const status = value.status.toUpperCase();
-    if (status === "FAILED" || status === "ERROR") throw operationFailure(value);
-    if (status === "SUCCEEDED" || status === "COMPLETED") return;
-  }
-  throw new ApiError(0, "INTERNAL_ERROR", "Обновяването още не е приключило. Опитайте отново.", true);
+  // A refresh has no payload to unwrap: a successful operation *is* the result.
+  await pollOperationFor<never>(operationToken, {
+    budget: REFRESH_POLL_BUDGET,
+    malformed: "Новините не можаха да се обновят. Опитайте отново.",
+    exhausted: "Обновяването още не е приключило. Опитайте отново.",
+    extract: () => null,
+  });
 }
 
 /** The one editor-facing newsroom action. Canonical Today is refetched after it. */

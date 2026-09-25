@@ -1,9 +1,10 @@
 """D2A §7-§9, §24-§28: SPA boot, navigation, deep links, refresh, back/forward.
 
-Everything here runs against the real Python server in ``WB_EDITOR_FRONTEND=spa``
-serving a real ``npm run build`` output. There is no Vite dev server, no Vite
-preview and no request interception: the browser talks to the production
-topology only.
+Everything here runs against the real Python server in the **default** frontend
+mode (no ``WB_EDITOR_FRONTEND`` set at all, which is what a normal start does
+since the D2B cutover), serving a real ``npm run build`` output. There is no Vite
+dev server, no Vite preview and no request interception: the browser talks to the
+production topology only.
 """
 
 from __future__ import annotations

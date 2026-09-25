@@ -1,8 +1,10 @@
-# D2A browser parity harness
+# D2A/D2B browser parity harness
 
-Real Chromium against the **Python-served production bundle**. This is the
-browser-level proof that D1 could not give: hydration, React Router navigation,
-refresh, deep links and back/forward over the compiled Vite build.
+Real Chromium against the **Python-served production bundle**, in the **default**
+editor-frontend mode. This is the browser-level proof that D1 could not give:
+hydration, React Router navigation, deep links, refresh, back/forward over the
+compiled Vite build — and, since D2B, that a *normal* start (no
+`WB_EDITOR_FRONTEND` at all) is what serves the editor.
 
 The production topology under test is exactly:
 
@@ -62,9 +64,24 @@ leaves the process:
 
 Isolation is **environment/store configuration only** (`WB_NEWSROOM_DIR`,
 `WB_EDITORIAL_WORKFLOW_DIR`, `MODEL_USAGE_DIR`, `MODEL_HEALTH_PATH`,
-`WB_SPA_DIST`, `WB_EDITOR_FRONTEND`). There is no product test mode: no
-`if E2E_TEST` branch, no test control in the SPA, and no change to any file
-under `frontend/src` or `src/editor_assistant`.
+`WB_SPA_DIST`). There is no product test mode: no `if E2E_TEST` branch, no test
+control in the SPA, and no change to any file under `frontend/src` or
+`src/editor_assistant`.
+
+## D2B: the default mode, and the slow-provider proof
+
+`spa_server` deliberately sets **no** `WB_EDITOR_FRONTEND`. Since the cutover
+that is the ordinary production default, so every scenario here proves that a
+normal `python3 -m ... workbench` serves the SPA. The rollback surface is proven
+separately by `legacy_page`, which pins `WB_EDITOR_FRONTEND=legacy` on its own
+socket: `/`, `/stories`, `/articles` and `/settings` must render server-rendered
+Workbench HTML.
+
+The substituted model transport answers the **draft** role only after
+`SLOW_DRAFT_PROVIDER_SECONDS` (~4s) — deliberately longer than the ~2s client
+polling budget D2A found insufficient. `test_a_slow_draft_operation_still_succeeds_in_the_ui`
+therefore fails if the Draft polling hardening is ever reverted, and asserts the
+editor saw no premature-failure wording.
 
 ## Data safety
 

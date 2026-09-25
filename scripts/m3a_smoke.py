@@ -112,6 +112,10 @@ def main() -> int:
 
     shutil.copytree(SRC_STORE, SMOKE_STORE)
     os.environ["WB_EDITORIAL_WORKFLOW_DIR"] = str(SMOKE_STORE)
+    # D2B: this smoke proves the *server-rendered* Workbench (M3A), so it asks for
+    # the legacy frontend explicitly. That surface is retained, not retired; the SPA
+    # is simply the default editor frontend now.
+    os.environ["WB_EDITOR_FRONTEND"] = "legacy"
 
     from editor_assistant.workflow import cases as cases_mod
     from editor_assistant.workflow.workbench import http, state

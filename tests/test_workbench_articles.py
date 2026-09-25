@@ -19,7 +19,7 @@ import urllib.request
 import pytest
 
 from editor_assistant.workflow import angles
-from editor_assistant.workflow.workbench import http, state
+from editor_assistant.workflow.workbench import http, spa, state
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -56,7 +56,10 @@ def stores(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def server(stores):
+def server(stores, monkeypatch):
+    # D2B: this module asserts the server-rendered Workbench's HTML, so legacy
+    # mode is requested explicitly (the documented rollback path).
+    monkeypatch.setenv(spa.FRONTEND_MODE_ENV, spa.MODE_LEGACY)
     srv = http.serve(0)  # ephemeral port; `make_server` never existed
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()

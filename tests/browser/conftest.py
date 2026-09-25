@@ -1,9 +1,10 @@
-"""D2A harness fixtures: isolated runtime, real server, real Chromium.
+"""D2A/D2B harness fixtures: isolated runtime, real server, real Chromium.
 
 Everything the browser sees is served by the production ``ThreadingHTTPServer``
-in ``WB_EDITOR_FRONTEND=spa`` mode, from a real ``npm run build`` output
-directory. There is no Vite dev server, no Vite preview, no route interception
-and no mocked API response anywhere in the main parity proof.
+in the **default** frontend mode — no ``WB_EDITOR_FRONTEND`` at all, which is
+what a normal start does since the D2B cutover — from a real ``npm run build``
+output directory. There is no Vite dev server, no Vite preview, no route
+interception and no mocked API response anywhere in the main parity proof.
 """
 
 from __future__ import annotations
@@ -71,16 +72,24 @@ def assert_runtime_stores_untouched():
 
 
 #: The serving mode is process-global (one environment variable, read per request),
-#: so the SPA-mode and legacy-mode servers cannot be up at the same time.
+#: so the default-mode and legacy-mode servers cannot be up at the same time.
 _FRONTEND_MODE_LOCK = threading.RLock()
 
 
 @contextlib.contextmanager
-def _frontend_mode(mode: str):
-    """Pin `WB_EDITOR_FRONTEND` for the lifetime of one server."""
+def _frontend_mode(mode: str | None):
+    """Pin (or unpin, with ``None``) `WB_EDITOR_FRONTEND` for one server.
+
+    ``None`` means the variable is **absent**, which since the D2B cutover is the
+    normal production default: the SPA owns the primary routes without anybody
+    configuring anything.
+    """
     with _FRONTEND_MODE_LOCK:
         previous = os.environ.get("WB_EDITOR_FRONTEND")
-        os.environ["WB_EDITOR_FRONTEND"] = mode
+        if mode is None:
+            os.environ.pop("WB_EDITOR_FRONTEND", None)
+        else:
+            os.environ["WB_EDITOR_FRONTEND"] = mode
         try:
             yield
         finally:
@@ -121,10 +130,13 @@ def spa_runtime(tmp_path_factory):
             "WB_EDITORIAL_WORKFLOW_DIR": str(editorial),
             "MODEL_USAGE_DIR": str(root / "model_usage"),
             "MODEL_HEALTH_PATH": str(root / "model_health.json"),
-            "WB_EDITOR_FRONTEND": "spa",
             "WB_SPA_DIST": str(DIST),
         }
     )
+    # D2B: the whole browser suite runs in the DEFAULT mode, with no
+    # `WB_EDITOR_FRONTEND` at all. A real operator types nothing, so neither does
+    # this proof: it demonstrates that a normal start serves the SPA.
+    os.environ.pop("WB_EDITOR_FRONTEND", None)
     # The transport is substituted below, so no request can leave the process. The
     # role policy still requires *a* key before it will consider any route, so a
     # dummy is set: it never authenticates anything, because the seam it would be
@@ -194,17 +206,20 @@ def operation_diagnostics():
 
 @pytest.fixture(scope="session")
 def spa_server(spa_runtime, boundary_substitutes):
-    """The real Python server, in real SPA mode, on a real socket.
+    """The real Python server in the DEFAULT mode, on a real socket.
 
-    The serving mode is read per request from the process environment, so this
-    fixture pins it for as long as the server is up. The legacy fixture takes the
-    same lock, which is what keeps the two modes from bleeding into each other.
+    D2B: this fixture does **not** set ``WB_EDITOR_FRONTEND``. Since the cutover
+    the variable is absent, so this is an ordinary production start and the whole
+    D2A parity suite proves the default. The mode is read per request from the
+    process environment, so the variable is held absent for as long as the server
+    is up; the legacy fixture takes the same lock, which keeps the two modes from
+    bleeding into each other.
     """
     from editor_assistant.workflow.workbench import http
 
     if not (DIST / "index.html").exists():
         pytest.skip(f"production build missing: run `cd frontend && npm run build` ({DIST})")
-    with _frontend_mode("spa"):
+    with _frontend_mode(None):
         server = http.serve(0, host="127.0.0.1")
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

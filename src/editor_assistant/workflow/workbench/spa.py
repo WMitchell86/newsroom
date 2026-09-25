@@ -1,4 +1,4 @@
-"""D1 deployment-level frontend serving mode for the Python process.
+"""D1/D2B deployment-level frontend serving mode for the Python process.
 
 This module is deployment infrastructure, not product IA. It decides, per
 request, whether the compiled React SPA or the server-rendered Workbench owns
@@ -6,15 +6,17 @@ an incoming GET path, and it reads compiled assets off disk safely.
 
 Two deployment modes, selected by one environment variable:
 
-``WB_EDITOR_FRONTEND=legacy`` (the default)
-    The M3A server-rendered Workbench owns the current routes exactly as it
-    does today. Nothing in this module is reachable.
+``WB_EDITOR_FRONTEND`` unset or empty (the default since D2B cutover)
+    The compiled React SPA owns the *approved editor routes only* (see
+    :func:`owns_spa_route`). The same Python process serves it; there is no Node
+    production server and no second service.
+
+``WB_EDITOR_FRONTEND=legacy``
+    Explicit rollback. The M3A server-rendered Workbench owns the current
+    routes exactly as it always has. Nothing else in this module is reachable.
 
 ``WB_EDITOR_FRONTEND=spa``
-    Python serves the compiled SPA on the *approved editor routes only*
-    (see :func:`owns_spa_route`). Backend API and health endpoints keep their
-    existing precedence, and every non-approved path still reaches the legacy
-    dispatcher or a real 404 — the SPA never becomes a catch-all.
+    The default, stated explicitly. Identical to leaving it unset.
 
 Safety properties this module is responsible for:
 
@@ -27,6 +29,8 @@ Safety properties this module is responsible for:
   because silently serving legacy would hide a broken deployment.
 * Unknown paths are never turned into ``200 index.html``; only the explicit
   allowlist below matches.
+* An unrecognized mode value is a loud :class:`FrontendConfigError`, never a
+  silent choice between two different editors (D2B).
 """
 
 from __future__ import annotations
@@ -39,13 +43,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 
-#: Deployment-mode switch. ``legacy`` (default) / ``spa``.
+#: Deployment-mode switch. Unset/empty defaults to ``spa`` since the D2B cutover;
+#: ``legacy`` is the explicit rollback and ``spa`` states the default explicitly.
 FRONTEND_MODE_ENV = "WB_EDITOR_FRONTEND"
 #: Override for the compiled build root (used by tests and unusual layouts).
 SPA_DIST_ENV = "WB_SPA_DIST"
 
 MODE_LEGACY = "legacy"
 MODE_SPA = "spa"
+
+#: The only accepted values. Anything else is a configuration error.
+VALID_MODES = (MODE_SPA, MODE_LEGACY)
+#: What the editor serves when the deployment says nothing. D2B made this the SPA.
+DEFAULT_MODE = MODE_SPA
 
 #: Technical rollback prefix: in ``spa`` mode the server-rendered editor pages
 #: stay reachable for validation/rollback. It is operational infrastructure —
@@ -90,13 +100,46 @@ class SpaBuildMissing(RuntimeError):
     """SPA mode is enabled but the compiled build is absent or incomplete."""
 
 
+class FrontendConfigError(RuntimeError):
+    """``WB_EDITOR_FRONTEND`` holds a value that is not a real mode.
+
+    D2B decision: a configuration typo must never silently select an editor
+    implementation. Falling back to one of them would hand the editor an
+    interface nobody asked for, and the failure would surface as a confusing
+    product bug rather than as a deployment mistake. The process therefore
+    refuses to start (and a per-request read of an impossible state can only
+    happen after that refusal).
+    """
+
+
 def frontend_mode(environ: dict[str, str] | None = None) -> str:
-    """Resolve the deployment mode. Unknown values fail closed to ``legacy``."""
+    """Resolve the deployment mode.
+
+    Unset or empty means the default (:data:`DEFAULT_MODE`, the SPA since the D2B
+    cutover). ``spa`` and ``legacy`` are accepted case-insensitively. Any other
+    value raises :class:`FrontendConfigError` — loudly, on purpose.
+    """
     env = environ if environ is not None else os.environ
-    raw = (env.get(FRONTEND_MODE_ENV) or "").strip().lower()
-    if raw == MODE_SPA:
-        return MODE_SPA
-    return MODE_LEGACY
+    raw = (env.get(FRONTEND_MODE_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_MODE
+    value = raw.lower()
+    if value in VALID_MODES:
+        return value
+    raise FrontendConfigError(
+        f"{FRONTEND_MODE_ENV}={raw!r} is not a valid editor frontend. "
+        f"Use one of: {', '.join(VALID_MODES)}. Leave it unset for the default "
+        f"({DEFAULT_MODE})."
+    )
+
+
+def validate_frontend_mode(environ: dict[str, str] | None = None) -> str:
+    """Resolve the mode once at startup so a bad value fails before serving.
+
+    Returns the resolved mode so callers can report it. This is the single
+    place a deployment mistake becomes a startup failure.
+    """
+    return frontend_mode(environ)
 
 
 def is_spa_enabled(environ: dict[str, str] | None = None) -> bool:
@@ -125,12 +168,17 @@ def build_available(environ: dict[str, str] | None = None) -> bool:
 
 
 def require_build(environ: dict[str, str] | None = None) -> Path:
-    """Return the entry document, or raise :class:`SpaBuildMissing`."""
+    """Return the entry document, or raise :class:`SpaBuildMissing`.
+
+    Since the D2B cutover the SPA is the *default*, so a missing build is the
+    normal broken-deployment case: the process must fail loudly rather than
+    quietly serve the legacy Workbench to an operator who expected the SPA.
+    """
     entry = index_path(environ)
     if not build_available(environ):
         raise SpaBuildMissing(
-            f"{FRONTEND_MODE_ENV}=spa requires a compiled frontend build at {entry}. "
-            "Run `npm ci && npm run build` in frontend/, or set "
+            f"the default editor frontend (spa) requires a compiled frontend build "
+            f"at {entry}. Run `npm ci && npm run build` in frontend/, or set "
             f"{FRONTEND_MODE_ENV}=legacy to serve the server-rendered Workbench."
         )
     return entry

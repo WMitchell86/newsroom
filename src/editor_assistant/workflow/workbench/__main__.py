@@ -46,25 +46,35 @@ def main(argv=None):
     if args.host != "127.0.0.1":
         print(f"[workbench] WARNING: binding to {args.host} — no auth on this MVP", file=sys.stderr)
 
-    # D1: report the frontend serving mode at startup so the running topology is
-    # never a guess. A missing build is a loud startup error, not a surprise 503
-    # on the editor's first click.
-    if http.spa_mod.is_spa_enabled():
+    # D2B: the editor frontend is reported at startup so the running topology is
+    # never a guess. An invalid mode is a loud configuration failure and a
+    # missing build is a loud deployment failure — neither ever silently becomes
+    # a different editor than the one that was configured.
+    try:
+        mode = http.spa_mod.validate_frontend_mode()
+    except http.spa_mod.FrontendConfigError as exc:
+        print(f"[workbench] ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    if mode == http.spa_mod.MODE_SPA:
+        entry = http.spa_mod.index_path()
         if http.spa_mod.build_available():
-            print(
-                f"[workbench] frontend mode: spa (serving {http.spa_mod.index_path()})",
-                file=sys.stderr,
-            )
+            print(f"[workbench] Editor frontend: SPA (serving {entry})", file=sys.stderr)
         else:
+            # D2B: the SPA is the default, so a missing build must be obvious
+            # rather than quietly downgraded to the legacy Workbench.
             print(
-                f"[workbench] ERROR: {http.spa_mod.FRONTEND_MODE_ENV}=spa but no compiled "
-                f"build at {http.spa_mod.index_path()}. Run `npm ci && npm run build` in "
-                f"frontend/, or set {http.spa_mod.FRONTEND_MODE_ENV}=legacy.",
+                f"[workbench] ERROR: the default editor frontend (SPA) has no compiled "
+                f"build at {entry}. Run `npm ci && npm run build` in frontend/, or set "
+                f"{http.spa_mod.FRONTEND_MODE_ENV}=legacy.",
                 file=sys.stderr,
             )
             return 2
     else:
-        print("[workbench] frontend mode: legacy (server-rendered Workbench)", file=sys.stderr)
+        print(
+            "[workbench] Editor frontend: legacy (server-rendered Workbench)",
+            file=sys.stderr,
+        )
 
     server = http.serve(args.port, host=args.host, quit_allowed=args.allow_quit)
 

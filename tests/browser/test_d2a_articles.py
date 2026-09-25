@@ -8,8 +8,11 @@ transport is substituted.
 
 from __future__ import annotations
 
+import time
+
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from .fixture_data import SLOW_DRAFT_PROVIDER_SECONDS
 from .helpers import (
     assert_spa_shell,
     nav_link,
@@ -159,6 +162,55 @@ def test_make_draft_produces_a_read_only_draft_body(page, spa_runtime):
     assert probe.page.locator("textarea#article-working-body").count() == 0
     probe.page.get_by_role("button", name="Редактирай").first.wait_for(state="visible")
     probe.assert_clean(context="make draft")
+
+
+# --------------------------------------------------------------------------
+# D2B: the Draft polling budget, proven in a real browser
+# --------------------------------------------------------------------------
+
+
+def test_a_slow_draft_operation_still_succeeds_in_the_ui(page, spa_runtime):
+    """D2B: a generation longer than the old 2s budget reaches Чернова anyway.
+
+    The substituted provider in `fixture_data` deliberately takes
+    ``SLOW_DRAFT_PROVIDER_SECONDS`` (~4s). Under the old 8 x 250ms budget the
+    editor would have reported «Черновата още не е готова» while the backend
+    operation was still correctly running. This test fails if the hardened budget
+    is ever reverted, and it asserts that no failure wording was ever shown.
+    """
+    probe = page
+    article_id = spa_runtime["slow_draft_article_id"]
+    open_article(probe, article_id)
+
+    started = time.monotonic()
+    probe.page.get_by_role("button", name="Направи чернова").click()
+    probe.page.get_by_text("Черновата се създава…").wait_for(state="visible", timeout=10000)
+    try:
+        wait_for_state(probe.page, "чернова", timeout=60000)
+    except PlaywrightTimeoutError:
+        alerts = probe.page.get_by_role("alert").all_inner_texts()
+        raise AssertionError(
+            "the slow Draft operation did not complete. "
+            f"article={_operation_rows(probe, article_id)} alerts={alerts} "
+            f"console={probe.console_errors}"
+        ) from None
+    elapsed = time.monotonic() - started
+
+    # The operation really did outlast the old two-second window.
+    assert elapsed >= SLOW_DRAFT_PROVIDER_SECONDS, (
+        f"the draft completed in {elapsed:.1f}s, which is faster than the substituted "
+        f"provider takes ({SLOW_DRAFT_PROVIDER_SECONDS}s): the slow-path proof did not run"
+    )
+
+    detail = probe.page.request.get(f"{probe.base_url}/api/v1/articles/{article_id}").json()["data"]
+    assert detail["state"] == "draft"
+    assert detail["content"]["body"].strip(), "the generated Draft has no body"
+
+    # No premature-failure wording was ever shown, and nothing claimed failure.
+    body = probe.page.locator("main").inner_text()
+    for wording in ("още не е готова", "все още се създава. Опитайте", "не можа да бъде създадена"):
+        assert wording not in body, f"the UI reported {wording!r} for a slow Draft"
+    probe.assert_clean(context="slow draft generation")
 
 
 # --------------------------------------------------------------------------

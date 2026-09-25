@@ -138,7 +138,9 @@ def main() -> int:
     newsroom.mkdir(parents=True)
     os.environ["WB_NEWSROOM_DIR"] = str(newsroom)
     os.environ["WB_EDITORIAL_WORKFLOW_DIR"] = str(tmp / "editorial")
-    os.environ["WB_EDITOR_FRONTEND"] = "spa"
+    # D2B: no `WB_EDITOR_FRONTEND` at all. Since the cutover the SPA *is* the
+    # default, so an ordinary start is exactly what this proof must exercise.
+    os.environ.pop("WB_EDITOR_FRONTEND", None)
 
     from editor_assistant.workflow.workbench import http  # env must be set first
 

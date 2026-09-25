@@ -39,7 +39,12 @@ def _get(base, path):
 
 @pytest.fixture(autouse=True)
 def isolated_runtime(tmp_path, monkeypatch):
-    """Isolated runtime stores for every test in this module."""
+    """Isolated runtime stores for every test in this module.
+
+    The frontend mode is *not* pinned here: each server fixture below states the
+    mode it is testing, so the D2B default (no variable at all) stays an
+    explicit, proven case rather than an accident of fixture ordering.
+    """
     newsroom = tmp_path / "newsroom"
     newsroom.mkdir()
     monkeypatch.setenv("WB_NEWSROOM_DIR", str(newsroom))
@@ -73,7 +78,10 @@ def _server():
 
 
 @pytest.fixture
-def legacy_server():
+def legacy_server(monkeypatch, build):
+    """Explicit rollback: the server-rendered Workbench owns the primary routes."""
+    monkeypatch.setenv(spa.SPA_DIST_ENV, str(build))
+    monkeypatch.setenv(spa.FRONTEND_MODE_ENV, spa.MODE_LEGACY)
     server, thread, base = _server()
     try:
         yield base
@@ -85,8 +93,27 @@ def legacy_server():
 
 @pytest.fixture
 def spa_server(monkeypatch, build):
+    """Explicit `spa`, the same mode the default now selects."""
     monkeypatch.setenv(spa.SPA_DIST_ENV, str(build))
     monkeypatch.setenv(spa.FRONTEND_MODE_ENV, spa.MODE_SPA)
+    server, thread, base = _server()
+    try:
+        yield base
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@pytest.fixture
+def default_server(monkeypatch, build):
+    """D2B: no ``WB_EDITOR_FRONTEND`` at all — a normal production start.
+
+    This is the cutover proof: an ordinary `python -m ... workbench` serves the
+    SPA because nobody had to configure anything.
+    """
+    monkeypatch.setenv(spa.SPA_DIST_ENV, str(build))
+    monkeypatch.delenv(spa.FRONTEND_MODE_ENV, raising=False)
     server, thread, base = _server()
     try:
         yield base
@@ -102,20 +129,59 @@ def spa_server(monkeypatch, build):
 
 
 class TestFrontendFlag:
-    def test_default_is_legacy(self, monkeypatch):
+    def test_unset_mode_is_the_spa_default(self, monkeypatch):
+        """§6: with no explicit setting, the SPA owns the primary routes."""
         monkeypatch.delenv(spa.FRONTEND_MODE_ENV, raising=False)
+        assert spa.frontend_mode() == spa.MODE_SPA
+        assert spa.is_spa_enabled() is True
+
+    def test_empty_mode_is_the_spa_default(self, monkeypatch):
+        """An empty variable is no setting at all, not a third mode."""
+        monkeypatch.setenv(spa.FRONTEND_MODE_ENV, "   ")
+        assert spa.frontend_mode() == spa.MODE_SPA
+
+    @pytest.mark.parametrize("raw", ["spa", "SPA", " spa "])
+    def test_explicit_spa_is_accepted(self, monkeypatch, raw):
+        monkeypatch.setenv(spa.FRONTEND_MODE_ENV, raw)
+        assert spa.frontend_mode() == spa.MODE_SPA
+
+    @pytest.mark.parametrize("raw", ["legacy", "LEGACY", " legacy "])
+    def test_explicit_legacy_is_the_rollback(self, monkeypatch, raw):
+        monkeypatch.setenv(spa.FRONTEND_MODE_ENV, raw)
         assert spa.frontend_mode() == spa.MODE_LEGACY
         assert spa.is_spa_enabled() is False
 
-    @pytest.mark.parametrize("raw", ["", "legacy", "LEGACY", "nonsense", "react", "v2"])
-    def test_unknown_values_fail_closed_to_legacy(self, monkeypatch, raw):
+    @pytest.mark.parametrize("raw", ["nonsense", "react", "v2", "spaa", "1", "true", "yes"])
+    def test_unknown_values_are_a_loud_configuration_error(self, monkeypatch, raw):
+        """§7: a typo must never silently choose one of the two editors."""
         monkeypatch.setenv(spa.FRONTEND_MODE_ENV, raw)
-        assert spa.frontend_mode() != spa.MODE_SPA
+        with pytest.raises(spa.FrontendConfigError) as excinfo:
+            spa.frontend_mode()
+        message = str(excinfo.value)
+        assert spa.FRONTEND_MODE_ENV in message
+        assert raw in message
+        # The message tells the operator both valid values and the default.
+        assert "spa" in message and "legacy" in message
 
-    @pytest.mark.parametrize("raw", ["spa", "SPA", " spa "])
-    def test_spa_is_opt_in_only(self, monkeypatch, raw):
-        monkeypatch.setenv(spa.FRONTEND_MODE_ENV, raw)
-        assert spa.frontend_mode() == spa.MODE_SPA
+    def test_default_mode_is_spa(self):
+        """The cutover constant itself, so a future flip cannot pass silently."""
+        assert spa.DEFAULT_MODE == spa.MODE_SPA
+        assert spa.VALID_MODES == (spa.MODE_SPA, spa.MODE_LEGACY)
+
+    def test_startup_refuses_an_invalid_mode(self, monkeypatch, tmp_path, capsys):
+        """§7: the process does not start at all on a bad value."""
+        from editor_assistant.workflow.workbench import __main__ as wb_main
+
+        monkeypatch.setenv(spa.FRONTEND_MODE_ENV, "spaa")
+        monkeypatch.setenv(spa.SPA_DIST_ENV, str(tmp_path / "build"))
+        assert wb_main.main(argv=["--port", "0"]) == 2
+        assert "not a valid editor frontend" in capsys.readouterr().err
+
+    def test_serve_refuses_an_invalid_mode(self, monkeypatch):
+        """Every embedder fails loudly, not only the CLI."""
+        monkeypatch.setenv(spa.FRONTEND_MODE_ENV, "nonsense")
+        with pytest.raises(spa.FrontendConfigError):
+            http.serve(0, host="127.0.0.1")
 
 
 # --------------------------------------------------------------------------

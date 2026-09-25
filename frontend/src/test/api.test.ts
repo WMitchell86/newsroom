@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, markArticleReady, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
+import type { ArticleDetail } from "../api/dto";
+import { ApiError, DRAFT_POLL_BUDGET, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, markArticleReady, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -220,6 +221,7 @@ describe("read-only API client", () => {
     await expect(makeArticleDraft("art-one", "draft-key")).rejects.toEqual(expect.objectContaining({ code: "SOURCE_UNAVAILABLE", retryable: true }));
   });
 
+
   it("preserves the stable error envelope for Story mutations", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
@@ -300,6 +302,185 @@ describe("the one newsroom refresh action", () => {
 
     await expect(refreshNewsroom()).rejects.toEqual(
       expect.objectContaining({ status: 409, code: "INVALID_TRANSITION" }),
+    );
+  });
+});
+
+/**
+ * D2B: the Draft polling budget.
+ *
+ * D2A found that Draft generation polled for only ~2 seconds (8 x 250ms). A real
+ * external model provider routinely takes longer, so the client gave up while the
+ * backend operation was still correctly running, and the editor was told
+ * «Черновата още не е готова». These tests pin the hardened behavior.
+ */
+describe("the Draft operation polling budget", () => {
+  const article = { id: "art-one", content: { title: "Чернова", body: "Текст", version: 1 } };
+
+  function accepted(token = "op-draft"): Response {
+    return { ok: true, status: 202, json: async () => ({ data: { operationToken: token } }) } as Response;
+  }
+
+  function operation(payload: unknown): Response {
+    return { ok: true, status: 200, json: async () => ({ data: payload }) } as Response;
+  }
+
+  function pollsOf(token: string): unknown[][] {
+    return fetchMock.mock.calls.filter((call) => String(call[0]).startsWith(`/api/v1/operations/${token}`));
+  }
+
+  /**
+   * Start a Draft request and capture its outcome immediately, so a rejection
+   * that happens while the fake clock is being flushed is never unhandled.
+   */
+  function startDraft(key: string): { settled: Promise<{ ok: true; value: ArticleDetail } | { ok: false; error: ApiError }> } {
+    const outcome = makeArticleDraft("art-one", key).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error: error as ApiError }),
+    );
+    return { settled: outcome };
+  }
+
+  beforeEach(() => {
+    // The budget is expressed in wall-clock time, so the tests drive the clock
+    // instead of really waiting a minute for a real provider.
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is a bounded budget in the general range used by other long operations", () => {
+    expect(DRAFT_POLL_BUDGET.delayMs).toBeGreaterThan(0);
+    const totalMs = DRAFT_POLL_BUDGET.attempts * DRAFT_POLL_BUDGET.delayMs;
+    // Long enough for a real provider: the old budget was ~2000ms.
+    expect(totalMs).toBeGreaterThanOrEqual(30_000);
+    // Still bounded: no infinite wait, no job monitor.
+    expect(totalMs).toBeLessThanOrEqual(10 * 60_000);
+  });
+
+  it("still succeeds when the operation takes far longer than the old two seconds", async () => {
+    // 30 polls x 1000ms = 30s of real provider time, well past the old ~2s.
+    fetchMock.mockResolvedValueOnce(accepted());
+    for (let poll = 0; poll < 30; poll += 1) {
+      fetchMock.mockResolvedValueOnce(operation({ status: "running" }));
+    }
+    fetchMock.mockResolvedValueOnce(operation({ status: "succeeded", result: article }));
+
+    const { settled } = startDraft("draft-key");
+    await vi.runAllTimersAsync();
+
+    expect(await settled).toEqual({ ok: true, value: article });
+    expect(pollsOf("op-draft")).toHaveLength(31);
+  });
+
+  it("follows pending -> running -> succeeded and returns the canonical Article", async () => {
+    fetchMock.mockResolvedValueOnce(accepted());
+    fetchMock.mockResolvedValueOnce(operation({ status: "pending" }));
+    fetchMock.mockResolvedValueOnce(operation({ status: "running" }));
+    fetchMock.mockResolvedValueOnce(operation({ status: "succeeded", result: article }));
+
+    const { settled } = startDraft("draft-key");
+    await vi.runAllTimersAsync();
+
+    expect(await settled).toEqual({ ok: true, value: article });
+    expect(pollsOf("op-draft")).toHaveLength(3);
+  });
+
+  it("surfaces a failed operation and stops polling immediately", async () => {
+    fetchMock.mockResolvedValueOnce(accepted());
+    fetchMock.mockResolvedValue(
+      operation({
+        status: "failed",
+        error: { code: "SOURCE_UNAVAILABLE", message: "Източникът временно не е наличен.", retryable: true },
+      }),
+    );
+
+    const { settled } = startDraft("draft-key");
+    await vi.runAllTimersAsync();
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toEqual(
+        expect.objectContaining({ code: "SOURCE_UNAVAILABLE", retryable: true }),
+      );
+    }
+    // One poll is enough: a terminal failure is not retried.
+    expect(pollsOf("op-draft")).toHaveLength(1);
+  });
+
+  it("stops at the bounded budget and reports a truthful transport message", async () => {
+    fetchMock.mockResolvedValueOnce(accepted());
+    // The backend operation never settles within the client budget.
+    fetchMock.mockResolvedValue(operation({ status: "running" }));
+
+    const { settled } = startDraft("draft-key");
+    await vi.runAllTimersAsync();
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error.message).toBe("Черновата все още се създава. Опитайте отново след малко.");
+    }
+    expect(pollsOf("op-draft")).toHaveLength(DRAFT_POLL_BUDGET.attempts);
+  });
+
+  it("never implies that generation failed when the budget is exhausted", async () => {
+    fetchMock.mockResolvedValueOnce(accepted());
+    fetchMock.mockResolvedValue(operation({ status: "running" }));
+
+    const { settled } = startDraft("draft-key");
+    await vi.runAllTimersAsync();
+    const outcome = await settled;
+
+    // The old wording claimed the Draft simply was not ready; the new wording
+    // states that generation is still under way, and stays retryable.
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error.message).not.toMatch(/не можа|не е готова/i);
+      expect(outcome.error.retryable).toBe(true);
+    }
+  });
+
+  it("does not start a second generation while polling one operation", async () => {
+    fetchMock.mockResolvedValueOnce(accepted());
+    for (let poll = 0; poll < 5; poll += 1) {
+      fetchMock.mockResolvedValueOnce(operation({ status: "running" }));
+    }
+    fetchMock.mockResolvedValueOnce(operation({ status: "succeeded", result: article }));
+
+    const { settled } = startDraft("draft-key");
+    await vi.runAllTimersAsync();
+    expect(await settled).toEqual({ ok: true, value: article });
+
+    const posts = fetchMock.mock.calls.filter(
+      (call) => (call[1] as RequestInit | undefined)?.method === "POST",
+    );
+    // Exactly one POST: repeated polls must never re-trigger generation.
+    expect(posts).toHaveLength(1);
+    // And it keeps the caller-supplied Idempotency-Key, unchanged by polling.
+    expect((posts[0]?.[1] as RequestInit).headers).toEqual(
+      expect.objectContaining({ "Idempotency-Key": "draft-key" }),
+    );
+  });
+
+  it("preserves the Idempotency-Key when the operation is polled", async () => {
+    fetchMock.mockResolvedValueOnce(accepted("op-keyed"));
+    fetchMock.mockResolvedValueOnce(operation({ status: "running" }));
+    fetchMock.mockResolvedValueOnce(operation({ status: "succeeded", result: article }));
+
+    const { settled } = startDraft("stable-key");
+    await vi.runAllTimersAsync();
+    expect(await settled).toEqual({ ok: true, value: article });
+
+    const posts = fetchMock.mock.calls.filter(
+      (call) => (call[1] as RequestInit | undefined)?.method === "POST",
+    );
+    expect(posts).toHaveLength(1);
+    expect((posts[0]?.[1] as RequestInit).headers).toEqual(
+      expect.objectContaining({ "Idempotency-Key": "stable-key" }),
     );
   });
 });
