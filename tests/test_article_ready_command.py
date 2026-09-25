@@ -398,9 +398,15 @@ def test_a_current_version_is_marked_ready_and_the_checkpoint_is_recorded(newsro
         "readyVersion": 1,
         "readyAt": stored["ready_at"],
     }
-    # C4 ends at a read-only `Готова`: no finalize, no reopen, no publish.
-    assert ready["availableActions"] == []
-    assert ready["nextAction"] is None
+    # C5 completes the Ready surface: the editor may go back to `Чернова`
+    # (`EDIT`) or freeze this exact version (`FINALIZE`). There is no publish.
+    assert ready["availableActions"] == ["EDIT", "FINALIZE"]
+    assert ready["nextAction"] == {
+        "action": "FINALIZE",
+        "reasonCode": "READY_TO_FINALIZE",
+        "label": "Финализирай",
+        "primary": True,
+    }
 
 
 def test_ready_eligibility_comes_from_the_backend_and_not_from_a_warning_count(newsroom, prepared):

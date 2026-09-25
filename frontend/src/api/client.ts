@@ -7,6 +7,14 @@ import type {
   TodayProjection,
 } from "./dto";
 
+/** The canonical result of `Финализирай`: the frozen Article and where it lives. */
+export interface FinalizeResult {
+  articleId: string;
+  archivePath: string;
+  finalizedAt: string;
+  article: ArchiveArticle;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: ApiErrorCode | "NETWORK_ERROR";
@@ -156,6 +164,33 @@ export function markArticleReady(articleId: string, expectedVersion: number): Pr
   return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/ready`, "POST", {
     expectedVersion,
   });
+}
+
+/**
+ * `Редактирай` from `Готова`. An explicit decision, not a content edit: the
+ * readiness checkpoint is invalidated server-side and no version is negotiated.
+ */
+export function reopenArticle(articleId: string): Promise<ArticleDetail> {
+  return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/reopen`, "POST");
+}
+
+/**
+ * `Финализирай` — the last editorial step, not publication. The client sends the
+ * version it observed plus an idempotency key, and the server revalidates and
+ * compares the fresh digest against the recorded readiness digest. The client
+ * never sends a digest as authority.
+ */
+export function finalizeArticle(
+  articleId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<FinalizeResult> {
+  return sendStoryCommand(
+    `/articles/${encodeURIComponent(articleId)}/finalize`,
+    "POST",
+    { expectedVersion },
+    { "Idempotency-Key": idempotencyKey },
+  );
 }
 
 export function updateArticleTitle(

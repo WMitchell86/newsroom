@@ -3,6 +3,11 @@
 This store sits beside the mature Idea/Evidence/Case/Draft workflow. It never
 reads, mutates, or substitutes an immutable generated Draft. Article state is
 intentionally not persisted here; it is derived by ``editor_projections``.
+
+C5 adds the finalized snapshot: the one immutable canonical document written by
+`Финализирай`. It lives beside the Article's versioned content documents
+(`editor_articles/{article_id}/`) and is keyed by the same `article_id`, so the
+Archive never becomes a second, unrelated identity.
 """
 
 from __future__ import annotations
@@ -44,6 +49,24 @@ ARTICLE_FIELDS = {
 }
 INTERNAL_REF_FIELDS = {"idea_id", "evidence_id", "case_id", "draft_id"}
 CONTENT_FIELDS = {"article_id", "title", "body", "content_version", "updated_at"}
+#: The immutable finalized Article. It is the Archive's canonical content, so
+#: every field here is a frozen editorial fact: the final text, the exact
+#: content version, the readiness digest that authorized finalization, the
+#: Story lineage and the evidence/source traceability an audit needs.
+FINALIZED_FIELDS = {
+    "article_id",
+    "story_id",
+    "title",
+    "body",
+    "editorial_focus",
+    "focus_confirmed_at",
+    "content_version",
+    "ready_version",
+    "ready_validation_digest",
+    "ready_at",
+    "finalized_at",
+    "evidence",
+}
 ARTICLE_ID_RE = re.compile(r"art_[a-z0-9]+(?:_[0-9]+)?\Z")
 _MUTATION_LOCK = threading.RLock()
 
@@ -693,3 +716,200 @@ def mark_article_ready(
         record["ready_at"] = ready_at
         record["updated_at"] = ready_at
         return _replace_article(record, root=root)
+
+
+# ------------------------------------------------------ C5 «Финализирай» storage
+
+
+def finalized_article_path(article_id: str, *, root=None) -> Path:
+    """The one immutable finalized document, keyed by the canonical article_id."""
+    safe_id = _article_id(article_id)
+    return Path(root or editorial_workflow_dir()) / "editor_articles" / safe_id / "finalized.json"
+
+
+def _validate_evidence(raw) -> dict:
+    """Frozen evidence/source traceability: enough for an audit, never raw audits.
+
+    Only what the editor was shown at finalization time is kept: the canonical
+    facts with their source identity and locator, plus the open questions and
+    the moment the basis was assessed. No internal Case, Draft or model row.
+    """
+    if raw is None:
+        return {"facts": [], "missing": {"items": [], "assessedAt": None}}
+    if not isinstance(raw, dict):
+        raise ArticleStoreError("finalized evidence must be an object")
+    unknown = sorted(set(raw) - {"facts", "missing"})
+    if unknown:
+        raise ArticleStoreError(f"unknown finalized evidence fields {unknown}")
+    facts = raw.get("facts") or []
+    if not isinstance(facts, list):
+        raise ArticleStoreError("finalized evidence facts must be a list")
+    missing = raw.get("missing") or {}
+    if not isinstance(missing, dict):
+        raise ArticleStoreError("finalized evidence missing must be an object")
+    return {
+        "facts": [dict(row) for row in facts if isinstance(row, dict)],
+        "missing": {
+            "items": [dict(row) for row in (missing.get("items") or []) if isinstance(row, dict)],
+            "assessedAt": missing.get("assessedAt") or None,
+        },
+    }
+
+
+def validate_finalized_article(raw) -> dict:
+    if not isinstance(raw, dict):
+        raise ArticleStoreError("a finalized Article must be an object")
+    unknown = sorted(set(raw) - FINALIZED_FIELDS)
+    if unknown:
+        raise ArticleStoreError(
+            f"unknown finalized Article fields {unknown} (allowed: {sorted(FINALIZED_FIELDS)})"
+        )
+    missing = sorted(FINALIZED_FIELDS - set(raw))
+    if missing:
+        raise ArticleStoreError(f"finalized Article missing fields: {missing}")
+    content_version = _version(raw["content_version"], "finalized.content_version")
+    ready_version = _version(raw["ready_version"], "finalized.ready_version")
+    if ready_version != content_version:
+        raise ArticleStoreError("a finalized Article freezes one exact ready content version")
+    body = raw["body"]
+    if not isinstance(body, str) or not body.strip():
+        raise ArticleStoreError("a finalized Article must carry real text")
+    return {
+        "article_id": _article_id(raw["article_id"]),
+        "story_id": _required_text(raw["story_id"], "finalized.story_id"),
+        "title": _required_text(raw["title"], "finalized.title"),
+        "body": body,
+        "editorial_focus": _text(raw["editorial_focus"], "finalized.editorial_focus"),
+        "focus_confirmed_at": _timestamp(
+            raw["focus_confirmed_at"], "finalized.focus_confirmed_at", nullable=True
+        ),
+        "content_version": content_version,
+        "ready_version": ready_version,
+        "ready_validation_digest": _required_text(
+            raw["ready_validation_digest"], "finalized.ready_validation_digest"
+        ),
+        "ready_at": _timestamp(raw["ready_at"], "finalized.ready_at"),
+        "finalized_at": _timestamp(raw["finalized_at"], "finalized.finalized_at"),
+        "evidence": _validate_evidence(raw["evidence"]),
+    }
+
+
+def reopen_article(article_id: str, *, now=None, root=None) -> dict:
+    """`Готова → Чернова`: drop the readiness checkpoint, keep everything else.
+
+    The Article id, Story lineage, title, body, focus, generated Draft markers
+    and internal refs are all preserved, and no content version is created:
+    reopening is a decision, not an edit. The editor must run the review cycle
+    again and press `Отбележи като готова` once more - an unchanged body never
+    becomes `Готова` by itself.
+    """
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
+        record = deepcopy(get_editor_article(article_id, root=root))
+        if record["finalized_at"]:
+            raise ArticleStoreError("a finalized Article cannot be reopened")
+        content = get_article_content(article_id, root=root)
+        if record["ready_version"] is None:
+            raise ArticleStoreError("only a ready Article can be reopened")
+        if not str(content.get("body") or "").strip():
+            raise ArticleStoreError("a ready Article must carry real text")
+        record["ready_version"] = None
+        record["ready_validation_digest"] = None
+        record["ready_at"] = None
+        record["updated_at"] = _timestamp(now or _now(), "updated_at")
+        return _replace_article(record, root=root)
+
+
+def finalize_article(
+    article_id: str,
+    *,
+    expected_version: int,
+    validation,
+    evidence=None,
+    now=None,
+    root=None,
+) -> dict:
+    """Freeze one exact validated Article as the canonical finalized snapshot.
+
+    The caller revalidates first and passes the result; this store only binds
+    the freeze to that exact version and digest. A finalized Article can never
+    be rewritten: a repeated call with the same version and digest returns the
+    snapshot that already exists, and anything else is refused.
+    """
+    expected = _version(expected_version, "expected_version")
+    if not isinstance(validation, ReadinessValidation):
+        raise ArticleStoreError("validation must be a ReadinessValidation result")
+    validation_version = _version(validation.content_version, "validation.content_version")
+    if validation_version != expected:
+        raise ArticleVersionConflict("validation is based on a stale content version")
+    if validation.blocking:
+        raise ArticleStoreError("blocking validation issues prevent finalization")
+    digest = _required_text(validation.digest, "validation.digest")
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
+        record = deepcopy(get_editor_article(article_id, root=root))
+        existing = read_finalized_article(article_id, root=root)
+        if existing is not None:
+            # A repeated attempt returns the same canonical finalized Article
+            # instead of creating a second Archive entry.
+            if (
+                existing["content_version"] == expected
+                and existing["ready_validation_digest"] == digest
+            ):
+                return existing
+            raise ArticleStoreError("a finalized Article is immutable")
+        if record["finalized_at"]:
+            raise ArticleStoreError("a finalized Article is immutable")
+        content = get_article_content(article_id, root=root)
+        if record["content_version"] != expected:
+            raise ArticleVersionConflict("finalization is based on a stale content version")
+        if record["ready_version"] != expected or record["ready_validation_digest"] != digest:
+            raise ArticleStoreError("a current readiness checkpoint is required")
+        if (
+            not str(content.get("title") or "").strip()
+            or not str(content.get("body") or "").strip()
+        ):
+            raise ArticleStoreError("a finalized Article requires a title and text")
+        if not (record["editorial_focus"] and record["focus_confirmed_at"]):
+            raise ArticleStoreError("a finalized Article requires confirmed editorial focus")
+        stamp = _timestamp(now or _now(), "finalized_at")
+        snapshot = validate_finalized_article(
+            {
+                "article_id": article_id,
+                "story_id": record["story_id"],
+                "title": content["title"],
+                "body": content["body"],
+                "editorial_focus": record["editorial_focus"],
+                "focus_confirmed_at": record["focus_confirmed_at"],
+                "content_version": expected,
+                "ready_version": record["ready_version"],
+                "ready_validation_digest": record["ready_validation_digest"],
+                "ready_at": record["ready_at"],
+                "finalized_at": stamp,
+                "evidence": evidence,
+            }
+        )
+        # The immutable snapshot becomes durable first; the Article record - the
+        # atomic pointer the Archive and Today read - is written last, so an
+        # interrupted run leaves an orphan snapshot, never a half-finalized
+        # Article. A retry with the same version and digest reuses the snapshot.
+        path = finalized_article_path(article_id, root=root)
+        payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
+        live_store.atomic_write(path, payload)
+        record["finalized_at"] = stamp
+        record["updated_at"] = stamp
+        _replace_article(record, root=root)
+        return snapshot
+
+
+def read_finalized_article(article_id: str, *, root=None) -> dict | None:
+    """The finalized snapshot, or `None` when the Article was never finalized."""
+    path = finalized_article_path(article_id, root=root)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ArticleStoreError(f"finalized Article is unreadable ({path}): {exc}") from exc
+    snapshot = validate_finalized_article(raw)
+    if snapshot["article_id"] != article_id:
+        raise ArticleStoreError("finalized article_id does not match its path")
+    return snapshot

@@ -175,6 +175,32 @@ def _ready(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     return app.mark_article_ready(article_id, _version(body["expectedVersion"]))
 
 
+def _reopen(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
+    """`Редактирай` from `Готова` — a decision, not a content edit.
+
+    The client sends nothing: there is no version to negotiate, because
+    reopening never changes the content.
+    """
+    if _body_required(handler):
+        body = _body(handler, set())
+        if body:
+            raise ApiError(400, "VALIDATION_ERROR", "Редактирането не приема полета.")
+    return app.reopen_article(article_id)
+
+
+def _finalize(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
+    """`Финализирай` — the client sends the version it observed, nothing else.
+
+    The server recomputes the current validation and compares its digest with
+    the recorded readiness digest; a client-supplied digest is never authority.
+    """
+    body = _body(handler, {"expectedVersion"})
+    key = handler.headers.get("Idempotency-Key", "").strip()
+    if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+        raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+    return app.finalize_article(article_id, _version(body["expectedVersion"]), idempotency_key=key)
+
+
 def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object] | None:
     parts = _path_parts(handler)
     prefix = ["api", "v1"]
@@ -258,6 +284,12 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             # `Отбележи като готова`. The client sends only the version it
             # observed; it never sends warnings, a digest or an override flag.
             return 200, _ready(handler, article_id)
+        if method == "POST" and len(parts) == 5 and parts[4] == "reopen":
+            # `Редактирай` from `Готова`. No body, no confirmation dialog.
+            return 200, _reopen(handler, article_id)
+        if method == "POST" and len(parts) == 5 and parts[4] == "finalize":
+            # `Финализирай`. Finalization only - never publishing.
+            return 200, _finalize(handler, article_id)
     if parts == [*prefix, "archive"] and method == "GET":
         query = _query(handler, {"query"})
         search = _string(query.get("query", ""), "query", maximum=200, required=False)

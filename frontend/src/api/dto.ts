@@ -71,6 +71,8 @@ export interface ArticleReference {
   id: string;
   title?: string;
   updatedAt?: string;
+  /** Present once the Article is finalized: the link then targets the Archive. */
+  finalizedAt?: string | null;
 }
 
 export interface Publication {

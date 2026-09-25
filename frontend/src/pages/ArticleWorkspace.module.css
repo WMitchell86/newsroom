@@ -220,6 +220,27 @@
   cursor: progress;
 }
 
+/* «Финализирай» is the primary Ready action: the same strong shape as
+   «Отбележи като готова», because it is the last editorial step. It never
+   implies publication - that is a separate, not-yet-existing surface. */
+.finalizeAction {
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.finalizeAction:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 .readyFeedback,
 .readyError {
   margin: var(--space-3) 0 0;

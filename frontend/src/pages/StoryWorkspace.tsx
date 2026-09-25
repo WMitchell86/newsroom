@@ -29,6 +29,9 @@ import {
 import styles from "./StoryWorkspace.module.css";
 
 function articleHref(article: ArticleReference): string {
+  // A finalized Article has left the active workflow: its traceability link
+  // points at the read-only Archive view, never at a dead workspace.
+  if (article.finalizedAt) return `/archive/${encodeURIComponent(article.id)}`;
   return `/articles/${encodeURIComponent(article.id)}`;
 }
 

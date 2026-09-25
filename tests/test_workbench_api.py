@@ -1229,12 +1229,23 @@ def test_ready_marks_the_current_version_and_returns_the_canonical_article(api_s
         "blocking": False,
         "readyEligible": False,
     }
-    assert article["availableActions"] == [] and article["nextAction"] is None
+    # C5: the Ready surface offers exactly the two editorial decisions.
+    assert article["availableActions"] == ["EDIT", "FINALIZE"]
+    assert article["nextAction"]["action"] == "FINALIZE"
     stored = articles.get_editor_article(article_id)
     assert stored["ready_validation_digest"].startswith("vd_")
     assert stored["finalized_at"] is None
-    # The ready Article is a read-only surface: no finalize, no reopen.
-    assert request(api_server, f"/api/v1/articles/{article_id}/finalize", method="POST")[0] == 405
+    # Readiness is still not finalization, and `Финализирай` is not publishing:
+    # it needs the idempotency key the transport carries.
+    assert (
+        request(
+            api_server,
+            f"/api/v1/articles/{article_id}/finalize",
+            method="POST",
+            body={"expectedVersion": 1},
+        )[0]
+        == 400
+    )
 
 
 def test_ready_refuses_a_stale_expected_version(api_server, api_store):
@@ -1298,7 +1309,9 @@ def test_ready_accepts_nothing_but_the_observed_version(api_server, api_store):
     assert articles.get_editor_article(article_id)["ready_version"] is None
 
 
-def test_a_ready_article_stops_asking_for_action_in_today(api_server, api_store):
+def test_a_ready_article_asks_for_the_final_decision_and_leaves_today_when_finalized(
+    api_server, api_store
+):
     article_id = _draft_for_ready(api_store)
     before = _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
     assert article_id in [row["objectId"] for row in before]
@@ -1312,8 +1325,35 @@ def test_a_ready_article_stops_asking_for_action_in_today(api_server, api_store)
         method="POST",
         body={"expectedVersion": 1},
     )
-    after = _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
-    assert article_id not in [row["objectId"] for row in after]
+    # C5: `Готова` is not a dead end. It asks for the final editorial decision,
+    # and it is that decision - not a silent disappearance - that removes the
+    # Article from active attention.
+    ready_rows = _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
+    assert (
+        next(row for row in ready_rows if row["objectId"] == article_id)["nextAction"]["action"]
+        == "FINALIZE"
+    )
     assert _data(request(api_server, "/api/v1/articles?filter=ready"))["articles"][0]["id"] == (
         article_id
     )
+
+    status, payload = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/finalize",
+        method="POST",
+        body={"expectedVersion": 1},
+        headers={"Idempotency-Key": "today-finalize"},
+    )
+    assert status == 200
+    assert payload["data"]["archivePath"] == f"/archive/{article_id}"
+
+    after = _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
+    assert article_id not in [row["objectId"] for row in after]
+    # A finalized Article is not active any more, and there is no fourth filter
+    # under Статии: it exists only in Архив.
+    active = _data(request(api_server, "/api/v1/articles"))["articles"]
+    assert article_id not in [row["id"] for row in active]
+    assert _data(request(api_server, "/api/v1/articles?filter=ready"))["articles"] == []
+    assert [row["id"] for row in _data(request(api_server, "/api/v1/archive"))["articles"]] == [
+        article_id
+    ]

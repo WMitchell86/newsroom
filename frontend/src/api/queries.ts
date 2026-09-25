@@ -42,6 +42,26 @@ export async function invalidateStoryProjections(queryClient: QueryClient, story
   ]);
 }
 
+/**
+ * `Финализирай`: the Article leaves the active surfaces and enters the Archive.
+ * Nothing is removed from the cache by hand - the server already succeeded, so
+ * the canonical projections are simply refetched.
+ */
+export async function invalidateFinalizedArticle(
+  queryClient: QueryClient,
+  articleId: string,
+  storyId: string,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.article(articleId), exact: true }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.archiveArticle(articleId), exact: true }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.story(storyId), exact: true }),
+    queryClient.invalidateQueries({ queryKey: ["articles"] }),
+    queryClient.invalidateQueries({ queryKey: ["archive"] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+  ]);
+}
+
 export const todayOptions = () => queryOptions({ queryKey: queryKeys.today, queryFn: getToday });
 export const storiesOptions = (filter: StoryFilter, query: string) =>
   queryOptions({ queryKey: queryKeys.stories(filter, query), queryFn: () => getStories(filter, query) });

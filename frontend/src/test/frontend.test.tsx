@@ -15,6 +15,7 @@ import {
   activeDraftArticle,
   activePreparationArticle,
   activeReadyArticle,
+  finalizeResult,
   finalizedArchiveArticle,
   storyDetail,
   todayProjection,
@@ -1197,7 +1198,7 @@ describe("C4 Отбележи като готова", () => {
     expect(screen.queryByText("Готова")).toBeNull();
   });
 
-  it("renders Готова as a read-only final review with no finalize and no reopen", async () => {
+  it("renders Готова as a final review with exactly the two editorial decisions", async () => {
     fetchMock.mockResolvedValue(dataResponse(activeReadyArticle));
     renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeReadyArticle.id}`] });
 
@@ -1209,10 +1210,201 @@ describe("C4 Отбележи като готова", () => {
     expect(
       screen.getByRole("button", { name: "Факти, източници и липсваща информация" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Финализирай/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Редактирай" })).toBeNull();
+    // C5 activates exactly these two, and nothing resembling publication.
+    expect(screen.getByRole("button", { name: "Финализирай" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Редактирай" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Отбележи като готова" })).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
+    for (const forbidden of ["Публикувай", "Изпрати", "Одобри", "CMS", "Експорт"]) {
+      expect(screen.queryByText(forbidden)).toBeNull();
+    }
+  });
+});
+
+describe("C5 Финализирай", () => {
+  function readyRoute() {
+    return (
+      <Routes>
+        <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
+        <Route path="/stories/:storyId" element={<p>История</p>} />
+        <Route path="/archive/:articleId" element={<p>Архивна статия</p>} />
+      </Routes>
+    );
+  }
+
+  /** Answers the article GET and lets each test intercept the POST. */
+  function readyFetch() {
+    return async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return dataResponse(finalizeResult);
+      if (url.includes("/archive")) return dataResponse(finalizeResult.article);
+      return dataResponse(activeReadyArticle);
+    };
+  }
+
+  it("offers Финализирай only from the backend FINALIZE action", async () => {
+    const notAuthorized = {
+      ...activeReadyArticle,
+      availableActions: ["EDIT"] as ArticleDetail["availableActions"],
+    };
+    fetchMock.mockResolvedValue(dataResponse(notAuthorized));
+    renderWithProviders(readyRoute(), { initialEntries: [`/articles/${activeReadyArticle.id}`] });
+
+    expect(await screen.findByText("Готова")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Редактирай" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Финализирай" })).toBeNull();
+  });
+
+  it("finalizes once with the expected version and an idempotency key, then opens the Archive", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(readyFetch());
+    renderWithProviders(readyRoute(), { initialEntries: [`/articles/${activeReadyArticle.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Финализирай" }));
+
+    // The editor lands in the Archive, and the Article is gone from its workspace.
+    expect(await screen.findByText("Архивна статия")).toBeInTheDocument();
+    const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(calls).toHaveLength(1);
+    const [url, init] = calls[0] as [string, RequestInit];
+    expect(url).toContain(`/articles/${activeReadyArticle.id}/finalize`);
+    expect(JSON.parse(String(init.body))).toEqual({ expectedVersion: 4 });
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBeTruthy();
+    // No client-supplied digest: the server revalidates as the authority.
+    expect(String(init.body)).not.toContain("Digest");
+  });
+
+  it("invalidates the active, Archive, Today and Story projections after success", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(readyFetch());
+    const { queryClient } = renderWithProviders(readyRoute(), {
+      initialEntries: [`/articles/${activeReadyArticle.id}`],
+    });
+    const invalidated: string[] = [];
+    const original = queryClient.invalidateQueries.bind(queryClient);
+    queryClient.invalidateQueries = ((filters: { queryKey: unknown[] }) => {
+      invalidated.push(JSON.stringify(filters.queryKey));
+      return original(filters);
+    }) as typeof queryClient.invalidateQueries;
+
+    await user.click(await screen.findByRole("button", { name: "Финализирай" }));
+    await screen.findByText("Архивна статия");
+
+    const joined = invalidated.join(" ");
+    expect(joined).toContain(JSON.stringify(["articles"]));
+    expect(joined).toContain("archive");
+    expect(joined).toContain(JSON.stringify(["today"]));
+    expect(joined).toContain(JSON.stringify(["story", activeReadyArticle.story.id]));
+  });
+
+  it("keeps the Article visible, blocks a duplicate click and exposes no internal stage", async () => {
+    const user = userEvent.setup();
+    let release: (value: Response) => void = () => {};
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/finalize")) {
+        return new Promise<Response>((resolve) => { release = resolve; });
+      }
+      if (init?.method === "POST") return dataResponse(finalizeResult);
+      return dataResponse(activeReadyArticle);
+    });
+    renderWithProviders(readyRoute(), { initialEntries: [`/articles/${activeReadyArticle.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Финализирай" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Финализира се…");
+    // The final Article stays visible and both Ready actions are disabled.
+    expect(screen.getByText(activeReadyArticle.content.body)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Финализира се…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Редактирай" })).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST").length).toBe(1);
+    // No internal stage, no AI branding, nothing about publication.
+    for (const forbidden of ["Ingest", "Проверка", "Валидиране", "Публикуване"]) {
+      expect(screen.queryByText(forbidden)).toBeNull();
+    }
+
+    release(dataResponse(finalizeResult));
+    expect(await screen.findByText("Архивна статия")).toBeInTheDocument();
+  });
+
+  it("stays on the Article, keeps the content and explains a stale checkpoint", async () => {
+    const user = userEvent.setup();
+    const stale = {
+      ...activeDraftArticle,
+      id: activeReadyArticle.id,
+      story: activeReadyArticle.story,
+      content: activeReadyArticle.content,
+      availableActions: ["EDIT", "MARK_READY"] as ArticleDetail["availableActions"],
+      nextAction: null,
+      readiness: { isCurrent: false, readyVersion: null, readyAt: null },
+    };
+    let refused = false;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/finalize") && !refused) {
+        refused = true;
+        return errorResponse(
+          "INVALID_TRANSITION",
+          "Проверката на текста се е променила след отбелязването му като готов. Прегледайте черновата отново.",
+          409,
+        );
+      }
+      return dataResponse(refused ? stale : activeReadyArticle);
+    });
+    renderWithProviders(readyRoute(), { initialEntries: [`/articles/${activeReadyArticle.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Финализирай" }));
+
+    // The editorial meaning survives: the Article must be reviewed again.
+    expect(await screen.findByRole("alert")).toHaveTextContent("Прегледайте черновата отново");
+    // No Archive navigation, and the content is preserved.
+    expect(screen.queryByText("Архивна статия")).toBeNull();
+    expect(screen.getByText(activeReadyArticle.content.body)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Отбележи като готова" })).toBeInTheDocument(),
+    );
+    // Readiness is never re-granted automatically.
+    expect(screen.queryByRole("button", { name: "Финализирай" })).toBeNull();
+  });
+});
+
+describe("C5 Готова → Редактирай", () => {
+  it("reopens through the canonical endpoint and returns the editor to Чернова", async () => {
+    const user = userEvent.setup();
+    const reopened = {
+      ...activeDraftArticle,
+      id: activeReadyArticle.id,
+      story: activeReadyArticle.story,
+      content: activeReadyArticle.content,
+    };
+    let canonical = activeReadyArticle;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/reopen")) {
+        canonical = reopened;
+        return dataResponse(reopened);
+      }
+      return dataResponse(canonical);
+    });
+    renderWithProviders(
+      <Routes>
+        <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
+        <Route path="/stories/:storyId" element={<p>История</p>} />
+      </Routes>,
+      { initialEntries: [`/articles/${activeReadyArticle.id}`] },
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+
+    expect(await screen.findByRole("heading", { name: "Чернова" })).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(([url, init]) =>
+      url.endsWith("/reopen") && init?.method === "POST",
+    );
+    expect(call).toBeTruthy();
+    // A decision, not an edit: no version is negotiated and no body is sent.
+    expect((call?.[1] as RequestInit).body ?? "").not.toContain("expectedVersion");
+    // Readiness is gone until the editor asks for it again.
+    expect(screen.queryByRole("button", { name: "Финализирай" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Отбележи като готова" })).toBeInTheDocument();
+    // The C3 editor is available again.
+    await user.click(screen.getByRole("button", { name: "Редактирай" }));
+    expect(await screen.findByRole("textbox", { name: /текст на статията/i })).toBeInTheDocument();
   });
 });
 

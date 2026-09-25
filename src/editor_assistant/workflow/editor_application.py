@@ -458,10 +458,10 @@ def _article_actions(
         actions.append("MAKE_DRAFT")
         return actions, _next_action("MAKE_DRAFT", "DRAFT_ELIGIBLE", "Направи чернова")
     if state == "ready":
-        # `Готова` is a read-only final-review surface in C4. `Финализирай` and
-        # `Готова → Редактирай` are explicitly deferred, so this surface offers
-        # nothing rather than inventing a temporary action.
-        return [], None
+        # C5 completes the Ready surface: the editor may go back to `Чернова` or
+        # freeze this exact validated version. The backend still offers nothing
+        # else here - no publish, no approve, no send.
+        return ["EDIT", "FINALIZE"], _next_action("FINALIZE", "READY_TO_FINALIZE", "Финализирай")
     actions = []
     if editor_projections.focus_is_confirmed(article):
         actions.append("CHANGE_FOCUS")
@@ -700,6 +700,9 @@ def _story_detail(story_id: str) -> dict:
             "id": row["article_id"],
             "title": row["working_title"],
             "updatedAt": row["updated_at"],
+            # A finalized Article stays related to its Story; the link then
+            # targets the Archive instead of an active workspace.
+            "finalizedAt": row.get("finalized_at"),
         }
         for row in articles
         if row.get("story_id") == story_id
@@ -1223,12 +1226,71 @@ def list_articles(filter_name: str = "all", query: str = "") -> list[dict]:
     return result
 
 
+def _archive_dto(article: dict) -> dict:
+    """The read-only Archive projection, read from the frozen snapshot alone.
+
+    The Archive never revalidates and never re-reads the working content: what
+    the editor finalized is exactly what is shown. There is no action, no next
+    step and no publication control here - `Финализирана` is not `Публикувана`.
+    """
+    snapshot = editor_article_store.read_finalized_article(article["article_id"])
+    if snapshot is None:
+        # A finalized record without a snapshot can only come from a store
+        # written before C5. Report it from the record rather than inventing
+        # content: the editor still sees the real title, Story and date.
+        return _article_dto(
+            article,
+            editor_article_store.get_article_content(article["article_id"]),
+            _story_reference(article),
+        )
+    story_reference = _story_reference(article)
+    return {
+        "id": snapshot["article_id"],
+        "story": story_reference,
+        "title": snapshot["title"],
+        "state": None,
+        "isFinalized": True,
+        "editorialFocus": {
+            "text": snapshot["editorial_focus"],
+            "confirmedAt": snapshot["focus_confirmed_at"],
+        },
+        "content": {
+            "title": snapshot["title"],
+            "body": snapshot["body"],
+            "version": snapshot["content_version"],
+        },
+        "preparation": None,
+        "readiness": {
+            "isCurrent": True,
+            "readyVersion": snapshot["ready_version"],
+            "readyAt": snapshot["ready_at"],
+        },
+        # The Archive is not re-validated: the validation that authorized
+        # finalization is frozen into the snapshot, and its warnings are the
+        # editor-facing record of what was known at that moment.
+        "warnings": [],
+        "validation": {
+            "contentVersion": snapshot["content_version"],
+            "current": False,
+            "blocking": False,
+            "readyEligible": False,
+        },
+        "availableActions": [],
+        "nextAction": None,
+        "createdAt": article["created_at"],
+        "updatedAt": article["updated_at"],
+        "finalizedAt": snapshot["finalized_at"],
+        "factsAndSources": [dict(row) for row in snapshot["evidence"]["facts"]],
+        "missingInformation": dict(snapshot["evidence"]["missing"]),
+    }
+
+
 def list_archive(query: str = "") -> list[dict]:
     result = []
     for article in editor_article_store.read_editor_articles():
         if not article.get("finalized_at"):
             continue
-        dto = _article_dto_by_id(article["article_id"])
+        dto = _archive_dto(article)
         if (
             query
             and query.casefold()
@@ -1472,3 +1534,194 @@ def mark_article_ready(article_id: str, expected_version: int) -> dict:
                 "Черновата не може да бъде отбелязана като готова. Опитайте отново."
             ) from exc
     return _article_dto_by_id(article_id)
+
+
+# ------------------------------------- C5 «Редактирай» (Готова → Чернова) / «Финализирай»
+
+
+def _finalization_evidence(article: dict) -> dict:
+    """The editor-visible evidence basis, frozen as finalization traceability."""
+    facts, missing = _story_evidence_projection(article["story_id"])
+    return {"facts": facts, "missing": missing}
+
+
+def reopen_article(article_id: str) -> dict:
+    """`Готова → Чернова` — the explicit editor decision to keep working.
+
+    It is a decision, not an edit: the readiness checkpoint is invalidated, the
+    content version does not move, and the Article id, Story lineage, title,
+    body, focus, generated Draft and internal lineage are all preserved. The
+    editor has to press `Отбележи като готова` again after the review cycle -
+    an unchanged body never becomes `Готова` by itself.
+    """
+    with _COMMAND_LOCK:
+        article = _article(article_id)
+        if article.get("finalized_at"):
+            raise EditorInvalidTransition("Финализирана статия не може да се редактира.")
+        # The canonical projection decides, exactly as everywhere else: a
+        # checkpoint whose validation has moved on is no longer `Готова` and is
+        # already an ordinary `Чернова`, so there is nothing to reopen.
+        projected, current_digest = _article_projection_by_id(article_id)
+        if current_digest is None or projected["state"] != "ready":
+            # The checkpoint is not current (or never existed), so the Article
+            # already projects as `Чернова`/`Подготовка`. Re-recording that is
+            # not a C5 transition.
+            raise EditorInvalidTransition(
+                "Редактиране на готова статия е налично само за текущо готова статия."
+            )
+        try:
+            editor_article_store.reopen_article(article_id)
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown article_id" in str(exc):
+                raise EditorNotFound("Статията не е намерена.") from exc
+            raise EditorApplicationError(
+                "Статията не може да се върне към чернова. Опитайте отново."
+            ) from exc
+    return _article_dto_by_id(article_id)
+
+
+def _finalize_validation(article: dict):
+    """The C4 current-content validation, re-run now for the finalize decision.
+
+    Deliberately the same code path as `Отбележи като готова`: no second
+    validation engine, no reuse of a stored digest, and fail-closed when the
+    check itself cannot run.
+    """
+    content = editor_article_store.get_article_content(article["article_id"])
+    facts, missing = _story_evidence_projection(article["story_id"])
+    story = _maybe_story(article["story_id"])
+    try:
+        return article_validation.evaluate_current_content(
+            article,
+            content,
+            story=story,
+            facts=facts,
+            gaps=list(missing["items"]),
+            headline=_story_headline(article, story),
+            assessed_at=str(missing.get("assessedAt") or ""),
+        )
+    except article_validation.ValidationUnavailable as exc:
+        raise EditorValidationUnavailable(
+            "Проверката на текста не можа да завърши. Опитайте отново."
+        ) from exc
+
+
+def _finalized_article_dto(article_id: str) -> dict:
+    """The editor-facing finalized projection plus its Archive target."""
+    article = _article(article_id)
+    dto = _archive_dto(article)
+    return {
+        "articleId": dto["id"],
+        "archivePath": f"/archive/{dto['id']}",
+        "finalizedAt": dto["finalizedAt"],
+        "article": dto,
+    }
+
+
+def _write_finalized_snapshot(article: dict, validation, expected_version: int) -> dict:
+    """Write the immutable snapshot, then the canonical finalized metadata.
+
+    The snapshot document is durable before the Article record that points at
+    it, so an interrupted write can only leave an orphan snapshot - never a
+    finalized Article whose content is not there.
+    """
+    try:
+        return editor_article_store.finalize_article(
+            article["article_id"],
+            expected_version=expected_version,
+            validation=editor_article_store.ReadinessValidation(
+                content_version=validation.content_version,
+                digest=validation.digest,
+                blocking=validation.blocking,
+            ),
+            evidence=_finalization_evidence(article),
+        )
+    except editor_article_store.ArticleVersionConflict as exc:
+        raise EditorVersionConflict("Статията е променена, преди да бъде финализирана.") from exc
+    except editor_article_store.ArticleStoreError as exc:
+        if "unknown article_id" in str(exc):
+            raise EditorNotFound("Статията не е намерена.") from exc
+        raise EditorApplicationError(
+            "Статията не може да бъде финализирана. Опитайте отново."
+        ) from exc
+
+
+def _repeat_finalization(article: dict, expected_version: int) -> dict:
+    """Answer a duplicate/lost-response retry with the same finalized Article.
+
+    The store re-checks that the repeat is the *same* attempt - the same exact
+    content version and the same readiness digest. A genuinely different
+    request against an already finalized Article is refused instead of rewriting
+    the snapshot.
+    """
+    validation = _finalize_validation(article)
+    _write_finalized_snapshot(article, validation, expected_version)
+    return _finalized_article_dto(article["article_id"])
+
+
+def finalize_article(article_id: str, expected_version: int, *, idempotency_key: str = "") -> dict:
+    """`Финализирай` — freeze one exact validated Article as the Archive copy.
+
+    **This never means "the stored state says ready".** Under the command lock
+    the canonical Article is reloaded and the C4 current-content validation is
+    re-run from scratch; its fresh deterministic digest must equal the
+    `ready_validation_digest` recorded when the editor pressed `Отбележи като
+    готова`. That is what protects the case where the text never changed but
+    the evidence basis did: the digest moves, the checkpoint is stale, and
+    finalization is refused with `INVALID_TRANSITION` instead of blessing an
+    old decision.
+
+    Finalization is *not* publishing. Nothing is scheduled, delivered or sent
+    anywhere; the only product effect is the immutable Article in `Архив`.
+    """
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise EditorApplicationError("Idempotency key is required.")
+    with _COMMAND_LOCK:
+        article = _article(article_id)
+        if editor_article_store.read_finalized_article(article_id) is not None:
+            # A repeated attempt is answered with the same canonical finalized
+            # Article instead of a second Archive entry. The store, not this
+            # branch, decides whether the repeat is the same attempt.
+            return _repeat_finalization(article, expected_version)
+        if article.get("finalized_at"):
+            raise EditorInvalidTransition(
+                "Статията вече е финализирана и не може да бъде променяна."
+            )
+        story = _maybe_story(article["story_id"])
+        if story is None or story.get("story_id") != article["story_id"]:
+            raise EditorInvalidTransition("Историята на статията вече не е достъпна.")
+        content = editor_article_store.get_article_content(article_id)
+        if int(content.get("content_version", -1)) != int(expected_version):
+            # The editor must finalize the version they actually reviewed.
+            raise EditorVersionConflict(
+                "Статията е променена. Прегледайте текущата версия преди да я финализирате."
+            )
+        if (
+            not str(content.get("title") or "").strip()
+            or not str(content.get("body") or "").strip()
+        ):
+            raise EditorApplicationError("Статията няма текст, който може да бъде финализиран.")
+        if not editor_projections.can_mark_article_ready(article, content):
+            raise EditorInvalidTransition("Потвърдете фокуса, преди да финализирате статията.")
+        if article.get("ready_version") != content.get("content_version") or not article.get(
+            "ready_validation_digest"
+        ):
+            raise EditorInvalidTransition(
+                "Статията не е отбелязана като готова. Прегледайте я отново."
+            )
+        validation = _finalize_validation(article)
+        if validation.blocking:
+            raise EditorSafetyBlocked(
+                "Проверката на текущия текст откри пречи. Разгледайте предупрежденията.",
+                warnings=[dict(row) for row in validation.warnings if row["blocking"]],
+            )
+        if validation.digest != article["ready_validation_digest"]:
+            # The release gate: same text, different validation basis. The old
+            # Ready decision is not silently accepted, and the Article stops
+            # being presented as safely finalizable.
+            raise EditorInvalidTransition(
+                "Проверката на текста се е променила след отбелязването му като готов. "
+                "Прегледайте черновата отново."
+            )
+        _write_finalized_snapshot(article, validation, expected_version)
+    return _finalized_article_dto(article_id)

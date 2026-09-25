@@ -183,7 +183,12 @@ def project_story_editor(
     reviewed = set(metadata.get("reviewed_development_ids") or [])
     unreviewed = [row for row in developments if row["id"] not in reviewed]
     related = [
-        {"id": row["article_id"], "title": row["working_title"], "updated_at": row["updated_at"]}
+        {
+            "id": row["article_id"],
+            "title": row["working_title"],
+            "updated_at": row["updated_at"],
+            "finalized_at": row.get("finalized_at"),
+        }
         for row in article_records
         if row.get("story_id") == story.get("story_id")
     ]
@@ -214,7 +219,15 @@ def validate_finalization_preconditions(
     content: dict,
     current_validation_digest: str | None,
 ) -> None:
-    """Pure guard primitive for the later finalization command."""
+    """The pure form of the finalization rules, kept for reuse and for tests.
+
+    `Готова` is a *current* checkpoint, not a stored flag: this raises unless
+    the readiness digest recorded at `Отбележи като готова` still equals the
+    validation the Article has right now. The `finalize_article` command
+    applies exactly these rules, in this order, and maps each one onto its own
+    stable editor error code - it does not call this helper, because a refusal
+    has to say *which* precondition failed.
+    """
     if article.get("finalized_at"):
         raise ValueError("Article is already finalized")
     if not can_mark_article_ready(article, content):

@@ -1,8 +1,13 @@
 import { useCallback, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, Navigate, useParams } from "react-router-dom";
-import { articleOptions, invalidateArticleProjections, queryKeys } from "../api/queries";
-import { markArticleReady } from "../api/client";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import {
+  articleOptions,
+  invalidateArticleProjections,
+  invalidateFinalizedArticle,
+  queryKeys,
+} from "../api/queries";
+import { createIdempotencyKey, finalizeArticle, markArticleReady, reopenArticle } from "../api/client";
 import {
   Context,
   Disclosure,
@@ -44,9 +49,11 @@ export function ArticleWorkspace() {
   const { articleId = "" } = useParams();
   const query = useQuery({ ...articleOptions(articleId), enabled: Boolean(articleId) });
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [savedVersion, setSavedVersion] = useState<number | null>(null);
   const [readyError, setReadyError] = useState("");
+  const [transitionError, setTransitionError] = useState("");
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
     flushRef.current = flush;
@@ -78,6 +85,57 @@ export function ArticleWorkspace() {
     },
   });
 
+  // «Редактирай» from `Готова`. The editor explicitly goes back to `Чернова`;
+  // no confirmation dialog and no local state guess. The canonical projection
+  // only changes after the server confirms it, and the readiness checkpoint is
+  // gone - the Article has to be marked ready again by hand.
+  const reopen = useMutation({
+    mutationFn: () => reopenArticle(articleId),
+    onMutate: () => setTransitionError(""),
+    onSuccess: async (projection) => {
+      queryClient.setQueryData(queryKeys.article(projection.id), projection);
+      setSavedVersion(projection.content.version);
+      await invalidateArticleProjections(queryClient, projection.id, projection.story.id);
+    },
+    onError: async (error) => {
+      setTransitionError(
+        getErrorMessage(error, "Статията не можа да се върне към чернова. Опитайте отново."),
+      );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.article(articleId), exact: true });
+    },
+  });
+
+  // «Финализирай`. The idempotency key is created once per attempt and reused
+  // for retries, so a double click, a lost response and a transport retry all
+  // resolve to the same canonical finalized Article.
+  const finalizeKeyRef = useRef<string | null>(null);
+  const finalize = useMutation({
+    mutationFn: async () => {
+      const flushed = flushRef.current ? await flushRef.current() : true;
+      if (!flushed) throw new Error("unconfirmed");
+      const confirmed = queryClient.getQueryData<ArticleDetail>(queryKeys.article(articleId));
+      if (!finalizeKeyRef.current) finalizeKeyRef.current = createIdempotencyKey();
+      return finalizeArticle(articleId, confirmed?.content.version ?? 0, finalizeKeyRef.current);
+    },
+    onMutate: () => setTransitionError(""),
+    onSuccess: async (result) => {
+      // The server is done: the Article is frozen. The Archive is now the
+      // canonical surface, so navigate there instead of showing a dead page.
+      queryClient.setQueryData(queryKeys.archiveArticle(result.articleId), result.article);
+      await invalidateFinalizedArticle(queryClient, result.articleId, result.article.story.id);
+      navigate(result.archivePath);
+    },
+    onError: async (error) => {
+      // A stale checkpoint is not a technical failure: the message says the
+      // Article must be reviewed again, and the canonical projection (which may
+      // now read `Чернова`) is refetched. Readiness is never re-granted here.
+      setTransitionError(
+        getErrorMessage(error, "Статията не можа да се финализира. Опитайте отново."),
+      );
+      await queryClient.invalidateQueries({ queryKey: queryKeys.article(articleId), exact: true });
+    },
+  });
+
   if (!articleId) {
     return <ErrorState title="Статията не е намерена" error={new Error("Липсва идентификатор на статия.")} />;
   }
@@ -87,6 +145,11 @@ export function ArticleWorkspace() {
   }
   const article = query.data;
   const canMarkReady = article.availableActions.includes("MARK_READY");
+  // Only the server decides which of the two Ready actions exist. A stale
+  // checkpoint already projects `Чернова`, so the Ready surface is not shown.
+  const isReady = article.state === "ready";
+  const canFinalize = isReady && article.availableActions.includes("FINALIZE");
+  const transitionPending = reopen.isPending || finalize.isPending;
 
   if (article.isFinalized || article.state === null) {
     return <Navigate replace to={`/archive/${encodeURIComponent(article.id)}`} />;
@@ -137,7 +200,28 @@ export function ArticleWorkspace() {
             </h2>
             <div className={styles.contentControls}>
               <Context>Версия {article.content.version}</Context>
-              {article.availableActions.includes("EDIT") ? (
+              {isReady ? (
+                <>
+                  <button
+                    className={ui.retry}
+                    type="button"
+                    disabled={transitionPending}
+                    onClick={() => reopen.mutate()}
+                  >
+                    {reopen.isPending ? "Връща се…" : "Редактирай"}
+                  </button>
+                  {canFinalize ? (
+                    <button
+                      className={styles.finalizeAction}
+                      type="button"
+                      disabled={transitionPending}
+                      onClick={() => finalize.mutate()}
+                    >
+                      {finalize.isPending ? "Финализира се…" : "Финализирай"}
+                    </button>
+                  ) : null}
+                </>
+              ) : article.availableActions.includes("EDIT") ? (
                 <button
                   className={ui.retry}
                   type="button"
@@ -172,6 +256,10 @@ export function ArticleWorkspace() {
             Проверява се текущата версия.
           </p> : null}
           {readyError ? <p className={styles.readyError} role="alert">{readyError}</p> : null}
+          {transitionPending ? <p className={styles.readyFeedback} role="status" aria-live="polite">
+            {finalize.isPending ? "Финализира се…" : "Връща се към черновата…"}
+          </p> : null}
+          {transitionError ? <p className={styles.readyError} role="alert">{transitionError}</p> : null}
         </section>
 
         <Section title="Готовност" meta={article.readiness.isCurrent ? "Актуална" : "Не е актуална"}>

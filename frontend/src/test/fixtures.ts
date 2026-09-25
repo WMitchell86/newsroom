@@ -1,5 +1,6 @@
 
 import type { ArticleFilter } from "../api/client";
+import type { FinalizeResult } from "../api/client";
 import type {
   ArchiveArticle,
   ArticleDetail,
@@ -194,9 +195,14 @@ export const activeReadyArticle: ArticleDetail = {
   },
   validation: { contentVersion: 4, current: true, blocking: false, readyEligible: false },
   readiness: { isCurrent: true, readyVersion: 4, readyAt: "2026-09-25T10:00:00Z" },
-  // C4 leaves `Готова` as a read-only surface: no finalize, no reopen.
-  availableActions: [],
-  nextAction: null,
+  // C5 completes the Ready surface: exactly the two editorial decisions.
+  availableActions: ["EDIT", "FINALIZE"],
+  nextAction: {
+    action: "FINALIZE",
+    reasonCode: "READY_TO_FINALIZE",
+    label: "Финализирай",
+    primary: true,
+  },
   updatedAt: "2026-09-25T10:00:00Z",
 };
 
@@ -262,8 +268,17 @@ export const finalizedArchiveArticle: ArchiveArticle = {
   state: null,
   isFinalized: true,
   finalizedAt: "2026-09-24T16:30:00Z",
+  // The Archive is read-only: no edit, no finalize, no publish, no reopen.
   availableActions: [],
   nextAction: null,
+};
+
+/** The canonical `Финализирай` response: the frozen Article and where it lives. */
+export const finalizeResult: FinalizeResult = {
+  articleId: finalizedArchiveArticle.id,
+  archivePath: `/archive/${finalizedArchiveArticle.id}`,
+  finalizedAt: finalizedArchiveArticle.finalizedAt,
+  article: finalizedArchiveArticle,
 };
 
 
