@@ -37,7 +37,7 @@ def derive_article_state(
     """Derive one of three active states; finalized Articles return ``None``."""
     if article.get("finalized_at"):
         return None
-    if not str(content.get("body") or "").strip():
+    if not str(content.get("body") or "").strip() and not article.get("draft_established_version"):
         return "preparation"
     if readiness_is_current(article, content, current_validation_digest):
         return "ready"

@@ -35,7 +35,9 @@ def start(story_id, gap_signature, work, generation=0, key=""):
         _prune(now)
         existing = _ROWS.get(token)
         if existing is not None and existing["status"] == "failed":
-            existing.update(status="pending", result=None, error=None, updated_at=now)
+            existing.update(
+                status="pending", result=None, error=None, error_code="", updated_at=now
+            )
             existing["view"] = {"status": "pending"}
             row = existing
         else:
@@ -59,6 +61,7 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                 "status": "pending",
                 "result": None,
                 "error": None,
+                "error_code": "",
                 "updated_at": now,
                 "view": {"status": "pending"},
             }
@@ -87,6 +90,10 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                     _ROWS[token].update(
                         status="failed",
                         error=str(exc)[:240] or "Source unavailable",
+                        # A command that already classified its own stable failure
+                        # keeps that code; the caller maps it to editor wording and
+                        # never re-reads the raw text.
+                        error_code=str(getattr(exc, "code", "") or "")[:64],
                         updated_at=time.monotonic(),
                     )
 
@@ -100,7 +107,13 @@ def get(token):
         row = _ROWS.get(token)
         if row is None:
             return None
-        return {"status": row["status"], "result": row["result"], "error": row["error"]}
+        return {
+            "status": row["status"],
+            "result": row["result"],
+            "error": row["error"],
+            "error_code": row.get("error_code", ""),
+            "story_id": row["story_id"],
+        }
 
 
 def clear():

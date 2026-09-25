@@ -63,7 +63,7 @@ function parseFailure(status: number, value: unknown): ApiError {
   return new ApiError(status, "INTERNAL_ERROR", "Вътрешна грешка. Опитайте отново.", true);
 }
 
-function createIdempotencyKey(): string {
+export function createIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
@@ -121,6 +121,71 @@ export function ignoreStory(storyId: string): Promise<StoryDetail> {
   return sendStoryCommand(`/stories/${encodeURIComponent(storyId)}/ignore`, "POST");
 }
 
+export function startArticle(storyId: string, idempotencyKey: string): Promise<ArticleDetail> {
+  return sendStoryCommand(
+    `/stories/${encodeURIComponent(storyId)}/articles`,
+    "POST",
+    undefined,
+    { "Idempotency-Key": idempotencyKey },
+  );
+}
+
+export function updateArticleContent(
+  articleId: string,
+  expectedVersion: number,
+  title: string,
+  body: string,
+): Promise<ArticleDetail> {
+  return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/content`, "PUT", {
+    expectedVersion,
+    title,
+    body,
+  });
+}
+
+export function updateArticleFocus(articleId: string, focus: string): Promise<ArticleDetail> {
+  return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/focus`, "PUT", { focus });
+}
+
+export function updateArticleTitle(
+  articleId: string,
+  expectedVersion: number,
+  title: string,
+): Promise<ArticleDetail> {
+  return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/title`, "PUT", {
+    expectedVersion,
+    title,
+  });
+}
+
+export async function makeArticleDraft(articleId: string, idempotencyKey: string): Promise<ArticleDetail> {
+  const value = await sendStoryCommand<unknown>(
+    `/articles/${encodeURIComponent(articleId)}/draft`,
+    "POST",
+    undefined,
+    { "Idempotency-Key": idempotencyKey },
+  );
+  if (isRecord(value) && typeof value.operationToken === "string") {
+    for (let attempt = 0; attempt < DRAFT_POLL_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, DRAFT_POLL_DELAY_MS));
+      const operation = await getData<unknown>(`/operations/${encodeURIComponent(value.operationToken)}`);
+      if (!isResearchOperation(operation)) {
+        throw new ApiError(0, "INTERNAL_ERROR", "Черновата не можа да бъде създадена. Опитайте отново.", true);
+      }
+      const article = operationArticle(operation);
+      if (article) return article;
+      const status = operation.status.toUpperCase();
+      if (status === "FAILED" || status === "ERROR") throw operationFailure(operation);
+      if (status === "SUCCEEDED" || status === "COMPLETED") {
+        throw new ApiError(0, "INTERNAL_ERROR", "Операцията не върна създадената чернова.", true);
+      }
+    }
+    throw new ApiError(0, "INTERNAL_ERROR", "Черновата още не е готова. Опитайте отново.", true);
+  }
+  if (isRecord(value) && "content" in value) return value as unknown as ArticleDetail;
+  throw new ApiError(200, "INTERNAL_ERROR", "Черновата не върна актуализирана статия.", true);
+}
+
 export interface ResearchOperation {
   status: "PENDING" | "RUNNING" | "SUCCEEDED" | "COMPLETED" | "FAILED" | "ERROR";
   operationToken?: string;
@@ -131,6 +196,8 @@ export interface ResearchOperation {
 
 const RESEARCH_POLL_ATTEMPTS = 8;
 const RESEARCH_POLL_DELAY_MS = 250;
+const DRAFT_POLL_ATTEMPTS = 8;
+const DRAFT_POLL_DELAY_MS = 250;
 
 function isResearchOperation(value: unknown): value is ResearchOperation {
   return isRecord(value) && typeof value.status === "string";
@@ -141,6 +208,13 @@ function operationStory(value: ResearchOperation): StoryDetail | null {
   if (!isRecord(candidate)) return null;
   const data = "data" in candidate && isRecord(candidate.data) ? candidate.data : candidate;
   return typeof data.id === "string" && "missingInformation" in data ? data as unknown as StoryDetail : null;
+}
+
+function operationArticle(value: ResearchOperation): ArticleDetail | null {
+  const candidate = value.result;
+  if (!isRecord(candidate)) return null;
+  const data = "data" in candidate && isRecord(candidate.data) ? candidate.data : candidate;
+  return typeof data.id === "string" && "content" in data ? data as unknown as ArticleDetail : null;
 }
 
 function operationFailure(value: ResearchOperation): ApiError {
@@ -182,6 +256,42 @@ export async function researchMoreStory(storyId: string): Promise<StoryDetail> {
 }
 
 export const researchStory = researchMoreStory;
+
+// A newsroom refresh performs real network collection, so its bounded poll is
+// longer than a Story research round. It is still bounded: the editor is never
+// left waiting on a job monitor, and a stalled run ends in a calm retry.
+const REFRESH_POLL_ATTEMPTS = 60;
+const REFRESH_POLL_DELAY_MS = 1000;
+
+async function pollOperation(operationToken: string): Promise<void> {
+  for (let attempt = 0; attempt < REFRESH_POLL_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_DELAY_MS));
+    const value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
+    if (!isResearchOperation(value)) {
+      throw new ApiError(0, "INTERNAL_ERROR", "Новините не можаха да се обновят. Опитайте отново.", true);
+    }
+    const status = value.status.toUpperCase();
+    if (status === "FAILED" || status === "ERROR") throw operationFailure(value);
+    if (status === "SUCCEEDED" || status === "COMPLETED") return;
+  }
+  throw new ApiError(0, "INTERNAL_ERROR", "Обновяването още не е приключило. Опитайте отново.", true);
+}
+
+/** The one editor-facing newsroom action. Canonical Today is refetched after it. */
+export async function refreshNewsroom(): Promise<void> {
+  const value = await sendStoryCommand<unknown>(
+    "/today/refresh",
+    "POST",
+    undefined,
+    { "Idempotency-Key": createIdempotencyKey() },
+  );
+  if (isRecord(value) && typeof value.operationToken === "string") {
+    await pollOperation(value.operationToken);
+    return;
+  }
+  throw new ApiError(200, "INTERNAL_ERROR", "Обновяването не върна резултат.", true);
+}
+
 
 async function getData<T>(path: string, params?: URLSearchParams): Promise<T> {
   const query = params?.toString();

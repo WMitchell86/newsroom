@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { articleOptions } from "../api/queries";
+import { articleOptions, queryKeys } from "../api/queries";
 import {
   Context,
   Disclosure,
@@ -13,18 +14,24 @@ import {
 } from "../shared/EditorPrimitives";
 import { formatDate } from "../shared/editorLabels";
 import { safeExternalUrl } from "../shared/safeNavigation";
+import { ArticleContentEditor } from "./ArticleContentEditor";
+import { PreparationWorkspace } from "./PreparationWorkspace";
 import ui from "../shared/ui.module.css";
 import styles from "./ArticleWorkspace.module.css";
-
 function contentHeading(state: "preparation" | "draft" | "ready") {
   if (state === "draft") return "Чернова";
   if (state === "ready") return "Финален преглед";
   return "Текущо съдържание";
 }
 
+
+
 export function ArticleWorkspace() {
   const { articleId = "" } = useParams();
   const query = useQuery({ ...articleOptions(articleId), enabled: Boolean(articleId) });
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [savedVersion, setSavedVersion] = useState<number | null>(null);
 
   if (!articleId) {
     return <ErrorState title="Статията не е намерена" error={new Error("Липсва идентификатор на статия.")} />;
@@ -33,12 +40,23 @@ export function ArticleWorkspace() {
   if (query.isError) {
     return <ErrorState title="Статията не можа да се зареди" error={query.error} onRetry={() => void query.refetch()} />;
   }
-
   const article = query.data;
+
   if (article.isFinalized || article.state === null) {
     return <Navigate replace to={`/archive/${encodeURIComponent(article.id)}`} />;
   }
-  const facts = article.factsAndSources ?? [];
+  if (article.state === "preparation") {
+    return <PreparationWorkspace
+      article={article}
+      editing={editing}
+      onEditingChange={setEditing}
+      onProjection={(projection) => {
+        queryClient.setQueryData(queryKeys.article(article.id), projection);
+        setSavedVersion(projection.content.version);
+      }}
+    />;
+  }
+  const facts = article.factsAndSources;
   const missing = article.missingInformation;
   const currentTitle = article.content.title || article.title;
 
@@ -71,12 +89,25 @@ export function ArticleWorkspace() {
             <h2 className={styles.contentHeading} id="article-content-heading">
               {contentHeading(article.state)}
             </h2>
-            <Context>Версия {article.content.version}</Context>
+            <div className={styles.contentControls}>
+              <Context>Версия {article.content.version}</Context>
+              {article.availableActions.includes("EDIT") ? (
+                <button
+                  className={ui.retry}
+                  type="button"
+                  onClick={() => setEditing((current) => !current)}
+                >
+                  {editing ? "Завърши редакцията" : "Редактирай"}
+                </button>
+              ) : null}
+            </div>
           </div>
-          {currentTitle ? <h3 className={styles.contentTitle}>{currentTitle}</h3> : null}
-          {article.content.body.trim()
-            ? <p className={styles.contentBody}>{article.content.body}</p>
-            : <EmptyState>Още няма текст на статията.</EmptyState>}
+          {editing ? <ArticleContentEditor article={article} savedVersion={savedVersion} /> : <>
+            {currentTitle ? <h3 className={styles.contentTitle}>{currentTitle}</h3> : null}
+            {article.content.body.trim()
+              ? <p className={styles.contentBody}>{article.content.body}</p>
+              : <EmptyState>Още няма текст на статията.</EmptyState>}
+          </>}
         </section>
 
         <Section title="Готовност" meta={article.readiness.isCurrent ? "Актуална" : "Не е актуална"}>

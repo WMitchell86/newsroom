@@ -12,6 +12,7 @@ import json
 import os
 import re
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,6 +36,11 @@ ARTICLE_FIELDS = {
     "ready_validation_digest",
     "ready_at",
     "finalized_at",
+    # Durable Draft identity and audit currency. These are not workflow states:
+    # they preserve the fact that a real Draft existed and which generated
+    # content version the immutable generation audit assessed.
+    "draft_established_version",
+    "generated_content_version",
 }
 INTERNAL_REF_FIELDS = {"idea_id", "evidence_id", "case_id", "draft_id"}
 CONTENT_FIELDS = {"article_id", "title", "body", "content_version", "updated_at"}
@@ -57,6 +63,20 @@ class ReadinessValidation:
     content_version: int
     digest: str
     blocking: bool = False
+
+
+@contextmanager
+def _cross_process_article_lock(*, root=None):
+    import fcntl
+
+    path = Path(root or editorial_workflow_dir()) / "editor_articles.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _now() -> str:
@@ -136,7 +156,9 @@ def validate_editor_article(raw) -> dict:
         raise ArticleStoreError(
             f"unknown Article fields {unknown} (allowed: {sorted(ARTICLE_FIELDS)})"
         )
-    missing = sorted(ARTICLE_FIELDS - set(raw))
+    missing = sorted(
+        (ARTICLE_FIELDS - {"draft_established_version", "generated_content_version"}) - set(raw)
+    )
     if missing:
         raise ArticleStoreError(f"Article missing fields: {missing}")
     article_id = _article_id(raw["article_id"])
@@ -146,6 +168,15 @@ def validate_editor_article(raw) -> dict:
     if raw["content_path"] != expected_path:
         raise ArticleStoreError(f"content_path must be {expected_path!r}")
     content_version = _version(raw["content_version"], "content_version")
+    internal_refs = _validate_internal_refs(raw["internal_refs"])
+    # C3 adds durable Draft/audit markers. Existing C1/C2 records predate those
+    # fields, so normalize them on read instead of invalidating real stores.
+    raw_draft_version = raw.get("draft_established_version")
+    raw_generated_version = raw.get("generated_content_version")
+    if raw_draft_version is None and any(internal_refs.values()):
+        # Legacy lineage proves that a Draft existed, but not which version its
+        # generation audit assessed. Never resurrect stale warnings by guessing.
+        raw_draft_version = content_version
     ready_version = (
         None if raw["ready_version"] is None else _version(raw["ready_version"], "ready_version")
     )
@@ -163,6 +194,22 @@ def validate_editor_article(raw) -> dict:
     if ready_version is not None and ready_version != content_version:
         raise ArticleStoreError("ready_version must equal the current content_version")
     finalized_at = _timestamp(raw["finalized_at"], "finalized_at", nullable=True)
+    draft_established_version = (
+        None
+        if raw_draft_version is None
+        else _version(raw_draft_version, "draft_established_version")
+    )
+    generated_content_version = (
+        None
+        if raw_generated_version is None
+        else _version(raw_generated_version, "generated_content_version")
+    )
+    if draft_established_version is not None and draft_established_version > content_version:
+        raise ArticleStoreError("draft_established_version cannot exceed content_version")
+    if generated_content_version is not None and generated_content_version > content_version:
+        raise ArticleStoreError("generated_content_version cannot exceed content_version")
+    if generated_content_version is not None and draft_established_version is None:
+        raise ArticleStoreError("generated_content_version requires a durable Draft")
     focus_confirmed_at = _timestamp(raw["focus_confirmed_at"], "focus_confirmed_at", nullable=True)
     if finalized_at is not None and ready_version is None:
         raise ArticleStoreError("a finalized Article requires a valid readiness checkpoint")
@@ -178,11 +225,13 @@ def validate_editor_article(raw) -> dict:
         "updated_at": _timestamp(raw["updated_at"], "updated_at"),
         "content_version": content_version,
         "content_path": expected_path,
-        "internal_refs": _validate_internal_refs(raw["internal_refs"]),
+        "internal_refs": internal_refs,
         "ready_version": ready_version,
         "ready_validation_digest": ready_digest,
         "ready_at": ready_at,
         "finalized_at": finalized_at,
+        "draft_established_version": draft_established_version,
+        "generated_content_version": generated_content_version,
     }
 
 
@@ -286,8 +335,18 @@ def get_editor_article(article_id: str, *, root=None) -> dict:
     return row
 
 
-def _article_id_for(story_id: str, created_at: str, existing_ids) -> str:
-    base = hashlib.sha256(f"editor-article\0{story_id}\0{created_at}".encode()).hexdigest()[:15]
+def _article_id_for(
+    story_id: str, created_at: str, existing_ids, *, idempotency_key: str = ""
+) -> str:
+    # A retried command with the same key deterministically addresses the same
+    # canonical Article. A later intentional command uses a fresh key (or no
+    # key) and therefore remains a distinct Article.
+    seed = (
+        f"editor-article-start\0{story_id}\0{idempotency_key}"
+        if idempotency_key
+        else f"editor-article\0{story_id}\0{created_at}"
+    )
+    base = hashlib.sha256(seed.encode()).hexdigest()[:15]
     candidate = f"art_{base}"
     suffix = 1
     while candidate in existing_ids:
@@ -346,18 +405,40 @@ def create_editor_article(
     internal_refs=None,
     now=None,
     root=None,
+    idempotency_key: str = "",
 ) -> dict:
     """Create explicit canonical Story lineage plus empty Article content."""
     story = _required_text(story_id, "story_id")
+    request_key = _text(idempotency_key, "idempotency_key")
     created = _timestamp(now or _now(), "created_at")
-    with _MUTATION_LOCK:
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
         canonical = story_store.story_by_id(story_store.read_store(stories_path), story)
         if canonical is None:
             raise ArticleStoreError(f"unknown canonical story_id: {story}")
         rows = read_editor_articles(root=root)
         title = _text(working_title, "working_title")
         focus = _text(editorial_focus, "editorial_focus")
-        article_id = _article_id_for(story, created, {r["article_id"] for r in rows})
+        if request_key:
+            existing = next(
+                (
+                    row
+                    for row in rows
+                    if row["article_id"]
+                    == _article_id_for(story, created, set(), idempotency_key=request_key)
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing["story_id"] != story:
+                    raise ArticleStoreError("idempotency key belongs to another Story")
+                get_article_content(existing["article_id"], root=root)
+                return existing
+        article_id = _article_id_for(
+            story,
+            created,
+            {r["article_id"] for r in rows},
+            idempotency_key=request_key,
+        )
         record = validate_editor_article(
             {
                 "article_id": article_id,
@@ -374,6 +455,8 @@ def create_editor_article(
                 "ready_validation_digest": None,
                 "ready_at": None,
                 "finalized_at": None,
+                "draft_established_version": None,
+                "generated_content_version": None,
             }
         )
         _write_content(
@@ -413,6 +496,28 @@ def _replace_article(updated, *, root=None) -> dict:
     )
 
 
+def update_article_title(
+    article_id: str, expected_version: int, title: str, *, now=None, root=None
+) -> dict:
+    """Update only the working title while preserving the current Article body."""
+    with _MUTATION_LOCK:
+        record = get_editor_article(article_id, root=root)
+        content = get_article_content(article_id, root=root)
+        if record["finalized_at"]:
+            raise ArticleStoreError("finalized Article title is immutable")
+        return {
+            "content": save_article_content(
+                article_id,
+                expected_version,
+                title,
+                content["body"],
+                now=now,
+                root=root,
+            ),
+            "article": get_editor_article(article_id, root=root),
+        }
+
+
 def update_editor_focus(
     article_id: str,
     editorial_focus: str,
@@ -424,7 +529,7 @@ def update_editor_focus(
     focus = _text(editorial_focus, "editorial_focus")
     if not focus:
         raise ArticleStoreError("editorial_focus is required")
-    with _MUTATION_LOCK:
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
         record = deepcopy(get_editor_article(article_id, root=root))
         if record["finalized_at"]:
             raise ArticleStoreError("finalized Article focus is immutable")
@@ -454,7 +559,7 @@ def save_article_content(
         raise ArticleStoreError("body must be a string")
     new_body = body
     stamp = _timestamp(now or _now(), "content.updated_at")
-    with _MUTATION_LOCK:
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
         record = deepcopy(get_editor_article(article_id, root=root))
         if expected != record["content_version"]:
             raise ArticleVersionConflict(
@@ -485,9 +590,70 @@ def save_article_content(
         record["ready_version"] = None
         record["ready_validation_digest"] = None
         record["ready_at"] = None
+        if new_body.strip() and record["draft_established_version"] is None:
+            record["draft_established_version"] = next_version
         # The immutable candidate document is written first. The Article record
         # remains the atomic current-version pointer; a failed pointer update
         # leaves the previous version readable and only an orphan candidate.
+        _replace_article(record, root=root)
+        return content
+
+
+def publish_generated_draft(
+    article_id: str,
+    expected_version: int,
+    *,
+    title: str,
+    body: str,
+    internal_refs=None,
+    now=None,
+    root=None,
+) -> dict:
+    """Publish one server-generated Draft as the Article's working content.
+
+    Same expected-version contract as `save_article_content`, plus the internal
+    refs of the generation that produced the text. The immutable content
+    document is written first and the Article record - the atomic current-version
+    pointer that also carries the internal refs - last, so an interrupted
+    publication leaves the previous version readable and only an orphan
+    candidate. A real content change always invalidates readiness, exactly like
+    an editor edit.
+    """
+    expected = _version(expected_version, "expected_version")
+    new_title = _text(title, "title")
+    if not isinstance(body, str) or not body.strip():
+        raise ArticleStoreError("a generated Draft must carry real text")
+    refs = _validate_internal_refs(internal_refs or {})
+    stamp = _timestamp(now or _now(), "content.updated_at")
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
+        record = deepcopy(get_editor_article(article_id, root=root))
+        if expected != record["content_version"]:
+            raise ArticleVersionConflict(
+                f"expected content_version {expected}, current is {record['content_version']}"
+            )
+        if record["finalized_at"]:
+            raise ArticleStoreError("finalized Article content is immutable")
+        next_version = expected + 1
+        content = _write_content(
+            {
+                "article_id": article_id,
+                "title": new_title,
+                "body": body,
+                "content_version": next_version,
+                "updated_at": stamp,
+            },
+            root=root,
+        )
+        record["working_title"] = new_title
+        record["content_version"] = content["content_version"]
+        record["content_path"] = _content_relative_path(article_id, next_version)
+        record["updated_at"] = stamp
+        record["internal_refs"] = refs
+        record["ready_version"] = None
+        record["ready_validation_digest"] = None
+        record["ready_at"] = None
+        record["draft_established_version"] = next_version
+        record["generated_content_version"] = next_version
         _replace_article(record, root=root)
         return content
 
@@ -514,7 +680,7 @@ def mark_article_ready(
     if validation.blocking:
         raise ArticleStoreError("blocking validation issues prevent readiness")
     digest = _required_text(validation.digest, "validation.digest")
-    with _MUTATION_LOCK:
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
         record = deepcopy(get_editor_article(article_id, root=root))
         content = get_article_content(article_id, root=root)
         if record["content_version"] != expected:

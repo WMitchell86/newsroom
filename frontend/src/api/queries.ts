@@ -21,6 +21,19 @@ export const queryKeys = {
   archiveArticle: (id: string) => ["archiveArticle", id] as const,
 };
 
+export async function invalidateArticleProjections(
+  queryClient: QueryClient,
+  articleId: string,
+  storyId: string,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.article(articleId), exact: true }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.story(storyId), exact: true }),
+    queryClient.invalidateQueries({ queryKey: ["articles"] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+  ]);
+}
+
 export async function invalidateStoryProjections(queryClient: QueryClient, storyId: string): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.story(storyId), exact: true }),

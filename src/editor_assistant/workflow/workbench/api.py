@@ -73,6 +73,14 @@ def _identifier(value: str, pattern: re.Pattern[str], label: str) -> str:
     return value
 
 
+def _body_required(handler: BaseHTTPRequestHandler) -> bool:
+    raw_length = handler.headers.get("Content-Length", "0").strip()
+    try:
+        return int(raw_length) > 0
+    except ValueError as exc:
+        raise ApiError(400, "VALIDATION_ERROR", "Размерът на заявката е невалиден.") from exc
+
+
 def _body(handler: BaseHTTPRequestHandler, required: set[str]) -> dict:
     content_type = handler.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
     if content_type != "application/json":
@@ -142,6 +150,15 @@ def _focus(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     return app.update_focus(article_id, _string(body["focus"], "focus", maximum=4_000))
 
 
+def _title(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
+    body = _body(handler, {"expectedVersion", "title"})
+    return app.update_title(
+        article_id,
+        _version(body["expectedVersion"]),
+        _string(body["title"], "title", maximum=500),
+    )
+
+
 def _content(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     body = _body(handler, {"expectedVersion", "title", "body"})
     return app.save_content(
@@ -157,6 +174,13 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
     prefix = ["api", "v1"]
     if parts == [*prefix, "today"] and method == "GET":
         return 200, app.read_today()
+    if parts == [*prefix, "today", "refresh"] and method == "POST":
+        key = handler.headers.get("Idempotency-Key", "").strip()
+        if key and (len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key)):
+            raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is invalid.")
+        return 202, {
+            "operationToken": app.start_newsroom_refresh(idempotency_key=key)["operationToken"]
+        }
     if parts == [*prefix, "stories"] and method == "GET":
         query = _query(handler, {"filter", "query"})
         filter_name = _enum(query.get("filter", "all"), app.STORY_FILTERS, "филтър")
@@ -166,6 +190,15 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         story_id = _identifier(parts[3], STORY_ID_RE, "Story")
         if method == "GET" and len(parts) == 4:
             return 200, app.read_story(story_id)
+        if method == "POST" and len(parts) == 5 and parts[4] == "articles":
+            if _body_required(handler):
+                body = _body(handler, set())
+                if body:
+                    raise ApiError(400, "VALIDATION_ERROR", "Началото на статия не приема полета.")
+            key = handler.headers.get("Idempotency-Key", "").strip()
+            if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+                raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+            return 201, app.start_article(story_id, idempotency_key=key)
         if method == "POST" and len(parts) == 5 and parts[4] == "review":
             return 200, _review(handler, story_id)
         if method == "PUT" and len(parts) == 5 and parts[4] == "follow":
@@ -196,8 +229,23 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         article_id = _identifier(parts[3], ARTICLE_ID_RE, "статия")
         if method == "GET" and len(parts) == 4:
             return 200, app.read_article(article_id)
+        if method == "POST" and len(parts) == 5 and parts[4] == "draft":
+            if _body_required(handler):
+                body = _body(handler, set())
+                if body:
+                    raise ApiError(400, "VALIDATION_ERROR", "Черновата не приема полета.")
+            key = handler.headers.get("Idempotency-Key", "").strip()
+            if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+                raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+            return 202, {
+                "operationToken": app.start_article_draft(article_id, idempotency_key=key)[
+                    "operationToken"
+                ]
+            }
         if method == "PUT" and len(parts) == 5 and parts[4] == "focus":
             return 200, _focus(handler, article_id)
+        if method == "PUT" and len(parts) == 5 and parts[4] == "title":
+            return 200, _title(handler, article_id)
         if method == "PUT" and len(parts) == 5 and parts[4] == "content":
             return 200, _content(handler, article_id)
     if parts == [*prefix, "archive"] and method == "GET":
@@ -221,6 +269,7 @@ def _known_resource_path(parts: list[str]) -> bool:
     prefix = ["api", "v1"]
     if parts in (
         [*prefix, "today"],
+        [*prefix, "today", "refresh"],
         [*prefix, "stories"],
         [*prefix, "articles"],
         [*prefix, "archive"],

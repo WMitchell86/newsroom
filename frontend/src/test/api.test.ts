@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, followStory, getArticles, getToday, ignoreStory, researchMoreStory, reviewStory, unfollowStory } from "../api/client";
+import { ApiError, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -92,6 +92,25 @@ describe("read-only API client", () => {
     expect(fetchMock.mock.calls.every(([, init]) => !(init.headers as Record<string, string> | undefined)?.["Idempotency-Key"])).toBe(true);
   });
 
+  it("uses the exact C1 Article command endpoints and request bodies", async () => {
+    const article = { id: "art-one" };
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ data: article }),
+    } as Response);
+
+    await startArticle("s one", "start-key");
+    await updateArticleFocus("art one", "Ясен фокус");
+    await updateArticleTitle("art one", 2, "Работно заглавие");
+
+    expect(fetchMock.mock.calls.map(([path, init]) => [path, init.method, init.body, (init.headers as Record<string, string>)["Idempotency-Key"]])).toEqual([
+      ["/api/v1/stories/s%20one/articles", "POST", undefined, "start-key"],
+      ["/api/v1/articles/art%20one/focus", "PUT", JSON.stringify({ focus: "Ясен фокус" }), undefined],
+      ["/api/v1/articles/art%20one/title", "PUT", JSON.stringify({ expectedVersion: 2, title: "Работно заглавие" }), undefined],
+    ]);
+  });
+
   it("uses the exact RESEARCH_MORE endpoint and supports synchronous 200", async () => {
     const detail = { id: "s-one", missingInformation: { items: [] } };
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: detail }) } as Response);
@@ -126,6 +145,40 @@ describe("read-only API client", () => {
     await expect(researchMoreStory("s-one")).rejects.toEqual(expect.objectContaining({ code: "SOURCE_UNAVAILABLE", message: "Източникът временно не е наличен." }));
   });
 
+  it("posts the exact Article draft endpoint with a required idempotency key", async () => {
+    const article = { id: "art-one", content: { title: "Чернова", body: "Текст", version: 1 } };
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: article }) } as Response);
+
+    await expect(makeArticleDraft("art one", "draft-key")).resolves.toEqual(article);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/articles/art%20one/draft",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Idempotency-Key": "draft-key" }),
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
+  });
+
+  it("polls a 202 Article draft operation until it returns the canonical Article", async () => {
+    const article = { id: "art-one", content: { title: "Чернова", body: "Текст", version: 1 } };
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ data: { operationToken: "op-draft" } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "running" } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "succeeded", result: article } }) } as Response);
+
+    await expect(makeArticleDraft("art-one", "draft-key")).resolves.toEqual(article);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/operations/op-draft");
+  });
+
+  it("surfaces a failed Article draft operation as a retryable ApiError", async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ data: { operationToken: "op-draft-fail" } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "failed", error: { code: "SOURCE_UNAVAILABLE", message: "Източникът временно не е наличен.", retryable: true } } }) } as Response);
+
+    await expect(makeArticleDraft("art-one", "draft-key")).rejects.toEqual(expect.objectContaining({ code: "SOURCE_UNAVAILABLE", retryable: true }));
+  });
+
   it("preserves the stable error envelope for Story mutations", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
@@ -146,5 +199,66 @@ describe("read-only API client", () => {
       message: "Това действие не е налично в текущото състояние.",
       retryable: false,
     }));
+  });
+});
+
+describe("the one newsroom refresh action", () => {
+  it("posts the single refresh endpoint with an Idempotency-Key", async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ data: { operationToken: "op-refresh" } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "succeeded" } }) } as Response);
+
+    await expect(refreshNewsroom()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/today/refresh",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+      }),
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/operations/op-refresh");
+  });
+
+  it("polls a still-running refresh instead of reporting a false success", async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ data: { operationToken: "op-busy" } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "running" } }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "succeeded", result: { new: 3 } } }) } as Response);
+
+    await expect(refreshNewsroom()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("surfaces a refresh failure with the sanitized editor message", async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ data: { operationToken: "op-fail" } }) } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { status: "failed", error: { code: "SOURCE_UNAVAILABLE", message: "Новините не можаха да се обновят.", retryable: true } } }),
+      } as Response);
+
+    await expect(refreshNewsroom()).rejects.toEqual(
+      expect.objectContaining({ code: "SOURCE_UNAVAILABLE", message: "Новините не можаха да се обновят." }),
+    );
+  });
+
+  it("rejects an overlapping refresh instead of starting a second collection", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: {
+          code: "INVALID_TRANSITION",
+          message: "няма активни източници за обновяване",
+          retryable: false,
+          fieldErrors: [],
+        },
+      }),
+    } as Response);
+
+    await expect(refreshNewsroom()).rejects.toEqual(
+      expect.objectContaining({ status: 409, code: "INVALID_TRANSITION" }),
+    );
   });
 });

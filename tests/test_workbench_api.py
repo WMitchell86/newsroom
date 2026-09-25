@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import quote
@@ -329,6 +330,200 @@ def test_article_list_detail_focus_save_conflict_and_readiness_invalidation(api_
         assert forbidden not in serialized
 
 
+def test_start_article_creates_canonical_preparation_article_and_retry_is_idempotent(
+    api_server, api_store
+):
+    before = len(_data(request(api_server, "/api/v1/articles?filter=preparation"))["articles"])
+    status, payload = request(
+        api_server,
+        "/api/v1/stories/s-one/articles",
+        method="POST",
+        headers={"Idempotency-Key": "start-article-1"},
+    )
+    assert status == 201
+    article = payload["data"]
+    assert article["id"].startswith("art_")
+    assert article["story"] == {"id": "s-one", "title": "Развитие Б"}
+    assert article["state"] == "preparation"
+    assert article["title"] == "Развитие Б"
+    assert article["content"]["body"] == ""
+    assert article["editorialFocus"]["text"]
+    assert article["editorialFocus"]["confirmedAt"] is None
+    assert article["preparation"] == {
+        "focusConfirmed": False,
+        "blockingGaps": [],
+        "nonBlockingGaps": [],
+        "draftEligible": False,
+        "availableActions": ["SELECT_FOCUS"],
+    }
+    serialized = json.dumps(article, ensure_ascii=False)
+    assert not any(
+        value in serialized for value in ("Case", "Idea", "idea_id", "case_id", "draft_id")
+    )
+
+    retry_status, retry_payload = request(
+        api_server,
+        "/api/v1/stories/s-one/articles",
+        method="POST",
+        headers={"Idempotency-Key": "start-article-1"},
+    )
+    assert retry_status == 201 and retry_payload["data"]["id"] == article["id"]
+    assert (
+        len(_data(request(api_server, "/api/v1/articles?filter=preparation"))["articles"])
+        == before + 1
+    )
+    assert article["id"] in {
+        row["id"] for row in _data(request(api_server, "/api/v1/stories/s-one"))["relatedArticles"]
+    }
+
+    second_status, second_payload = request(
+        api_server,
+        "/api/v1/stories/s-one/articles",
+        method="POST",
+        headers={"Idempotency-Key": "start-article-2"},
+    )
+    assert second_status == 201 and second_payload["data"]["id"] != article["id"]
+
+
+def test_start_article_is_unavailable_for_ignored_story_and_rejects_bad_key(api_server, api_store):
+    assert (
+        "START_ARTICLE" in _data(request(api_server, "/api/v1/stories/s-one"))["availableActions"]
+    )
+    request(api_server, "/api/v1/stories/s-one/ignore", method="POST")
+    ignored = _data(request(api_server, "/api/v1/stories/s-one"))
+    assert "START_ARTICLE" not in ignored["availableActions"]
+    assert (
+        request(
+            api_server,
+            "/api/v1/stories/s-one/articles",
+            method="POST",
+            headers={"Idempotency-Key": "bad key"},
+        )[0]
+        == 400
+    )
+    assert request(api_server, "/api/v1/stories/s-one/articles", method="POST")[0] == 400
+    assert (
+        request(
+            api_server,
+            "/api/v1/stories/s-one/articles",
+            method="POST",
+            body={"title": "Не се приема преди Article"},
+            headers={"Idempotency-Key": "unexpected-body"},
+        )[0]
+        == 400
+    )
+
+
+def test_preparation_focus_title_readiness_and_today_projection(api_server, api_store):
+    created = _data(
+        request(
+            api_server,
+            "/api/v1/stories/s-one/articles",
+            method="POST",
+            headers={"Idempotency-Key": "readability"},
+        )
+    )
+    article_id = created["id"]
+    assert any(
+        row["objectId"] == article_id
+        for row in _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
+    )
+
+    title = _data(
+        request(
+            api_server,
+            f"/api/v1/articles/{article_id}/title",
+            method="PUT",
+            body={"expectedVersion": 0, "title": "Консервативно работно заглавие"},
+        )
+    )
+    assert title["title"] == "Консервативно работно заглавие"
+    assert title["content"]["body"] == "" and title["content"]["version"] == 1
+
+    focused = _data(
+        request(
+            api_server,
+            f"/api/v1/articles/{article_id}/focus",
+            method="PUT",
+            body={"focus": "Да обясним промяната и нейните последици."},
+        )
+    )
+    assert focused["editorialFocus"]["confirmedAt"] is not None
+    assert focused["preparation"]["focusConfirmed"] is True
+    assert focused["preparation"]["draftEligible"] is True
+    assert focused["preparation"]["availableActions"] == ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"]
+    assert focused["nextAction"]["action"] == "MAKE_DRAFT"
+
+    story_research_store.save_story_research(
+        {
+            "story_id": "s-one",
+            "sources": [],
+            "facts": [],
+            "gaps": [
+                {
+                    "id": "gap_date",
+                    "question": "Кога започва изпълнението?",
+                    "kind": "unresolved",
+                    "blocking": True,
+                },
+                {
+                    "id": "gap_context",
+                    "question": "Кой е основният заинтересован?",
+                    "kind": "missing_fact",
+                    "blocking": False,
+                },
+            ],
+            "assessed_at": "2026-09-25T10:00:00Z",
+            "research_rounds": 1,
+            "operation_ids": ["op-fixture"],
+        }
+    )
+    blocked = _data(request(api_server, f"/api/v1/articles/{article_id}"))
+    assert blocked["preparation"]["draftEligible"] is False
+    assert blocked["preparation"]["blockingGaps"][0]["question"] == "Кога започва изпълнението?"
+    assert (
+        blocked["preparation"]["nonBlockingGaps"][0]["question"] == "Кой е основният заинтересован?"
+    )
+    assert blocked["availableActions"] == ["CHANGE_FOCUS", "EDIT", "RESEARCH_MORE"]
+    assert blocked["nextAction"]["action"] == "RESEARCH_MORE"
+    assert "MAKE_DRAFT" not in blocked["availableActions"]
+
+    empty = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/focus",
+        method="PUT",
+        body={"focus": "   "},
+    )
+    assert empty[0] == 400
+
+
+def test_draft_endpoint_requires_an_idempotency_key_and_accepts_no_fields(api_server, api_store):
+    """C2 transport: the key is required and the body carries no client facts."""
+    article_id = api_store["article"]["article_id"]
+    path = f"/api/v1/articles/{article_id}/draft"
+    assert request(api_server, path, method="POST")[0] == 400
+    assert (
+        request(api_server, path, method="POST", headers={"Idempotency-Key": "bad key"})[0] == 400
+    )
+    # The Article is still in preparation with no confirmed focus, so the
+    # backend - not the transport - refuses even with a valid key.
+    unconfirmed = request(
+        api_server, path, method="POST", headers={"Idempotency-Key": "unconfirmed"}
+    )
+    assert unconfirmed[0] == 409
+    assert unconfirmed[1]["error"]["code"] == "INVALID_TRANSITION"
+    assert (
+        request(
+            api_server,
+            path,
+            method="POST",
+            body={"body": "текст от клиента"},
+            headers={"Idempotency-Key": "with-body"},
+        )[0]
+        == 400
+    )
+
+
 def test_today_is_derived_and_excludes_ignored_followed_but_keeps_multiple_developments(
     api_server, api_store
 ):
@@ -408,6 +603,18 @@ def test_story_get_tolerates_missing_or_partial_metadata_without_writes(
     assert (path.exists() and path.read_bytes() == watched.get(path)) or (
         metadata_case == "missing" and not path.exists()
     )
+
+
+def test_story_projection_skips_malformed_legacy_research_artifacts(api_server, api_store):
+    path = articles.editor_articles_path().parent / "research" / "malformed.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[]", encoding="utf-8")
+
+    detail = _data(request(api_server, "/api/v1/stories/s-one"))
+
+    assert detail["id"] == "s-one"
+    assert detail["factsAndSources"] == []
+    assert path.read_text(encoding="utf-8") == "[]"
 
 
 def test_article_search_combines_with_filter_and_returns_newest_first(api_server, api_store):
@@ -671,3 +878,283 @@ def test_legacy_healthz_and_api_namespace_remain_isolated(api_server):
         assert response.status == 200 and response.read() == b"OK\n"
     status, payload = request(api_server, "/api/v1/articles/art_missing")
     assert status == 404 and payload["error"]["code"] == "NOT_FOUND"
+
+
+# ---------------------------------------------------------------- B4B «Обнови»
+
+
+def _feed(items):
+    body = "".join(
+        f"<item><title>{title}</title><link>https://feed.example/{slug}</link>"
+        f"<pubDate>Mon, 21 Sep 2026 06:00:00 +0300</pubDate>"
+        f"<description>{summary}</description></item>"
+        for slug, title, summary in items
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>'
+        f"<title>Емисия</title><link>https://feed.example/</link>{body}</channel></rss>"
+    ).encode()
+
+
+class _Response:
+    def __init__(self, payload):
+        self.payload = payload
+
+
+def _await(base, token):
+    for _ in range(400):
+        payload = _data(request(base, f"/api/v1/operations/{token}"))
+        if payload["status"] in {"succeeded", "failed"}:
+            return payload
+        time.sleep(0.02)
+    raise AssertionError("operation did not finish")
+
+
+def test_refresh_is_rejected_without_active_sources(api_server, api_store):
+    status, payload = request(api_server, "/api/v1/today/refresh", method="POST")
+    assert status == 409
+    assert payload["error"]["code"] == "INVALID_TRANSITION"
+    assert "източници" in payload["error"]["message"]
+
+
+def test_refresh_returns_202_with_a_bounded_operation_and_refetches_today(
+    api_server, api_store, monkeypatch
+):
+    from datetime import datetime, timezone
+
+    from editor_assistant.sources import fetcher
+    from editor_assistant.workflow import newsroom_run, sources_registry, story_operations
+
+    newsroom = api_store["newsroom"]
+    sources_registry.add_source(
+        path=newsroom / "sources.json",
+        source_id="council",
+        name="Общински съвет",
+        kind="official",
+        collector="rss",
+        url="https://feed.example/rss",
+        priority="high",
+        factual_authority=True,
+    )
+    posts = {
+        "https://feed.example/rss": _feed([("a", "Нова сесия", "Общински съвет заседава днес.")])
+    }
+    monkeypatch.setattr(fetcher, "fetch_bytes", lambda url: _Response(posts[str(url)]))
+    # Pin the collector clock: the fixture is dated 2026-09-21 and the 72 h news
+    # window must not rotate it out of range as the real date advances.
+    monkeypatch.setattr(
+        newsroom_run, "_now", lambda: datetime(2026, 9, 20, 12, tzinfo=timezone.utc)
+    )
+    story_operations.clear()
+
+    status, payload = request(
+        api_server,
+        "/api/v1/today/refresh",
+        method="POST",
+        headers={"Idempotency-Key": "api-key-1"},
+    )
+    assert status == 202
+    token = payload["data"]["operationToken"]
+    assert token.startswith("op_")
+
+    operation = _await(api_server, token)
+    assert operation["status"] == "succeeded", operation
+    assert operation["result"]["new"] == 1
+    # ...and the canonical Today GET is the authority for the new attention.
+    today = _data(request(api_server, "/api/v1/today"))
+    assert len(today["newStories"]) == 1
+    assert today["problems"] == []
+
+
+def test_refresh_rejects_a_malformed_idempotency_key(api_server, api_store):
+    from editor_assistant.workflow import sources_registry
+
+    sources_registry.add_source(
+        path=api_store["newsroom"] / "sources.json",
+        source_id="council",
+        name="Общински съвет",
+        kind="official",
+        collector="rss",
+        url="https://feed.example/rss",
+        priority="high",
+        factual_authority=True,
+    )
+    status, payload = request(
+        api_server,
+        "/api/v1/today/refresh",
+        method="POST",
+        headers={"Idempotency-Key": "bad key with spaces"},
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_refresh_is_a_single_endpoint_with_no_stage_routes(api_server):
+    for stage in ("collect", "ingest", "group", "classify"):
+        status, payload = request(api_server, f"/api/v1/today/{stage}", method="POST")
+        assert status == 404, stage
+        assert payload["error"]["code"] == "NOT_FOUND"
+    assert request(api_server, "/api/v1/today/refresh")[0] == 405
+
+
+# ---------------------------------------------------------------- C2 «Направи чернова»
+
+
+def _draft_stub(monkeypatch, body: str = "Общинският съвет одобри графика за ремонта."):
+    """Stub only the model transport; the real readiness/retrieval/gates run."""
+    from editor_assistant.drafting import generate as draft_gen
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    def call(_prompt, *, api_key, timeout, role="draft", **_kw):
+        if role == "draft":
+            return (
+                json.dumps(
+                    {"headlines": ["Заглавие"], "headline": "Заглавие", "body": body},
+                    ensure_ascii=False,
+                ),
+                {"model": "mock"},
+            )
+        # A real judge verdict: an empty reply is a failed route, not a pass.
+        return (
+            json.dumps(
+                {
+                    "sentence": body,
+                    "verdict": "SUPPORTED",
+                    "issue": "none",
+                    "supporting_fact_ids": [],
+                    "note": "ok",
+                },
+                ensure_ascii=False,
+            ),
+            {"model": "mock"},
+        )
+
+    monkeypatch.setattr(draft_gen, "_call_gemini", call)
+
+
+def _ready_article(api_store, monkeypatch):
+    """A Story basis with real reader-value depth, so readiness can pass."""
+    story_research_store.merge_research(
+        "s-one",
+        sources=[
+            {
+                "id": "vestnik",
+                "name": "Вестник",
+                "url": "https://vestnik.example.test/2026/budget",
+            }
+        ],
+        facts=[
+            {
+                "id": "fact_money",
+                "text": "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 4",
+            },
+            {
+                "id": "fact_people",
+                "text": "Жителите на квартала ще пътуват с 10 минути повече до работата.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 5",
+            },
+        ],
+        gaps=[],
+        assessed_at="2026-09-25T08:45:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="api-fixture",
+    )
+    article = _add_article(api_store["root"], api_store["stories"], title="График за ремонта")
+    articles.update_editor_focus(article["article_id"], "Да обясним решението и последиците.")
+    _draft_stub(monkeypatch)
+    return article["article_id"]
+
+
+def test_draft_returns_202_and_polls_to_the_canonical_article(api_server, api_store, monkeypatch):
+    article_id = _ready_article(api_store, monkeypatch)
+    status, payload = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/draft",
+        method="POST",
+        headers={"Idempotency-Key": "http-draft-1"},
+    )
+    assert status == 202
+    assert list(payload["data"]) == ["operationToken"]
+    assert payload["data"]["operationToken"].startswith("op_")
+
+    operation = _await(api_server, payload["data"]["operationToken"])
+    assert operation["status"] == "succeeded", operation
+    article = operation["result"]
+    assert article["id"] == article_id
+    assert article["state"] == "draft"
+    assert article["content"]["body"].strip()
+    assert article["content"]["version"] == 1
+    assert "MAKE_DRAFT" not in article["availableActions"]
+
+    # The canonical read agrees with the operation result.
+    current = _data(request(api_server, f"/api/v1/articles/{article_id}"))
+    assert current["content"] == article["content"]
+    assert current["warnings"] == article["warnings"]
+
+
+def test_draft_is_refused_for_a_blocked_basis_and_a_stale_action(
+    api_server, api_store, monkeypatch
+):
+    article_id = _ready_article(api_store, monkeypatch)
+    story_research_store.merge_research(
+        "s-one",
+        sources=[],
+        facts=[],
+        gaps=[{"id": "gap_when", "question": "Кога започва работата?", "blocking": True}],
+        assessed_at="2026-09-25T11:00:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="api-gap",
+    )
+    blocked = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/draft",
+        method="POST",
+        headers={"Idempotency-Key": "http-blocked"},
+    )
+    assert blocked[0] == 409
+    assert blocked[1]["error"]["code"] == "BLOCKING_GAP"
+    assert blocked[1]["error"]["retryable"] is False
+
+    # A stale client action after a real edit is a version conflict, never a
+    # silent overwrite of the editor's text.
+    store = story_store.read_store(api_store["stories"])
+    story_store.write_store(store, api_store["stories"])
+    story_research_store.save_story_research(
+        {
+            "story_id": "s-one",
+            "sources": [
+                {
+                    "id": "vestnik",
+                    "name": "Вестник",
+                    "url": "https://vestnik.example.test/2026/budget",
+                }
+            ],
+            "facts": [
+                {
+                    "id": "fact_money",
+                    "text": "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата.",
+                    "sourceId": "vestnik",
+                    "locator": "Протокол, т. 4",
+                }
+            ],
+            "gaps": [],
+            "assessed_at": "2026-09-25T12:00:00Z",
+            "research_rounds": 1,
+            "operation_ids": ["api-fixture"],
+        }
+    )
+    articles.save_article_content(article_id, 0, "График за ремонта", "Ръчен текст")
+    stale = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/draft",
+        method="POST",
+        headers={"Idempotency-Key": "http-stale"},
+    )
+    assert stale[0] == 409
+    assert stale[1]["error"]["code"] == "INVALID_TRANSITION"
+    assert articles.get_article_content(article_id)["body"] == "Ръчен текст"

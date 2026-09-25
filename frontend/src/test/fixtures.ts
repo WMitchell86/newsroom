@@ -130,6 +130,7 @@ function articleBase(): Omit<ArticleDetail, "state" | "content" | "readiness" | 
     updatedAt: "2026-09-25T09:40:00Z",
     factsAndSources,
     missingInformation: storyDetail.missingInformation!,
+    preparation: null,
   };
 }
 
@@ -138,9 +139,17 @@ export const activePreparationArticle: ArticleDetail = {
   id: "article-budget-preparation",
   title: "Ремонтът на булевард „Свобода“ — какво предстои",
   state: "preparation",
+  editorialFocus: { text: "Показваме какво е готово по ремонта и какво още трябва да бъде уточнено с община Бургас.", confirmedAt: null },
   content: { title: "Ремонтът на булевард „Свобода“ — какво предстои", body: "", version: 0 },
+  preparation: {
+    focusConfirmed: false,
+    blockingGaps: [],
+    nonBlockingGaps: [storyDetail.missingInformation!.items[0]!],
+    draftEligible: false,
+    availableActions: ["SELECT_FOCUS"],
+  },
   readiness: { isCurrent: false, readyVersion: null, readyAt: null },
-  availableActions: ["SELECT_FOCUS", "MAKE_DRAFT"],
+  availableActions: ["SELECT_FOCUS"],
   nextAction: { action: "SELECT_FOCUS", reasonCode: "FOCUS_REQUIRED", label: "Избери фокус", primary: true },
   isFinalized: false,
   finalizedAt: null,

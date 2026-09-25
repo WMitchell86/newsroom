@@ -16,11 +16,14 @@ from urllib.parse import urlsplit
 
 from editor_assistant.drafting.evidence import EvidenceError, validate_packet
 from editor_assistant.workflow import (
+    article_generation,
     editor_article_store,
     editor_projections,
     editor_queries,
     inbox_store,
     live_store,
+    newsroom_refresh,
+    source_health,
     story_editor_metadata,
     story_identity,
     story_operations,
@@ -36,6 +39,10 @@ ROOT = Path(__file__).resolve().parents[3]
 _COMMAND_LOCK = threading.RLock()
 STORY_FILTERS = ("all", "followed", "developments", "ignored")
 ARTICLE_FILTERS = ("all", "preparation", "draft", "ready")
+#: Operation scope for the newsroom-wide «Обнови» action (B4B). It is not a
+#: Story id: it only tells the shared operation registry which editor wording a
+#: transport result belongs to.
+REFRESH_SCOPE = "today-refresh"
 
 
 class EditorApplicationError(ValueError):
@@ -62,6 +69,20 @@ class EditorResearchUnavailable(EditorApplicationError):
 
 class EditorVersionConflict(EditorApplicationError):
     code = "ARTICLE_VERSION_CONFLICT"
+    status = 409
+
+
+class EditorBlockingGap(EditorApplicationError):
+    """The canonical Story basis still has a blocking gap. No generation."""
+
+    code = "BLOCKING_GAP"
+    status = 409
+
+
+class EditorSafetyBlocked(EditorApplicationError):
+    """A safety guard stopped the command before any provider work."""
+
+    code = "SAFETY_BLOCKED"
     status = 409
 
 
@@ -123,7 +144,7 @@ def _opened_sources_by_id() -> dict[str, dict]:
     for path in sorted(research_root.glob("*.json")):
         try:
             bundle = research_mod.load_bundle(path)
-        except (OSError, ValueError, research_mod.ResearchError):
+        except (OSError, ValueError, AttributeError, TypeError, research_mod.ResearchError):
             continue
         for source_id, source in research_mod.promotable_sources(bundle).items():
             if source_id in ambiguous:
@@ -296,9 +317,24 @@ def _next_action(action: str, reason: str, label: str, *, primary: bool = True) 
     }
 
 
-def _article_actions(article: dict, content: dict) -> tuple[list[str], dict | None]:
+def _article_actions(
+    article: dict, content: dict, blocking_gaps: list[dict] | None = None
+) -> tuple[list[str], dict | None]:
     if article.get("finalized_at"):
         return [], None
+    state = editor_projections.derive_article_state(article, content, None)
+    if state == "preparation":
+        blocking_gaps = blocking_gaps or []
+        if not editor_projections.focus_is_confirmed(article):
+            return ["SELECT_FOCUS"], _next_action("SELECT_FOCUS", "FOCUS_REQUIRED", "Избери фокус")
+        # Backend-authorized manual continuation uses the same editor and the
+        # same atomic content save. There is no separate manual Draft mode.
+        actions = ["CHANGE_FOCUS", "EDIT"]
+        if blocking_gaps:
+            actions.append("RESEARCH_MORE")
+            return actions, _next_action("RESEARCH_MORE", "BLOCKING_GAP", "Проучи още")
+        actions.append("MAKE_DRAFT")
+        return actions, _next_action("MAKE_DRAFT", "DRAFT_ELIGIBLE", "Направи чернова")
     actions = []
     if editor_projections.focus_is_confirmed(article):
         actions.append("CHANGE_FOCUS")
@@ -312,7 +348,20 @@ def _article_actions(article: dict, content: dict) -> tuple[list[str], dict | No
 
 def _article_dto(article: dict, content: dict, story_reference: dict) -> dict:
     state = editor_projections.derive_article_state(article, content, None)
-    actions, next_action = _article_actions(article, content)
+    facts, missing = _story_evidence_projection(article["story_id"])
+    blocking_gaps = [item for item in missing["items"] if item.get("blocking")]
+    non_blocking_gaps = [item for item in missing["items"] if not item.get("blocking")]
+    focus_confirmed = editor_projections.focus_is_confirmed(article)
+    actions, next_action = _article_actions(article, content, blocking_gaps)
+    preparation = None
+    if state == "preparation":
+        preparation = {
+            "focusConfirmed": focus_confirmed,
+            "blockingGaps": blocking_gaps,
+            "nonBlockingGaps": non_blocking_gaps,
+            "draftEligible": focus_confirmed and not blocking_gaps,
+            "availableActions": actions,
+        }
     return {
         "id": article["article_id"],
         "story": story_reference,
@@ -328,17 +377,24 @@ def _article_dto(article: dict, content: dict, story_reference: dict) -> dict:
             "body": content["body"],
             "version": content["content_version"],
         },
+        "preparation": preparation,
         "readiness": {
             "isCurrent": editor_projections.readiness_is_current(article, content, None),
             "readyVersion": article.get("ready_version"),
             "readyAt": article.get("ready_at"),
         },
-        "warnings": [],
+        "warnings": (
+            article_generation.warnings_for(article, content, root=_editorial_root())
+            if article.get("generated_content_version") == content["content_version"]
+            else []
+        ),
         "availableActions": actions,
         "nextAction": next_action,
         "createdAt": article["created_at"],
         "updatedAt": article["updated_at"],
         "finalizedAt": article.get("finalized_at"),
+        "factsAndSources": facts,
+        "missingInformation": missing,
     }
 
 
@@ -407,6 +463,7 @@ def _story_summary(story: dict, metadata: dict, items_by_id: dict, articles: lis
         actions.append("RESEARCH_MORE")
     if not projected["ignored"]:
         actions.append("IGNORE")
+        actions.append("START_ARTICLE")
     next_action = None
     if story.get("status") in {"NEW", "IGNORED"} or projected["unreviewed_development_count"]:
         next_action = _next_action("REVIEW", "UNREVIEWED_STORY", "Прегледай")
@@ -590,16 +647,268 @@ def operation_status(token: str) -> dict:
     if row["status"] == "succeeded":
         return {"operationToken": token, "status": row["status"], "result": row["result"]}
     if row["status"] == "failed":
+        if article_generation.is_draft_scope(row.get("story_id")):
+            # The worker already classified its own stable failure. Only the
+            # bounded editor wording crosses this boundary; the raw provider
+            # text never does, and an unclassified failure stays retryable.
+            return {
+                "operationToken": token,
+                "status": row["status"],
+                "error": article_generation.operation_error(row.get("error_code") or ""),
+            }
         return {
             "operationToken": token,
             "status": row["status"],
             "error": {
                 "code": "SOURCE_UNAVAILABLE",
-                "message": "Проучването не можа да завърши.",
+                "message": (
+                    "Новините не можаха да се обновят."
+                    if row.get("story_id") == REFRESH_SCOPE
+                    else "Проучването не можа да завърши."
+                ),
                 "retryable": True,
             },
         }
     return {"operationToken": token, "status": row["status"]}
+
+
+def _refresh_signature(root: Path) -> str:
+    """Canonical state a refresh is bound to, so a new one gets a new token."""
+    paths = newsroom_refresh.newsroom_paths(root)
+    last = source_health.read_last_run(paths["last_run"]) or {}
+    try:
+        stories = story_store.read_store(paths["stories"])["stories"]
+    except (OSError, ValueError):
+        stories = []
+    seed = f"{last.get('finished_at', '')}\0{len(stories)}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+
+
+def _running_refresh() -> dict | None:
+    """A refresh already in flight, as a still-valid operation, if there is one."""
+    running = newsroom_refresh.active_token()
+    if not running:
+        return None
+    row = story_operations.get(running)
+    if row is None or row["status"] not in {"pending", "running"}:
+        return None
+    return {"operationToken": running, "status": row["status"]}
+
+
+def start_newsroom_refresh(*, idempotency_key: str = "") -> dict:
+    """Begin the one editor-facing newsroom refresh action («Обнови»).
+
+    Transport only: the token carries progress for a bounded poll and nothing
+    else. A repeated request carrying the same Idempotency-Key returns the
+    still-valid operation instead of collecting the newsroom twice, and a
+    refresh already in flight is returned rather than raced. The backend is
+    the authority — the editor never decides alone that it may refresh.
+    """
+    root = _newsroom_root()
+    state = newsroom_refresh.capability(root=root)
+    if not state["canRefresh"]:
+        raise EditorInvalidTransition(
+            "няма активни източници за обновяване"
+            if state["reason"] == "no_active_sources"
+            else "източниците не могат да бъдат прочетени"
+        )
+    in_flight = _running_refresh()
+    if in_flight is not None:
+        return in_flight
+    signature = _refresh_signature(root)
+    if idempotency_key:
+        # An explicit key pins the operation to that request alone. Binding it
+        # to mutable newsroom state would hand a repeated request a *new* token
+        # and collect the whole newsroom twice.
+        signature = ""
+    token = story_operations.token_for(REFRESH_SCOPE, signature, 0, idempotency_key)
+    if idempotency_key:
+        accepted = story_operations.get(token)
+        if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
+            return {"operationToken": token, "status": accepted["status"]}
+    try:
+        newsroom_refresh.acquire(token)
+    except newsroom_refresh.RefreshBusy as busy:
+        existing = _running_refresh()
+        if existing is not None:
+            return existing
+        raise EditorInvalidTransition(str(busy)) from busy
+
+    def work():
+        try:
+            return newsroom_refresh.refresh_newsroom(root=root)
+        finally:
+            newsroom_refresh.release(token)
+
+    try:
+        operation_token, view = story_operations.start(
+            REFRESH_SCOPE, signature, work, generation=0, key=idempotency_key
+        )
+    except story_operations.BusyError as exc:
+        newsroom_refresh.release(token)
+        raise EditorInvalidTransition("новостите вече се обновяват; опитайте след малко") from exc
+    return {"operationToken": operation_token, "status": view["status"]}
+
+
+# ---------------------------------------------------------------- C2 «Направи чернова»
+
+
+def _draft_snapshot(article_id: str) -> dict:
+    """Everything the Draft command is bound to, read from canonical stores.
+
+    Deliberately a snapshot of *server* state: the request carries no facts, no
+    focus, no title and no evidence, so a client cannot talk the backend into
+    drafting from material it chose.
+    """
+    article = _active_article(article_id)
+    content = editor_article_store.get_article_content(article_id)
+    story = _story(article["story_id"])
+    facts, missing = _story_evidence_projection(article["story_id"])
+    items_by_id = _story_items()
+    source_url = next(
+        (
+            str((fact.get("source") or {}).get("url") or "")
+            for fact in facts
+            if str((fact.get("source") or {}).get("url") or "")
+        ),
+        "",
+    )
+    return {
+        "article": article,
+        "content": content,
+        "story": story,
+        "content_version": int(content["content_version"]),
+        "facts": facts,
+        "gaps": list(missing["items"]),
+        "blocking_gaps": [item for item in missing["items"] if item.get("blocking")],
+        "assessed_at": missing.get("assessedAt"),
+        "headline": _story_title(story, items_by_id) or article["working_title"],
+        "summary": str(
+            (items_by_id.get(story.get("representative_item_id")) or {}).get("summary") or ""
+        ),
+        "source_url": source_url,
+    }
+
+
+def _draft_signature(snapshot: dict) -> str:
+    """Canonical state a Draft command is bound to, so a new one gets a new token."""
+    gaps = "\0".join(sorted(str(item.get("id") or "") for item in snapshot["gaps"]))
+    seed = f"{snapshot['content_version']}\0{snapshot['article']['updated_at']}\0{gaps}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+
+
+def _running_draft(article_id: str) -> dict | None:
+    """A generation for this Article already in flight, as a still-valid operation."""
+    token = article_generation.active_token(article_id)
+    if not token:
+        return None
+    row = story_operations.get(token)
+    if row is None or row["status"] not in {"pending", "running"}:
+        return None
+    return {"operationToken": token, "status": row["status"]}
+
+
+def _raise_draft_refusal(exc: article_generation.DraftRefused) -> None:
+    """Map a stable refusal onto the editor error contract, never its raw text."""
+    if exc.code == "BLOCKING_GAP":
+        raise EditorBlockingGap("Има непопълнена информация, която пречи да продължите.") from exc
+    if exc.code == "SAFETY_BLOCKED":
+        raise EditorSafetyBlocked("Проверката за безопасност спря операцията.") from exc
+    if exc.code == "ARTICLE_VERSION_CONFLICT":
+        raise EditorVersionConflict(
+            "Статията е променена, преди черновата да се създаде. Няма загубени локални промени."
+        ) from exc
+    if exc.code == "INVALID_TRANSITION":
+        raise EditorInvalidTransition(str(exc)) from exc
+    raise EditorApplicationError("Черновата не може да бъде създадена от този материал.") from exc
+
+
+def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
+    """Begin the one editor-facing Draft action (C2 «Направи чернова»).
+
+    Transport only: the token carries a bounded poll, nothing else. The backend
+    is the authority - the command is refused unless the server itself currently
+    offers `MAKE_DRAFT` for this Article, and every precondition is re-checked
+    inside the worker before any provider work happens. A repeated request with
+    the same Idempotency-Key returns the still-valid operation instead of
+    generating twice, and a generation already in flight is returned rather than
+    raced.
+    """
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise EditorApplicationError("Idempotency key is required.")
+    key = idempotency_key.strip()
+    with _COMMAND_LOCK:
+        article = _active_article(article_id)
+        snapshot = _draft_snapshot(article_id)
+        try:
+            article_generation.evaluate(snapshot)
+        except article_generation.DraftRefused as exc:
+            _raise_draft_refusal(exc)
+        dto = _article_dto(article, snapshot["content"], _story_reference(article))
+        if "MAKE_DRAFT" not in dto["availableActions"]:
+            # The same derivation that produced `availableActions` is the policy
+            # authority; the client never decides that it may draft.
+            raise EditorInvalidTransition(
+                "Черновата не е налична в текущото състояние на статията."
+            )
+    in_flight = _running_draft(article_id)
+    if in_flight is not None:
+        return in_flight
+    scope = article_generation.scope_for(article_id)
+    signature = _draft_signature(snapshot)
+    if key:
+        # An explicit key pins the operation to that request alone. Binding it to
+        # mutable Article state would hand a repeated request a *new* token and
+        # generate the same Draft twice.
+        signature = ""
+    token = story_operations.token_for(scope, signature, 0, key)
+    if key:
+        accepted = story_operations.get(token)
+        if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
+            return {"operationToken": token, "status": accepted["status"]}
+    try:
+        article_generation.acquire(article_id, token)
+    except article_generation.DraftRefused as exc:
+        existing = _running_draft(article_id)
+        if existing is not None:
+            return existing
+        _raise_draft_refusal(exc)
+
+    def work():
+        try:
+            # Stale revalidation: the Article may have been edited, refocused or
+            # re-gapped while this operation was queued. That is a stable
+            # refusal, never a silent overwrite of the editor's text.
+            current = _draft_snapshot(article_id)
+            try:
+                article_generation.evaluate(current)
+            except article_generation.DraftRefused as exc:
+                # Re-raise as the classified refusal so the bounded operation
+                # keeps the stable code instead of a generic failure.
+                raise article_generation.DraftRefused(exc.code, exc.message) from exc
+            with _COMMAND_LOCK:
+                article_generation.generate(current, root=_editorial_root())
+            return _article_dto_by_id(article_id)
+        except article_generation.DraftRefused:
+            raise
+        except EditorApplicationError as exc:
+            raise article_generation.DraftRefused(exc.code, str(exc)) from exc
+        except editor_article_store.ArticleVersionConflict as exc:
+            raise article_generation.DraftRefused(
+                "ARTICLE_VERSION_CONFLICT",
+                "Статията е променена, преди черновата да се създаде.",
+            ) from exc
+        except Exception as exc:
+            raise article_generation.DraftRefused("", "Source unavailable") from exc
+        finally:
+            article_generation.release(article_id, token)
+
+    try:
+        operation_token, view = story_operations.start(scope, signature, work, key=key)
+    except story_operations.BusyError as exc:
+        article_generation.release(article_id, token)
+        raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
+    return {"operationToken": operation_token, "status": view["status"]}
 
 
 def read_story(story_id: str) -> dict:
@@ -638,7 +947,14 @@ def read_today() -> dict:
     articles = []
     for article in editor_article_store.read_editor_articles():
         dto = _article_dto_by_id(article["article_id"])
-        if dto["state"] is None or dto["nextAction"] is None:
+        content = editor_article_store.get_article_content(article["article_id"])
+        concrete_next_action = (dto.get("nextAction") or {}).get("action")
+        if not editor_projections.article_today_eligible(
+            article,
+            content,
+            None,
+            concrete_next_action=concrete_next_action,
+        ):
             continue
         articles.append(
             {
@@ -656,7 +972,10 @@ def read_today() -> dict:
         "newDevelopments": new_developments,
         "newStories": new_stories,
         "articlesRequiringAction": articles,
-        "problems": [],
+        # Derived read-only from the source-health records the real collection
+        # pipeline writes. A problem appears only when a configured source
+        # actually failed; the editor can retry or mute it from the page.
+        "problems": newsroom_refresh.today_problems(root=_newsroom_root()),
     }
 
 
@@ -753,6 +1072,29 @@ def _validate_story_action(story_id: str, action: str) -> dict:
     return story
 
 
+def start_article(story_id: str, *, idempotency_key: str) -> dict:
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise EditorApplicationError("Idempotency key is required.")
+    with _COMMAND_LOCK:
+        story = _validate_story_action(story_id, "START_ARTICLE")
+        items_by_id = _story_items()
+        title = _story_title(story, items_by_id) or "Работа за статия"
+        focus = "Да разкажем какво се е променило в тази история и защо е важно за хората."
+        try:
+            record = editor_article_store.create_editor_article(
+                story_id=story_id,
+                stories_path=_paths()["stories"],
+                working_title=title,
+                editorial_focus=focus,
+                idempotency_key=idempotency_key.strip(),
+            )
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown canonical story_id" in str(exc):
+                raise EditorNotFound("Story не е намерена.") from exc
+            raise EditorApplicationError("Статията не може да бъде създадена.") from exc
+    return _article_dto_by_id(record["article_id"])
+
+
 def review_story(story_id: str, observed_development_ids: list[str]) -> dict:
     _validate_story_action(story_id, "REVIEW")
     with _COMMAND_LOCK:
@@ -822,6 +1164,22 @@ def update_focus(article_id: str, focus: str) -> dict:
             if "unknown article_id" in str(exc):
                 raise EditorNotFound("Статията не е намерена.") from exc
             raise EditorApplicationError("Фокусът не може да бъде запазен.") from exc
+    return _article_dto_by_id(article_id)
+
+
+def update_title(article_id: str, expected_version: int, title: str) -> dict:
+    _active_article(article_id)
+    with _COMMAND_LOCK:
+        try:
+            editor_article_store.update_article_title(article_id, expected_version, title)
+        except editor_article_store.ArticleVersionConflict as exc:
+            raise EditorVersionConflict(
+                "Заглавието е променено в друга сесия. Няма загубени локални промени."
+            ) from exc
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown article_id" in str(exc):
+                raise EditorNotFound("Статията не е намерена.") from exc
+            raise EditorApplicationError("Заглавието не може да бъде запазено.") from exc
     return _article_dto_by_id(article_id)
 
 

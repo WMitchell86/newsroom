@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { queryKeys, todayOptions } from "../api/queries";
+import { queryKeys, storiesOptions, todayOptions } from "../api/queries";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,12 +21,12 @@ import {
 } from "./fixtures";
 import { renderWithProviders } from "./render";
 
-import type { StoryDetail } from "../api/dto";
-function errorResponse(code: string, message: string, status: number) {
+import type { ArticleDetail, StoryDetail } from "../api/dto";
+function errorResponse(code: string, message: string, status: number, retryable = false) {
   return {
     ok: false,
     status,
-    json: async () => ({ error: { code, message, retryable: false, fieldErrors: [] } }),
+    json: async () => ({ error: { code, message, retryable, fieldErrors: [] } }),
   } as Response;
 }
 
@@ -34,6 +34,7 @@ function storyRoute() {
   return (
     <Routes>
       <Route path="/stories/:storyId" element={<StoryWorkspace />} />
+      <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
     </Routes>
   );
 }
@@ -97,6 +98,144 @@ describe("Today", () => {
     expect(screen.getByRole("link", { name: "Липсва потвърждение" })).toHaveAttribute("href", "/settings/sources");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.every(([, init]) => !("method" in (init ?? {})) || init.method === "GET")).toBe(true);
+  });
+
+  it("renders the real Обнови action and keeps the internal stages invisible", async () => {
+    fetchMock.mockResolvedValue(dataResponse(todayProjection));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByRole("button", { name: "Обнови" })).toBeEnabled();
+    // A query refetch is not the newsroom action, and no stage is exposed.
+    expect(screen.queryByRole("button", { name: "Обнови" })).not.toBeDisabled();
+    for (const stage of ["Събиране", "Скрапване", "Ingest", "Групиране", "Класификация", "Модел"]) {
+      expect(screen.queryByText(stage)).toBeNull();
+    }
+  });
+
+  it("runs one refresh, polls the operation and refetches Today and Stories", async () => {
+    const refreshed = {
+      ...todayProjection,
+      newStories: [
+        {
+          objectId: "s-fresh",
+          objectType: "story" as const,
+          title: "Нова история след обновяване",
+          summary: "Материалът дойде от източника.",
+          timestamp: "2026-09-25T11:00:00Z",
+          reason: "NEW_STORY" as const,
+          nextAction: "REVIEW" as const,
+          delta: { unreviewedDevelopmentCount: 0 },
+        },
+      ],
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-refresh" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-refresh") return dataResponse({ status: "succeeded" });
+      if (url.startsWith("/api/v1/stories")) return dataResponse({ stories: [] });
+      return dataResponse(refreshed);
+    });
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(<TodayPage />, { route: "/" });
+    // A cached Story list projection, as the editor would have after visiting
+    // «Истории»: the refresh must invalidate it, not just Today.
+    await queryClient.prefetchQuery(storiesOptions("all", ""));
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Обнови" }));
+
+    expect(await screen.findByRole("link", { name: "Нова история след обновяване" })).toBeInTheDocument();
+    const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.[0]).toBe("/api/v1/today/refresh");
+    expect((posts[0]?.[1] as RequestInit).headers).toEqual(
+      expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+    );
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/operations/op-refresh")).toBe(true);
+    // Canonical refetch: Today and the Story list projections, nothing else.
+    const urls = fetchMock.mock.calls.map(([url]) => url);
+    expect(urls.filter((url) => url === "/api/v1/today").length).toBeGreaterThan(1);
+    expect(urls.some((url) => String(url).startsWith("/api/v1/stories"))).toBe(true);
+  });
+
+  it("keeps Today visible and prevents a duplicate click while refreshing", async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-slow" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-slow") return pending;
+      return dataResponse(todayProjection);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+    const before = screen.getByRole("link", { name: activeDraftArticle.title });
+
+    await user.click(screen.getByRole("button", { name: "Обнови" }));
+    const button = await screen.findByRole("button", { name: "Обновява се…" });
+    expect(button).toBeDisabled();
+    // The existing attention content is still on screen, not a blank loader.
+    expect(screen.getByRole("link", { name: activeDraftArticle.title })).toBe(before);
+    await user.click(button).catch(() => undefined);
+
+    const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
+    expect(posts).toHaveLength(1);
+
+    release(dataResponse({ status: "succeeded" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Обнови" })).toBeEnabled());
+  });
+
+  it("keeps Today intact and shows a point-of-action error when the refresh fails", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return errorResponse("SOURCE_UNAVAILABLE", "Новините не можаха да се обновят.", 503);
+      }
+      return dataResponse(todayProjection);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Обнови" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Новините не можаха да се обновят.");
+    // The newsroom content is untouched and a retry stays possible.
+    expect(screen.getByRole("link", { name: activeDraftArticle.title })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Обнови" })).toBeEnabled();
+  });
+
+  it("renders a partial-success problem canonically after a refresh", async () => {
+    const withProblem = {
+      ...todayProjection,
+      problems: [
+        {
+          id: "problem_abc",
+          title: "Източникът „Огледало“ не се обнови",
+          consequence: "Източникът е работил, но при последното обновяване не е дал материал.",
+          label: "Прегледай източниците",
+          target: "/settings",
+        },
+      ],
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-partial" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-partial") return dataResponse({ status: "succeeded", result: { new: 1, failedSources: 1 } });
+      return dataResponse(withProblem);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Обнови" }));
+
+    expect(await screen.findByRole("heading", { name: "Източникът „Огледало“ не се обнови" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Прегледай източниците" })).toHaveAttribute("href", "/settings");
   });
 });
 
@@ -391,6 +530,68 @@ describe("B3 Story actions", () => {
   });
 });
 
+describe("C1 Start Article", () => {
+  it("shows the real action only from backend policy, prevents pending duplicates, refetches and navigates", async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const detail = { ...storyDetail, availableActions: ["UNFOLLOW", "START_ARTICLE"] as StoryDetail["availableActions"] };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url === `/api/v1/stories/${storyDetail.id}/articles`) return pending;
+      if (url === `/api/v1/stories/${storyDetail.id}`) return dataResponse(detail);
+      if (url === `/api/v1/articles/${activePreparationArticle.id}`) return dataResponse(activePreparationArticle);
+      if (url.startsWith("/api/v1/articles?")) return dataResponse({ articles: [activePreparationArticle] });
+      if (url === "/api/v1/today") return dataResponse(todayProjection);
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(storyRoute(), { initialEntries: [`/stories/${storyDetail.id}`] });
+    queryClient.setQueryData(queryKeys.articles("all", ""), { articles: [] });
+    queryClient.setQueryData(queryKeys.articles("preparation", ""), { articles: [] });
+    queryClient.setQueryData(queryKeys.today, todayProjection);
+
+    await user.click(await screen.findByRole("button", { name: "Започни статия" }));
+    const pendingButton = await screen.findByRole("button", { name: "Започва се…" });
+    expect(pendingButton).toBeDisabled();
+    await user.click(pendingButton).catch(() => undefined);
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === `/api/v1/stories/${storyDetail.id}/articles` && init?.method === "POST")).toHaveLength(1);
+
+    release(dataResponse(activePreparationArticle, 201));
+    expect(await screen.findByRole("heading", { level: 1, name: activePreparationArticle.title })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Редакционен фокус" })).toBeInTheDocument();
+    expect(queryClient.getQueryState(queryKeys.articles("all", ""))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.articles("preparation", ""))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.today)?.isInvalidated).toBe(true);
+  });
+
+  it("stays on a readable Story on failure and reuses the same retry key", async () => {
+    const detail = { ...storyDetail, availableActions: ["START_ARTICLE"] as StoryDetail["availableActions"] };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/articles")) return errorResponse("INTERNAL_ERROR", "Статията не може да бъде създадена.", 500);
+      return dataResponse(detail);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(storyRoute(), { initialEntries: [`/stories/${storyDetail.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Започни статия" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Статията не може да бъде създадена.");
+    expect(screen.getByRole("heading", { level: 1, name: storyDetail.title })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Започни статия" }));
+
+    const posts = fetchMock.mock.calls.filter(([url, init]) => url.endsWith("/articles") && init?.method === "POST");
+    const firstKey = (posts[0]?.[1] as RequestInit).headers as Record<string, string>;
+    const retryKey = (posts[1]?.[1] as RequestInit).headers as Record<string, string>;
+    expect(posts).toHaveLength(2);
+    expect(firstKey["Idempotency-Key"]).toBe(retryKey["Idempotency-Key"]);
+  });
+
+  it("does not render Start Article when it is absent from availableActions", async () => {
+    fetchMock.mockResolvedValue(dataResponse({ ...storyDetail, availableActions: ["UNFOLLOW"] }));
+    renderWithProviders(storyRoute(), { initialEntries: [`/stories/${storyDetail.id}`] });
+    await screen.findByRole("heading", { level: 1, name: storyDetail.title });
+    expect(screen.queryByRole("button", { name: "Започни статия" })).toBeNull();
+  });
+});
+
 describe("Articles", () => {
   it("shows exactly the three active state labels alongside the all option and keeps the canonical Story title", async () => {
     fetchMock.mockResolvedValue(dataResponse(articleListResponse()));
@@ -420,6 +621,344 @@ describe("Articles", () => {
     expect(fetchMock.mock.calls.every(([, init]) => !("method" in (init ?? {})) || init.method === "GET")).toBe(true);
   });
 
+  it("renders Preparation as an editor surface without a Draft body and consumes backend eligibility", async () => {
+    fetchMock.mockResolvedValue(dataResponse(activePreparationArticle));
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activePreparationArticle.id}`] },
+    );
+
+    expect(await screen.findByText("Подготовка", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Редакционен фокус" })).toHaveValue(activePreparationArticle.editorialFocus.text);
+    expect(screen.getByText("Фокусът е предложение и очаква редакторско решение.")).toBeInTheDocument();
+    expect(screen.getByText(activePreparationArticle.factsAndSources[0]!.text)).toBeInTheDocument();
+    expect(screen.getByText(activePreparationArticle.preparation!.nonBlockingGaps[0]!.question)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Чернова" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /текст на статията/i })).toBeNull();
+  });
+
+  it("persists working title on blur and focus confirmation through canonical projections", async () => {
+    let canonical = { ...activePreparationArticle };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/title")) {
+        canonical = { ...canonical, title: "Ново работно заглавие", content: { ...canonical.content, title: "Ново работно заглавие", version: 1 } };
+        return dataResponse(canonical);
+      }
+      if (init?.method === "PUT" && url.endsWith("/focus")) {
+        const body = JSON.parse(String(init.body)) as { focus: string };
+        canonical = {
+          ...canonical,
+          editorialFocus: { text: body.focus, confirmedAt: "2026-09-25T11:00:00Z" },
+          preparation: { ...canonical.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"] },
+          availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+          nextAction: { action: "MAKE_DRAFT", reasonCode: "DRAFT_ELIGIBLE", label: "Направи чернова", primary: true },
+        };
+        return dataResponse(canonical);
+      }
+      return dataResponse(canonical);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activePreparationArticle.id}`] },
+    );
+    const title = await screen.findByRole("textbox", { name: "Работно заглавие" });
+    await user.clear(title);
+    await user.type(title, "Ново работно заглавие");
+    await user.tab();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/articles/${activePreparationArticle.id}/title`,
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ expectedVersion: 0, title: "Ново работно заглавие" }) }),
+    ));
+
+    const focus = screen.getByRole("textbox", { name: "Редакционен фокус" });
+    await user.clear(focus);
+    await user.type(focus, "Обясняваме промяната и последиците.");
+    await user.click(screen.getByRole("button", { name: "Избери фокус" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/articles/${activePreparationArticle.id}/focus`,
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ focus: "Обясняваме промяната и последиците." }) }),
+    ));
+    expect(await screen.findByRole("button", { name: "Промени фокуса" })).toBeInTheDocument();
+    expect(screen.getByText(/Фокусът е потвърден и няма блокиращи липси/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Направи чернова" })).toBeInTheDocument();
+  });
+
+  it("renders MAKE_DRAFT only when the backend authorizes it and the Article is eligible", async () => {
+    const eligible = {
+      ...activePreparationArticle,
+      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
+      preparation: { ...activePreparationArticle.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"] },
+      availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+    };
+    fetchMock.mockResolvedValue(dataResponse(eligible));
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${eligible.id}`] },
+    );
+
+    expect(await screen.findByRole("button", { name: "Направи чернова" })).toBeEnabled();
+    expect(screen.queryByRole("textbox", { name: /текст на статията/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Редактирай|Финализирай/ })).toBeNull();
+  });
+
+  it("creates a draft once, shows pending wording, and adopts the canonical read-only Draft", async () => {
+    const eligible = {
+      ...activePreparationArticle,
+      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
+      preparation: { ...activePreparationArticle.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"] },
+      availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+    };
+    const generated: ArticleDetail = { ...activeDraftArticle, id: eligible.id, story: eligible.story, title: eligible.title, preparation: null, editorialFocus: { ...activeDraftArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" }, warnings: [{ id: "warning-1", severity: "review", message: "Проверете цитата.", blocking: false }] };
+    let resolveDraft!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { resolveDraft = resolve; });
+    let canonical: ArticleDetail = eligible as ArticleDetail;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/draft")) return pending;
+      return dataResponse(canonical);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${eligible.id}`] },
+    );
+
+    const button = await screen.findByRole("button", { name: "Направи чернова" });
+    await user.click(button);
+    expect(await screen.findByRole("button", { name: "Черновата се създава…" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Черновата се създава…" }));
+    expect(fetchMock.mock.calls.filter(([url, init]) => url.endsWith("/draft") && init?.method === "POST")).toHaveLength(1);
+    canonical = generated;
+    resolveDraft(dataResponse(generated));
+
+    expect(await screen.findByRole("heading", { name: "Чернова" })).toBeInTheDocument();
+    expect(screen.getByText(generated.content.body)).toBeInTheDocument();
+    expect(screen.getByText("Проверете цитата.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /текст на статията/i })).toBeNull();
+  });
+
+  it("keeps preparation and only offers retry after a retryable draft failure", async () => {
+    const eligible = {
+      ...activePreparationArticle,
+      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
+      preparation: { ...activePreparationArticle.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"] },
+      availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => init?.method === "POST" && url.endsWith("/draft")
+      ? errorResponse("SOURCE_UNAVAILABLE", "Източникът временно не е наличен.", 503, true)
+      : dataResponse(eligible));
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${eligible.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Направи чернова" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Източникът временно не е наличен.");
+    expect(screen.getByRole("button", { name: "Направи чернова" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "Чернова" })).toBeNull();
+  });
+
+  it("does not offer a retry for a non-retryable draft failure", async () => {
+    const eligible = {
+      ...activePreparationArticle,
+      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
+      preparation: { ...activePreparationArticle.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"] },
+      availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => init?.method === "POST" && url.endsWith("/draft")
+      ? errorResponse("SAFETY_BLOCKED", "Проверката за безопасност спря операцията.", 409)
+      : dataResponse(eligible));
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${eligible.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Направи чернова" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Проверката за безопасност спря операцията.");
+    expect(screen.getByRole("button", { name: "Направи чернова" })).toBeDisabled();
+  });
+  it("preserves locally typed preparation fields when canonical updates fail", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "PUT"
+      ? errorResponse("INTERNAL_ERROR", "Записът не е завършен.", 500)
+      : dataResponse(activePreparationArticle));
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activePreparationArticle.id}`] },
+    );
+    const focus = await screen.findByRole("textbox", { name: "Редакционен фокус" });
+    await user.clear(focus);
+    await user.type(focus, "Локален текст, който не трябва да изчезне.");
+    await user.click(screen.getByRole("button", { name: "Избери фокус" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Записът не е завършен.");
+    expect(focus).toHaveValue("Локален текст, който не трябва да изчезне.");
+    expect(screen.getByText("Фокусът е предложение и очаква редакторско решение.")).toBeInTheDocument();
+  });
+
+  it("refetches canonical version after a title conflict while preserving local text", async () => {
+    const canonical = { ...activePreparationArticle, content: { ...activePreparationArticle.content, version: 1 } };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/title")) {
+        return errorResponse("ARTICLE_VERSION_CONFLICT", "Заглавието е променено в друга сесия.", 409);
+      }
+      return dataResponse(canonical);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activePreparationArticle.id}`] },
+    );
+    const title = await screen.findByRole("textbox", { name: "Работно заглавие" });
+    await user.clear(title);
+    await user.type(title, "Локален текст след конфликт");
+    await user.tab();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Заглавието е променено в друга сесия.");
+    expect(title).toHaveValue("Локален текст след конфликт");
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url, init]) => url === `/api/v1/articles/${activePreparationArticle.id}` && !init?.method).length).toBeGreaterThan(1));
+  });
+
+  it("activates the Draft editor, autosaves after 800ms and has no Save button", async () => {
+    const user = userEvent.setup();
+    let canonical = activeDraftArticle;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) {
+        const body = JSON.parse(String(init.body)) as { title: string; body: string; expectedVersion: number };
+        canonical = { ...canonical, title: body.title, content: { title: body.title, body: body.body, version: body.expectedVersion + 1 } };
+        return dataResponse(canonical);
+      }
+      return dataResponse(canonical);
+    });
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activeDraftArticle.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    expect(body).toHaveValue(activeDraftArticle.content.body);
+    expect(screen.getByRole("textbox", { name: "Заглавие" })).toHaveValue(activeDraftArticle.content.title);
+    expect(screen.queryByRole("button", { name: /запази/i })).toBeNull();
+    await user.clear(body);
+    await user.type(body, "Нова автоматично запазена версия.");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(await screen.findByText("Запазено")).toBeInTheDocument();
+    const put = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/content") && init?.method === "PUT");
+    expect(JSON.parse(String((put?.[1] as RequestInit).body))).toEqual({ expectedVersion: 3, title: activeDraftArticle.content.title, body: "Нова автоматично запазена версия." });
+  });
+
+  it("serializes saves and sends the newest local text with the confirmed version", async () => {
+    const user = userEvent.setup();
+    let resolveFirst!: (response: Response) => void;
+    const firstResponse = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const bodies: string[] = [];
+    let canonical = activeDraftArticle;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) {
+        const body = JSON.parse(String(init.body)) as { body: string; expectedVersion: number };
+        bodies.push(body.body);
+        if (bodies.length === 1) return firstResponse;
+        canonical = { ...canonical, content: { ...canonical.content, body: body.body, version: body.expectedVersion + 1 } };
+        return dataResponse(canonical);
+      }
+      return dataResponse(canonical);
+    });
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activeDraftArticle.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    const editor = screen.getByRole("textbox", { name: "Текст на статията" });
+    await user.clear(editor);
+    await user.type(editor, "Първи");
+    await user.tab();
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(screen.getByText("Запазване…")).toBeInTheDocument();
+    await user.clear(editor);
+    await user.type(editor, "Най-нов текст");
+    await user.tab();
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(bodies).toHaveLength(1);
+    canonical = { ...canonical, content: { ...canonical.content, body: "Първи", version: 4 } };
+    resolveFirst(dataResponse(canonical));
+    await waitFor(() => expect(bodies).toEqual(["Първи", "Най-нов текст"]));
+    const secondPut = fetchMock.mock.calls.filter(([url, init]) => url.endsWith("/content") && init?.method === "PUT")[1];
+    expect(JSON.parse(String((secondPut?.[1] as RequestInit).body)).expectedVersion).toBe(4);
+  });
+  it("keeps local text on failure and resolves 409 only by explicit user choice", async () => {
+    const user = userEvent.setup();
+    let canonical = activeDraftArticle;
+    const server = { ...canonical, content: { ...canonical.content, body: "Версия от друга сесия", version: 4 } };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) return errorResponse("ARTICLE_VERSION_CONFLICT", "Конфликт", 409);
+      if (url.endsWith(`/articles/${activeDraftArticle.id}`) && !init?.method) return dataResponse(server);
+      return dataResponse(canonical);
+    });
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activeDraftArticle.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    const editor = screen.getByRole("textbox", { name: "Текст на статията" });
+    await user.clear(editor);
+    await user.type(editor, "Локален текст");
+    await user.tab();
+    expect(await screen.findByText("Локалните промени са запазени.")).toBeInTheDocument();
+    expect(editor).toHaveValue("Локален текст");
+    expect(screen.queryByText("Версия от друга сесия")).toBeNull();
+    canonical = server;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) {
+        const body = JSON.parse(String(init.body));
+        canonical = { ...canonical, content: { ...canonical.content, body: body.body, version: body.expectedVersion + 1 } };
+        return dataResponse(canonical);
+      }
+      return dataResponse(canonical);
+    });
+    await user.click(screen.getByRole("button", { name: "Използвай моите промени" }));
+    await waitFor(() => {
+      const put = fetchMock.mock.calls.filter(([url, init]) => url.endsWith("/content") && init?.method === "PUT").at(-1);
+      expect(JSON.parse(String((put?.[1] as RequestInit).body))).toMatchObject({ expectedVersion: 4, body: "Локален текст" });
+    });
+  });
+
+  it("continues a failed Preparation manually into the same canonical Draft", async () => {
+    const user = userEvent.setup();
+    const eligible = {
+      ...activePreparationArticle,
+      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
+      preparation: { ...activePreparationArticle.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"] as ArticleDetail["availableActions"] },
+      availableActions: ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"] as ArticleDetail["availableActions"],
+    };
+    let canonical: ArticleDetail = eligible;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) {
+        const body = JSON.parse(String(init.body)) as { title: string; body: string; expectedVersion: number };
+        canonical = { ...activeDraftArticle, id: eligible.id, story: eligible.story, content: { title: body.title, body: body.body, version: body.expectedVersion + 1 }, warnings: [] };
+        return dataResponse(canonical);
+      }
+      return dataResponse(canonical);
+    });
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${eligible.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    const editor = screen.getByRole("textbox", { name: "Текст на статията" });
+    expect(editor).toHaveValue("");
+    await user.type(editor, "Ръчен текст след Generation failure.");
+    await user.tab();
+    expect(await screen.findByRole("heading", { name: "Чернова" })).toBeInTheDocument();
+    expect(editor).toHaveValue("Ръчен текст след Generation failure.");
+    expect(fetchMock.mock.calls.every(([url, init]) => !(url.endsWith("/draft") && init?.method === "POST"))).toBe(true);
+  });
+
+
+
+
+
+
   it("keeps draft content before evidence and opens the evidence disclosure on demand", async () => {
     fetchMock.mockResolvedValue(dataResponse(activeDraftArticle));
     const user = userEvent.setup();
@@ -437,10 +976,23 @@ describe("Articles", () => {
     expect(focus.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(draft.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText(activeDraftArticle.factsAndSources![0]!.text)).not.toBeVisible();
+    expect(screen.getByText(activeDraftArticle.factsAndSources[0]!.text)).not.toBeVisible();
     await user.click(disclosure);
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(activeDraftArticle.factsAndSources![0]!.text)).toBeVisible();
+    expect(screen.getByText(activeDraftArticle.factsAndSources[0]!.text)).toBeVisible();
+  });
+
+  it("keeps focus read-only when backend actions do not authorize editing", async () => {
+    const readOnly = { ...activePreparationArticle, availableActions: [] };
+    fetchMock.mockResolvedValue(dataResponse(readOnly));
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activePreparationArticle.id}`] },
+    );
+
+    await screen.findByRole("heading", { name: "Редакционен фокус" });
+    expect(screen.queryByRole("textbox", { name: "Редакционен фокус" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Избери фокус|Промени фокуса/ })).toBeNull();
   });
 
   it("renders Article facts and gaps from the read-only detail response", async () => {

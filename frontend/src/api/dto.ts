@@ -133,6 +133,14 @@ export interface ArticleContent {
   version: number;
 }
 
+export interface PreparationProjection {
+  focusConfirmed: boolean;
+  blockingGaps: MissingInformationItem[];
+  nonBlockingGaps: MissingInformationItem[];
+  draftEligible: boolean;
+  availableActions: AvailableAction[];
+}
+
 export interface ArticleProjection {
   id: string;
   title: string;
@@ -140,6 +148,7 @@ export interface ArticleProjection {
   state: ArticleState | null;
   editorialFocus: EditorialFocus;
   content: ArticleContent;
+  preparation: PreparationProjection | null;
   readiness: {
     isCurrent: boolean;
     readyVersion: number | null;
@@ -152,8 +161,8 @@ export interface ArticleProjection {
   updatedAt: string;
   isFinalized: boolean;
   finalizedAt: string | null;
-  factsAndSources?: FactAndSource[];
-  missingInformation?: MissingInformation;
+  factsAndSources: FactAndSource[];
+  missingInformation: MissingInformation;
 }
 
 export interface ArticleSummary extends ArticleProjection {

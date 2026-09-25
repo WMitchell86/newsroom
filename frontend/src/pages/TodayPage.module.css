@@ -35,6 +35,30 @@
   background: var(--color-evidence);
 }
 
+.refreshControl {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  max-width: 320px;
+}
+
+.refreshStatus,
+.refreshError {
+  font-size: 13px;
+  text-align: right;
+}
+
+.refreshStatus {
+  color: var(--color-text-secondary);
+}
+
+.refreshError {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
 .list,
 .problemList {
   margin: 0;

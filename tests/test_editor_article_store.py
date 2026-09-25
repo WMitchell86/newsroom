@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from editor_assistant.workflow import editor_article_store as articles
-from editor_assistant.workflow import story_store
+from editor_assistant.workflow import editor_projections, story_store
 
 
 @pytest.fixture
@@ -61,6 +61,37 @@ def test_article_identity_is_stable_requires_story_and_allows_many_per_story(edi
         second["article_id"],
         other["article_id"],
     }
+
+
+def test_start_idempotency_key_returns_same_article_but_fresh_key_creates_another(
+    editorial_root,
+):
+    first = _create(editorial_root, idempotency_key="request-one")
+    retry = _create(
+        editorial_root,
+        working_title="Различно предложение при retry",
+        editorial_focus="Различен фокус при retry",
+        idempotency_key="request-one",
+        now="2026-09-25T08:05:00Z",
+    )
+    intentional = _create(editorial_root, idempotency_key="request-two")
+
+    assert retry == first
+    assert intentional["article_id"] != first["article_id"]
+    assert retry["working_title"] == "Работа заглавие"
+    assert retry["editorial_focus"] == ""
+    assert retry["focus_confirmed_at"] is None
+
+
+def test_title_update_preserves_body_and_uses_expected_version(editorial_root):
+    article = _create(editorial_root)
+    articles.save_article_content(article["article_id"], 0, "Работа заглавие", "Съществуващ текст")
+    result = articles.update_article_title(article["article_id"], 1, "Ново работно заглавие")
+
+    assert result["article"]["working_title"] == "Ново работно заглавие"
+    assert result["content"]["body"] == "Съществуващ текст"
+    with pytest.raises(articles.ArticleVersionConflict):
+        articles.update_article_title(article["article_id"], 1, "Загубено заглавие")
 
 
 def test_story_lineage_and_internal_refs_are_strict_and_immutable(editorial_root):
@@ -136,6 +167,36 @@ def test_working_content_never_mutates_generated_draft_store(editorial_root):
     record = _create(editorial_root)
     articles.save_article_content(record["article_id"], 0, "T", "Manual body")
     assert drafts.read_bytes() == before
+
+
+def test_legacy_generated_article_does_not_resurrect_unknown_audit_currency(editorial_root):
+    record = _create(editorial_root, internal_refs={"case_id": "LIV-01", "draft_id": "D-1"})
+    articles.save_article_content(record["article_id"], 0, record["working_title"], "AI текст")
+    articles.update_editor_focus(record["article_id"], "Фокус")
+    articles.mark_article_ready(
+        record["article_id"],
+        expected_version=1,
+        validation=articles.ReadinessValidation(content_version=1, digest="old"),
+    )
+    articles.save_article_content(
+        record["article_id"], 1, record["working_title"], "Редактиран текст"
+    )
+    legacy = articles.get_editor_article(record["article_id"])
+    legacy.pop("draft_established_version")
+    legacy.pop("generated_content_version")
+    path = articles.editor_articles_path(root=editorial_root)
+    path.write_text(json.dumps(legacy, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+
+    normalized = articles.get_editor_article(record["article_id"])
+
+    assert normalized["draft_established_version"] == 2
+    assert normalized["generated_content_version"] is None
+    assert (
+        editor_projections.derive_article_state(
+            normalized, articles.get_article_content(record["article_id"]), None
+        )
+        == "draft"
+    )
 
 
 def test_editor_focus_update_replaces_text_and_refreshes_confirmation(editorial_root):

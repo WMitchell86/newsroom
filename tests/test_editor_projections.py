@@ -26,6 +26,8 @@ def _article(**over):
         "ready_validation_digest": None,
         "ready_at": None,
         "finalized_at": None,
+        "draft_established_version": None,
+        "generated_content_version": None,
     }
     base.update(over)
     return base

@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { refreshNewsroom } from "../api/client";
 import type { TodayAttention } from "../api/dto";
-import { todayOptions } from "../api/queries";
+import { queryKeys, todayOptions } from "../api/queries";
+import { getErrorMessage } from "../shared/errorMessage";
 import { safeInternalTarget } from "../shared/safeNavigation";
 import { formatDate } from "../shared/editorLabels";
 import {
@@ -75,6 +77,46 @@ function AttentionSection({ title, items }: { title: string; items: TodayAttenti
   );
 }
 
+function RefreshControl() {
+  const queryClient = useQueryClient();
+  const refresh = useMutation({
+    mutationFn: () => refreshNewsroom(),
+    onSuccess: async () => {
+      // Canonical refetch: Today is the authority, and a refresh can change
+      // both today's attention and every Story list projection. Nothing else is
+      // flushed — the refresh never touches Article attention.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+        queryClient.invalidateQueries({ queryKey: ["stories"] }),
+      ]);
+    },
+  });
+
+  return (
+    <div className={styles.refreshControl}>
+      <button
+        className={styles.refresh}
+        type="button"
+        disabled={refresh.isPending}
+        onClick={() => refresh.mutate()}
+        data-refresh-trigger="newsroom"
+      >
+        {refresh.isPending ? "Обновява се…" : "Обнови"}
+      </button>
+      {refresh.isPending ? (
+        <span className={styles.refreshStatus} role="status" aria-live="polite">
+          Обновява се.
+        </span>
+      ) : null}
+      {refresh.error ? (
+        <span className={styles.refreshError} role="alert">
+          {getErrorMessage(refresh.error, "Новините не можаха да се обновят. Опитайте отново.")}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function TodayPage() {
   const today = useQuery(todayOptions());
 
@@ -90,11 +132,14 @@ export function TodayPage() {
   return (
 
     <div className={styles.page}>
-      <PageHeader
-        kicker="Редакционно внимание"
-        title="Днес"
-        lede="Задачите, които изискват решение или действие сега."
-      />
+      <div className={styles.headingRow}>
+        <PageHeader
+          kicker="Редакционно внимание"
+          title="Днес"
+          lede="Задачите, които изискват решение или действие сега."
+        />
+        <RefreshControl />
+      </div>
 
       {hasAttention ? <div aria-live="polite">
         <AttentionSection title="Нови развития" items={projection.newDevelopments} />

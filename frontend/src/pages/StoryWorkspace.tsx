@@ -1,11 +1,23 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
-import { followStory, ignoreStory, researchMoreStory, reviewStory, unfollowStory } from "../api/client";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  createIdempotencyKey,
+  followStory,
+  ignoreStory,
+  researchMoreStory,
+  reviewStory,
+  startArticle,
+  unfollowStory,
+} from "../api/client";
 import type { ArticleReference, MissingInformationItem, StoryDetail } from "../api/dto";
 import { getErrorMessage } from "../shared/errorMessage";
 import { formatDate } from "../shared/editorLabels";
-import { invalidateStoryProjections, storyOptions } from "../api/queries";
+import {
+  invalidateArticleProjections,
+  invalidateStoryProjections,
+  storyOptions,
+} from "../api/queries";
 import {
   Disclosure,
   EmptyState,
@@ -204,11 +216,13 @@ function Chronology({ story }: { story: StoryDetail }) {
   );
 }
 
-type StoryCommand = "REVIEW" | "FOLLOW" | "UNFOLLOW" | "IGNORE";
+type StoryCommand = "REVIEW" | "FOLLOW" | "UNFOLLOW" | "IGNORE" | "START_ARTICLE";
 
 function StoryActions({ story, headingRef }: { story: StoryDetail; headingRef: RefObject<HTMLHeadingElement | null> }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const observedDevelopmentIds = useRef<string[]>([]);
+  const startArticleKey = useRef("");
   const available = (action: StoryCommand) => story.availableActions.includes(action);
   const refreshProjections = async () => {
     await invalidateStoryProjections(queryClient, story.id);
@@ -231,7 +245,17 @@ function StoryActions({ story, headingRef }: { story: StoryDetail; headingRef: R
     mutationFn: () => ignoreStory(story.id),
     onSuccess: refreshProjections,
   });
-  const commandPending = review.isPending || follow.isPending || unfollow.isPending || ignore.isPending;
+  const start = useMutation({
+    mutationFn: () => {
+      if (!startArticleKey.current) startArticleKey.current = createIdempotencyKey();
+      return startArticle(story.id, startArticleKey.current);
+    },
+    onSuccess: async (article) => {
+      await invalidateArticleProjections(queryClient, article.id, story.id);
+      navigate(`/articles/${encodeURIComponent(article.id)}`);
+    },
+  });
+  const commandPending = review.isPending || follow.isPending || unfollow.isPending || ignore.isPending || start.isPending;
 
   useLayoutEffect(() => {
     observedDevelopmentIds.current = story.newDevelopments
@@ -290,7 +314,20 @@ function StoryActions({ story, headingRef }: { story: StoryDetail; headingRef: R
           </button>
         </span>
       ) : null}
-      {[review.error, follow.error, unfollow.error, ignore.error].map((error, index) => error ? (
+      {available("START_ARTICLE") ? (
+        <span className={styles.actionControl}>
+          <button
+            className={`${styles.action} ${styles.secondaryAction}`}
+            type="button"
+            disabled={commandPending}
+            onClick={() => start.mutate()}
+          >
+            {start.isPending ? "Започва се…" : "Започни статия"}
+          </button>
+        </span>
+      ) : null}
+      {start.isPending ? <span role="status" aria-live="polite">Статията се създава.</span> : null}
+      {[review.error, follow.error, unfollow.error, ignore.error, start.error].map((error, index) => error ? (
         <span className={styles.actionError} role="alert" key={index}>
           {getErrorMessage(error, "Действието не можа да се изпълни. Опитайте отново.")}
         </span>
