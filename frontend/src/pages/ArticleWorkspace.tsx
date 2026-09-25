@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { articleOptions, queryKeys } from "../api/queries";
+import { articleOptions, invalidateArticleProjections, queryKeys } from "../api/queries";
+import { markArticleReady } from "../api/client";
 import {
   Context,
   Disclosure,
@@ -12,16 +13,29 @@ import {
   Section,
   StatusMarker,
 } from "../shared/EditorPrimitives";
+import { getErrorMessage } from "../shared/errorMessage";
 import { formatDate } from "../shared/editorLabels";
 import { safeExternalUrl } from "../shared/safeNavigation";
 import { ArticleContentEditor } from "./ArticleContentEditor";
 import { PreparationWorkspace } from "./PreparationWorkspace";
 import ui from "../shared/ui.module.css";
 import styles from "./ArticleWorkspace.module.css";
+import type { ArticleDetail, Warning } from "../api/dto";
+
 function contentHeading(state: "preparation" | "draft" | "ready") {
   if (state === "draft") return "Чернова";
+  // The state itself is announced once, by the status marker. The section
+  // heading names what the editor is looking at, not the state a second time.
   if (state === "ready") return "Финален преглед";
   return "Текущо съдържание";
+}
+
+/** The frozen three-level visual hierarchy: quiet note, editorial note, strong stop. */
+function warningClass(warning: Warning) {
+  const base = styles.warning;
+  if (warning.blocking || warning.severity === "blocking") return `${base} ${styles.warningBlocking}`;
+  if (warning.severity === "info") return `${base} ${styles.warningInfo}`;
+  return `${base} ${styles.warningReview}`;
 }
 
 
@@ -32,6 +46,37 @@ export function ArticleWorkspace() {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [savedVersion, setSavedVersion] = useState<number | null>(null);
+  const [readyError, setReadyError] = useState("");
+  const flushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
+    flushRef.current = flush;
+  }, []);
+
+  // «Отбележи като готова». A pending autosave is confirmed first, so the
+  // expected version is always the version the server actually holds. The
+  // server revalidates anyway: this decides only *which* version to ask about.
+  const ready = useMutation({
+    mutationFn: async () => {
+      const flushed = flushRef.current ? await flushRef.current() : true;
+      if (!flushed) throw new Error("unconfirmed");
+      const confirmed = queryClient.getQueryData<ArticleDetail>(queryKeys.article(articleId));
+      return markArticleReady(articleId, confirmed?.content.version ?? 0);
+    },
+    onMutate: () => setReadyError(""),
+    onSuccess: async (projection) => {
+      queryClient.setQueryData(queryKeys.article(projection.id), projection);
+      await invalidateArticleProjections(queryClient, projection.id, projection.story.id);
+      setSavedVersion(projection.content.version);
+    },
+    onError: async (error) => {
+      setReadyError(
+        getErrorMessage(error, "Статията не можа да се отбележи като готова. Опитайте отново."),
+      );
+      // The canonical Article is the authority after a refusal: a blocking
+      // issue, a newer version or a failed check must be shown, not guessed.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.article(articleId), exact: true });
+    },
+  });
 
   if (!articleId) {
     return <ErrorState title="Статията не е намерена" error={new Error("Липсва идентификатор на статия.")} />;
@@ -41,6 +86,7 @@ export function ArticleWorkspace() {
     return <ErrorState title="Статията не можа да се зареди" error={query.error} onRetry={() => void query.refetch()} />;
   }
   const article = query.data;
+  const canMarkReady = article.availableActions.includes("MARK_READY");
 
   if (article.isFinalized || article.state === null) {
     return <Navigate replace to={`/archive/${encodeURIComponent(article.id)}`} />;
@@ -100,14 +146,32 @@ export function ArticleWorkspace() {
                   {editing ? "Завърши редакцията" : "Редактирай"}
                 </button>
               ) : null}
+              {canMarkReady ? (
+                <button
+                  className={styles.readyAction}
+                  type="button"
+                  disabled={ready.isPending}
+                  onClick={() => ready.mutate()}
+                >
+                  {ready.isPending ? "Проверява се…" : "Отбележи като готова"}
+                </button>
+              ) : null}
             </div>
           </div>
-          {editing ? <ArticleContentEditor article={article} savedVersion={savedVersion} /> : <>
+          {editing ? <ArticleContentEditor
+            article={article}
+            savedVersion={savedVersion}
+            registerFlush={registerFlush}
+          /> : <>
             {currentTitle ? <h3 className={styles.contentTitle}>{currentTitle}</h3> : null}
             {article.content.body.trim()
               ? <p className={styles.contentBody}>{article.content.body}</p>
               : <EmptyState>Още няма текст на статията.</EmptyState>}
           </>}
+          {ready.isPending ? <p className={styles.readyFeedback} role="status" aria-live="polite">
+            Проверява се текущата версия.
+          </p> : null}
+          {readyError ? <p className={styles.readyError} role="alert">{readyError}</p> : null}
         </section>
 
         <Section title="Готовност" meta={article.readiness.isCurrent ? "Актуална" : "Не е актуална"}>
@@ -120,16 +184,23 @@ export function ArticleWorkspace() {
               <dt>Проверена на</dt>
               <dd>{formatDate(article.readiness.readyAt)}</dd>
             </div>
+            <div>
+              <dt>Текуща версия</dt>
+              <dd>{article.validation.current ? article.validation.contentVersion : "Не е проверена"}</dd>
+            </div>
           </dl>
         </Section>
 
         <section className={styles.warnings} aria-labelledby="article-warnings-heading">
           <h2 className={ui.sectionTitle} id="article-warnings-heading">Предупреждения</h2>
-          {article.warnings.length === 0
+          {!article.validation.current ? <p className={styles.warningStale}>
+            Проверката на текущия текст не е налична. Прегледайте черновата, преди да я отбележите.
+          </p> : null}
+          {article.validation.current && article.warnings.length === 0
             ? <p className={styles.noWarnings}>Няма предупреждения.</p>
             : <ul className={styles.warningList}>
               {article.warnings.map((warning) => <li
-                className={`${styles.warning} ${warning.blocking ? styles.warningBlocking : ""}`}
+                className={warningClass(warning)}
                 key={warning.id}
               >
                 <p className={styles.warningMessage}>{warning.message}</p>

@@ -187,11 +187,25 @@ def test_draft_identity_survives_body_deletion_and_generation_audit_becomes_stal
     cases_before = (_editorial() / "cases.jsonl").read_bytes()
     generated = app.read_article(article_id)
     assert generated["warnings"]
+    generated_warnings = {row["id"] for row in generated["warnings"]}
 
     edited = app.save_content(article_id, 1, prepared["working_title"], "Редакторски текст.")
     assert edited["state"] == "draft"
     assert edited["content"]["version"] == 2
-    assert edited["warnings"] == []
+    # C4: the editor's own text is validated on its own terms. The generation
+    # audit is not carried over - a fresh current-content warning set replaces
+    # it, for this exact version.
+    assert edited["validation"] == {
+        "contentVersion": 2,
+        "current": True,
+        "blocking": False,
+        "readyEligible": True,
+    }
+    assert {row["id"] for row in edited["warnings"]} != generated_warnings
+    assert all(
+        not row.get("affectedText") or row["affectedText"] in "Редакторски текст."
+        for row in edited["warnings"]
+    )
     assert (_editorial() / "live_drafts.jsonl").read_bytes() == drafts_before
     assert (_editorial() / "cases.jsonl").read_bytes() == cases_before
 
@@ -199,6 +213,9 @@ def test_draft_identity_survives_body_deletion_and_generation_audit_becomes_stal
     assert emptied["state"] == "draft"
     assert emptied["content"]["body"] == ""
     assert "MAKE_DRAFT" not in emptied["availableActions"]
+    # An emptied Draft has nothing to validate, so readiness is not offered.
+    assert emptied["validation"]["blocking"] is True
+    assert "MARK_READY" not in emptied["availableActions"]
     with pytest.raises(app.EditorInvalidTransition):
         app.start_article_draft(article_id, idempotency_key="must-not-overwrite")
 
@@ -215,7 +232,11 @@ def test_manual_first_save_needs_no_generated_draft_and_keeps_lineage(newsroom, 
     assert saved["story"]["id"] == before_story
     assert saved["state"] == "draft"
     assert saved["content"]["version"] == 1
-    assert saved["warnings"] == []
+    # C4: a manual continuation is judged by the same current-content contract
+    # as a generated Draft - no generated lineage is required for that.
+    assert saved["validation"]["current"] is True
+    assert all(not row["blocking"] for row in saved["warnings"])
+    assert "MARK_READY" in saved["availableActions"]
     assert "MAKE_DRAFT" not in saved["availableActions"]
     assert not _drafts() and not _cases()
     stored = articles.get_editor_article(article_id)
@@ -282,7 +303,9 @@ def test_draft_publishes_real_text_and_keeps_the_internal_lineage_private(
     # The editor may draft again only from a real re-preparation, never twice
     # from the same preparation state.
     assert "MAKE_DRAFT" not in article["availableActions"]
-    assert article["nextAction"]["action"] == "EDIT"
+    # C4: after editing, the next editorial action is the readiness checkpoint.
+    assert article["nextAction"]["action"] == "MARK_READY"
+    assert article["nextAction"]["label"] == "Отбележи като готова"
 
     # The immutable Draft and the internal Case exist and are linked.
     assert len(_drafts()) == 1 and len(_cases()) == 1

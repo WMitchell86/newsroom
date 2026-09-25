@@ -18,10 +18,12 @@ export function ArticleContentEditor({
   article,
   onSaved,
   savedVersion,
+  registerFlush,
 }: {
   article: ArticleProjection;
   onSaved?: (projection: ArticleProjection) => void;
   savedVersion?: number | null;
+  registerFlush?: (flush: (() => Promise<boolean>) | null) => void;
 }) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(article.content.title);
@@ -36,10 +38,9 @@ export function ArticleContentEditor({
   const confirmedRef = useRef(article.content);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
+  const inFlightPromiseRef = useRef<Promise<boolean> | null>(null);
   const dirtyRef = useRef(false);
   const mountedRef = useRef(true);
-
-
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) clearTimeout(timerRef.current);
@@ -48,6 +49,10 @@ export function ArticleContentEditor({
 
   const flush = useCallback(async (force = false): Promise<boolean> => {
     clearTimer();
+    // A save that is already running is awaited, never raced and never reported
+    // as "unconfirmed": the readiness checkpoint must be sent against the
+    // version the server actually holds, so the parent can rely on `true`.
+    if (inFlightRef.current && inFlightPromiseRef.current) await inFlightPromiseRef.current;
     if (inFlightRef.current || (serverConflict && !force)) return !dirtyRef.current;
     if (!dirtyRef.current) return true;
     if (!localRef.current.title.trim()) {
@@ -56,44 +61,49 @@ export function ArticleContentEditor({
     }
     inFlightRef.current = true;
     setStatus("saving");
-    try {
-      while (dirtyRef.current && (!serverConflict || force)) {
-        const snapshot = { ...localRef.current };
-        const projection = await updateArticleContent(
-          article.id,
-          confirmedRef.current.version,
-          snapshot.title,
-          snapshot.body,
-        );
-        confirmedRef.current = { ...projection.content };
-        queryClient.setQueryData(queryKeys.article(article.id), projection);
-        onSaved?.(projection);
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["articles"] }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.story(article.story.id), exact: true }),
-        ]);
-        if (sameContent(localRef.current, snapshot)) dirtyRef.current = false;
-      }
-      if (mountedRef.current) setStatus(dirtyRef.current ? "idle" : "saved");
-      return !dirtyRef.current;
-    } catch (error) {
-      if (!mountedRef.current) return false;
-      if (error instanceof ApiError && error.code === "ARTICLE_VERSION_CONFLICT") {
-        try {
-          const canonical = await getArticle(article.id);
-          setServerConflict(canonical);
-          setStatus("conflict");
-        } catch {
+    const run = (async (): Promise<boolean> => {
+      try {
+        while (dirtyRef.current && (!serverConflict || force)) {
+          const snapshot = { ...localRef.current };
+          const projection = await updateArticleContent(
+            article.id,
+            confirmedRef.current.version,
+            snapshot.title,
+            snapshot.body,
+          );
+          confirmedRef.current = { ...projection.content };
+          queryClient.setQueryData(queryKeys.article(article.id), projection);
+          onSaved?.(projection);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["articles"] }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.story(article.story.id), exact: true }),
+          ]);
+          if (sameContent(localRef.current, snapshot)) dirtyRef.current = false;
+        }
+        if (mountedRef.current) setStatus(dirtyRef.current ? "idle" : "saved");
+        return !dirtyRef.current;
+      } catch (error) {
+        if (!mountedRef.current) return false;
+        if (error instanceof ApiError && error.code === "ARTICLE_VERSION_CONFLICT") {
+          try {
+            const canonical = await getArticle(article.id);
+            setServerConflict(canonical);
+            setStatus("conflict");
+          } catch {
+            setStatus("error");
+          }
+        } else {
           setStatus("error");
         }
-      } else {
-        setStatus("error");
+        return false;
+      } finally {
+        inFlightRef.current = false;
+        inFlightPromiseRef.current = null;
       }
-      return false;
-    } finally {
-      inFlightRef.current = false;
-    }
+    })();
+    inFlightPromiseRef.current = run;
+    return run;
   }, [article.id, article.story.id, clearTimer, onSaved, queryClient, serverConflict]);
 
 
@@ -111,6 +121,14 @@ export function ArticleContentEditor({
     mountedRef.current = false;
     clearTimer();
   }, [clearTimer]);
+
+  // The readiness checkpoint binds to the CONFIRMED canonical version, so the
+  // parent must be able to await a pending autosave before it sends it.
+  useEffect(() => {
+    if (!registerFlush) return;
+    registerFlush(() => flush());
+    return () => registerFlush(null);
+  }, [flush, registerFlush]);
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {

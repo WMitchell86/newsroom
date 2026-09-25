@@ -169,6 +169,12 @@ def _content(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     )
 
 
+def _ready(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
+    """`Отбележи като готова` — the client sends only the version it observed."""
+    body = _body(handler, {"expectedVersion"})
+    return app.mark_article_ready(article_id, _version(body["expectedVersion"]))
+
+
 def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object] | None:
     parts = _path_parts(handler)
     prefix = ["api", "v1"]
@@ -248,6 +254,10 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             return 200, _title(handler, article_id)
         if method == "PUT" and len(parts) == 5 and parts[4] == "content":
             return 200, _content(handler, article_id)
+        if method == "POST" and len(parts) == 5 and parts[4] == "ready":
+            # `Отбележи като готова`. The client sends only the version it
+            # observed; it never sends warnings, a digest or an override flag.
+            return 200, _ready(handler, article_id)
     if parts == [*prefix, "archive"] and method == "GET":
         query = _query(handler, {"query"})
         search = _string(query.get("query", ""), "query", maximum=200, required=False)
@@ -303,7 +313,15 @@ def dispatch(handler: BaseHTTPRequestHandler, method: str) -> None:
     except ApiError as exc:
         _error(handler, exc.status, exc.code, exc.message, field_errors=exc.field_errors)
     except app.EditorApplicationError as exc:
-        _error(handler, exc.status, exc.code, str(exc))
+        # Blocking validation returns the editor-safe warnings the workspace
+        # needs to explain what must be addressed - never a raw audit trace.
+        _error(
+            handler,
+            exc.status,
+            exc.code,
+            str(exc),
+            warnings=getattr(exc, "warnings", None),
+        )
     except Exception:
         LOG.exception("Unhandled editor API failure")
         _error(handler, 500, "INTERNAL_ERROR", _MESSAGES["INTERNAL_ERROR"])
@@ -328,6 +346,7 @@ def _error(
     message: str,
     *,
     field_errors=None,
+    warnings=None,
 ) -> None:
     _respond(
         handler,
@@ -338,6 +357,7 @@ def _error(
                 "message": message,
                 "retryable": code in {"INTERNAL_ERROR", "SOURCE_UNAVAILABLE"},
                 "fieldErrors": list(field_errors or []),
+                **({"warnings": [dict(row) for row in warnings]} if warnings else {}),
             }
         },
     )

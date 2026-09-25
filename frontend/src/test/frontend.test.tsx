@@ -1015,6 +1015,207 @@ describe("Articles", () => {
 
 });
 
+describe("C4 Отбележи като готова", () => {
+  const reviewWarning = {
+    id: "warn_review_1",
+    severity: "review" as const,
+    message: "Изречение без директна опора в източниците.",
+    affectedText: "Във вътрешния двор се събраха граждани, които питат за съдбата на пазара.",
+    blocking: false,
+  };
+  const blockingWarning = {
+    id: "warn_blocking_1",
+    severity: "blocking" as const,
+    message: "Има непопълнена информация, която пречи да продължите.",
+    blocking: true,
+  };
+  const infoWarning = {
+    id: "warn_info_1",
+    severity: "info" as const,
+    message: "Проверката на твърденията не е завършена изцяло. Прегледайте текста.",
+    blocking: false,
+  };
+
+  function articleRoute() {
+    return (
+      <Routes>
+        <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
+        <Route path="/stories/:storyId" element={<p>История</p>} />
+      </Routes>
+    );
+  }
+
+  it("shows the current warnings before the decision, with the frozen severity hierarchy", async () => {
+    const draft = { ...activeDraftArticle, warnings: [blockingWarning, reviewWarning, infoWarning] };
+    fetchMock.mockResolvedValue(dataResponse(draft));
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${draft.id}`] });
+
+    await screen.findByRole("heading", { name: "Предупреждения" });
+    const review = screen.getByText(reviewWarning.message).closest("li")!;
+    expect(review).toHaveTextContent(reviewWarning.affectedText);
+    // The blocking note is visually stronger than the informational one.
+    const blocking = screen.getByText(blockingWarning.message).closest("li")!;
+    const info = screen.getByText(infoWarning.message).closest("li")!;
+    expect(blocking.className).not.toBe(info.className);
+    expect(blocking.className).toMatch(/warningBlocking/);
+    expect(info.className).toMatch(/warningInfo/);
+    // Nothing is hidden behind a modal opened only after clicking.
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("marks the article ready from the backend action and shows the canonical Готова", async () => {
+    const user = userEvent.setup();
+    let canonical = { ...activeDraftArticle, warnings: [reviewWarning] };
+    const ready = {
+      ...activeReadyArticle,
+      id: activeDraftArticle.id,
+      story: activeDraftArticle.story,
+      content: canonical.content,
+      warnings: [reviewWarning],
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/ready")) {
+        canonical = ready;
+        return dataResponse(ready);
+      }
+      return dataResponse(canonical);
+    });
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
+
+    const action = await screen.findByRole("button", { name: "Отбележи като готова" });
+    expect(screen.getByText(reviewWarning.message)).toBeInTheDocument();
+    await user.click(action);
+
+    expect(await screen.findByText("Готова")).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/ready") && init?.method === "POST");
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ expectedVersion: 3 });
+    expect(canonical.content.body).toBe(activeDraftArticle.content.body);
+  });
+
+  it("offers no readiness action when the backend does not authorize it", async () => {
+    const draft = { ...activeDraftArticle, availableActions: ["EDIT"] as ArticleDetail["availableActions"] };
+    fetchMock.mockResolvedValue(dataResponse(draft));
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
+
+    await screen.findByRole("heading", { name: "Чернова" });
+    expect(screen.queryByRole("button", { name: "Отбележи като готова" })).toBeNull();
+    expect(fetchMock.mock.calls.every(([, init]) => !("method" in (init ?? {})) || init.method === "GET")).toBe(true);
+  });
+
+  it("flushes a pending autosave before sending the readiness command", async () => {
+    const user = userEvent.setup();
+    let canonical = activeDraftArticle;
+    const ready = { ...activeReadyArticle, id: activeDraftArticle.id, story: activeDraftArticle.story };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) {
+        const body = JSON.parse(String(init.body)) as { body: string; expectedVersion: number };
+        canonical = {
+          ...canonical,
+          content: { ...canonical.content, body: body.body, version: body.expectedVersion + 1 },
+          validation: { ...canonical.validation, contentVersion: body.expectedVersion + 1 },
+        };
+        return dataResponse(canonical);
+      }
+      if (init?.method === "POST" && url.endsWith("/ready")) return dataResponse(ready);
+      return dataResponse(canonical);
+    });
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    await user.clear(body);
+    await user.type(body, "Нов текст преди готовност.");
+    // The autosave is still pending: the readiness command must await it.
+    await user.click(screen.getByRole("button", { name: "Отбележи като готова" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => url.endsWith("/ready") && init?.method === "POST"),
+      ).toBe(true),
+    );
+    const save = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/content") && init?.method === "PUT");
+    const readyCall = fetchMock.mock.calls.find(([url, init]) => url.endsWith("/ready") && init?.method === "POST");
+    const saved = JSON.parse(String((save?.[1] as RequestInit).body)) as { expectedVersion: number };
+    const marked = JSON.parse(String((readyCall?.[1] as RequestInit).body)) as { expectedVersion: number };
+    expect(marked.expectedVersion).toBe(saved.expectedVersion + 1);
+    expect(marked.expectedVersion).toBe(4);
+  });
+
+  it("keeps the Draft readable, prevents a duplicate click and exposes no internal stage", async () => {
+    const user = userEvent.setup();
+    let resolveReady!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { resolveReady = resolve; });
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/ready")) return pending;
+      return dataResponse(activeDraftArticle);
+    });
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Отбележи като готова" }));
+    const pendingButton = await screen.findByRole("button", { name: "Проверява се…" });
+    expect(pendingButton).toBeDisabled();
+    await user.click(pendingButton);
+    expect(
+      fetchMock.mock.calls.filter(([url, init]) => url.endsWith("/ready") && init?.method === "POST"),
+    ).toHaveLength(1);
+    expect(screen.getByText(activeDraftArticle.content.body)).toBeInTheDocument();
+    for (const stage of ["Проверка на твърдения", "Модел", "аудит", "Ingest"]) {
+      expect(screen.queryByText(stage)).toBeNull();
+    }
+    resolveReady(dataResponse(activeReadyArticle));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/ready")).length).toBeGreaterThan(0),
+    );
+  });
+
+  it("keeps the Draft after a blocking refusal and refetches the canonical warnings", async () => {
+    const user = userEvent.setup();
+    let refused = false;
+    const blocked = {
+      ...activeDraftArticle,
+      warnings: [blockingWarning],
+      availableActions: ["EDIT"] as ArticleDetail["availableActions"],
+      validation: { ...activeDraftArticle.validation, blocking: true, readyEligible: false },
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.endsWith("/ready") && !refused) {
+        refused = true;
+        return errorResponse(
+          "SAFETY_BLOCKED",
+          "Проверката на текущия текст откри пречи. Разгледайте предупрежденията.",
+          409,
+        );
+      }
+      return dataResponse(refused ? blocked : activeDraftArticle);
+    });
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
+
+    await user.click(await screen.findByRole("button", { name: "Отбележи като готова" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Проверката на текущия текст откри пречи");
+    await waitFor(() => expect(screen.getByText(blockingWarning.message)).toBeInTheDocument());
+    expect(screen.getAllByText("Чернова").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Готова")).toBeNull();
+  });
+
+  it("renders Готова as a read-only final review with no finalize and no reopen", async () => {
+    fetchMock.mockResolvedValue(dataResponse(activeReadyArticle));
+    renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeReadyArticle.id}`] });
+
+    expect(await screen.findByText("Готова")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Финален преглед" })).toBeInTheDocument();
+    expect(screen.getByText(activeReadyArticle.content.body)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: activeReadyArticle.story.title! })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Редакционен фокус" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Факти, източници и липсваща информация" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Финализирай/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Редактирай" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Отбележи като готова" })).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
 describe("Archive and Settings", () => {
   it("keeps the archive list read-only", async () => {
     fetchMock.mockResolvedValue(dataResponse({ articles: [finalizedArchiveArticle] }));

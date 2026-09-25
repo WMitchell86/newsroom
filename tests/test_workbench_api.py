@@ -1158,3 +1158,162 @@ def test_draft_is_refused_for_a_blocked_basis_and_a_stale_action(
     assert stale[0] == 409
     assert stale[1]["error"]["code"] == "INVALID_TRANSITION"
     assert articles.get_article_content(article_id)["body"] == "Ръчен текст"
+
+
+# --------------------------------------------------- C4 «Отбележи като готова»
+
+
+def _ready_basis():
+    """A Story basis with real reader-value depth, so validation can pass."""
+    story_research_store.merge_research(
+        "s-one",
+        sources=[
+            {
+                "id": "vestnik",
+                "name": "Вестник",
+                "url": "https://vestnik.example.test/2026/budget",
+            }
+        ],
+        facts=[
+            {
+                "id": "fact_money",
+                "text": "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 4",
+            },
+            {
+                "id": "fact_people",
+                "text": "Жителите на квартала ще пътуват с 10 минути повече до работата.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 5",
+            },
+        ],
+        gaps=[],
+        assessed_at="2026-09-25T08:45:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="c4-api-fixture",
+    )
+
+
+SUPPORTED_BODY = (
+    "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата. "
+    "Жителите на квартала ще пътуват с 10 минути повече до работата."
+)
+
+
+def _draft_for_ready(api_store, body: str = SUPPORTED_BODY) -> str:
+    _ready_basis()
+    article = _add_article(api_store["root"], api_store["stories"], title="График за ремонта")
+    articles.update_editor_focus(article["article_id"], "Да обясним решението и последиците.")
+    articles.save_article_content(article["article_id"], 0, "График за ремонта", body)
+    return article["article_id"]
+
+
+def test_ready_marks_the_current_version_and_returns_the_canonical_article(api_server, api_store):
+    article_id = _draft_for_ready(api_store)
+    status, payload = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/ready",
+        method="POST",
+        body={"expectedVersion": 1},
+    )
+    assert status == 200
+    article = payload["data"]
+    assert article["state"] == "ready"
+    assert article["readiness"]["isCurrent"] is True
+    assert article["readiness"]["readyVersion"] == 1
+    assert article["readiness"]["readyAt"]
+    assert article["validation"] == {
+        "contentVersion": 1,
+        "current": True,
+        "blocking": False,
+        "readyEligible": False,
+    }
+    assert article["availableActions"] == [] and article["nextAction"] is None
+    stored = articles.get_editor_article(article_id)
+    assert stored["ready_validation_digest"].startswith("vd_")
+    assert stored["finalized_at"] is None
+    # The ready Article is a read-only surface: no finalize, no reopen.
+    assert request(api_server, f"/api/v1/articles/{article_id}/finalize", method="POST")[0] == 405
+
+
+def test_ready_refuses_a_stale_expected_version(api_server, api_store):
+    article_id = _draft_for_ready(api_store)
+    articles.save_article_content(
+        article_id, 1, "График за ремонта", SUPPORTED_BODY + " Уточнение."
+    )
+
+    status, payload = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/ready",
+        method="POST",
+        body={"expectedVersion": 1},
+    )
+    assert status == 409
+    assert payload["error"]["code"] == "ARTICLE_VERSION_CONFLICT"
+    assert articles.get_editor_article(article_id)["ready_version"] is None
+
+
+def test_ready_refuses_blocking_content_and_returns_editor_facing_context(api_server, api_store):
+    article_id = _draft_for_ready(api_store)
+    story_research_store.merge_research(
+        "s-one",
+        sources=[],
+        facts=[],
+        gaps=[{"id": "gap_when", "question": "Кога започва работата?", "blocking": True}],
+        assessed_at="2026-09-25T11:00:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="c4-api-gap",
+    )
+
+    status, payload = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/ready",
+        method="POST",
+        body={"expectedVersion": 1},
+    )
+    assert status == 409
+    assert payload["error"]["code"] == "SAFETY_BLOCKED"
+    assert [row["rule"] for row in payload["error"]["warnings"]] == ["blocking_gap_open"]
+    assert articles.get_editor_article(article_id)["ready_version"] is None
+    assert _data(request(api_server, f"/api/v1/articles/{article_id}"))["state"] == "draft"
+
+
+def test_ready_accepts_nothing_but_the_observed_version(api_server, api_store):
+    article_id = _draft_for_ready(api_store)
+    for body in (
+        {},
+        {"expectedVersion": 1, "warnings": []},
+        {"expectedVersion": 1, "acceptWarnings": True},
+        {"expectedVersion": 1, "validationDigest": "vd_whatever"},
+    ):
+        status, payload = request(
+            api_server,
+            f"/api/v1/articles/{article_id}/ready",
+            method="POST",
+            body=body,
+        )
+        assert status == 400, body
+        assert payload["error"]["code"] == "VALIDATION_ERROR"
+    assert articles.get_editor_article(article_id)["ready_version"] is None
+
+
+def test_a_ready_article_stops_asking_for_action_in_today(api_server, api_store):
+    article_id = _draft_for_ready(api_store)
+    before = _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
+    assert article_id in [row["objectId"] for row in before]
+    assert next(row for row in before if row["objectId"] == article_id)["nextAction"]["action"] == (
+        "MARK_READY"
+    )
+
+    request(
+        api_server,
+        f"/api/v1/articles/{article_id}/ready",
+        method="POST",
+        body={"expectedVersion": 1},
+    )
+    after = _data(request(api_server, "/api/v1/today"))["articlesRequiringAction"]
+    assert article_id not in [row["objectId"] for row in after]
+    assert _data(request(api_server, "/api/v1/articles?filter=ready"))["articles"][0]["id"] == (
+        article_id
+    )

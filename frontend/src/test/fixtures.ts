@@ -126,6 +126,12 @@ function articleBase(): Omit<ArticleDetail, "state" | "content" | "readiness" | 
       confirmedAt: "2026-09-25T09:40:00Z",
     },
     warnings: [],
+    validation: {
+      contentVersion: 0,
+      current: true,
+      blocking: false,
+      readyEligible: false,
+    },
     createdAt: "2026-09-25T09:35:00Z",
     updatedAt: "2026-09-25T09:40:00Z",
     factsAndSources,
@@ -163,9 +169,15 @@ export const activeDraftArticle: ArticleDetail = {
     body: "Според община Бургас ремонтът на булевард „Свобода“ е планиран да започне през октомври. Очаква се движението в района да бъде ограничено, а точната дата да бъде публикувана в официалния график.",
     version: 3,
   },
+  validation: {
+    contentVersion: 3,
+    current: true,
+    blocking: false,
+    readyEligible: true,
+  },
   readiness: { isCurrent: false, readyVersion: null, readyAt: null },
   availableActions: ["EDIT", "MARK_READY"],
-  nextAction: { action: "EDIT", reasonCode: "DRAFT_EDITABLE", label: "Редактирай", primary: true },
+  nextAction: { action: "MARK_READY", reasonCode: "READY_ELIGIBLE", label: "Отбележи като готова", primary: true },
   isFinalized: false,
   finalizedAt: null,
 };
@@ -180,9 +192,11 @@ export const activeReadyArticle: ArticleDetail = {
     body: "Общинският съвет прие решение за допълнително финансиране на детските градини в Слънчево. Средствата са предназначени за обслужване на сгради и текущи разходи през следващата учебна година.",
     version: 4,
   },
+  validation: { contentVersion: 4, current: true, blocking: false, readyEligible: false },
   readiness: { isCurrent: true, readyVersion: 4, readyAt: "2026-09-25T10:00:00Z" },
-  availableActions: ["FINALIZE"],
-  nextAction: { action: "FINALIZE", reasonCode: "READY_FOR_FINALIZATION", label: "Финализирай", primary: true },
+  // C4 leaves `Готова` as a read-only surface: no finalize, no reopen.
+  availableActions: [],
+  nextAction: null,
   updatedAt: "2026-09-25T10:00:00Z",
 };
 
@@ -221,15 +235,8 @@ export const todayProjection: TodayProjection = {
       reason: "DRAFT",
       nextAction: activeDraftArticle.nextAction!,
     },
-    {
-      objectId: activeReadyArticle.id,
-      objectType: "article",
-      title: activeReadyArticle.title,
-      summary: "Статията е готова за финализиране.",
-      timestamp: activeReadyArticle.updatedAt,
-      reason: "READY",
-      nextAction: activeReadyArticle.nextAction!,
-    },
+    // A `Готова` Article has no next action in C4, so it does not ask for one
+    // in Today either.
   ],
   problems: [
     {

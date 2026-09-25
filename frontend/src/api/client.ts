@@ -147,6 +147,17 @@ export function updateArticleFocus(articleId: string, focus: string): Promise<Ar
   return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/focus`, "PUT", { focus });
 }
 
+/**
+ * «Отбележи като готова». The client sends only the version it observed and the
+ * confirmed canonical text; the server revalidates and decides. No warnings, no
+ * digest and no override flag are ever sent from the editor.
+ */
+export function markArticleReady(articleId: string, expectedVersion: number): Promise<ArticleDetail> {
+  return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/ready`, "POST", {
+    expectedVersion,
+  });
+}
+
 export function updateArticleTitle(
   articleId: string,
   expectedVersion: number,

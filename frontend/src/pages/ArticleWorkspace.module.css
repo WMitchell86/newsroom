@@ -178,8 +178,57 @@
   border-left: 3px solid var(--color-warning);
 }
 
+/* The frozen three-level visual hierarchy. Informational is a quiet
+   annotation, review is a visible editorial note, blocking is a strong rule. */
+.warningInfo {
+  border-left-width: 1px;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.warningReview {
+  border-color: var(--color-warning);
+}
+
 .warningBlocking {
   border-color: var(--color-error);
+  border-left-width: 4px;
+  background: var(--color-warning-surface);
+}
+
+.warningStale {
+  margin: var(--space-3) 0 0;
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.readyAction {
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.readyAction:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.readyFeedback,
+.readyError {
+  margin: var(--space-3) 0 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.readyError {
+  color: var(--color-error);
 }
 
 .warningMessage,

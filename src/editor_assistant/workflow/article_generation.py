@@ -376,12 +376,14 @@ def generate(snapshot: dict, *, root=None, now=None) -> dict:
 
 
 def warnings_for(article: dict, content: dict, *, root=None) -> list[dict]:
-    """Current, redacted editor warnings derived from the internal Case audit.
+    """DEPRECATED in C4 — the generation audit is not the editor's warning source.
 
     A generation audit belongs to the immutable generated content version, not
-    to arbitrary later editor text. The application projects these warnings only
-    while that version is still the canonical working-content version. Missing
-    or unreadable internal artifacts fail safe to no current warnings.
+    to arbitrary later editor text, and C4 validates the CURRENT working
+    content instead (see `article_validation.evaluate_current_content`). This
+    projection is kept only so the generation-time Case audit stays inspectable
+    in the workbench; no editor path may read it any more: doing so is exactly
+    the stale-warning bug C4 closes.
     """
     if article.get("generated_content_version") != content.get("content_version"):
         return []

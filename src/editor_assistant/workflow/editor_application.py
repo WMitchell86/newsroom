@@ -8,6 +8,7 @@ HTTP parsing, response formatting, provider work, or orchestration.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import threading
@@ -17,6 +18,7 @@ from urllib.parse import urlsplit
 from editor_assistant.drafting.evidence import EvidenceError, validate_packet
 from editor_assistant.workflow import (
     article_generation,
+    article_validation,
     editor_article_store,
     editor_projections,
     editor_queries,
@@ -36,6 +38,7 @@ from editor_assistant.workflow import research as research_mod
 from editor_assistant.workflow import search as search_mod
 
 ROOT = Path(__file__).resolve().parents[3]
+LOG = logging.getLogger(__name__)
 _COMMAND_LOCK = threading.RLock()
 STORY_FILTERS = ("all", "followed", "developments", "ignored")
 ARTICLE_FILTERS = ("all", "preparation", "draft", "ready")
@@ -80,10 +83,29 @@ class EditorBlockingGap(EditorApplicationError):
 
 
 class EditorSafetyBlocked(EditorApplicationError):
-    """A safety guard stopped the command before any provider work."""
+    """A safety or validation guard stopped the command before any write.
+
+    `warnings` carries the editor-safe blocking context the workspace needs to
+    explain what must be addressed. It is never a raw audit trace.
+    """
 
     code = "SAFETY_BLOCKED"
     status = 409
+
+    def __init__(self, message: str, *, warnings=None):
+        super().__init__(message)
+        self.warnings = [dict(row) for row in warnings or []]
+
+
+class EditorValidationUnavailable(EditorApplicationError):
+    """The current content could not be validated. Fail closed, allow a retry.
+
+    This is deliberately NOT "no warnings": an Article whose validation could
+    not run is never ready, and the editor gets a calm, sanitized retry.
+    """
+
+    code = "INTERNAL_ERROR"
+    status = 500
 
 
 def _newsroom_root() -> Path:
@@ -121,10 +143,21 @@ def _story_title(story: dict, items_by_id: dict) -> str:
     return str(representative.get("title") or latest.get("title") or "")
 
 
-def _story_reference(article: dict, items_by_id: dict | None = None) -> dict:
+_UNSET = object()
+
+
+def _maybe_story(story_id: str) -> dict | None:
+    """The canonical Story, or `None` when its lineage is no longer readable."""
     try:
-        story = _story(article["story_id"])
+        return _story(story_id)
     except EditorNotFound:
+        return None
+
+
+def _story_reference(article: dict, items_by_id: dict | None = None, story=_UNSET) -> dict:
+    if story is _UNSET:
+        story = _maybe_story(article["story_id"])
+    if story is None:
         return {"id": article["story_id"]}
     if items_by_id is None:
         items_by_id = _story_items()
@@ -317,12 +350,101 @@ def _next_action(action: str, reason: str, label: str, *, primary: bool = True) 
     }
 
 
+def _current_validation(
+    article: dict,
+    content: dict,
+    *,
+    story: dict | None,
+    facts: list[dict],
+    gaps: list[dict],
+    headline: str,
+    assessed_at: str,
+) -> tuple[dict, object]:
+    """The current-content validation of one Article, read for the editor.
+
+    A read never fabricates a clean result: if the validation itself cannot run,
+    the projection reports it as blocking and not current, so the Article can
+    never look `Готова` on a check that did not happen.
+    """
+    try:
+        validation = article_validation.evaluate_current_content(
+            article,
+            content,
+            story=story,
+            facts=facts,
+            gaps=gaps,
+            headline=headline,
+            assessed_at=assessed_at,
+        )
+    except article_validation.ValidationUnavailable:
+        LOG.exception("current-content validation is unavailable")
+        return {
+            "contentVersion": int(content.get("content_version", 0)),
+            "current": False,
+            "blocking": True,
+            "readyEligible": False,
+        }, None
+    return (
+        {
+            "contentVersion": validation.content_version,
+            "current": True,
+            "blocking": validation.blocking,
+            "readyEligible": False,
+        },
+        validation,
+    )
+
+
+def validate_article_current_content(article_id: str) -> dict:
+    """`validate_article_current_content(article_id)` — the one C4 operation.
+
+    Loads the canonical Article, its exact current content version, the
+    canonical Story and the canonical Story evidence basis, validates the Story
+    lineage and the current title/body, runs the applicable current-content
+    audits, projects editor-facing warnings, classifies blocking vs
+    non-blocking and computes the deterministic digest. No workflow entity is
+    persisted: this is a pure read over canonical state.
+    """
+    article = _article(article_id)
+    content = editor_article_store.get_article_content(article_id)
+    facts, missing = _story_evidence_projection(article["story_id"])
+    story = _maybe_story(article["story_id"])
+    validation = article_validation.evaluate_current_content(
+        article,
+        content,
+        story=story,
+        facts=facts,
+        gaps=list(missing["items"]),
+        headline=_story_headline(article, story),
+        assessed_at=str(missing.get("assessedAt") or ""),
+    )
+    return {
+        "contentVersion": validation.content_version,
+        "validationDigest": validation.digest,
+        "warnings": [dict(row) for row in validation.warnings],
+        "blocking": validation.blocking,
+        "validatedAt": validation.validated_at,
+    }
+
+
+def _story_headline(article: dict, story: dict | None, items_by_id: dict | None = None) -> str:
+    """The canonical Story headline, used only as packet metadata."""
+    if story is None:
+        return str(article.get("working_title") or "")
+    if items_by_id is None:
+        items_by_id = _story_items()
+    return _story_title(story, items_by_id) or str(article.get("working_title") or "")
+
+
 def _article_actions(
-    article: dict, content: dict, blocking_gaps: list[dict] | None = None
+    article: dict,
+    content: dict,
+    state: str | None,
+    validation,
+    blocking_gaps: list[dict] | None = None,
 ) -> tuple[list[str], dict | None]:
     if article.get("finalized_at"):
         return [], None
-    state = editor_projections.derive_article_state(article, content, None)
     if state == "preparation":
         blocking_gaps = blocking_gaps or []
         if not editor_projections.focus_is_confirmed(article):
@@ -335,6 +457,11 @@ def _article_actions(
             return actions, _next_action("RESEARCH_MORE", "BLOCKING_GAP", "Проучи още")
         actions.append("MAKE_DRAFT")
         return actions, _next_action("MAKE_DRAFT", "DRAFT_ELIGIBLE", "Направи чернова")
+    if state == "ready":
+        # `Готова` is a read-only final-review surface in C4. `Финализирай` and
+        # `Готова → Редактирай` are explicitly deferred, so this surface offers
+        # nothing rather than inventing a temporary action.
+        return [], None
     actions = []
     if editor_projections.focus_is_confirmed(article):
         actions.append("CHANGE_FOCUS")
@@ -343,16 +470,54 @@ def _article_actions(
         actions.append("SELECT_FOCUS")
         next_action = _next_action("SELECT_FOCUS", "FOCUS_REQUIRED", "Избери фокус")
     actions.append("EDIT")
+    if validation is not None and article_validation.ready_eligible(article, content, validation):
+        actions.append("MARK_READY")
+        return actions, _next_action("MARK_READY", "READY_ELIGIBLE", "Отбележи като готова")
     return actions, next_action
 
 
-def _article_dto(article: dict, content: dict, story_reference: dict) -> dict:
-    state = editor_projections.derive_article_state(article, content, None)
+def _article_dto(
+    article: dict,
+    content: dict,
+    story_reference: dict,
+    story: dict | None = None,
+    items_by_id: dict | None = None,
+) -> dict:
+    return _article_projection(article, content, story_reference, story, items_by_id)[0]
+
+
+def _article_projection(
+    article: dict,
+    content: dict,
+    story_reference: dict,
+    story: dict | None = None,
+    items_by_id: dict | None = None,
+) -> tuple[dict, str | None]:
+    """The editor projection plus the current-content digest it came from.
+
+    The digest travels with the projection instead of being recomputed, so the
+    Article workspace and Today can never disagree about what was validated.
+    """
     facts, missing = _story_evidence_projection(article["story_id"])
+    if story is None and story is not _UNSET:
+        story = _maybe_story(article["story_id"])
+    validation_view, validation = _current_validation(
+        article,
+        content,
+        story=story,
+        facts=facts,
+        gaps=list(missing["items"]),
+        headline=_story_headline(article, story, items_by_id),
+        assessed_at=str(missing.get("assessedAt") or ""),
+    )
+    digest = validation.digest if validation is not None else None
+    state = editor_projections.derive_article_state(article, content, digest)
+    if validation is not None and article_validation.ready_eligible(article, content, validation):
+        validation_view["readyEligible"] = True
     blocking_gaps = [item for item in missing["items"] if item.get("blocking")]
     non_blocking_gaps = [item for item in missing["items"] if not item.get("blocking")]
     focus_confirmed = editor_projections.focus_is_confirmed(article)
-    actions, next_action = _article_actions(article, content, blocking_gaps)
+    actions, next_action = _article_actions(article, content, state, validation, blocking_gaps)
     preparation = None
     if state == "preparation":
         preparation = {
@@ -362,46 +527,60 @@ def _article_dto(article: dict, content: dict, story_reference: dict) -> dict:
             "draftEligible": focus_confirmed and not blocking_gaps,
             "availableActions": actions,
         }
-    return {
-        "id": article["article_id"],
-        "story": story_reference,
-        "title": content["title"],
-        "state": state,
-        "isFinalized": bool(article.get("finalized_at")),
-        "editorialFocus": {
-            "text": article["editorial_focus"],
-            "confirmedAt": article["focus_confirmed_at"],
-        },
-        "content": {
+    return (
+        {
+            "id": article["article_id"],
+            "story": story_reference,
             "title": content["title"],
-            "body": content["body"],
-            "version": content["content_version"],
+            "state": state,
+            "isFinalized": bool(article.get("finalized_at")),
+            "editorialFocus": {
+                "text": article["editorial_focus"],
+                "confirmedAt": article["focus_confirmed_at"],
+            },
+            "content": {
+                "title": content["title"],
+                "body": content["body"],
+                "version": content["content_version"],
+            },
+            "preparation": preparation,
+            "readiness": {
+                "isCurrent": editor_projections.readiness_is_current(article, content, digest),
+                "readyVersion": article.get("ready_version"),
+                "readyAt": article.get("ready_at"),
+            },
+            # Current-content warnings: never the generation-time audit of an
+            # immutable Draft, and never an empty set invented by a failed check.
+            "warnings": [dict(row) for row in validation.warnings] if validation else [],
+            "validation": validation_view,
+            "availableActions": actions,
+            "nextAction": next_action,
+            "createdAt": article["created_at"],
+            "updatedAt": article["updated_at"],
+            "finalizedAt": article.get("finalized_at"),
+            "factsAndSources": facts,
+            "missingInformation": missing,
         },
-        "preparation": preparation,
-        "readiness": {
-            "isCurrent": editor_projections.readiness_is_current(article, content, None),
-            "readyVersion": article.get("ready_version"),
-            "readyAt": article.get("ready_at"),
-        },
-        "warnings": (
-            article_generation.warnings_for(article, content, root=_editorial_root())
-            if article.get("generated_content_version") == content["content_version"]
-            else []
-        ),
-        "availableActions": actions,
-        "nextAction": next_action,
-        "createdAt": article["created_at"],
-        "updatedAt": article["updated_at"],
-        "finalizedAt": article.get("finalized_at"),
-        "factsAndSources": facts,
-        "missingInformation": missing,
-    }
+        digest,
+    )
 
 
 def _article_dto_by_id(article_id: str) -> dict:
+    return _article_projection_by_id(article_id)[0]
+
+
+def _article_projection_by_id(article_id: str) -> tuple[dict, str | None]:
     article = _article(article_id)
     content = editor_article_store.get_article_content(article_id)
-    return _article_dto(article, content, _story_reference(article))
+    story = _maybe_story(article["story_id"])
+    items_by_id = _story_items()
+    return _article_projection(
+        article,
+        content,
+        _story_reference(article, items_by_id, story),
+        story=story,
+        items_by_id=items_by_id,
+    )
 
 
 def _story_items() -> dict:
@@ -946,13 +1125,16 @@ def read_today() -> dict:
             new_developments.append(item)
     articles = []
     for article in editor_article_store.read_editor_articles():
-        dto = _article_dto_by_id(article["article_id"])
-        content = editor_article_store.get_article_content(article["article_id"])
+        # The real current-content digest decides readiness, exactly as it does
+        # in the Article workspace: a `Готова` Article stops asking for action
+        # and a stale checkpoint starts asking again.
+        dto, current_digest = _article_projection_by_id(article["article_id"])
         concrete_next_action = (dto.get("nextAction") or {}).get("action")
+        content = editor_article_store.get_article_content(article["article_id"])
         if not editor_projections.article_today_eligible(
             article,
             content,
-            None,
+            current_digest,
             concrete_next_action=concrete_next_action,
         ):
             continue
@@ -1018,7 +1200,7 @@ def list_articles(filter_name: str = "all", query: str = "") -> list[dict]:
         title = _story_title(story, items_by_id) if story else ""
         if title:
             story_reference["title"] = title
-        dto = _article_dto(article, content, story_reference)
+        dto = _article_dto(article, content, story_reference, story=story, items_by_id=items_by_id)
         if dto["isFinalized"]:
             continue
         if filter_name != "all" and dto["state"] != filter_name:
@@ -1196,4 +1378,97 @@ def save_content(article_id: str, expected_version: int, title: str, body: str) 
             if "unknown article_id" in str(exc):
                 raise EditorNotFound("Статията не е намерена.") from exc
             raise EditorApplicationError("Съдържанието не може да бъде запазено.") from exc
+    return _article_dto_by_id(article_id)
+
+
+# ---------------------------------------------------------------- C4 «Отбележи като готова»
+
+
+def mark_article_ready(article_id: str, expected_version: int) -> dict:
+    """`Отбележи като готова` — the editor's explicit readiness checkpoint.
+
+    The editor has reviewed the CURRENT text and considers this exact version
+    ready for finalization. It does not publish, does not finalize, does not
+    freeze the Story and does not accept any future changed content.
+
+    The frontend never decides readiness. It sends only the version it observed;
+    the server re-locks the canonical Article, re-checks the state, the version,
+    the content, the Story lineage and the current validation, and only then
+    records `ready_version`, `ready_at` and `ready_validation_digest`.
+    """
+    with _COMMAND_LOCK:
+        article = _active_article(article_id)
+        content = editor_article_store.get_article_content(article_id)
+        state = editor_projections.derive_article_state(article, content, None)
+        if state != "draft":
+            # `Чернова → Готова` is the only transition C4 owns. Preparation has
+            # nothing to review yet, and a current `Готова` checkpoint is not
+            # re-recorded over a fresh validation.
+            raise EditorInvalidTransition(
+                "Отбелязване като готова е налично само за чернова в текущо състояние."
+            )
+        if int(content.get("content_version", -1)) != int(expected_version):
+            # The editor must review the current content first. An old version is
+            # never validated-then-blessed as a newer one.
+            raise EditorVersionConflict(
+                "Черновата е променена. Прегледайте текущата версия преди да я отбележите като готова."
+            )
+        if (
+            not str(content.get("title") or "").strip()
+            or not str(content.get("body") or "").strip()
+        ):
+            raise EditorApplicationError(
+                "Черновата няма текст, който може да се отбележи като готов."
+            )
+        if not editor_projections.can_mark_article_ready(article, content):
+            raise EditorInvalidTransition(
+                "Потвърдете фокуса, преди да отбележите черновата като готова."
+            )
+        facts, missing = _story_evidence_projection(article["story_id"])
+        story = _maybe_story(article["story_id"])
+        try:
+            validation = article_validation.evaluate_current_content(
+                article,
+                content,
+                story=story,
+                facts=facts,
+                gaps=list(missing["items"]),
+                headline=_story_headline(article, story),
+                assessed_at=str(missing.get("assessedAt") or ""),
+            )
+        except article_validation.ValidationUnavailable as exc:
+            # Fail closed: a validation that could not run is not a pass, is not
+            # an empty warning set and never writes a readiness checkpoint.
+            raise EditorValidationUnavailable(
+                "Проверката на черновата не можа да завърши. Опитайте отново."
+            ) from exc
+        if validation.blocking:
+            raise EditorSafetyBlocked(
+                "Проверката на текущия текст откри пречи. Разгледайте предупрежденията.",
+                warnings=[dict(row) for row in validation.warnings if row["blocking"]],
+            )
+        if editor_projections.derive_article_state(article, content, validation.digest) != "draft":
+            # The checkpoint for this exact version is already current, so the
+            # Article really is `Готова`. Re-recording it is not a C4 transition.
+            raise EditorInvalidTransition("Статията вече е отбелязана като готова.")
+        try:
+            editor_article_store.mark_article_ready(
+                article_id,
+                expected_version=expected_version,
+                validation=editor_article_store.ReadinessValidation(
+                    content_version=validation.content_version,
+                    digest=validation.digest,
+                    blocking=validation.blocking,
+                ),
+            )
+        except editor_article_store.ArticleVersionConflict as exc:
+            raise EditorVersionConflict(
+                "Черновата е променена, преди да бъде отбелязана като готова."
+            ) from exc
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown article_id" in str(exc):
+                raise EditorNotFound("Статията не е намерена.") from exc
+            raise EditorApplicationError(
+                "Черновата не може да бъде отбелязана като готова. Опитайте отново."
+            ) from exc
     return _article_dto_by_id(article_id)

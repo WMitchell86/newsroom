@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
+import { ApiError, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, markArticleReady, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -109,6 +109,47 @@ describe("read-only API client", () => {
       ["/api/v1/articles/art%20one/focus", "PUT", JSON.stringify({ focus: "Ясен фокус" }), undefined],
       ["/api/v1/articles/art%20one/title", "PUT", JSON.stringify({ expectedVersion: 2, title: "Работно заглавие" }), undefined],
     ]);
+  });
+
+  it("posts the exact C4 readiness command with only the observed version", async () => {
+    const article = { id: "art-one", state: "ready" };
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: article }) } as Response);
+
+    await expect(markArticleReady("art one", 12)).resolves.toEqual(article);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/articles/art%20one/ready",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 12 }),
+        credentials: "same-origin",
+      }),
+    );
+    // The editor never sends warnings, a digest or an override flag.
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toEqual({
+      expectedVersion: 12,
+    });
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).not.toHaveProperty("Idempotency-Key", "");
+  });
+
+  it("surfaces a blocking readiness refusal with the stable editor code", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: {
+          code: "SAFETY_BLOCKED",
+          message: "Проверката на текущия текст откри пречи. Разгледайте предупрежденията.",
+          retryable: false,
+          fieldErrors: [],
+        },
+      }),
+    } as Response);
+
+    await expect(markArticleReady("art-one", 3)).rejects.toEqual(expect.objectContaining({
+      status: 409,
+      code: "SAFETY_BLOCKED",
+      retryable: false,
+    }));
   });
 
   it("uses the exact RESEARCH_MORE endpoint and supports synchronous 200", async () => {

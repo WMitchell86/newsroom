@@ -133,6 +133,14 @@ export interface ArticleContent {
   version: number;
 }
 
+/** Backend-derived currency of the current-content validation (C4). */
+export interface ArticleValidation {
+  contentVersion: number;
+  current: boolean;
+  blocking: boolean;
+  readyEligible: boolean;
+}
+
 export interface PreparationProjection {
   focusConfirmed: boolean;
   blockingGaps: MissingInformationItem[];
@@ -155,6 +163,7 @@ export interface ArticleProjection {
     readyAt: string | null;
   };
   warnings: Warning[];
+  validation: ArticleValidation;
   availableActions: AvailableAction[];
   nextAction: NextAction | null;
   createdAt: string;
