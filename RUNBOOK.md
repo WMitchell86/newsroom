@@ -64,6 +64,24 @@ from the SPA and never shown to editors.
 > D1 status: SPA serving is proven but **not** the default. Primary-route
 > cutover is a separate, owner-approved phase.
 
+### D2A — browser parity proof
+
+D2A proves the same bundle in a **real browser** (hydration, React Router
+navigation, deep links, refresh, back/forward), which D1 could not reach. It
+does **not** change the default: `WB_EDITOR_FRONTEND` still defaults to `legacy`.
+
+```bash
+python3 -m pip install playwright==1.63.0 && python3 -m playwright install chromium
+cd frontend && npm ci && npm run build && cd ..
+PYTHONPATH=src python3 -m pytest tests/browser -p no:cacheprovider
+```
+
+The suite runs against a real `ThreadingHTTPServer` in `spa` mode with isolated
+store roots, and it hashes the real `var/` runtime stores before and after to
+prove nothing leaked. Screenshots for review land in `var/d2a_screenshots/`.
+Full details, including exactly which three outbound edges are substituted, are
+in `tests/browser/README.md`.
+
 Verify the real build through the real Python server (not Vite):
 
 ```bash
