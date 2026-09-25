@@ -44,8 +44,15 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.workbench       # equivalent
 ```
 
 Binds `127.0.0.1` by default; `--host`/`--port` exist, and `--host` is opt-in
-(there is **no auth** on this local MVP). Stdlib only — no framework, no build
-chain; JavaScript is optional feedback only (confirm dialogs + busy overlay).
+(there is **no auth** on this local MVP). Stdlib only — no framework; JavaScript
+is optional feedback only (confirm dialogs + busy overlay).
+
+The same process can optionally serve the compiled React SPA
+(`frontend/`, Vite + React + TS) over the JSON API — see
+`RUNBOOK.md` §0.1. It is **opt-in and off by default** (`WB_EDITOR_FRONTEND`
+defaults to `legacy`), so this legacy surface above is unchanged until primary-
+route cutover is explicitly approved. There is no Node production server: Vite
+builds, Python serves.
 
 The workbench lives under `workflow/`, which the M0 smoke guard's token scan
 `src/editor_assistant/{*.py,sources,notify}` does not cover — so it adds **no**
@@ -189,8 +196,8 @@ deleted: stories reference them.
 Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
 `m4/review/M4B_DAILY_INBOX_REPORT.md`, `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
 `m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
-**Next milestone: `frontend/` — Vite + React + TS SPA over a JSON API (owner-approved,
-after the pre-frontend correctness gate).** Telegram alerts stay backlog — see `BACKLOG.md`.
+**Next milestone: primary-route cutover of the `frontend/` SPA (D2), owner-approved
+after the D1 serving proof.** Telegram alerts stay backlog — see `BACKLOG.md`.
 
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 

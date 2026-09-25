@@ -28,6 +28,7 @@ from editor_assistant.workflow import story_store as story_store_mod
 from editor_assistant.workflow.workbench import api as api_mod
 from editor_assistant.workflow.workbench import html as html_mod
 from editor_assistant.workflow.workbench import newsroom as wb_newsroom
+from editor_assistant.workflow.workbench import spa as spa_mod
 from editor_assistant.workflow.workbench import state as wb_state
 
 ENABLE_QUIT = os.environ.get("WB_ALLOW_QUIT", "0") not in ("0", "", "no", "false", "False")
@@ -136,6 +137,36 @@ def _redirect(handler: BaseHTTPRequestHandler, location: str):
     handler.end_headers()
 
 
+def _respond_bytes(
+    handler: BaseHTTPRequestHandler,
+    code: int,
+    data: bytes,
+    *,
+    content_type: str,
+    cache_control: str,
+):
+    """Binary-safe static response (assets are never decoded as text)."""
+    handler.send_response(code)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("X-Content-Type-Options", "nosniff")
+    handler.send_header("Cache-Control", cache_control)
+    handler.send_header("Connection", "close")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _respond_asset_missing(handler: BaseHTTPRequestHandler):
+    """A real 404 for a missing build file — never the SPA entry document."""
+    _respond_bytes(
+        handler,
+        404,
+        b"Not Found\n",
+        content_type="text/plain; charset=utf-8",
+        cache_control="no-store",
+    )
+
+
 def _render_error(kind: str, case_id: str | None, message: str) -> str:
     if kind == "save":
         title = "Запазването не може да се извърши"
@@ -164,7 +195,22 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if api_mod.owns_path(path):
             api_mod.dispatch(self, "GET")
             return
+        # D1: SPA mode is opt-in and only takes the approved client routes.
+        # The compatibility prefix is operational (rollback/testing) and is
+        # rewritten back onto the legacy dispatcher before anything else.
+        compat = spa_mod.strip_legacy_prefix(path)
+        if compat is not None:
+            path = compat
+        elif spa_mod.is_spa_enabled() and spa_mod.owns_spa_route(path):
+            self._get_spa_entry()
+            return
         route, case_id = _route(path)
+        # Compiled assets are only considered when the legacy dispatcher has no
+        # claim on the path, so `/cases`, `/inbox`, `/static/style.css` and
+        # `/healthz` keep their exact existing behavior in SPA mode too.
+        if route == "notfound" and spa_mod.is_spa_enabled() and spa_mod.owns_static_path(path):
+            self._get_spa_asset(path)
+            return
         try:
             if route == "root":
                 self._get_root()
@@ -251,6 +297,62 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             200,
             html_mod.CSS,
             content_type="text/css; charset=utf-8",
+        )
+
+    # ---------- D1: production SPA serving (opt-in) ----------
+
+    def _get_spa_entry(self):
+        """Serve the compiled SPA entry document for an approved client route.
+
+        This is also the history fallback: React Router owns path resolution
+        once the document loads, so a deep link such as `/articles/art_123`
+        must receive the same bytes as `/`.
+        """
+        try:
+            entry = spa_mod.require_build()
+        except spa_mod.SpaBuildMissing as exc:
+            # A loud, unambiguous diagnostic. Deliberately plain text rather
+            # than a Workbench HTML page: a deployment error must never be
+            # mistaken for a working editor screen, and it must never silently
+            # fall back to legacy pages that would hide the broken build.
+            _respond_bytes(
+                self,
+                503,
+                str(exc).encode("utf-8"),
+                content_type="text/plain; charset=utf-8",
+                cache_control="no-store",
+            )
+            return
+        _respond_bytes(
+            self,
+            200,
+            entry.read_bytes(),
+            content_type="text/html; charset=utf-8",
+            cache_control=spa_mod.INDEX_CACHE,
+        )
+
+    def _get_spa_asset(self, path):
+        """Serve a compiled build file, or a real 404 when it does not exist.
+
+        A missing hashed chunk must never fall back to `index.html`: that would
+        mask a broken build as a working application.
+        """
+        resolved = spa_mod.resolve_asset(path)
+        if resolved is None:
+            _respond_asset_missing(self)
+            return
+        try:
+            data = resolved.read_bytes()
+        except OSError:
+            # A file that vanished between resolve and read is still a 404.
+            _respond_asset_missing(self)
+            return
+        _respond_bytes(
+            self,
+            200,
+            data,
+            content_type=spa_mod.content_type(resolved),
+            cache_control=spa_mod.cache_control(resolved),
         )
 
     def _get_home(self):

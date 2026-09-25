@@ -13,6 +13,63 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench   # http://127
 Binds **127.0.0.1** by default; `--host` is opt-in and there is **no auth** on
 this local MVP. `POST /quit` is refused unless `WB_ALLOW_QUIT=1` (test-only).
 
+### 0.1 Frontend serving mode (D1 — opt-in, default `legacy`)
+
+The same Python process can also serve the compiled React SPA. There is **no
+Node production server, no nginx and no second service** — Vite is build-time
+tooling only, and the browser talks to `/api/v1` on this same origin.
+
+The build is not committed (`frontend/dist/` is ignored). Produce it
+deterministically:
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+```
+
+Select the serving mode with one deployment variable:
+
+| `WB_EDITOR_FRONTEND` | Behavior |
+| --- | --- |
+| `legacy` (**default**) | Server-rendered Workbench owns the current routes, exactly as before. |
+| `spa` | Python serves the compiled SPA **on the approved editor routes only**. |
+
+```bash
+WB_EDITOR_FRONTEND=spa PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench
+```
+
+In `spa` mode the SPA owns exactly `/`, `/stories`, `/stories/:id`, `/articles`,
+`/articles/:id`, `/archive`, `/archive/:id`, `/settings`. Nothing else changes
+route owner: `/api/v1/*`, `/healthz`, `/static/style.css` and the operator
+surfaces `/cases`, `/inbox`, `/sources`, `/models`, `/intake` stay backend, and
+any other URL is a real 404 — the SPA is never a catch-all.
+
+- **Cache policy:** hashed `/assets/*` are immutable; `index.html` is `no-cache`;
+  `/api/v1` keeps its existing `no-store`.
+- **Missing build:** the process refuses to start and prints how to build. It
+  never silently serves legacy pages in `spa` mode, which would hide a broken
+  deployment.
+- **Override the build root:** `WB_SPA_DIST=/path/to/dist` (used by tests).
+
+**Rollback is one variable** — no redeploy of code, no data change:
+
+```bash
+WB_EDITOR_FRONTEND=legacy PYTHONPATH=src python3 -m editor_assistant.workflow.cli workbench
+```
+
+In `spa` mode the server-rendered pages also stay reachable under the technical
+prefix `/wb-legacy/…` (e.g. `/wb-legacy/stories`) for validation and rollback.
+This is operational infrastructure, not product navigation: it is never linked
+from the SPA and never shown to editors.
+
+> D1 status: SPA serving is proven but **not** the default. Primary-route
+> cutover is a separate, owner-approved phase.
+
+Verify the real build through the real Python server (not Vite):
+
+```bash
+PYTHONPATH=src python3 scripts/d1_spa_proof.py
+```
+
 First run (empty `var/newsroom/` — the pages will be empty until you do this
 once; verified 2026-09-21: 35 sources applied, 99 real items collected, 0
 errors, 88 stories built):

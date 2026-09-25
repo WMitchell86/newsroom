@@ -46,6 +46,26 @@ def main(argv=None):
     if args.host != "127.0.0.1":
         print(f"[workbench] WARNING: binding to {args.host} — no auth on this MVP", file=sys.stderr)
 
+    # D1: report the frontend serving mode at startup so the running topology is
+    # never a guess. A missing build is a loud startup error, not a surprise 503
+    # on the editor's first click.
+    if http.spa_mod.is_spa_enabled():
+        if http.spa_mod.build_available():
+            print(
+                f"[workbench] frontend mode: spa (serving {http.spa_mod.index_path()})",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[workbench] ERROR: {http.spa_mod.FRONTEND_MODE_ENV}=spa but no compiled "
+                f"build at {http.spa_mod.index_path()}. Run `npm ci && npm run build` in "
+                f"frontend/, or set {http.spa_mod.FRONTEND_MODE_ENV}=legacy.",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        print("[workbench] frontend mode: legacy (server-rendered Workbench)", file=sys.stderr)
+
     server = http.serve(args.port, host=args.host, quit_allowed=args.allow_quit)
 
     stop = threading.Event()
@@ -69,4 +89,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
