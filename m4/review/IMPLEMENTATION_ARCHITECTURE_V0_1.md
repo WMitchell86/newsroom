@@ -546,6 +546,12 @@ Add one validated, file-backed editor Article record store, for example `var/edi
 }
 ```
 
+**Phase A implementation fact:** the canonical record store is
+`var/editorial_workflow/editor_articles.jsonl`; immutable working-content
+versions are stored under `var/editorial_workflow/editor_articles/{article_id}/`.
+The Article record remains the atomic current-version pointer. Read-only
+composition lives in `workflow/editor_queries.py`; it does not persist attention.
+
 The record intentionally has no mutable `state`. `editorial_focus` may contain an AI proposal while `focus_confirmed_at` is null. Draft generation requires a non-null confirmation timestamp. Readiness is valid only when `ready_version == content_version` and the freshly computed validation digest equals `ready_validation_digest`. `internal_refs` is never returned by the editor API.
 
 ### 13.2 Required semantics
@@ -582,6 +588,11 @@ Do not overload the public Story status tuple. Add narrow editor metadata:
 - Membership is ordered by `added_at`/item discovery time.
 - `Прегледай` marks the submitted observed set reviewed without clearing `followed`.
 - `Игнорирай` updates Story status and preserves `followed`, but an ignored Story never enters `Днес`, including for later developments.
+
+**Phase A implementation fact:** Story editor metadata is stored separately at
+`var/newsroom/story_editor_metadata.json`; the closed Story identity schema is
+unchanged.
+
 - To restore an ignored Story, the editor opens it from `Истории → Игнорирани` and uses the existing `Прегледай` action. This clears ignored status and resumes normal follow/development semantics; no unignore action or state is added.
 - Several unreviewed developments project as one Today entry with count and latest/relevant delta only when the Story is followed and not ignored.
 
