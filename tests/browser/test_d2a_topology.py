@@ -132,7 +132,7 @@ def test_operator_routes_stay_server_rendered_in_spa_mode(page, path):
     assert probe.page.locator("#root").count() == 0, (
         f"{path} was answered by the React SPA; it must stay a backend route"
     )
-    assert probe.page.locator("header nav[aria-label='Основни раздели']").count() == 0, (
+    assert probe.page.get_by_role("navigation", name="Основни раздели").count() == 0, (
         f"{path} rendered the SPA AppShell"
     )
 

@@ -66,7 +66,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("AppShell navigation", () => {
-  it("has exactly five primary areas, no left rail, and marks the current area", () => {
+  it("keeps the five frozen destinations and places Настройки at the bottom of the left rail", () => {
+    // V1.2-G1 §1/§4/§24: the frozen five are unchanged as a set and as words,
+    // and Settings now lives in the left column, visually separated from the four
+    // everyday editorial destinations. This test previously asserted there was
+    // NO left rail; the owner-approved direction replaces that with one.
     renderWithProviders(
       <Routes>
         <Route element={<AppShell />}>
@@ -76,23 +80,55 @@ describe("AppShell navigation", () => {
       { initialEntries: ["/stories"] },
     );
 
+    const rail = document.querySelector("aside");
+    expect(rail).not.toBeNull();
+
+    // The four everyday destinations, in the primary navigation landmark.
     const navigation = screen.getByRole("navigation", { name: "Основни раздели" });
-    const links = within(navigation).getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["Днес", "Истории", "Статии", "Архив", "Настройки"]);
-    expect(within(navigation).getByRole("link", { name: "Истории" })).toHaveAttribute("aria-current", "page");
-    expect(document.querySelector("aside")).toBeNull();
-    expect(document.querySelector("nav")).not.toHaveAttribute("data-orientation", "vertical");
+    expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Днес",
+      "Истории",
+      "Статии",
+      "Архив",
+    ]);
+    expect(within(navigation).getByRole("link", { name: "Истории" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    // `Настройки` is the fifth frozen destination, still in the LEFT column, and
+    // last in the rail's navigation order. It was never promoted to a header.
+    const settingsNav = screen.getByRole("navigation", { name: "Настройки" });
+    expect(rail?.contains(settingsNav)).toBe(true);
+    const settings = within(settingsNav).getByRole("link", { name: "Настройки" });
+    expect(settings).toHaveAttribute("href", "/settings");
+    // It comes after the four editorial destinations in DOM order, which is what
+    // "placed at the bottom of the rail" means without fixed positioning.
+    const order = [...rail!.querySelectorAll("nav")].flatMap((nav) =>
+      [...nav.querySelectorAll("a")].map((link) => link.textContent),
+    );
+    expect(order).toEqual(["Днес", "Истории", "Статии", "Архив", "Настройки"]);
+
+    // §1: no sixth primary destination, and specifically no `Източники`.
+    const allRailLinks = [...rail!.querySelectorAll("a")].map((link) => link.textContent);
+    expect(allRailLinks).not.toContain("Източници");
   });
 });
 
 describe("Today", () => {
-  it("renders all attention groups as links without issuing mutations", async () => {
+  it("renders every attention group as a link without issuing mutations", async () => {
     fetchMock.mockResolvedValue(dataResponse(todayProjection));
     renderWithProviders(<TodayPage />, { route: "/" });
 
     await screen.findByRole("heading", { name: "Днес" });
-    expect(screen.getByRole("heading", { name: "Нови развития" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Нови истории" })).toBeInTheDocument();
+    // V1.2-G1 §8/§27: the two Story groups are now one list behind the compact
+    // attention tabs, so there is no separate `Нови развития` / `Нови истории`
+    // heading any more. Both Story rows are present in that single list, and the
+    // Article/Problems tier still sits below it.
+    const groups = screen.getByRole("group", { name: "Групи днешни истории" });
+    expect(within(groups).getByRole("button", { name: /Всички/ })).toBeInTheDocument();
+    expect(within(groups).getByRole("button", { name: /Нови/ })).toBeInTheDocument();
+    expect(within(groups).getByRole("button", { name: /В развитие/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Статии за действие" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Проблеми" })).toBeInTheDocument();
     const storyLinks = screen.getAllByRole("link", { name: storyDetail.title });
@@ -358,11 +394,11 @@ describe("Today — D1 cap and ordering", () => {
     renderWithProviders(<TodayPage />, { route: "/" });
 
     await screen.findByRole("heading", { name: "Днес" });
-    // A heading over "nothing here" is chrome, not information.
-    expect(screen.queryByRole("heading", { name: "Нови развития" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Нови истории" })).toBeNull();
+    // A group with nothing in it is chrome, not information. §27: only non-empty
+    // sections are rendered, so the Story list and the `Проблеми` heading are
+    // both absent while the Article tier — which does have work — stays.
+    expect(document.querySelectorAll("[data-story-row]")).toHaveLength(0);
     expect(screen.queryByRole("heading", { name: "Проблеми" })).toBeNull();
-    // The group that does have work is still there.
     expect(screen.getByRole("heading", { name: "Статии за действие" })).toBeInTheDocument();
   });
 
@@ -2274,7 +2310,9 @@ describe("Today grouping health", () => {
     renderWithProviders(<TodayPage />, { route: "/" });
 
     await screen.findByRole("heading", { name: "Днес" });
-    expect(screen.getByRole("heading", { name: "Нови истории" })).toBeInTheDocument();
+    // §26: the F2A grouping-health warning must stay preserved through the G1
+    // restyle, and a healthy run must still say nothing at all.
+    expect(screen.getByRole("link", { name: todayProjection.newStories[0]!.title })).toBeInTheDocument();
     expect(screen.queryByText(/Групирането на истории е ограничено/)).toBeNull();
     expect(screen.queryByText(/Лимитът за групиране/)).toBeNull();
   });

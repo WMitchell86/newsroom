@@ -6,48 +6,43 @@ import type { GroupingHealth, TodayAttention, TodayProjection } from "../api/dto
 import { queryKeys, todayOptions } from "../api/queries";
 import { getErrorMessage } from "../shared/errorMessage";
 import { safeInternalTarget } from "../shared/safeNavigation";
+import { formatDate, formatLastRefresh, newPublicationsLabel } from "../shared/editorLabels";
+import { EmptyState, ErrorState, LoadingState, Section } from "../shared/EditorPrimitives";
+import { TodayHeader } from "./today/TodayHeader";
+import { TodayStoryRowView } from "./today/TodayStoryRow";
+import { TodayToolbar } from "./today/TodayToolbar";
 import {
-  formatDate,
-  formatLastRefresh,
-  newPublicationsLabel,
-} from "../shared/editorLabels";
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  PageHeader,
-  Section,
-} from "../shared/EditorPrimitives";
+  filterRows,
+  selectTab,
+  sortStoryRows,
+  tabCounts,
+  type TodaySort,
+  type TodayTab,
+} from "./today/todayView";
 import styles from "./TodayPage.module.css";
 
 /**
- * D1: the newsroom's own refresh context, above the attention lists.
+ * D1: the newsroom's own refresh context, above the attention list.
  *
  * A never-run install says so in words. A run with failed sources is surfaced
  * as a count, because the sanitized `problems` list below is the actionable
  * form and a raw exception message has no place on the editor's first screen.
+ *
+ * V1.2-G1 §7 returns this as text so the header can lay it out itself; the
+ * wording and the D1 time projection are unchanged.
  */
-function LastRefreshLine({ projection }: { projection: TodayProjection }) {
+function lastRefreshText(projection: TodayProjection): string {
   const { lastRefresh } = projection;
   if (!lastRefresh) {
-    return <p className={styles.refreshMeta}>Все още няма извършено обновяване.</p>;
+    return "Все още няма извършено обновяване.";
   }
   const moment = formatLastRefresh(lastRefresh);
-  return <p className={styles.refreshMeta}>
-    {moment ? <>Последно обновяване: {moment}</> : "Последно обновяване: —"}
-    {" · "}
-    {newPublicationsLabel(lastRefresh.newPublications)}
-    {lastRefresh.failedSources > 0 ? (
-      <>
-        {" · "}
-        <span className={styles.refreshFailed}>
-          {lastRefresh.failedSources === 1
-            ? "1 проблем с източник"
-            : `${lastRefresh.failedSources} проблема с източници`}
-        </span>
-      </>
-    ) : " · 0 проблема с източници"}
-  </p>;
+  const when = moment ? `Последно обновяване: ${moment}` : "Последно обновяване: —";
+  const failed =
+    lastRefresh.failedSources === 1
+      ? "1 проблем с източник"
+      : `${lastRefresh.failedSources} проблема с източници`;
+  return `${when} · ${newPublicationsLabel(lastRefresh.newPublications)} · ${failed}`;
 }
 
 /**
@@ -102,10 +97,7 @@ function objectHref(item: TodayAttention): string {
   return `${base}/${encodeURIComponent(item.objectId)}`;
 }
 
-function developmentCount(count: number): string {
-  return count === 1 ? "1 ново развитие" : `${count} нови развития`;
-}
-
+/** §27: which tier an Article row belongs to, in the editor's own words. */
 function attentionReason(item: Extract<TodayAttention, { objectType: "article" }>): string {
   const labels = {
     PREPARATION: "Подготовка",
@@ -116,16 +108,17 @@ function attentionReason(item: Extract<TodayAttention, { objectType: "article" }
 }
 
 /**
- * D2 §20/§23: the one status the editor sees while a Quick Draft runs.
+ * D2 §20/§23, now expressed through `TodayStoryActions` and `TodayBlocker`:
+ * the editor asked for one thing, so the row shows one thing. No modal, no
+ * wizard, and no stage vocabulary anywhere on this screen.
  *
- * The backend performs several real steps — research, source opening, readiness,
- * generation — and none of them is the editor's business. It asked for one
- * thing, so it is told one thing. No stage vocabulary reaches this component.
+ * `blocker` is whatever the backend said, verbatim. The frontend never composes
+ * an evidence explanation and never assesses a publisher's trustworthiness.
  */
-const PENDING_LABEL = "Подготвя се чернова…";
 
 /**
- * D2 §24/§25: the two quiet controls beside the primary one.
+ * V1.2-D2 §24/§25, now expressed through `TodayStoryActions`: the two quiet
+ * controls beside the primary one.
  *
  * `Игнорирай` is the ordinary canonical Ignore command — reversible through the
  * Story surface, so it gets no confirmation dialog. `Прегледай` is a plain link
@@ -136,9 +129,11 @@ const PENDING_LABEL = "Подготвя се чернова…";
 function StoryAttentionRow({
   item,
   queryClient,
+  now,
 }: {
   item: Extract<TodayAttention, { objectType: "story" }>;
   queryClient: ReturnType<typeof useQueryClient>;
+  now: Date;
 }) {
   const navigate = useNavigate();
   const [blocker, setBlocker] = useState<string | null>(null);
@@ -184,74 +179,23 @@ function StoryAttentionRow({
     },
   });
 
-  // §4/§43: the backend is the authority. A row that carries no triage state
-  // at all (an older cached projection, a Story the server has not re-projected
-  // yet) still renders, and simply offers no `Чернова` — the editor is never
-  // shown a button the backend did not grant.
-  const actions = item.availableActions ?? [];
-  const quickDraft = item.quickDraft;
-  const canQuick = actions.includes("QUICK_DRAFT") && quickDraft?.available === true;
-  const busy = quick.isPending;
   return (
-    <li className={styles.attentionRow}>
-      <div>
-        <p className={styles.attentionKind}>
-          {item.reason === "NEW_STORY"
-            ? "Нова история"
-            : developmentCount(item.delta.unreviewedDevelopmentCount)}
-        </p>
-        <h3 className={styles.itemTitle}>
-          <Link to={objectHref(item)}>{item.title}</Link>
-        </h3>
-        <p className={styles.summary}>{item.summary}</p>
-        <p className={styles.meta}>
-          <span>Последна промяна: {formatDate(item.timestamp)}</span>
-          {item.reason === "UNREVIEWED_DEVELOPMENT" ? (
-            <span>Защо е тук: непрегледано ново развитие</span>
-          ) : (
-            <span>Защо е тук: непрегледана нова история</span>
-          )}
-        </p>
-        {blocker ? (
-          <p className={styles.blocker} role="alert">
-            {blocker}
-          </p>
-        ) : null}
-      </div>
-      <div className={styles.triageActions}>
-        {actions.includes("IGNORE") ? (
-          <button
-            className={styles.quiet}
-            type="button"
-            disabled={ignore.isPending || busy}
-            onClick={() => {
-              setBlocker(null);
-              ignore.mutate();
-            }}
-            data-ignore-story={item.objectId}
-          >
-            Игнорирай
-          </button>
-        ) : null}
-        <Link className={styles.secondary} to={objectHref(item)} data-review-story={item.objectId}>
-          Прегледай
-        </Link>
-        {canQuick ? (
-          <button
-            className={styles.action}
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setBlocker(null);
-              quick.mutate();
-            }}
-            data-quick-draft={item.objectId}
-          >
-            {busy ? PENDING_LABEL : quickDraft.label}
-          </button>
-        ) : null}
-      </div>
-    </li>
+    <TodayStoryRowView
+      row={item}
+      href={objectHref(item)}
+      blocker={blocker}
+      busy={quick.isPending}
+      ignoreDisabled={ignore.isPending}
+      onIgnore={() => {
+        setBlocker(null);
+        ignore.mutate();
+      }}
+      onQuickDraft={() => {
+        setBlocker(null);
+        quick.mutate();
+      }}
+      now={now}
+    />
   );
 }
 
@@ -279,48 +223,48 @@ function ArticleAttentionRow({ item }: { item: Extract<TodayAttention, { objectT
   );
 }
 
-function AttentionRow({
-  item,
-  queryClient,
-}: {
-  item: TodayAttention;
-  queryClient: ReturnType<typeof useQueryClient>;
-}) {
-  if (item.objectType === "story") {
-    return <StoryAttentionRow item={item} queryClient={queryClient} />;
-  }
-  return <ArticleAttentionRow item={item} />;
-}
-
 /**
  * D1: an empty group is not rendered at all.
  *
  * A heading with a `0` and an "empty" line under it is chrome, not
  * information: on a quiet day it made Today look like a broken page. The
  * section appears only when it has something to decide.
+ *
+ * §27: this is the Article/Problems tier, and it stays strictly below the Story
+ * list. Article work and operational problems are real, but they must not
+ * out-shout the Stories the editor is here to triage.
  */
-function AttentionSection({
+function SecondarySection({
   title,
   items,
-  queryClient,
 }: {
   title: string;
-  items: TodayAttention[];
-  queryClient: ReturnType<typeof useQueryClient>;
+  // The DTO types this field as the whole attention union for forward
+  // compatibility, but the backend only ever emits Article rows here. The
+  // narrowing is asserted at the call site rather than assumed silently.
+  items: Array<Extract<TodayAttention, { objectType: "article" }>>;
 }) {
   if (!items.length) return null;
   return (
     <Section title={title} meta={String(items.length)}>
       <ul className={styles.list}>
         {items.map((item) => (
-          <AttentionRow item={item} queryClient={queryClient} key={`${item.objectType}-${item.objectId}`} />
+          <ArticleAttentionRow item={item} key={item.objectId} />
         ))}
       </ul>
     </Section>
   );
 }
 
-function RefreshControl() {
+/**
+ * D1, restated for G1: the newsroom refresh, owned as an operation here and
+ * rendered by the header.
+ *
+ * The button, its pending label and its error all live in `TodayHeader`, so the
+ * control is not split across two components; this hook only owns the mutation
+ * and the canonical refetch that follows a successful run.
+ */
+function useRefreshOperation() {
   const queryClient = useQueryClient();
   const refresh = useMutation({
     mutationFn: () => refreshNewsroom(),
@@ -334,80 +278,123 @@ function RefreshControl() {
       ]);
     },
   });
-
-  return (
-    <div className={styles.refreshControl}>
-      <button
-        className={styles.refresh}
-        type="button"
-        disabled={refresh.isPending}
-        onClick={() => refresh.mutate()}
-        data-refresh-trigger="newsroom"
-      >
-        {refresh.isPending ? "Обновява се…" : "Обнови"}
-      </button>
-      {refresh.isPending ? (
-        <span className={styles.refreshStatus} role="status" aria-live="polite">
-          Обновява се.
-        </span>
-      ) : null}
-      {refresh.error ? (
-        <span className={styles.refreshError} role="alert">
-          {getErrorMessage(refresh.error, "Новините не можаха да се обновят. Опитайте отново.")}
-        </span>
-      ) : null}
-    </div>
-  );
+  return {
+    pending: refresh.isPending,
+    error: refresh.error
+      ? getErrorMessage(refresh.error, "Новините не можаха да се обновят. Опитайте отново.")
+      : null,
+    run: () => refresh.mutate(),
+  };
 }
 
+/**
+ * V1.2-G1: the newsroom's first screen.
+ *
+ * The D1 refresh context, horizon, cap and grouping-health warning are unchanged
+ * and still answered by the same backend projection. What this slice changes is
+ * presentation: one header, one toolbar, one list of wire rows, and the
+ * Article/Problems tier below.
+ */
 export function TodayPage() {
   const today = useQuery(todayOptions());
   const queryClient = useQueryClient();
+  const refresh = useRefreshOperation();
+  // View preferences only (§11). They live in component state, are not
+  // persisted anywhere, and change nothing about the Story itself.
+  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<TodayTab>("all");
+  const [sort, setSort] = useState<TodaySort>("newest");
+  // One timestamp for the whole render, so two rows can never disagree about
+  // what "преди 18 мин" means because the clock ticked between them.
+  const [now] = useState(() => new Date());
 
   if (today.isPending) return <LoadingState label="Зареждане на днешните задачи…" />;
   if (today.isError) return <ErrorState error={today.error} onRetry={() => void today.refetch()} />;
 
   const projection = today.data;
-  const hasAttention = projection.newDevelopments.length > 0 ||
-    projection.newStories.length > 0 ||
-    projection.articlesRequiringAction.length > 0 ||
-    projection.problems.length > 0;
+  const counts = tabCounts(projection);
+  // Search (§6) narrows within the chosen tab; sorting (§9) then orders what is
+  // left. Both are pure functions over rows already delivered by the server.
+  const rows = sortStoryRows(filterRows(selectTab(projection, tab), query), sort);
+  const hasStories = rows.length > 0;
 
   return (
-
     <div className={styles.page}>
-      <div className={styles.headingRow}>
-        <PageHeader
-          kicker="Редакционно внимание"
-          title="Днес"
-          lede="Задачите, които изискват решение или действие сега."
-        />
-        <RefreshControl />
-      </div>
+      <TodayHeader
+        lastRefreshText={lastRefreshText(projection)}
+        onRefresh={refresh.run}
+        refreshPending={refresh.pending}
+        refreshError={refresh.error}
+        query={query}
+        onQueryChange={setQuery}
+      />
 
-      <LastRefreshLine projection={projection} />
       <GroupingHealthNotice health={projection.groupingHealth} />
 
-      {hasAttention ? <div aria-live="polite">
-        <AttentionSection title="Нови развития" items={projection.newDevelopments} queryClient={queryClient} />
-        <AttentionSection title="Нови истории" items={projection.newStories} queryClient={queryClient} />
-        <StoryCapNotice projection={projection} />
-        <AttentionSection title="Статии за действие" items={projection.articlesRequiringAction} queryClient={queryClient} />
+      <div aria-live="polite">
+        <TodayToolbar
+          tab={tab}
+          onTabChange={setTab}
+          counts={counts}
+          sort={sort}
+          onSortChange={setSort}
+          shownCount={rows.length}
+        />
+
+        {hasStories ? (
+          <ul className={styles.storyList}>
+            {rows.map((row) => (
+              <StoryAttentionRow
+                item={row}
+                queryClient={queryClient}
+                now={now}
+                key={row.objectId}
+              />
+            ))}
+          </ul>
+        ) : (
+          <EmptyState>
+            {query
+              ? "Няма днешни истории, отговарящи на търсенето."
+              : "Няма редакционни задачи, които да изискват внимание сега."}
+          </EmptyState>
+        )}
+
+        {/* D1: the cap is disclosed, never silent — a bounded screen that hid its
+            own backlog would be indistinguishable from a broken one. */}
+        {hasStories ? <StoryCapNotice projection={projection} /> : null}
+
+        {/* §27: Article work and operational problems stay below the Stories. */}
+        <SecondarySection
+          title="Статии за действие"
+          items={projection.articlesRequiringAction.filter(
+            (item): item is Extract<TodayAttention, { objectType: "article" }> =>
+              item.objectType === "article",
+          )}
+        />
         {projection.problems.length ? (
           <Section title="Проблеми" meta={String(projection.problems.length)}>
             <ul className={styles.problemList}>
               {projection.problems.map((problem) => {
                 const target = safeInternalTarget(problem.target);
-                return <li className={styles.problem} key={problem.id}>
-                  <h3 className={styles.itemTitle}>{problem.title}</h3>
-                  <p className={styles.summary}><strong>Въздействие:</strong> {problem.consequence}</p>
-                  {target ? <Link className={styles.problemLink} to={target}>{problem.label}</Link> : null}
-                </li>;
+                return (
+                  <li className={styles.problem} key={problem.id}>
+                    <h3 className={styles.itemTitle}>{problem.title}</h3>
+                    <p className={styles.summary}>
+                      <strong>Въздействие:</strong> {problem.consequence}
+                    </p>
+                    {target ? (
+                      <Link className={styles.problemLink} to={target}>
+                        {problem.label}
+                      </Link>
+                    ) : null}
+                  </li>
+                );
               })}
             </ul>
           </Section>
         ) : null}
-      </div> : <EmptyState>Няма редакционни задачи, които да изискват внимание сега.</EmptyState>}
+      </div>
     </div>
   );
 }

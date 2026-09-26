@@ -84,6 +84,67 @@ export function newPublicationsLabel(count: number): string {
   return `${count} нови публикации`;
 }
 
+/**
+ * V1.2-G1 §12/§14: how recently a row changed, in the words a newsroom uses.
+ *
+ * A wire row is scanned by recency, so "преди 18 мин" carries the decision and
+ * the exact clock time is available beside it. Anything older than a couple of
+ * days falls back to the calendar date, because "преди 12 дни" stops being
+ * useful for judging whether a Story is still live.
+ */
+export function formatRelativeTime(value: string | null | undefined, now: Date = new Date()): string {
+  if (!value) return "няма дата";
+  const moment = new Date(value);
+  if (Number.isNaN(moment.getTime())) return "няма дата";
+  const minutes = Math.max(0, Math.round((now.getTime() - moment.getTime()) / 60_000));
+  if (minutes < 1) return "току-що";
+  if (minutes < 60) return `преди ${minutes} мин`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `преди ${hours} ч`;
+  const days = Math.round(hours / 24);
+  if (days <= 2) return `преди ${days} дни`;
+  return formatDate(value, false);
+}
+
+/**
+ * V1.2-G1 §15: independent-publisher count, in Bulgarian plural.
+ *
+ * `0` is not rendered as "0 източници": a Story whose members carry no
+ * publisher identity has an *unknown* count, not a measured zero, and printing
+ * the zero would state a fact the store cannot support.
+ */
+export function publisherCountLabel(count: number | null | undefined): string | null {
+  if (typeof count !== "number" || !Number.isFinite(count) || count <= 0) return null;
+  if (count === 1) return "1 източник";
+  return `${count} източника`;
+}
+
+/**
+ * V1.2-G1 §14: whether a "summary" is really the headline again.
+ *
+ * Feeds routinely carry a summary that is the title with trailing punctuation
+ * or a source suffix. Rendering that under the headline makes a row look
+ * padded and trains the editor to skip the line that should carry new
+ * information. Comparison is on a normalized form: case, punctuation and
+ * whitespace are dropped, and a summary that is a prefix of the title counts
+ * as the same text.
+ */
+export function isRedundantSummary(title: string, summary: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .toLocaleLowerCase("bg-BG")
+      .replace(/[«»"'“”‘’.,:;!?–—-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const normalizedTitle = normalize(title);
+  const normalizedSummary = normalize(summary);
+  if (!normalizedSummary) return true;
+  if (normalizedSummary === normalizedTitle) return true;
+  return (
+    normalizedTitle.startsWith(normalizedSummary) || normalizedSummary.startsWith(normalizedTitle)
+  );
+}
+
 export function actionLabel(action: NextAction | null): string {
   return action?.label ?? "Отвори";
 }

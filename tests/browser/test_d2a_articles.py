@@ -29,7 +29,9 @@ INTERNAL_WORDS = ("Case", "Идея", "ИдеяCard", "draft_id", "evidence_id",
 
 def open_story(probe, story_id: str) -> None:
     probe.page.goto(f"{probe.base_url}/stories/{story_id}", wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
     probe.page.locator("main").wait_for(state="visible")
 
 
@@ -270,7 +272,9 @@ def test_editor_autosaves_and_survives_a_python_served_reload(page, spa_runtime)
 
     # Reload through the Python route, then confirm the canonical content.
     probe.page.reload(wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
     probe.page.locator("main").wait_for(state="visible")
     detail = probe.page.request.get(f"{probe.base_url}/api/v1/articles/{article_id}").json()["data"]
     assert detail["content"]["body"] == new_body

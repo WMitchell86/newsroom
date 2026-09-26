@@ -141,6 +141,13 @@ def _story_attention_row(story: dict, metadata: dict, items_by_id: dict, attenti
     Everything here is an in-memory join over the single snapshot the caller
     already read. The row carries its own title, summary and canonical change
     timestamp so the API layer never re-reads a store to decorate one row.
+
+    `publisherCount` is the number of **independent publishers** the Story has,
+    taken from the existing `story_store.metrics` computation (M4C §2.4). It is
+    surfaced rather than recomputed, because five discovery rows from one
+    publisher must never read as "5 sources" and the frontend has no business
+    re-deriving that. It is corroboration context, not evidence authority: a
+    Story can have five publishers and still have no opened, promotable page.
     """
     projected = editor_projections.project_story_editor(story, metadata, items_by_id, ())
     representative = items_by_id.get(story.get("representative_item_id")) or {}
@@ -153,6 +160,7 @@ def _story_attention_row(story: dict, metadata: dict, items_by_id: dict, attenti
         "summary": str(representative.get("summary") or latest.get("summary") or ""),
         "latestChangeAt": editor_projections.story_chronology_at(story),
         "unreviewedDevelopmentCount": projected["unreviewed_development_count"],
+        "publisherCount": story_store.metrics(story, items_by_id)["publisher_count"],
     }
 
 

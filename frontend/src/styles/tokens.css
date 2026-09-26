@@ -58,7 +58,6 @@
   --space-10: 40px;
   --space-12: 48px;
   --radius: 5px;
-  --nav-height: 64px;
   --page-margin: 76px;
   font-family: var(--font-ui);
   color: var(--color-text);
@@ -68,8 +67,13 @@
 }
 
 * { box-sizing: border-box; }
-html { min-width: 1180px; background: var(--color-canvas); }
-body { margin: 0; min-width: 1180px; min-height: 100vh; background: var(--color-canvas); }
+/* V1.2-G1 §23: the floor is the narrowest width the desk still lays out
+   honestly (a narrowed rail plus a readable content column). It is below a
+   common 1280 laptop, so the first screen never opens already scrolled
+   sideways, and above the point where the layout would have to become a
+   different product. */
+html { min-width: 1024px; background: var(--color-canvas); }
+body { margin: 0; min-width: 1024px; min-height: 100vh; background: var(--color-canvas); }
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: var(--color-accent); }

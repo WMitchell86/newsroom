@@ -1759,6 +1759,11 @@ def read_today() -> dict:
             "timestamp": row["latestChangeAt"],
             "nextAction": "REVIEW",
             "delta": {"unreviewedDevelopmentCount": row["unreviewedDevelopmentCount"]},
+            # V1.2-G1 §10: the independent-publisher count, surfaced from the one
+            # place that already computes it. It lets the editor sort by
+            # corroboration without React ever counting a source, and it is
+            # explicitly NOT evidence authority — see `_story_attention_row`.
+            "publisherCount": row["publisherCount"],
             "availableActions": ["REVIEW", "IGNORE"]
             + (["QUICK_DRAFT"] if quick["available"] else []),
             "quickDraft": {

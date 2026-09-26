@@ -633,6 +633,341 @@ def build_today_fixture(*, newsroom: Path, editorial: Path) -> dict:
 
 
 # --------------------------------------------------------------------------
+# V1.2-G1: the editor desk as the owner will actually review it
+# --------------------------------------------------------------------------
+
+#: Realistic Bulgarian newsroom copy, deliberately varied in length.
+#:
+#: A mockup with tidy, uniform headlines hides density problems, which is exactly
+#: what this review needs to find — so these are written the way a real wire day
+#: looks: a long municipal decision, a short cultural notice, a breaking line, and
+#: Stories whose feed summary is empty or merely repeats the headline.
+#:
+#: The fourth field is the number of **independent publishers**, which is what
+#: makes `Най-много източници` a truthful sort rather than a cosmetic one.
+G1_STORIES = (
+    (
+        "s-g1-01",
+        "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата „Шишман“ и обсъжда промените в градския транспорт",
+        "Решението е взето на заседание в четвъртък; обхватът на ремонта е 1,2 километра и се очаква да продължи до октомври.",
+        4,
+    ),
+    ("s-g1-02", "Ден на отворените врати в историческия музей", "", 1),
+    (
+        "s-g1-03",
+        "Съветът прие бюджета за детските градини в Слънчево след първо четене на досието",
+        "Парите са предвидени за обновяване на сградите и за новата детска градина.",
+        2,
+    ),
+    (
+        "s-g1-04",
+        "Пускането на фестивала за средиземноморска кухра се отлага заради строителни работи",
+        "Организаторите обявиха нова дата след като община Поморие поиска отлагането на сцената.",
+        3,
+    ),
+    (
+        "s-g1-05",
+        "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата",
+        "Жителите на квартала ще пътуват с 10 минути повече до работата.",
+        2,
+    ),
+    (
+        "s-g1-06",
+        "Болният от София постигна пълно възстановяване след тежката зима",
+        "Медиците от болницата потвърдиха, че състоянието на пациента е стабилно.",
+        2,
+    ),
+    ("s-g1-07", "Университетите приемат документи по 1 октомври и вече няма такса", "", 1),
+    ("s-g1-08", "БНР и пет независими медии предадоха официалната позиция на правителството", "", 5),
+    ("s-g1-09", "Еврото и българският лев остават с еднакъв курс през целия месец", "", 2),
+    (
+        "s-g1-10",
+        "Първото състезание по плуване в открития басейн приключи с нов рекорд за клуба",
+        "",
+        3,
+    ),
+)
+
+
+#: Two independent hosts serving the SAME sentence.
+#:
+#: This is load-bearing, not decorative. The real research executor promotes a
+#: sentence to a fact only when it is PRIMARY or corroborated by **two independent
+#: opened domains**, so one substituted host can never produce a confirmed fact —
+#: and a Story with no confirmed fact is refused before a Draft is ever created.
+#: Two different hosts serving the same sentence is what independent corroboration
+#: actually looks like.
+#:
+#: Deliberately NOT `*council*`: the mature angle gate requires assessed editorial
+#: angles for council transcripts, and this fixture is a media story.
+G1_RESEARCH_RESULTS = (
+    {
+        "rank": 1,
+        "title": "Графикът за ремонта на улицата е обявен предварително",
+        "url": "https://vestnik.example.test/g1/repair-plan",
+        "snippet": "Жителите ще се движат по обходен маршрут.",
+        "published_at": "",
+        "source_name": "vestnik",
+    },
+    {
+        "rank": 2,
+        "title": "Общината уточни срока за ремонта",
+        "url": "https://burgas-news.example.test/g1/repair-schedule",
+        "snippet": "Работата започва през октомври.",
+        "published_at": "",
+        "source_name": "burgas-news",
+    },
+)
+
+#: The page every substituted host serves: one sentence naming what happened, who
+#: it affects and when — what a real source page about a municipal decision says.
+G1_RESEARCH_PAGE = (
+    "Ремонтът на улицата започва на 1 октомври 2026 г., а жителите на квартала "
+    "ще пътуват повече, потвърдиха от информационния център на града."
+)
+
+
+def install_g1_research_edges(monkeypatch) -> None:
+    """Substitute ONLY the search provider and the page opener.
+
+    Applied on top of the session fixture's model and collector substitutes, so
+    the draft model, the real research executor, the real angle gate, the real
+    readiness decision and the real stores all stay the product's.
+
+    Called from a test BODY, never from fixture setup: the session-scoped D2A
+    substitute is installed at session scope, and a function-scoped patch made
+    during setup would be replaced by it.
+    """
+    from editor_assistant.sources import web_fetch
+    from editor_assistant.workflow import search
+
+    class Provider:
+        name = "g1_deterministic"
+
+        def search(self, query, count=10, **_kw):
+            return {
+                "provider": self.name,
+                "query": query,
+                "requested_count": count,
+                "started_at": "2026-09-25T11:00:00Z",
+                "status": search.SEARCH_OK,
+                "attempt": 1,
+                "http_status": 200,
+                "retry_after": None,
+                "elapsed_ms": 1,
+                "results": [dict(row) for row in G1_RESEARCH_RESULTS],
+            }
+
+    def fetch_page(url, **_kw):
+        return {
+            "final_url": url,
+            "content_type": "text/html; charset=utf-8",
+            "bytes": len(G1_RESEARCH_PAGE),
+            "text": G1_RESEARCH_PAGE,
+        }
+
+    monkeypatch.setattr(
+        search, "provider_chain", lambda capability=search.CAP_WEB, env=None: ([Provider()], [])
+    )
+    monkeypatch.setattr(web_fetch, "fetch_page", fetch_page)
+
+
+def build_g1_desk_fixture(*, newsroom: Path, editorial: Path) -> dict:
+    """Seed the desk this slice is for: 10 current Stories, a real refresh, work.
+
+    The point of this fixture is density and variety, which is where the owner
+    asked for a real look rather than a mockup:
+
+    * ten current Stories with **different publisher counts** (1-5), so the
+      `Най-много източници` sort has something truthful to reorder;
+    * several Stories whose feed summary is empty, so the row layout is judged on
+      real sparsity rather than on uniformly filled mockups;
+    * one Story seeded with a real blocking research gap, so the page can show a
+      precise evidence blocker rather than a generic trust claim;
+    * one active Article, so the lower tier is present and visible;
+    * a completed run, so the D1 refresh line has something true to render.
+
+    Written through the canonical stores only - every file on disk is a valid
+    store row, never hand-edited to make a screen appear.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from editor_assistant.workflow import editor_article_store as articles
+    from editor_assistant.workflow import (
+        inbox_store,
+        newsroom_refresh,
+        source_health,
+        sources_registry,
+        story_operations,
+        story_research_store,
+        story_store,
+    )
+
+    newsroom.mkdir(parents=True, exist_ok=True)
+    editorial.mkdir(parents=True, exist_ok=True)
+    stories_path = newsroom / "stories.json"
+    inbox_path = newsroom / "inbox.jsonl"
+    _release_refresh_lock(newsroom_refresh)
+
+    now = datetime.now(timezone.utc)
+
+    def stamp(**delta) -> str:
+        return (now - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    items = []
+    stories = []
+    for index, (story_id, title, summary, publishers) in enumerate(G1_STORIES):
+        when = stamp(minutes=17 * index + 3)
+        member_count = max(publishers, 1)
+        # Every member is a distinct publication from a distinct publisher, so
+        # `publisher_count` is exactly the intended number.
+        row_ids = [f"{story_id}-p{member}" for member in range(member_count)]
+        for member_index, item_id in enumerate(row_ids):
+            items.append(
+                {
+                    "item_id": item_id,
+                    "source_id": f"g1-vestnik-{member_index}",
+                    "source_item_id": item_id,
+                    "title": title if member_index == 0 else f"{title} - отразяване",
+                    "url": f"https://vestnik.example.test/{item_id}",
+                    "published_at": when,
+                    "discovered_at": when,
+                    "summary": summary,
+                    "source_kind": "media",
+                    "publisher_domain": f"g1-publisher-{member_index}.example.test",
+                    "status": "NEW",
+                }
+            )
+        story = story_store.new_story(
+            items[-member_count], publication_key=f"pk-{story_id}", now=when
+        )
+        story["story_id"] = story_id
+        for member_index in range(1, member_count):
+            story_store.add_member(
+                story,
+                items[-member_count + member_index],
+                # Further publications of the SAME event, not new developments:
+                # this is what independent corroboration looks like in the store.
+                relation="SAME_STORY",
+                relation_source="semantic",
+                publication_key=f"pk-{story_id}-{member_index}",
+                now=when,
+            )
+        stories.append(story)
+
+    # The identity stage recomputes the derived timestamps; the fixture must do the
+    # same, or it would assert against a shape the real pipeline never writes.
+    items_by_id = {item["item_id"]: item for item in items}
+    for story in stories:
+        story_store.refresh_times(
+            story,
+            {member["item_id"]: items_by_id[member["item_id"]] for member in story["members"]},
+            now=stamp(minutes=1),
+        )
+        story["status"] = "NEW"
+
+    inbox_store.save_items(items, inbox_path)
+    story_store.write_store({"stories": stories}, stories_path)
+    story_operations.clear()
+
+    sources_registry.add_source(
+        path=newsroom / "sources.json",
+        source_id="g1-vestnik-0",
+        name="Г1 тестова емисия",
+        kind="official",
+        collector="rss",
+        url="https://vestnik.example.test/rss.xml",
+        priority="high",
+        factual_authority=True,
+    )
+
+    # One Story with a real, assessed blocking gap. The question is the
+    # editor-facing text, so the row shows THAT rather than a judgement about the
+    # publisher.
+    story_research_store.merge_research(
+        "s-g1-01",
+        sources=[
+            {"id": "g1-vestnik-0", "name": "Вестник", "url": "https://vestnik.example.test/s-g1-01-p0"}
+        ],
+        facts=[
+            {
+                "id": "fact_g1_money",
+                "text": "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата.",
+                "sourceId": "g1-vestnik-0",
+                "locator": "Протокол, т. 4",
+            }
+        ],
+        gaps=[
+            {
+                "id": "gap_g1_when",
+                "question": "Остава непотвърдено кога точно започва ограничението на движението.",
+                "kind": "unresolved",
+                "blocking": True,
+            }
+        ],
+        assessed_at=stamp(minutes=20),
+        canonical_story={"story_id": "s-g1-01"},
+        operation_id="g1-fixture-round",
+        count_round=True,
+    )
+
+    # `s-g1-05` is deliberately left UNASSESSED, exactly like the D2 triage
+    # fixture. The quick path then really researches it against the substituted
+    # search/page edges and can genuinely reach a Draft. Pre-seeding its basis
+    # would bypass the research step and, because the mature angle gate judges
+    # the *material*, would stop the generation instead.
+
+    # One active Article, so the lower tier is real and visible in the review.
+    draft = articles.create_editor_article(
+        story_id="s-g1-03",
+        stories_path=stories_path,
+        working_title="Работа по бюджета на градините",
+        now=stamp(minutes=6),
+        root=editorial,
+    )
+    articles.update_editor_focus(
+        draft["article_id"],
+        "Да разкажем какво предстои по бюджета за градините.",
+        now=stamp(minutes=5),
+        root=editorial,
+    )
+    articles.save_article_content(
+        draft["article_id"],
+        0,
+        "Работа по бюджета на градините",
+        CLEAN_BODY,
+        now=stamp(minutes=4),
+        root=editorial,
+    )
+
+    # A completed run, so the refresh line states a real time and real counts.
+    source_health.record_run(
+        {
+            "finished_at": stamp(minutes=12),
+            "started_at": stamp(minutes=13),
+            "collected": 214,
+            "new": 24,
+            "duplicate": 190,
+            "failed": 0,
+            "blocked": 0,
+            "blocked_filtered": 0,
+            "sources": [{"source_id": "g1-vestnik-0", "status": "OK"}],
+        },
+        path=newsroom / "last_run.json",
+    )
+    source_health.record_run_stories(10, path=newsroom / "last_run.json")
+
+    return {
+        "newsroom": newsroom,
+        "editorial": editorial,
+        "stories_path": stories_path,
+        "draft_article_id": draft["article_id"],
+        "blocking_story_id": "s-g1-01",
+        "story_count": len(stories),
+    }
+
+
+# --------------------------------------------------------------------------
 # external boundary substitutes
 # --------------------------------------------------------------------------
 

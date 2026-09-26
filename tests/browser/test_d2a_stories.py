@@ -25,7 +25,9 @@ def story_actions(page):
 
 def open_story(probe, story_id: str) -> None:
     probe.page.goto(f"{probe.base_url}/stories/{story_id}", wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
     probe.page.locator("main").wait_for(state="visible")
 
 

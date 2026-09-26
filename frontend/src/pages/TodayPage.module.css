@@ -11,58 +11,9 @@
   gap: var(--space-8);
 }
 
-.refresh {
-  flex: 0 0 auto;
-  margin-top: var(--space-1);
-  padding: 9px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-accent);
-  background: var(--color-surface);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.refresh:hover:not(:disabled) {
-  color: var(--color-accent-hover);
-  border-color: var(--color-accent);
-}
-
-.refresh:disabled {
-  cursor: default;
-  color: var(--color-text-secondary);
-  background: var(--color-evidence);
-}
-
-.refreshControl {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-2);
-  max-width: 320px;
-}
-
-.refreshStatus,
-.refreshError {
-  font-size: 13px;
-  text-align: right;
-}
-
-.refreshStatus {
-  color: var(--color-text-secondary);
-}
-
-.refreshError {
-  color: var(--color-error);
-  font-weight: 600;
-}
-
-/* D1: the refresh context line and the cap disclosure are deliberately quiet.
-   They answer "how current is this screen?", not "what do I do next?" — the
+/* D1: the cap disclosure and the grouping-health notice are deliberately quiet.
+   They answer "how complete is this screen?", not "what do I do next?" — the
    attention rows below stay the loudest thing on the page. */
-.refreshMeta,
 .capNotice {
   margin: var(--space-3) 0 0;
   color: var(--color-text-secondary);
@@ -75,19 +26,15 @@
   font-weight: 600;
 }
 
+/* F2A: a real editorial consequence — some publications may appear as separate
+   Stories. No route ids, no provider names, no model ids on the first screen. */
 .groupingNotice {
   margin: 0 0 12px;
   padding: 8px 12px;
   border-left: 3px solid var(--color-warning);
-  background: var(--color-surface-raised, transparent);
   color: var(--color-text);
   font-size: 13px;
   line-height: 19px;
-}
-
-.refreshFailed {
-  color: var(--color-warning);
-  font-weight: 600;
 }
 
 .list,
@@ -170,73 +117,6 @@
   text-decoration: none;
 }
 
-/* D2 §26: three editorial intents, one visual hierarchy.
-   `Чернова` is the positive, forward action and is the only filled control.
-   `Прегледай` is the ordinary navigation link it has always been, and
-   `Игнорирай` is deliberately quiet rather than destructive-red: it is a routine
-   triage move, fully reversible from the Story surface. This is triage, not a
-   toolbar, and it borrows interaction speed rather than any swipe aesthetic. */
-.triageActions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  max-width: 420px;
-}
-
-.quiet,
-.secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 9px 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: transparent;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 20px;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.quiet {
-  color: var(--color-text-secondary);
-}
-
-.quiet:hover:not(:disabled) {
-  color: var(--color-text);
-  border-color: var(--color-border);
-}
-
-.secondary {
-  color: var(--color-text);
-  border-color: var(--color-border);
-}
-
-.secondary:hover {
-  color: var(--color-accent-hover);
-  border-color: var(--color-accent);
-}
-
-.quiet:disabled,
-.secondary:disabled {
-  cursor: default;
-  color: var(--color-text-secondary);
-}
-
-/* §23: the blocker is one concise, truthful sentence on the row itself — never a
-   modal, never a wizard, and never a list of internal stages. */
-.blocker {
-  margin: var(--space-3) 0 0;
-  color: var(--color-error);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 20px;
-}
-
 .action:hover {
   color: var(--color-surface);
   background: var(--color-accent-hover);
@@ -261,6 +141,7 @@
   font-weight: 600;
 }
 
+/* The «Истории» list shares the search/filter controls below. */
 .searchForm {
   max-width: 760px;
   margin: 0 0 var(--space-6);

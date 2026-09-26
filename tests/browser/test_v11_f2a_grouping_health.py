@@ -152,9 +152,10 @@ def test_degraded_grouping_is_visible_and_editor_safe(grouped_page):
     for forbidden in ("gemini", "openrouter", "429", "role_hard_budget", "flash", "quota"):
         assert forbidden not in folded
 
-    # The screen still works: Stories are listed and the row actions survive.
-    # (Headings are uppercased by CSS, so assert on roles, not on inner_text.)
-    probe.page.get_by_role("heading", name="Нови истории").wait_for(state="visible", timeout=10000)
+    # The screen still works: the Story rows are listed and the row actions
+    # survive. V1.2-G1 §8 replaced the separate `Нови истории` section heading with
+    # the compact attention tabs over one list, so the assertion follows the rows.
+    probe.page.locator("[data-story-row]").first.wait_for(state="visible", timeout=10000)
     assert probe.page.locator("main h3 a").count() > 0
     probe.assert_clean(context="Today with a degraded grouping run")
 
@@ -218,5 +219,5 @@ def test_a_later_healthy_run_clears_the_warning_after_refresh(grouped_page):
     probe.page.locator(GROUPING_NOTICE).wait_for(state="detached", timeout=30000)
 
     assert probe.page.get_by_role("heading", name="Днес", level=1).is_visible()
-    probe.page.get_by_role("heading", name="Нови истории").wait_for(state="visible", timeout=10000)
+    probe.page.locator("[data-story-row]").first.wait_for(state="visible", timeout=10000)
     probe.assert_clean(context="after a healthy refresh cleared the grouping warning")

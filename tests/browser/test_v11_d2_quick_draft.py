@@ -373,7 +373,9 @@ def test_ignore_removes_the_row_and_survives_a_reload(triage_page):
     # §48: reload the browser. The Story stays absent, because the store really
     # changed — not because the page remembered anything.
     probe.page.reload(wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
     probe.page.wait_for_function(
         "() => !document.querySelector(\"[data-quick-draft='s-d2-triage']\")",
         timeout=30000,

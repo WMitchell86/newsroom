@@ -1,0 +1,461 @@
+/* V1.2-G1: the Today desk.
+   Very light warm canvas, thin dividers, minimal chrome, serif headlines and
+   sans-serif UI text. No card per row, no shadow, no gradient. */
+
+.page {
+  width: 100%;
+  max-width: 1180px;
+}
+
+/* ---------------------------------------------------------------- header */
+
+.header {
+  margin-bottom: var(--space-6);
+}
+
+.headerTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-10);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 38px;
+  letter-spacing: -.012em;
+}
+
+.lede {
+  max-width: 620px;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+/* §6: search sits high in the header and is the widest control on the line, so
+   the first thing the editor reaches for is findable. */
+.searchField {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 300px;
+}
+
+.searchLabel {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.searchInput {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.refreshArea {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.refreshControl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+/* The single forward action of the header: quiet, outlined, never a hero. */
+.refresh {
+  padding: 9px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-accent);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent);
+}
+
+.refresh:disabled {
+  cursor: default;
+  color: var(--color-text-secondary);
+  background: var(--color-evidence);
+}
+
+.refreshStatus,
+.refreshError {
+  font-size: 12px;
+  line-height: 16px;
+  text-align: right;
+}
+
+.refreshStatus {
+  color: var(--color-text-secondary);
+}
+
+.refreshError {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+/* §7: deliberately quiet. It answers "how current is this screen?", and it must
+   not compete with the rows that answer "what do I do next?". */
+.refreshMeta {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+/* --------------------------------------------------------------- toolbar */
+
+/* §22: exactly one toolbar — attention groups left, sorting right. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* §8: a thin underline, not a pill bar. */
+.tab {
+  position: relative;
+  padding: 6px 0;
+  border: 0;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tabActive,
+.tabActive:hover {
+  color: var(--color-accent);
+}
+
+.tabActive::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--color-accent);
+  content: "";
+}
+
+.tabCount {
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+/* ------------------------------------------------------------------ rows */
+
+/* §12: a wire row, separated by a thin line. No enclosing card, so a long list
+   stays scannable instead of becoming a wall of tiles. */
+.storyList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.storyRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-6);
+  padding: var(--space-5) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.storyBody {
+  min-width: 0;
+}
+
+.headline {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 28px;
+  letter-spacing: -.006em;
+}
+
+.headline a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.headline a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+/* §14: one compact sans-serif line of editor-useful metadata. */
+.storyMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* Restrained by design: the summary is context, not the headline's rival. */
+.storySummary {
+  display: -webkit-box;
+  max-width: 780px;
+  margin: var(--space-2) 0 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 21px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* §13: the reserved category slot. Renders nothing at all on real rows today. */
+.categoryLabel {
+  margin: 0 0 var(--space-1);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+/* Owner-approved correction: the action area is TOP-aligned, not centred.
+   A three-line headline must never push its controls to the vertical middle of
+   the row — that is what made the buttons appear to "float". The full headline
+   stays visible; the row grows instead. Row geometry is never a reason to cut
+   an editor's headline short. */
+.storyAside {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: start;
+  justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------- actions */
+
+/* §16: `Чернова` is the only filled control on the entire screen. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.action,
+.secondary,
+.quiet,
+.pending {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action {
+  border: 1px solid var(--color-accent);
+  color: var(--color-surface);
+  background: var(--color-accent);
+}
+
+.action:hover {
+  border-color: var(--color-accent-hover);
+  background: var(--color-accent-hover);
+}
+
+/* Outlined and quiet: navigation, not a decision. */
+.secondary {
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.secondary:hover {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent);
+}
+
+/* §16: the quietest of the three. Reversible triage, so never destructive red. */
+.quiet {
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.quiet:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.quiet:disabled,
+.secondary:disabled {
+  cursor: default;
+  color: var(--color-text-secondary);
+}
+
+/* §17: one calm inline status while the draft is being prepared. */
+.pending {
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
+  background: var(--color-evidence);
+  cursor: default;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: today-spin 900ms linear infinite;
+}
+
+@keyframes today-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* §21: a small warm-red surface, one sentence, in the action region. */
+.blocker {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 340px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 26%, transparent);
+  border-radius: var(--radius);
+  color: var(--color-error);
+  background: var(--color-error-surface);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.blockerMark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 50%;
+  color: var(--color-surface);
+  background: var(--color-error);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.blockerText {
+  min-width: 0;
+}
+
+/* §23: a narrow laptop wraps the actions below the Story text rather than
+   pushing them off-screen, and the summary drops to a single line. */
+@media (max-width: 1240px) {
+  .storyRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .storyAside {
+    justify-content: flex-start;
+  }
+
+  .storySummary {
+    -webkit-line-clamp: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+
+.sortField {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sortLabel {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.sortSelect {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.shownCount {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}

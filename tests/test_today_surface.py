@@ -44,7 +44,7 @@ def _development_id(story_id: str, item_id: str) -> str:
     return "dev_" + hashlib.sha256(seed).hexdigest()[:15]
 
 
-def _item(item_id: str, *, title: str = "Материал", discovered_at: str) -> dict:
+def _item(item_id: str, *, title: str = "Материал", discovered_at: str, publisher_domain: str = "") -> dict:
     return {
         "item_id": item_id,
         "source_id": "source-a",
@@ -55,6 +55,9 @@ def _item(item_id: str, *, title: str = "Материал", discovered_at: str) 
         "discovered_at": discovered_at,
         "summary": f"Обобщение за {title}",
         "source_kind": "media",
+        # Who published it, as opposed to `source_id`/`source_kind`, which record
+        # only how it was discovered.
+        "publisher_domain": publisher_domain,
         "status": "NEW",
     }
 
@@ -93,7 +96,7 @@ def _story(story_id: str, *, changed_at: str, status: str = "NEW", developments=
     return story
 
 
-def _seed(tmp_path, stories, *, follow=(), article_story=None):
+def _seed(tmp_path, stories, *, follow=(), article_story=None, domains_by_story=None):
     """Write a complete, valid newsroom fixture and return its paths."""
     newsroom = tmp_path / "newsroom"
     newsroom.mkdir(parents=True, exist_ok=True)
@@ -101,12 +104,16 @@ def _seed(tmp_path, stories, *, follow=(), article_story=None):
     inbox_path = newsroom / "inbox.jsonl"
     rows = []
     for story in stories:
+        # `publisher_domain` lives on the inbox row, not on the Story member, so
+        # the seeded item has to carry it for the count to mean anything.
+        domains = (domains_by_story or {}).get(story["story_id"], {})
         for member in story["members"]:
             rows.append(
                 _item(
                     member["item_id"],
                     title=f"Заглавие {story['story_id']}",
                     discovered_at=member["added_at"],
+                    publisher_domain=domains.get(member["item_id"], ""),
                 )
             )
     inbox_store.save_items(rows, inbox_path)
@@ -627,6 +634,125 @@ def test_only_article_content_reads_scale_with_articles(tmp_path):
     # The Article index grows only with the Articles, never with the Stories.
     assert lots["articles"] > few["articles"]
     assert lots["story_store"] == few["story_store"], "Article count re-scans the corpus"
+
+
+# --------------------------------------------------------------------------
+# V1.2-G1 §10/§31 the one projection field this slice adds
+# --------------------------------------------------------------------------
+
+
+def _story_with_publishers(story_id: str, domains, *, changed_at: str) -> dict:
+    """A Story whose members come from `domains`, in that order.
+
+    Each member is a distinct publication from a distinct publisher, so the
+    independent-publisher count is exactly the number of distinct domains — which
+    is the whole point of the field.
+    """
+    origin = _item(f"{story_id}-origin", title=f"Заглавие {story_id}",
+                   discovered_at=changed_at, publisher_domain=domains[0])
+    story = story_store.new_story(origin, publication_key=f"pk-{story_id}", now=changed_at)
+    story["story_id"] = story_id
+    # The seeded inbox rows are written from this map, because `publisher_domain`
+    # is an inbox property rather than a Story-member one.
+    publisher_domains = {f"{story_id}-origin": domains[0]}
+    for index, domain in enumerate(domains[1:], start=1):
+        item_id = f"{story_id}-m{index}"
+        member = _item(item_id, title=f"Публикация {index}",
+                       discovered_at=changed_at, publisher_domain=domain)
+        publisher_domains[item_id] = domain
+        story_store.add_member(
+            story,
+            member,
+            relation="NEW_DEVELOPMENT",
+            relation_source="semantic",
+            publication_key=f"pk-{story_id}-m{index}",
+            now=changed_at,
+        )
+    story_store.refresh_times(
+        story,
+        {
+            member["item_id"]: _item(member["item_id"], discovered_at=member["added_at"])
+            for member in story["members"]
+        },
+        now=changed_at,
+    )
+    story["status"] = "NEW"
+    return story, publisher_domains
+
+
+def test_today_row_carries_the_independent_publisher_count(tmp_path):
+    """§10: the count the editor sorts by is computed here, once, and surfaced.
+
+    It comes from the existing `story_store.metrics` computation (M4C §2.4), so
+    the frontend never counts a source. `discovery_count` would be the wrong
+    number — five rows from one publisher is one publisher — and this test is
+    what keeps that distinction from quietly collapsing.
+    """
+    many, many_domains = _story_with_publishers(
+        "s-many", ["a.example", "b.example", "c.example"], changed_at="2026-09-23T09:00:00Z"
+    )
+    one, one_domains = _story_with_publishers(
+        "s-one", ["only.example"], changed_at="2026-09-23T08:00:00Z"
+    )
+    paths = _seed(
+        tmp_path,
+        [many, one],
+        domains_by_story={"s-many": many_domains, "s-one": one_domains},
+    )
+    result = _today(paths, now=NOW)
+    counts = {row["id"]: row["publisherCount"] for row in result["stories"]}
+
+    assert counts == {"s-many": 3, "s-one": 1}
+    # The same value the single existing computation produces — surfaced, never
+    # re-derived on either side of the API.
+    stored = story_store.story_by_id(story_store.read_store(paths["stories"]), "s-many")
+    metrics = story_store.metrics(
+        stored,
+        {row["item_id"]: row for row in inbox_store.read_items(paths["inbox"])},
+    )
+    assert metrics["publisher_count"] == 3
+
+
+def test_publisher_count_is_zero_when_no_member_carries_a_publisher(tmp_path):
+    """An unknown publisher identity is `0`, not a fabricated `1`.
+
+    The UI renders nothing for `0` rather than claiming "0 източника", so the
+    honest value has to reach it.
+    """
+    stories = [_story("s-anon", changed_at="2026-09-23T09:00:00Z")]
+    result = _today(_seed(tmp_path, stories), now=NOW)
+
+    assert result["stories"][0]["publisherCount"] == 0
+
+
+def test_publisher_count_does_not_change_today_ordering_or_the_cap(tmp_path):
+    """§31: this is a surfaced field, not a ranking.
+
+    Ordering stays the canonical `latestChangeAt`, and the cap still bounds the
+    screen. The count travels alongside the rows; it never reorders or filters
+    them.
+    """
+    few, few_domains = _story_with_publishers(
+        "s-few-old", ["a.example"], changed_at="2026-09-23T05:00:00Z"
+    )
+    rich, rich_domains = _story_with_publishers(
+        "s-many-new",
+        ["a.example", "b.example", "c.example", "d.example"],
+        changed_at="2026-09-23T09:00:00Z",
+    )
+    result = _today(
+        _seed(
+            tmp_path,
+            [few, rich],
+            domains_by_story={"s-few-old": few_domains, "s-many-new": rich_domains},
+        ),
+        now=NOW,
+    )
+
+    # Newest first, even though the older Story has fewer publishers: no ranking
+    # was invented here.
+    assert [row["id"] for row in result["stories"]] == ["s-many-new", "s-few-old"]
+    assert result["storyAttentionTotal"] == 2
 
 
 # --------------------------------------------------------------------------

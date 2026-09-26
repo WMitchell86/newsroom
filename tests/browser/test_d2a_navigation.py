@@ -110,7 +110,9 @@ def test_fresh_pasted_story_url_opens_directly(fresh_page, spa_runtime):
     probe = fresh_page
     path = f"/stories/{spa_runtime['story_id']}"
     probe.page.goto(f"{probe.base_url}{path}", wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
     assert path_of(probe.page) == path
     assert_spa_shell(probe.page)
     probe.assert_clean(context="pasted story deep link")
@@ -131,13 +133,17 @@ def test_browser_refresh_on_nested_routes(page, spa_runtime):
     ]
     for path in cases:
         probe.page.goto(f"{probe.base_url}{path}", wait_until="load")
-        probe.page.locator("header nav").first.wait_for(state="visible")
+        probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
         probe.page.locator("main").wait_for(state="visible")
 
         probe.reset()
         # A real browser reload, not a client-side re-render.
         probe.page.reload(wait_until="load")
-        probe.page.locator("header nav").first.wait_for(state="visible")
+        probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
         probe.page.locator("main").wait_for(state="visible")
 
         assert_spa_shell(probe.page)
@@ -217,7 +223,9 @@ def test_structural_route_with_unknown_id_loads_the_spa(fresh_page):
     probe = fresh_page
     response = probe.page.goto(f"{probe.base_url}/stories/s-does-not-exist", wait_until="load")
     assert response is not None and response.status == 200
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").first.wait_for(
+        state="visible"
+    )
     # The API answers 404 and the workspace renders its own not-found state.
     probe.page.get_by_role("heading", name="Съдържанието не можа да се зареди").wait_for(
         state="visible"

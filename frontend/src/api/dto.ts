@@ -280,6 +280,26 @@ export type TodayAttention =
       reason: "NEW_STORY" | "UNREVIEWED_DEVELOPMENT";
       nextAction: "REVIEW";
       delta: { unreviewedDevelopmentCount: number };
+      /**
+       * V1.2-G1 §10: how many **independent publishers** the Story has.
+       *
+       * Computed by the backend, never in React. It is publication/corroboration
+       * context only — it is NOT a claim that any of those pages was opened, and
+       * it must never be rendered as a trust or verification badge.
+       */
+      publisherCount?: number;
+      /**
+       * V1.2-G1 §13: the reserved editorial-category slot.
+       *
+       * Current Stories have **no** production category: `category` is not part
+       * of the canonical Story schema. This field is therefore absent on every
+       * real row today, and the row renders nothing for it. It exists so the
+       * visual contract is validated now and the category slice can populate it
+       * later, without relaying out the desk. It must stay `undefined` until
+       * the backend genuinely classifies Stories — no keyword heuristics, no
+       * source-kind inference, no shadow-model output.
+       */
+      category?: string;
       /** `REVIEW` keeps its existing meaning; `QUICK_DRAFT` is backend-gated. */
       availableActions: AvailableAction[];
       quickDraft: TodayQuickDraft;

@@ -3,10 +3,17 @@
 Locators are written the way an editor would find the control: by its visible
 Bulgarian label and its role. No CSS-module class names and no internal ids leak
 into the assertions, so a restyle cannot silently break the proof.
+
+V1.2-G1: the primary navigation moved from a top `<header>` into a left rail, so
+nothing here may depend on `header nav` any more. These helpers are anchored on
+the navigation *landmark* and on the link labels, which is what actually
+identifies the control for a user and for a screen reader.
 """
 
 from __future__ import annotations
 
+#: The frozen editor destinations, in rail order. `Настройки` is last and lives
+#: in the left column, separated from the four everyday editorial destinations.
 PRIMARY_AREAS = ("Днес", "Истории", "Статии", "Архив", "Настройки")
 STORY_FILTERS = ("Всички", "Следени", "Нови развития", "Игнорирани")
 #: Hrefs that exist only in the legacy server-rendered Workbench chrome. If one of
@@ -24,7 +31,7 @@ def path_of(page) -> str:
 def goto(probe, path: str, *, wait_for: str | None = None) -> None:
     """Navigate and wait for the SPA shell, then optionally for a real element."""
     probe.page.goto(f"{probe.base_url}{path}", wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").wait_for(state="visible")
     if wait_for:
         probe.page.get_by_text(wait_for, exact=False).first.wait_for(state="visible")
 
@@ -61,7 +68,7 @@ def wait_for_state(page, expected: str, *, timeout: int = 120000) -> None:
 def open_article(probe, article_id: str) -> None:
     """Open an Article workspace and wait until its canonical state is rendered."""
     probe.page.goto(f"{probe.base_url}/articles/{article_id}", wait_until="load")
-    probe.page.locator("header nav").first.wait_for(state="visible")
+    probe.page.get_by_role("navigation", name="Основни раздели").wait_for(state="visible")
     probe.page.locator("main").wait_for(state="visible")
 
 
@@ -96,21 +103,35 @@ def primary_nav(page):
 
 
 def nav_link(page, label: str):
-    return primary_nav(page).get_by_role("link", name=label, exact=True)
+    """A frozen destination by label, wherever in the rail it now lives."""
+    return page.get_by_role("link", name=label, exact=True).first
 
 
 def assert_primary_areas(page) -> None:
-    """Exactly the five frozen areas, and no sixth one."""
-    links = primary_nav(page).get_by_role("link")
+    """Exactly the five frozen areas, in order, and no sixth one.
+
+    V1.2-G1: the four everyday destinations and `Настройки` are two navigation
+    landmarks in the left rail, so the assertion walks the rail rather than a
+    single `<nav>`. The *set* and the *order* are still what is asserted.
+    """
+    rail = page.get_by_role("complementary")
+    rail.wait_for(state="visible")
+    links = rail.get_by_role("link")
     labels = [links.nth(index).inner_text().strip() for index in range(links.count())]
-    assert tuple(labels) == PRIMARY_AREAS, f"unexpected primary navigation: {labels}"
+    # The brand link is identity, not a destination.
+    assert tuple(label for label in labels if label != "Редакция") == PRIMARY_AREAS, (
+        f"unexpected primary navigation: {labels}"
+    )
+    assert "Източници" not in labels, "a sixth primary destination was added"
 
 
 def assert_spa_shell(page) -> None:
     """React mounted inside the AppShell, with no legacy server-rendered chrome."""
     body = page.locator("body").inner_text()
     assert body.strip(), "blank screen: the SPA rendered nothing"
-    assert page.locator("header nav").count() >= 1, "AppShell navigation is missing"
+    assert page.get_by_role("navigation", name="Основни раздели").count() >= 1, (
+        "AppShell navigation is missing"
+    )
     # A server-rendered Workbench page always links its own operator surfaces and
     # stylesheet. Their absence is what proves React owns this route.
     hrefs = page.evaluate(
@@ -124,26 +145,28 @@ def assert_spa_shell(page) -> None:
 
 
 def active_area(page) -> str:
-    """The label of the currently active primary navigation item.
+    """The label of the currently active destination in the left rail.
 
-    Read from the rendered presentation - the accent-coloured underline bar that
-    only the active item draws - rather than from a CSS-module class name, so the
-    assertion describes what the editor actually sees.
+    Read from the rendered presentation — the small petrol indicator bar that only
+    the active rail item draws — rather than from a CSS-module class name, so the
+    assertion describes what the editor actually sees. G1 moved the indicator from
+    a bottom underline to a left bar, so the measurement follows the marker.
     """
     labels = page.evaluate(
         """() => {
-            const nav = document.querySelector('header nav');
-            if (!nav) return [];
-            return [...nav.querySelectorAll('a')].map((a) => {
-                const after = getComputedStyle(a, '::after');
+            const rail = document.querySelector('aside');
+            if (!rail) return [];
+            return [...rail.querySelectorAll('nav a')].map((a) => {
+                const marker = getComputedStyle(a, '::before');
+                const background = getComputedStyle(a).backgroundColor;
                 return {
                     label: a.textContent.trim(),
-                    thickness: parseFloat(after.borderBottomWidth)
-                        || parseFloat(after.height) || 0,
+                    width: parseFloat(marker.width) || 0,
+                    tinted: background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent',
                 };
             });
         }"""
     )
-    marked = [item["label"] for item in labels if item["thickness"] >= 2]
+    marked = [item["label"] for item in labels if item["width"] >= 2 or item["tinted"]]
     assert len(marked) <= 1, f"more than one primary area is marked active: {marked}"
     return marked[0] if marked else ""
