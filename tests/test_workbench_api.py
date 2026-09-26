@@ -1357,3 +1357,187 @@ def test_a_ready_article_asks_for_the_final_decision_and_leaves_today_when_final
     assert [row["id"] for row in _data(request(api_server, "/api/v1/archive"))["articles"]] == [
         article_id
     ]
+
+
+# ------------------------------------------- V1.1-A evidence bootstrap over HTTP
+
+
+def _substitute_research_network(monkeypatch, *, text: str = "", results: bool = True):
+    """Substitute ONLY the two external edges: the search provider and the opener.
+
+    Everything else stays real: the operation registry and its token, the real
+    worker thread, the real HTTP surface, the research store and the projection.
+    """
+    from editor_assistant.sources import web_fetch
+    from editor_assistant.workflow import search as search_mod
+
+    page_text = text or (
+        "Общинският съвет в Царево връчи званията почетен гражданин. "
+        "Съобщението е на 25 септември 2026 г."
+    )
+
+    class Provider:
+        name = "fake"
+
+        def search(self, query):
+            if not results:
+                return {"provider": "fake", "query": query, "status": "NO_RESULTS", "results": []}
+            return {
+                "provider": "fake",
+                "query": query,
+                "status": "SEARCH_OK",
+                "results": [
+                    {
+                        "rank": 1,
+                        "title": "Официален",
+                        "url": "https://official.example.test/a",
+                        "snippet": "s",
+                    },
+                    {
+                        "rank": 2,
+                        "title": "Втори",
+                        "url": "https://second.example.test/b",
+                        "snippet": "s",
+                    },
+                ],
+            }
+
+    def fetch_page(url, **_kwargs):
+        return {
+            "url": url,
+            "final_url": url,
+            "status": 200,
+            "content_type": "text/html; charset=utf-8",
+            "bytes": len(page_text),
+            "text": page_text,
+        }
+
+    monkeypatch.setattr(
+        search_mod, "provider_chain", lambda capability=None, env=None: ([Provider()], [])
+    )
+    monkeypatch.setattr(web_fetch, "fetch_page", fetch_page)
+
+
+def test_unassessed_story_dto_is_honest_and_offers_research(api_server, api_store):
+    detail = _data(request(api_server, "/api/v1/stories/s-one"))
+
+    assert detail["factsAndSources"] == []
+    assert detail["missingInformation"] == {
+        "items": [],
+        "assessedAt": None,
+        "evidenceStatus": "unassessed",
+    }
+    # V1.1-A §11: the first round must not require a pre-existing gap.
+    assert "RESEARCH_MORE" in detail["availableActions"]
+
+    # A malformed idempotency key is still refused before any work starts.
+    status, payload = request(
+        api_server,
+        "/api/v1/stories/s-one/research",
+        method="POST",
+        headers={"Idempotency-Key": "bad key with spaces"},
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_first_research_round_over_http_bootstraps_without_a_preexisting_gap(
+    api_server, api_store, monkeypatch
+):
+    from editor_assistant.workflow import story_operations
+
+    story_operations.clear()
+    _substitute_research_network(monkeypatch)
+
+    status, payload = request(
+        api_server,
+        "/api/v1/stories/s-one/research",
+        method="POST",
+        headers={"Idempotency-Key": "v11a-bootstrap"},
+    )
+    assert status == 202
+    token = payload["data"]["operationToken"]
+    assert token.startswith("op_")
+
+    operation = _await(api_server, token)
+    assert operation["status"] == "succeeded", operation
+
+    assessed = _data(request(api_server, "/api/v1/stories/s-one"))
+    assert assessed["missingInformation"]["evidenceStatus"] == "assessed"
+    assert assessed["missingInformation"]["assessedAt"]
+    assert len(assessed["factsAndSources"]) >= 1
+    for fact in assessed["factsAndSources"]:
+        assert fact["source"]["url"].startswith("https://")
+        assert fact["locator"]
+    # The internal research vocabulary and provider traces never cross the API.
+    serialized = json.dumps(assessed, ensure_ascii=False)
+    for forbidden in (
+        "search_runs",
+        "bundle",
+        "operationToken",
+        "research_question",
+        "provider_chain",
+    ):
+        assert forbidden not in serialized
+
+
+def test_research_that_finds_nothing_persists_an_explicit_gap(api_server, api_store, monkeypatch):
+    from editor_assistant.workflow import story_operations
+
+    story_operations.clear()
+    _substitute_research_network(monkeypatch, results=False)
+
+    status, payload = request(
+        api_server,
+        "/api/v1/stories/s-one/research",
+        method="POST",
+        headers={"Idempotency-Key": "v11a-insufficient"},
+    )
+    assert status == 202
+    operation = _await(api_server, payload["data"]["operationToken"])
+    assert operation["status"] == "succeeded", operation
+
+    detail = _data(request(api_server, "/api/v1/stories/s-one"))
+    assert detail["missingInformation"]["evidenceStatus"] == "assessed"
+    assert detail["missingInformation"]["assessedAt"]
+    assert detail["missingInformation"]["items"], "a completed round must persist a gap"
+    # Never the false clean state: `assessed` with zero facts AND zero gaps.
+    assert not (detail["factsAndSources"] == [] and detail["missingInformation"]["items"] == [])
+
+
+def test_assessed_clean_basis_offers_no_research_and_refuses_the_command(api_server, api_store):
+    story_research_store.merge_research(
+        "s-one",
+        sources=[
+            {
+                "id": "vestnik",
+                "name": "Вестник",
+                "url": "https://vestnik.example.test/2026/budget",
+            }
+        ],
+        facts=[
+            {
+                "id": "fact_money",
+                "text": "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 4",
+            }
+        ],
+        gaps=[],
+        assessed_at="2026-09-25T08:45:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="v11a-clean-basis",
+    )
+
+    detail = _data(request(api_server, "/api/v1/stories/s-one"))
+    assert detail["missingInformation"]["evidenceStatus"] == "assessed"
+    assert "RESEARCH_MORE" not in detail["availableActions"]
+
+    status, payload = request(
+        api_server,
+        "/api/v1/stories/s-one/research",
+        method="POST",
+        headers={"Idempotency-Key": "v11a-clean-refusal"},
+    )
+    assert status == 409
+    assert payload["error"]["code"] == "INVALID_TRANSITION"

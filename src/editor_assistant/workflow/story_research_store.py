@@ -14,6 +14,14 @@ from urllib.parse import urlsplit
 from editor_assistant.workflow import live_store
 
 VERSION = 1
+
+#: V1.1-A evidence/assessment status. This is NOT a Story workflow state: it
+#: only describes whether the canonical Story-owned evidence basis exists.
+#: Absence of a canonical research row means UNASSESSED — never an assessed
+#: clean state.
+EVIDENCE_UNASSESSED = "unassessed"
+EVIDENCE_ASSESSED = "assessed"
+EVIDENCE_STATUSES = (EVIDENCE_UNASSESSED, EVIDENCE_ASSESSED)
 STORY_ID_RE = re.compile(r"s[a-zA-Z0-9_-]{1,127}\Z")
 SOURCE_ID_RE = re.compile(r"[a-zA-Z0-9_.:-]{1,128}\Z")
 GAP_ID_RE = re.compile(r"gap_[a-zA-Z0-9_.:-]{1,128}\Z")
@@ -151,8 +159,12 @@ def _row(v):
         "research_rounds",
         "operation_ids",
     }
-    if not isinstance(v, dict) or set(v) != req:
+    optional = {"evidence_status"}
+    if not isinstance(v, dict) or not (req <= set(v) <= (req | optional)):
         raise StoryResearchStoreError("Story research row fields mismatch")
+    status = v.get("evidence_status", EVIDENCE_ASSESSED)
+    if status not in EVIDENCE_STATUSES:
+        raise StoryResearchStoreError("invalid evidence_status")
     sources = [_source(x) for x in v["sources"]]
     ids = {x["id"] for x in sources}
     if len(ids) != len(sources):
@@ -161,6 +173,11 @@ def _row(v):
     gaps = [_gap(x) for x in v["gaps"]]
     if len({x["id"] for x in facts}) != len(facts) or len({x["id"] for x in gaps}) != len(gaps):
         raise StoryResearchStoreError("duplicate fact/gap id")
+    if not facts and not gaps:
+        # V1.1-A §4/§10: a completed assessment must never persist an empty
+        # assessed basis (facts=0 AND gaps=0). Insufficient evidence must be
+        # recorded as at least one explicit gap.
+        raise StoryResearchStoreError("assessed research must persist facts and/or gaps")
     n = v["research_rounds"]
     if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= 2:
         raise StoryResearchStoreError("invalid research_rounds")
@@ -169,6 +186,7 @@ def _row(v):
         raise StoryResearchStoreError("operation_ids must be strings")
     return {
         "story_id": _sid(v["story_id"]),
+        "evidence_status": EVIDENCE_ASSESSED,
         "facts": sorted(facts, key=lambda x: x["id"]),
         "sources": sorted(sources, key=lambda x: x["id"]),
         "gaps": gaps,
@@ -179,15 +197,36 @@ def _row(v):
 
 
 def _empty(story_id):
+    """The V1.1-A UNASSESSED projection: absence is not an assessed clean state.
+
+    facts/sources are empty, gaps are empty, assessedAt is null and the
+    research-round count is zero. Nothing is written to the store: this is a
+    pure projection of absence.
+    """
     return {
         "story_id": story_id,
+        "evidence_status": EVIDENCE_UNASSESSED,
         "facts": [],
         "sources": [],
         "gaps": [],
-        "assessed_at": _now(),
+        "assessed_at": None,
         "research_rounds": 0,
         "operation_ids": [],
     }
+
+
+def evidence_status_of(row) -> str:
+    """Canonical evidence status of one research row (or its absence)."""
+    if not isinstance(row, dict):
+        return EVIDENCE_UNASSESSED
+    if row.get("evidence_status") in EVIDENCE_STATUSES:
+        return str(row.get("evidence_status"))
+    # Legacy rows predate the explicit status: a persisted row with a real
+    # assessed_at timestamp is assessed; the absent-row projection stays
+    # unassessed via _empty().
+    if row.get("assessed_at"):
+        return EVIDENCE_ASSESSED
+    return EVIDENCE_UNASSESSED
 
 
 def read_store(*, root=None):
@@ -292,6 +331,7 @@ def merge_research(
         new_op = operation_id not in old_ops
         merged = {
             "story_id": s,
+            "evidence_status": EVIDENCE_ASSESSED,
             "facts": list(fm.values()),
             "sources": list(sm.values()),
             "gaps": list(gm.values()),

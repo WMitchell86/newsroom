@@ -1,4 +1,4 @@
-"""Focused B4A Story-owned research backend tests."""
+"""Focused B4A Story-owned research backend tests (V1.1-A evidence bootstrap)."""
 
 from __future__ import annotations
 
@@ -187,3 +187,120 @@ def test_failed_open_does_not_mutate_story_basis(tmp_path):
             now="2026-09-25T09:00:00Z",
         )
     assert story_research_store.get_story_research("s-one", root=root)["facts"] == []
+
+
+def test_bootstrap_questions_come_from_story_context():
+    questions = story_research.bootstrap_research_questions(
+        title="Тест история", items=[{"item_id": "i1"}]
+    )
+    assert 1 <= len(questions) <= 6
+    assert any("отворен" in question for question in questions)
+
+
+def test_first_research_round_starts_without_preexisting_gaps(tmp_path):
+    root = tmp_path / "editorial"
+    pages = {
+        "https://official.test/a": {
+            "final_url": "https://official.test/a",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Кога започва официалното съобщение? Съобщението е на 25 септември 2026 г.",
+        },
+        "https://second.test/b": {
+            "final_url": "https://second.test/b",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Кога започва официалното съобщение? Съобщението е на 25 септември 2026 г.",
+        },
+    }
+    row = story_research.execute_story_research(
+        "s-boot",
+        topic="Тест история",
+        canonical_story={"story_id": "s-boot"},
+        root=root,
+        provider=_Provider(),
+        page_opener=pages.__getitem__,
+        authority_resolver=lambda domain=None: {"kind": "media", "factual_authority": True},
+        story_title="Тест история",
+        story_items=[{"item_id": "i1"}],
+        now="2026-09-25T09:00:00Z",
+    )
+    assert row["evidence_status"] == "assessed"
+    assert row["research_rounds"] == 1
+    assert row["facts"] and row["sources"]
+
+
+def test_insufficient_evidence_persists_assessed_gap(tmp_path):
+    root = tmp_path / "editorial"
+
+    class EmptyProvider(_Provider):
+        def search(self, query):
+            return {"provider": "empty", "query": query, "status": "NO_RESULTS", "results": []}
+
+    row = story_research.execute_story_research(
+        "s-empty-proof",
+        topic="Тест история",
+        canonical_story={"story_id": "s-empty-proof"},
+        root=root,
+        provider=EmptyProvider(),
+        page_opener=lambda _url: {},
+        story_title="Тест история",
+        story_items=[{"item_id": "i1"}],
+        now="2026-09-25T09:00:00Z",
+    )
+    assert row["evidence_status"] == "assessed"
+    assert row["facts"] == [] and len(row["gaps"]) >= 1
+
+
+def test_assessed_store_refuses_empty_facts_and_gaps(tmp_path):
+    root = tmp_path / "editorial"
+    with pytest.raises(story_research_store.StoryResearchStoreError):
+        story_research_store.save_story_research(
+            {
+                "story_id": "s-empty",
+                "sources": [],
+                "facts": [],
+                "gaps": [],
+                "assessed_at": "2026-09-25T08:00:00Z",
+                "research_rounds": 0,
+                "operation_ids": [],
+            },
+            root=root,
+        )
+
+
+def test_unassessed_basis_reports_evidence_status(tmp_path):
+    root = tmp_path / "editorial"
+    row = story_research_store.get_story_research("s-missing", root=root)
+    assert row["evidence_status"] == "unassessed"
+    assert row["assessed_at"] is None
+    assert story_research_store.evidence_status_of(row) == "unassessed"
+
+
+def test_provider_failure_before_assessment_writes_nothing(tmp_path, monkeypatch):
+    root = tmp_path / "editorial"
+    monkeypatch.setattr(
+        story_research.search,
+        "run_search_operation",
+        lambda **_kw: (_ for _ in ()).throw(
+            story_research.StoryResearchError("provider exploded before any assessment")
+        ),
+    )
+    with pytest.raises(story_research.StoryResearchError):
+        story_research.execute_story_research(
+            "s-fail",
+            topic="Тест история",
+            canonical_story={"story_id": "s-fail"},
+            root=root,
+            provider=_Provider(),
+            page_opener=lambda _url: (_ for _ in ()).throw(AssertionError("no fetch")),
+            story_title="Тест история",
+            story_items=[{"item_id": "i1"}],
+            now="2026-09-25T09:00:00Z",
+        )
+    assert (
+        story_research_store.evidence_status_of(
+            story_research_store.get_story_research("s-fail", root=root)
+        )
+        == "unassessed"
+    )

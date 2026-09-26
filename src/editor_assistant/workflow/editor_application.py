@@ -274,11 +274,17 @@ def _legacy_story_evidence(
     return facts, gaps, assessed
 
 
+def _evidence_status(basis) -> str:
+    """Canonical V1.1-A evidence status: absence is UNASSESSED, not clean."""
+    return story_research_store.evidence_status_of(basis)
+
+
 def _story_evidence_projection(
     story_id: str, articles: list[dict] | None = None
 ) -> tuple[list[dict], dict]:
     """Compose verified legacy Article lineage with the canonical Story basis."""
     basis = story_research_store.get_story_research(story_id)
+    evidence_status = _evidence_status(basis)
     sources = {item["id"]: item for item in basis["sources"]}
     facts = [
         {
@@ -291,13 +297,20 @@ def _story_evidence_projection(
         for item in basis["facts"]
     ]
     gaps = list(basis["gaps"])
+    assessed_at = basis.get("assessed_at")
     if articles is not None:
         legacy_facts, legacy_gaps, assessed = _legacy_story_evidence(story_id, articles)
         facts.extend(legacy_facts)
         gaps.extend(legacy_gaps)
+        if assessed:
+            assessed_at = max(assessed_at, assessed) if assessed_at else assessed
+            # Verified legacy lineage is itself an assessment: it must never
+            # leave an UNASSESSED projection paired with a real timestamp.
+            if evidence_status == story_research_store.EVIDENCE_UNASSESSED and (facts or gaps):
+                evidence_status = story_research_store.EVIDENCE_ASSESSED
         basis = {
             **basis,
-            "assessed_at": max(basis["assessed_at"], assessed) or basis["assessed_at"],
+            "assessed_at": assessed_at,
         }
     facts.extend(
         {
@@ -321,7 +334,11 @@ def _story_evidence_projection(
         if key not in seen_gaps:
             seen_gaps.add(key)
             unique_gaps.append(gap)
-    return unique_facts, {"items": unique_gaps, "assessedAt": basis["assessed_at"]}
+    return unique_facts, {
+        "items": unique_gaps,
+        "assessedAt": assessed_at,
+        "evidenceStatus": evidence_status,
+    }
 
 
 def _story(story_id: str) -> dict:
@@ -629,16 +646,20 @@ def _story_summary(story: dict, metadata: dict, items_by_id: dict, articles: lis
     )
     actions.append("UNFOLLOW" if projected["followed"] else "FOLLOW")
     basis = story_research_store.get_story_research(story["story_id"])
+    evidence_status = _evidence_status(basis)
+    # V1.1-A §11: RESEARCH_MORE is available for an UNASSESSED Story or for
+    # an assessed Story with a real researchable gap — never merely to
+    # create noise on an assessed clean basis.
     _, legacy_gaps, _ = _legacy_story_evidence(story["story_id"], articles)
     meaningful_gaps = list(basis["gaps"]) + legacy_gaps
     has_research_gap = any(item.get("question") for item in meaningful_gaps)
     has_blocking_gap = any(item.get("blocking") for item in meaningful_gaps)
-    if (
-        has_research_gap
-        and story.get("status") != "IGNORED"
-        and basis["research_rounds"] < readiness_mod.MAX_RESEARCH_ROUNDS
-        and bool(search_mod.provider_chain(capability=search_mod.CAP_WEB)[0])
-    ):
+    research_available = story.get("status") != "IGNORED" and bool(
+        search_mod.provider_chain(capability=search_mod.CAP_WEB)[0]
+    )
+    research_rounds_left = basis["research_rounds"] < readiness_mod.MAX_RESEARCH_ROUNDS
+    unassessed = evidence_status == story_research_store.EVIDENCE_UNASSESSED
+    if research_available and research_rounds_left and (unassessed or has_research_gap):
         actions.append("RESEARCH_MORE")
     if not projected["ignored"]:
         actions.append("IGNORE")
@@ -729,6 +750,41 @@ def _story_detail(story_id: str) -> dict:
     return result
 
 
+def _research_bootstrap_context(story: dict, items_by_id: dict) -> dict:
+    """Canonical Story context for the V1.1-A bootstrap first round (§6-§8).
+
+    Representative/origin publication, source identity, URL, timestamp and
+    members — never archive material, never snippet-invented facts.
+    """
+    members = list(story.get("members") or [])
+    representative = items_by_id.get(story.get("representative_item_id")) or {}
+    origin_member = next(
+        (row for row in members if row.get("relation") == "ORIGIN"), members[0] if members else {}
+    )
+    origin_item = items_by_id.get((origin_member or {}).get("item_id")) or {}
+    # Prefer the origin item, then the representative, then any member item.
+    ordered_items = []
+    for candidate in (origin_item, representative):
+        if isinstance(candidate, dict) and candidate.get("item_id"):
+            ordered_items.append(candidate)
+    for member in members:
+        candidate = items_by_id.get(member.get("item_id")) or {}
+        if candidate.get("item_id") and candidate not in ordered_items:
+            ordered_items.append(candidate)
+    seed_urls: list[str] = []
+    for candidate in ordered_items:
+        url = str(candidate.get("url") or "").strip()
+        if url and url not in seed_urls:
+            seed_urls.append(url)
+    return {
+        "title": _story_title(story, items_by_id),
+        "items": ordered_items,
+        "seed_urls": seed_urls,
+        "representative": representative,
+        "origin": origin_item,
+    }
+
+
 def research_story(story_id: str, *, provider=None, page_opener=None, now=None) -> dict:
     story = _story(story_id)
     basis = story_research_store.get_story_research(story_id)
@@ -754,14 +810,23 @@ def research_story(story_id: str, *, provider=None, page_opener=None, now=None) 
             ),
         )
     ]
-    if not questions:
-        raise EditorInvalidTransition("Няма блокираща липсваща информация за проучване.")
     items = _story_items()
     title = _story_title(story, items)
-    readiness_result = {
-        "status": readiness_mod.RESEARCH_MORE,
-        "sufficiency": {"missing_dimensions": [], "research_questions": questions},
-    }
+    unassessed = _evidence_status(basis) == story_research_store.EVIDENCE_UNASSESSED
+    readiness_result = None
+    bootstrap_context: dict = {}
+    if unassessed:
+        # V1.1-A §5: the first round must NOT require gaps. Bootstrap
+        # questions come from Story context; the executor builds them.
+        bootstrap_context = _research_bootstrap_context(story, items)
+        title = bootstrap_context["title"] or title
+    else:
+        if not questions:
+            raise EditorInvalidTransition("Няма блокираща липсваща информация за проучване.")
+        readiness_result = {
+            "status": readiness_mod.RESEARCH_MORE,
+            "sufficiency": {"missing_dimensions": [], "research_questions": questions},
+        }
     with _COMMAND_LOCK:
         try:
             story_research.execute_story_research(
@@ -778,6 +843,9 @@ def research_story(story_id: str, *, provider=None, page_opener=None, now=None) 
                     if member.get("publication_key")
                 ],
                 now=now,
+                story_title=bootstrap_context.get("title", title) if unassessed else title,
+                story_items=bootstrap_context.get("items", ()) if unassessed else (),
+                seed_urls=bootstrap_context.get("seed_urls", ()) if unassessed else (),
             )
         except (
             story_research.StoryResearchError,
@@ -792,11 +860,19 @@ def research_story(story_id: str, *, provider=None, page_opener=None, now=None) 
 def start_story_research(story_id: str, *, idempotency_key: str = "") -> dict:
     story = _story(story_id)
     basis = story_research_store.get_story_research(story_id)
+    evidence_status = _evidence_status(basis)
     _, legacy_gaps, _ = _legacy_story_evidence(
         story_id, editor_article_store.read_editor_articles()
     )
     gaps = list(basis["gaps"]) + legacy_gaps
-    signature = "\0".join(sorted(f"{x['id']}={x['question']}" for x in gaps))
+    unassessed = evidence_status == story_research_store.EVIDENCE_UNASSESSED
+    if unassessed:
+        # V1.1-A §15: two simultaneous bootstrap rounds for the same Story
+        # basis must not duplicate work — the identity is the unassessed
+        # basis itself (no gaps yet), plus the round generation.
+        signature = "bootstrap:unassessed"
+    else:
+        signature = "\0".join(sorted(f"{x['id']}={x['question']}" for x in gaps))
     generation = basis["research_rounds"]
     operation_token = story_operations.token_for(story_id, signature, generation, idempotency_key)
     if idempotency_key:
@@ -805,7 +881,7 @@ def start_story_research(story_id: str, *, idempotency_key: str = "") -> dict:
             return {"operationToken": operation_token, "status": accepted["status"]}
     if (
         story.get("status") == "IGNORED"
-        or not gaps
+        or (not gaps and not unassessed)
         or basis["research_rounds"] >= readiness_mod.MAX_RESEARCH_ROUNDS
         or not search_mod.provider_chain(capability=search_mod.CAP_WEB)[0]
     ):

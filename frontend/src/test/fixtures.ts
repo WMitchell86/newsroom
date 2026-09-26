@@ -104,6 +104,7 @@ export const storyDetail: StoryDetail = {
   factsAndSources,
   missingInformation: {
     assessedAt: "2026-09-25T09:32:00Z",
+    evidenceStatus: "assessed",
     items: [
       {
         id: "gap-contract-date",

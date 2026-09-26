@@ -56,6 +56,8 @@ export interface MissingInformationItem {
 export interface MissingInformation {
   items: MissingInformationItem[];
   assessedAt: string | null;
+  /** V1.1-A: absent basis is UNASSESSED, never an empty assessed state. */
+  evidenceStatus?: "unassessed" | "assessed";
 }
 
 export interface NewDevelopment {

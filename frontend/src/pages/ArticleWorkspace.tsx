@@ -322,8 +322,13 @@ export function ArticleWorkspace() {
 
           {missing ? <section className={styles.evidenceSection}>
             <h2 className={styles.evidenceHeading}>Какво липсва</h2>
-            <p className={styles.evidenceMeta}>Оценено на {formatDate(missing.assessedAt)}</p>
-            {missing.items.length === 0 ? <p className={styles.evidenceEmpty}>Няма липсваща информация.</p> : null}
+            {missing.assessedAt && missing.evidenceStatus !== "unassessed" ? (
+              <p className={styles.evidenceMeta}>Оценено на {formatDate(missing.assessedAt)}</p>
+            ) : null}
+            {missing.items.length === 0 && missing.evidenceStatus === "unassessed" ? (
+              <p className={styles.evidenceEmpty}>Историята още не е проучена.</p>
+            ) : null}
+            {missing.items.length === 0 && missing.evidenceStatus !== "unassessed" ? <p className={styles.evidenceEmpty}>Няма липсваща информация.</p> : null}
             {missing.items.length > 0 ? <ul className={styles.missingList}>
               {missing.items.map((item) => <li className={styles.missingItem} key={item.id}>
                 <p className={styles.missingQuestion}>{item.question}</p>

@@ -300,7 +300,14 @@ describe("B4A RESEARCH_MORE", () => {
   const researchStory: StoryDetail = {
     ...storyDetail,
     availableActions: ["RESEARCH_MORE"],
-    missingInformation: { items: [{ id: "gap-1", question: "Кога е официалният график?", kind: "missing_fact", blocking: true }], assessedAt: null },
+    missingInformation: { items: [{ id: "gap-1", question: "Кога е официалният график?", kind: "missing_fact", blocking: true }], assessedAt: null, evidenceStatus: "assessed" },
+  };
+
+  const unassessedStory: StoryDetail = {
+    ...storyDetail,
+    factsAndSources: [],
+    availableActions: ["REVIEW", "RESEARCH_MORE", "START_ARTICLE"],
+    missingInformation: { items: [], assessedAt: null, evidenceStatus: "unassessed" },
   };
 
   function renderResearch() {
@@ -366,6 +373,17 @@ describe("B4A RESEARCH_MORE", () => {
     expect(screen.getByText("Кога е официалният график?")).toBeVisible();
     expect(screen.queryByText(/Research|Research|Етап/)).toBeNull();
     expect(fetchMock.mock.calls.every(([url, init]) => !(init as RequestInit | undefined)?.method || (init as RequestInit).method === "GET" || url.endsWith("/research"))).toBe(true);
+  });
+
+  it("renders an honest unassessed state with a real research action and no assessed timestamp", async () => {
+    fetchMock.mockImplementation(async () => dataResponse(unassessedStory));
+    renderWithProviders(storyRoute(), { initialEntries: [`/stories/${unassessedStory.id}`] });
+    expect(await screen.findAllByText("Историята още не е проучена.")).not.toHaveLength(0);
+    expect(await screen.findByRole("button", { name: "Проучи още" })).toBeVisible();
+    expect(screen.queryByText(/Оценено на/)).toBeNull();
+    expect(screen.queryByText("Няма отбелязани липсващи информации.")).toBeNull();
+    expect(screen.queryByText("Няма налични факти и източници.")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/stories/${unassessedStory.id}`, expect.objectContaining({ credentials: "same-origin" }));
   });
 });
 

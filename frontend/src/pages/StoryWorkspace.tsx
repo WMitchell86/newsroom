@@ -80,6 +80,7 @@ function Developments({ story }: { story: StoryDetail }) {
 
 function FactsAndSources({ story }: { story: StoryDetail }) {
   if (!story.factsAndSources) return null;
+  const unassessed = story.missingInformation?.evidenceStatus === "unassessed";
 
   return (
     <Section title="Факти и източници" meta={String(story.factsAndSources.length)}>
@@ -102,7 +103,7 @@ function FactsAndSources({ story }: { story: StoryDetail }) {
             );
           })}
         </ul>
-      ) : <EmptyState>Няма налични факти и източници.</EmptyState>}
+      ) : unassessed ? <EmptyState>Историята още не е проучена.</EmptyState> : <EmptyState>Няма налични факти и източници.</EmptyState>}
     </Section>
   );
 }
@@ -113,9 +114,14 @@ function MissingInformationSection({ story, research }: {
 }) {
   const missing = story.missingInformation;
   if (!missing) return null;
+  // V1.1-A §12-§13: an UNASSESSED Story must never render "Оценено на …".
+  const assessedLabel = missing.assessedAt && missing.evidenceStatus !== "unassessed"
+    ? `Оценено на ${formatDate(missing.assessedAt)}`
+    : null;
 
   return (
     <Section title="Какво липсва" meta={String(missing.items.length)}>
+      {assessedLabel ? <p className={styles.meta}>{assessedLabel}</p> : null}
       {missing.items.length ? (
         <>
           <ul className={styles.gapList}>
@@ -129,6 +135,25 @@ function MissingInformationSection({ story, research }: {
               </li>
             ))}
           </ul>
+          {story.availableActions.includes("RESEARCH_MORE") ? (
+            <div className={styles.researchControl}>
+              <button
+                className={`${styles.action} ${styles.tertiaryAction}`}
+                type="button"
+                disabled={research.isPending}
+                onClick={research.mutate}
+                data-research-trigger="missing-information"
+              >
+                {research.isPending ? "Проучва се…" : "Проучи още"}
+              </button>
+              {research.isPending ? <span role="status" aria-live="polite">Проучването е в ход.</span> : null}
+              {research.error ? <span role="alert" className={styles.actionError}>{getErrorMessage(research.error, "Проучването не можа да се изпълни. Опитайте отново.")}</span> : null}
+            </div>
+          ) : null}
+        </>
+      ) : missing.evidenceStatus === "unassessed" ? (
+        <>
+          <EmptyState>Историята още не е проучена.</EmptyState>
           {story.availableActions.includes("RESEARCH_MORE") ? (
             <div className={styles.researchControl}>
               <button

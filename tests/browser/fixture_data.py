@@ -238,7 +238,7 @@ def build_fixture(*, newsroom: Path, editorial: Path) -> dict:
         "s-d2a-ignored",
         sources=[{"id": "dneshnie", "name": "Днешни", "url": "https://dneshnie.example.test/a"}],
         facts=[],
-        gaps=[],
+        gaps=[{"id": "gap_ignored", "question": GAP_SOFT, "blocking": False}],
         assessed_at="2026-09-25T08:45:00Z",
         canonical_story={"story_id": "s-d2a-ignored"},
         operation_id="d2a-seed-ignored",
