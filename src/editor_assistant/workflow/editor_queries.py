@@ -8,10 +8,12 @@ of returned dictionaries.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 from editor_assistant.workflow import (
     editor_article_store,
     editor_projections,
+    editorial_title,
     inbox_store,
     source_health,
     story_editor_metadata,
@@ -57,6 +59,23 @@ def story_is_within_horizon(story: dict, *, horizon_start: date) -> bool:
     return source_health.sofia_date(moment) >= horizon_start
 
 
+def story_editorial_title(story: dict, items_by_id: dict, registry_rows=()) -> str:
+    """The Story's editorial title, through the one canonical rule.
+
+    V1.2-G2.1 §A4/§A5. `editor_queries` and `editor_application` both need the
+    Story headline, and both must produce the same string: a Today row and the
+    Story it opens may never disagree about what the story is called. The
+    cleaning rule itself lives in `editorial_title`; this is only the lookup of
+    which publication supplies the title.
+    """
+    representative = items_by_id.get(story.get("representative_item_id")) or {}
+    developments = editor_projections.meaningful_developments(story, items_by_id)
+    item = (
+        representative if representative.get("title") else (developments[0] if developments else {})
+    )
+    return editorial_title.editorial_title_for_item(item, registry_rows=registry_rows)
+
+
 def _metadata_by_story(rows) -> dict[str, dict]:
     return {row["story_id"]: row for row in rows}
 
@@ -84,11 +103,7 @@ def read_editor_article_projection(
     title = ""
     if inbox_path is not None:
         items_by_id = {row["item_id"]: row for row in inbox_store.read_items(inbox_path)}
-        representative = items_by_id.get(story.get("representative_item_id")) or {}
-        meaningful = editor_projections.meaningful_developments(story, items_by_id)
-        title = str(
-            representative.get("title") or (meaningful[0].get("title") if meaningful else "") or ""
-        )
+        title = story_editorial_title(story, items_by_id, registry_rows=_registry_rows(inbox_path))
     story_reference = {"id": story["story_id"]}
     if title:
         story_reference["title"] = title
@@ -135,7 +150,16 @@ def _chronological(rows, *, newest, tie_breaker) -> list[dict]:
     return ordered
 
 
-def _story_attention_row(story: dict, metadata: dict, items_by_id: dict, attention: str) -> dict:
+def _registry_rows(inbox_path) -> tuple:
+    """Registry rows for title cleaning, from the newsroom that owns the inbox."""
+    if inbox_path is None:
+        return ()
+    return editorial_title.load_registry_rows(Path(inbox_path).parent / "sources.json")
+
+
+def _story_attention_row(
+    story: dict, metadata: dict, items_by_id: dict, attention: str, registry_rows=()
+) -> dict:
     """One Story attention row: the canonical fields Today needs, precomputed.
 
     Everything here is an in-memory join over the single snapshot the caller
@@ -156,7 +180,7 @@ def _story_attention_row(story: dict, metadata: dict, items_by_id: dict, attenti
     return {
         "id": story["story_id"],
         "attention": attention,
-        "title": str(representative.get("title") or latest.get("title") or ""),
+        "title": story_editorial_title(story, items_by_id, registry_rows=registry_rows),
         "summary": str(representative.get("summary") or latest.get("summary") or ""),
         "latestChangeAt": editor_projections.story_chronology_at(story),
         "unreviewedDevelopmentCount": projected["unreviewed_development_count"],
@@ -175,6 +199,7 @@ def project_today(
     article_next_actions=None,
     now=None,
     story_cap=TODAY_STORY_CAP,
+    registry_rows=(),
 ) -> dict:
     """Pure Today composition; callers provide current validation/action context.
 
@@ -211,7 +236,11 @@ def project_today(
         current = story_is_within_horizon(story, horizon_start=horizon_start)
         if not current and not editor_projections.has_unreviewed_development(story, story_metadata):
             continue
-        candidates.append(_story_attention_row(story, story_metadata, items_by_id, attention))
+        candidates.append(
+            _story_attention_row(
+                story, story_metadata, items_by_id, attention, registry_rows=registry_rows
+            )
+        )
 
     candidates = _chronological(
         candidates,
@@ -269,6 +298,7 @@ def read_today(
     article_next_actions=None,
     now=None,
     story_cap=TODAY_STORY_CAP,
+    registry_rows=(),
 ) -> dict:
     """Read and derive Today without writing an attention row or queue.
 
@@ -308,4 +338,5 @@ def read_today(
         article_next_actions=article_next_actions,
         now=now,
         story_cap=story_cap,
+        registry_rows=registry_rows or _registry_rows(inbox_path),
     )

@@ -24,6 +24,7 @@ from editor_assistant.workflow import (
     editor_article_store,
     editor_projections,
     editor_queries,
+    editorial_title,
     grouping_health,
     inbox_store,
     live_store,
@@ -163,11 +164,36 @@ def _opaque_id(prefix: str, *parts: str) -> str:
     return f"{prefix}_{hashlib.sha256(seed).hexdigest()[:15]}"
 
 
+def _registry_title_identities() -> tuple:
+    """Registry rows for title cleaning, resolved from the canonical newsroom.
+
+    Resolved through the newsroom root exactly like the collector resolves its
+    own files. `sources_registry.sources_path()` with no argument would read the
+    repository's real registry even when the newsroom root is redirected, which
+    is precisely the isolation every test and every browser fixture depends on.
+    """
+    return editorial_title.load_registry_rows(
+        newsroom_refresh.newsroom_paths(_newsroom_root())["sources"]
+    )
+
+
 def _story_title(story: dict, items_by_id: dict) -> str:
+    """The Story's editorial title: the headline, without publisher decoration.
+
+    V1.2-G2.1 §A5. This is the single funnel every editor-facing title passes
+    through - the Story workspace, the Today row, the research query and both
+    Article-creation paths - so the rule lives here once and nowhere else. The
+    raw inbox title and the Publication title are untouched (§A2): only what the
+    editor reads is cleaned, and the source material keeps the exact string the
+    feed delivered.
+    """
     representative = items_by_id.get(story.get("representative_item_id")) or {}
     meaningful = editor_projections.meaningful_developments(story, items_by_id)
     latest = meaningful[0] if meaningful else {}
-    return str(representative.get("title") or latest.get("title") or "")
+    item = representative if representative.get("title") else (latest or {})
+    return editorial_title.editorial_title_for_item(
+        item, registry_rows=_registry_title_identities()
+    )
 
 
 _UNSET = object()
@@ -752,7 +778,9 @@ def _story_summary(story: dict, metadata: dict, items_by_id: dict, articles: lis
         next_action = _next_action("RESEARCH_MORE", "BLOCKING_GAP", "Проучи още", primary=True)
     return {
         "id": story["story_id"],
-        "title": representative.get("title") or (latest or {}).get("title") or "",
+        # V1.2-G2.1 §A5: the Story projection shows the editorial title, so it
+        # goes through the same helper as Today, Article creation and research.
+        "title": _story_title(story, items_by_id),
         "summary": representative.get("summary") or (latest or {}).get("summary") or "",
         "reviewed": projected["reviewed"],
         "ignored": projected["ignored"],
@@ -796,7 +824,9 @@ def _story_detail(story_id: str) -> dict:
         )
     chronology.sort(key=lambda row: (row["at"], row["publicationId"]), reverse=True)
     facts, missing = _story_evidence_projection(story_id, articles)
-    related_articles = _story_related_articles(story_id, articles, story, items_by_id, facts, missing)
+    related_articles = _story_related_articles(
+        story_id, articles, story, items_by_id, facts, missing
+    )
     result.update(
         {
             "whatHappened": result["summary"],
@@ -1784,6 +1814,9 @@ def read_today() -> dict:
         stories_path=_paths()["stories"],
         inbox_path=_paths()["inbox"],
         metadata_root=_paths()["metadata_root"],
+        # V1.2-G2.1 §A5: a Today row shows the same editorial title the Story
+        # it opens shows, from the same rule and the same registry.
+        registry_rows=_registry_title_identities(),
     )
     new_developments = []
     new_stories = []

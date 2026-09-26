@@ -1,0 +1,2525 @@
+{
+  "sampled": [
+    {
+      "story_id": "sd79db6071f5b17d",
+      "raw_title": "Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол - БНР",
+      "editorial_title": "Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531244/zhena-i-3-godishno-dete-postradaha-pri-katastrofa-na-patya-burgas-sozopol",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531244/zhena-i-3-godishno-dete-postradaha-pri-katastrofa-na-patya-burgas-sozopol",
+          "bytes": 118763,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://novini.bg/article/2026092112115839953",
+          "ok": true,
+          "final_url": "https://novini.bg/article/2026092112115839953",
+          "bytes": 440317,
+          "final_host": "novini.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.eranova.bg/mayka-i-dete-postradaha-pri-katastrofa-na-patya-burgas-sozopol-30792",
+          "ok": true,
+          "final_url": "https://www.eranova.bg/mayka-i-dete-postradaha-pri-katastrofa-na-patya-burgas-sozopol-30792",
+          "bytes": 346939,
+          "final_host": "eranova.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxNenlLcWU4YU1HdFpfR2dlc0tlajVhS0JTSTFMX2xESkJSYlNVVkVtZENTejVkb0F1cU1oMFdlamI4bnJRQlAwR2p4NTJXcmQ3dC03clRUWXdTVDluOUNORzJSWWdPRTN0RFRvaFFtaTIzMlZRcFBCSUVhbkswem1CQTZodzdfek51SzhpM2tVZE1CUXdDdHNjdVhDQTFQQW9jb0oyWTk2Qkhkdw?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxNenlLcWU4YU1HdFpfR2dlc0tlajVhS0JTSTFMX2xESkJSYlNVVkVtZENTejVkb0F1cU1oMFdlamI4bnJRQlAwR2p4NTJXcmQ3dC03clRUWXdTVDluOUNORzJSWWdPRTN0RFRvaFFtaTIzMlZRcFBCSUVhbkswem1CQTZodzdfek51SzhpM2tVZE1CUXdDdHNjdVhDQTFQQW9jb0oyWTk2Qkhkdw?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583857,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 15,
+          "chars": 2195,
+          "claim_found": true,
+          "claim": "Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР Новинит"
+        },
+        {
+          "sentences": 57,
+          "chars": 4593,
+          "claim_found": true,
+          "claim": "България България в еврозоната Криминално Икономика Общество Образование Съд и прокуратура Времето Избори Криминално 18+ Политика Тотал щета Свят EU Балкани US Близък изток Анализи Русия Азия Африка Л"
+        },
+        {
+          "sentences": 24,
+          "chars": 3388,
+          "claim_found": true,
+          "claim": "Майка и дете пострадаха при катастрофа на пътя Бургас - Созопол Последно в EraNova.bg Избори 2026 Бургас България Региони По света Крими Общество и Здраве Спорт Шик Сигнал до ЕраНова Начало>Последно в"
+        }
+      ],
+      "claim_found_count": 3,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "eranova.bg",
+        "news.google.com",
+        "novini.bg"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "eranova.bg",
+        "news.google.com",
+        "novini.bg"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s5a4608e991ecea6",
+      "raw_title": "Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Новини",
+      "editorial_title": "Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Новини",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnrnews.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531208/mestniyat-parlament-prie-byudzheta-na-obshtina-burgas-za-2026-godina",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531208/mestniyat-parlament-prie-byudzheta-na-obshtina-burgas-za-2026-godina",
+          "bytes": 136303,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/bnrburgas/posts/%D0%B1%D1%8E%D0%B4%D0%B6%D0%B5%D1%82-%D0%BE%D1%82-%D0%BD%D0%B0%D0%B4-356-%D0%BC%D0%BB%D0%BD-%D0%B5%D0%B2%D1%80%D0%BE-%D0%BF%D1%80%D0%B8%D0%B5-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D1%8F%D1%82-%D1%81%D1%8A%D0%B2%D0%B5%D1%82-%D0%B2-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%BD%D0%B0-42-%D1%80%D0%BE%D1%82%D0%BE-%D1%81%D0%B8-%D1%80%D0%B5%D0%B4%D0%BE%D0%B2%D0%BD%D0%BE-/1754394836514300/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/bnrburgas/posts/%D0%B1%D1%8E%D0%B4%D0%B6%D0%B5%D1%82-%D0%BE%D1%82-%D0%BD%D0%B0%D0%B4-356-%D0%BC%D0%BB%D0%BD-%D0%B5%D0%B2%D1%80%D0%BE-%D0%BF%D1%80%D0%B8%D0%B5-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D1%81%D0%BA%D0%B8%D1%8F%D1%82-%D1%81%D1%8A%D0%B2%D0%B5%D1%82-%D0%B2-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%BD%D0%B0-42-%D1%80%D0%BE%D1%82%D0%BE-%D1%81%D0%B8-%D1%80%D0%B5%D0%B4%D0%BE%D0%B2%D0%BD%D0%BE-/1754394836514300/",
+          "bytes": 646910,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.burgas.bg/bg/2026-1/",
+          "ok": true,
+          "final_url": "https://www.burgas.bg/bg/2026-1/",
+          "bytes": 50830,
+          "final_host": "burgas.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxOSDE4R0M2Q194THpDM2ttV2RQdjF5S0pjWktqd09uRDVlM3pnd29RQm1FY0g4SFJMcU5WclZ0MzNpNF9EU09XVmx3LWFZbnVHUFdjSU45c0p0WW03ZkdxUTQ4WUcwbmh5bERmSk9ZT2ZaZUJOcUlKYW9HZlJYbXVqM2lWM0pmNjFTekpQeWZ0anM5N3ZIQmtpYWs1cnY1QkYwWENSNng5NllIQQ?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxOSDE4R0M2Q194THpDM2ttV2RQdjF5S0pjWktqd09uRDVlM3pnd29RQm1FY0g4SFJMcU5WclZ0MzNpNF9EU09XVmx3LWFZbnVHUFdjSU45c0p0WW03ZkdxUTQ4WUcwbmh5bERmSk9ZT2ZaZUJOcUlKYW9HZlJYbXVqM2lWM0pmNjFTekpQeWZ0anM5N3ZIQmtpYWs1cnY1QkYwWENSNng5NllIQQ?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583900,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 49,
+          "chars": 6447,
+          "claim_found": true,
+          "claim": "Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрогра"
+        },
+        {
+          "sentences": 2,
+          "chars": 58,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 15,
+          "chars": 4186,
+          "claim_found": true,
+          "claim": "Четвъртък, 24 Септември 2026 Прочетете повече Проектобюджет 2026 г."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "burgas.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [
+        "burgas.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s5bd17a3de24ad7d",
+      "raw_title": "Царево с две отличия в конкурса „Строителен обект на Черноморието“ - faragency.bg",
+      "editorial_title": "Царево с две отличия в конкурса „Строителен обект на Черноморието“",
+      "discovered_via": "google-news-burgas-region",
+      "discoverer_kind": "aggregator",
+      "discoverer_authority": false,
+      "publisher_domain": "www.faragency.bg",
+      "item_host": "news.google.com",
+      "member_count": 3,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://vestnikstroitel.bg/ksb/vrcixa-nagradite-na-pobeditelite-v-prviya-konkurs-stroitelen-obekt-na-cernomorieto",
+          "ok": true,
+          "final_url": "https://vestnikstroitel.bg/ksb/vrcixa-nagradite-na-pobeditelite-v-prviya-konkurs-stroitelen-obekt-na-cernomorieto",
+          "bytes": 206383,
+          "final_host": "vestnikstroitel.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/100083228596000/posts/%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0-%D1%86%D0%B0%D1%80%D0%B5%D0%B2%D0%BE-%D1%82%D1%80%D0%B8%D1%83%D0%BC%D1%84%D0%B8%D1%80%D0%B0-%D1%81-%D0%B4%D0%B2%D0%B5-%D0%BD%D0%B0%D0%B3%D1%80%D0%B0%D0%B4%D0%B8-%D0%BD%D0%B0-%D0%BA%D0%BE%D0%BD%D0%BA%D1%83%D1%80%D1%81%D0%B0-%D1%81%D1%82%D1%80%D0%BE%D0%B8%D1%82%D0%B5%D0%BB%D0%B5%D0%BD-%D0%BE%D0%B1%D0%B5%D0%BA%D1%82-%D0%BD%D0%B0-%D1%87%D0%B5%D1%80%D0%BD%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5/1083146511136292/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/100083228596000/posts/%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0-%D1%86%D0%B0%D1%80%D0%B5%D0%B2%D0%BE-%D1%82%D1%80%D0%B8%D1%83%D0%BC%D1%84%D0%B8%D1%80%D0%B0-%D1%81-%D0%B4%D0%B2%D0%B5-%D0%BD%D0%B0%D0%B3%D1%80%D0%B0%D0%B4%D0%B8-%D0%BD%D0%B0-%D0%BA%D0%BE%D0%BD%D0%BA%D1%83%D1%80%D1%81%D0%B0-%D1%81%D1%82%D1%80%D0%BE%D0%B8%D1%82%D0%B5%D0%BB%D0%B5%D0%BD-%D0%BE%D0%B1%D0%B5%D0%BA%D1%82-%D0%BD%D0%B0-%D1%87%D0%B5%D1%80%D0%BD%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5/1083146511136292/",
+          "bytes": 651708,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.faragency.bg/news/17899932905270/tsarevo-s-dve-otlichiya-v-konkursa-stroitelen-obekt-na-chernomorieto",
+          "ok": true,
+          "final_url": "https://www.faragency.bg/news/17899932905270/tsarevo-s-dve-otlichiya-v-konkursa-stroitelen-obekt-na-chernomorieto",
+          "bytes": 57995,
+          "final_host": "faragency.bg",
+          "in_registry": true,
+          "factual_authority": false,
+          "registry_kind": "regional",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxORG5XeFFvOGNKdGRmU0NocS0yejB2X2xZSlVhUjJBNVRyVWpfMTJ3MG1IN29QUnVibklxLURGNGRJeUhEMzQ4ZVVOSHpqQkhZM3BZQTgtTUFOd2tvUlYzYktURHhZRTNhZ3RhRDBJcmdJUUJhZldGM3BVaGRyRThESThiVkxYRE1YeHZWU0RqemRvbUVjV2NRUGtfSDdhdGJwai04Q29wY3QzUXR6bzE5MXlNNA?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxORG5XeFFvOGNKdGRmU0NocS0yejB2X2xZSlVhUjJBNVRyVWpfMTJ3MG1IN29QUnVibklxLURGNGRJeUhEMzQ4ZVVOSHpqQkhZM3BZQTgtTUFOd2tvUlYzYktURHhZRTNhZ3RhRDBJcmdJUUJhZldGM3BVaGRyRThESThiVkxYRE1YeHZWU0RqemRvbUVjV2NRUGtfSDdhdGJwai04Q29wY3QzUXR6bzE5MXlNNA?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584143,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 337,
+          "chars": 37359,
+          "claim_found": true,
+          "claim": "Министър Шишков ще инспектира ремонта на художествената галерия „Атанас Шаренков“ в Хасково ..."
+        },
+        {
+          "sentences": 2,
+          "chars": 52,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 17,
+          "chars": 4089,
+          "claim_found": true,
+          "claim": "Влизам, защото вярвам, че мога да дам нещо 09.09.2026 10:54 Политика Кметът на Царево Марин Киров влиза в инициативния комитет на Йотова 08.09.2026 10:38 Култура Царево Старата сграда на кметството в "
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "faragency.bg",
+        "news.google.com",
+        "vestnikstroitel.bg"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "news.google.com",
+        "vestnikstroitel.bg"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sea922303899ba1f",
+      "raw_title": "„Застинало време“ събира светлина, архитектура и спомени в галерия „Неси“ - burgas.bg",
+      "editorial_title": "„Застинало време“ събира светлина, архитектура и спомени в галерия „Неси“",
+      "discovered_via": "burgas-municipality",
+      "discoverer_kind": "official",
+      "discoverer_authority": true,
+      "publisher_domain": "www.burgas.bg",
+      "item_host": "news.google.com",
+      "member_count": 3,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.facebook.com/cernomorskifar/posts/%D0%B7%D0%B0%D1%81%D1%82%D0%B8%D0%BD%D0%B0%D0%BB%D0%BE-%D0%B2%D1%80%D0%B5%D0%BC%D0%B5-%D1%81%D1%8A%D0%B1%D0%B8%D1%80%D0%B0-%D1%81%D0%B2%D0%B5%D1%82%D0%BB%D0%B8%D0%BD%D0%B0-%D0%B0%D1%80%D1%85%D0%B8%D1%82%D0%B5%D0%BA%D1%82%D1%83%D1%80%D0%B0-%D0%B8-%D1%81%D0%BF%D0%BE%D0%BC%D0%B5%D0%BD%D0%B8-%D0%B2-%D0%B3%D0%B0%D0%BB%D0%B5%D1%80%D0%B8%D1%8F-%D0%BD%D0%B5%D1%81%D0%B8/1714210310707891/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/cernomorskifar/posts/%D0%B7%D0%B0%D1%81%D1%82%D0%B8%D0%BD%D0%B0%D0%BB%D0%BE-%D0%B2%D1%80%D0%B5%D0%BC%D0%B5-%D1%81%D1%8A%D0%B1%D0%B8%D1%80%D0%B0-%D1%81%D0%B2%D0%B5%D1%82%D0%BB%D0%B8%D0%BD%D0%B0-%D0%B0%D1%80%D1%85%D0%B8%D1%82%D0%B5%D0%BA%D1%82%D1%83%D1%80%D0%B0-%D0%B8-%D1%81%D0%BF%D0%BE%D0%BC%D0%B5%D0%BD%D0%B8-%D0%B2-%D0%B3%D0%B0%D0%BB%D0%B5%D1%80%D0%B8%D1%8F-%D0%BD%D0%B5%D1%81%D0%B8/1714210310707891/",
+          "bytes": 595447,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/burgas/posts/1528047782461393/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/burgas/posts/1528047782461393/",
+          "bytes": 945848,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.faragency.bg/news/17899713169399/velikolepna-sedmorka-balgarski-tvortsi-otkriva-port-prim-art-fest-2026-",
+          "ok": true,
+          "final_url": "https://www.faragency.bg/news/17899713169399/velikolepna-sedmorka-balgarski-tvortsi-otkriva-port-prim-art-fest-2026-",
+          "bytes": 59447,
+          "final_host": "faragency.bg",
+          "in_registry": true,
+          "factual_authority": false,
+          "registry_kind": "regional",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiowFBVV95cUxOVXhOb01xQ0xUMVkwVWZxVmdCMnJrUUhuVk5keXdWSlhTRW5iMmZYdUxuR0tBYW00aDVlcE12eDZTYUlRUkdLMUtua0Q1QUtBUVBKNVBseWdDd1NpeXNITXYtWVRrODFzNWhWaFNTUzZvU29vN0poNVo4czZhbk9SR3RuMHBEaG5RNllwMEd6RzhVcDctQlBrWnZ0eWxWU2IybXI0?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiowFBVV95cUxOVXhOb01xQ0xUMVkwVWZxVmdCMnJrUUhuVk5keXdWSlhTRW5iMmZYdUxuR0tBYW00aDVlcE12eDZTYUlRUkdLMUtua0Q1QUtBUVBKNVBseWdDd1NpeXNITXYtWVRrODFzNWhWaFNTUzZvU29vN0poNVo4czZhbk9SR3RuMHBEaG5RNllwMEd6RzhVcDctQlBrWnZ0eWxWU2IybXI0?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583699,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMitAFBVV95cUxPWXpfTDdPUjdXVVF3NGNPd0RJaWdyNXJJcXBoeXUzTEtHN3Fzem5yVGw5X2xhenhNNFZ4Nm9yRmdocWxqUTgtMW5DemdNRFNmVHg2eDVpTFdtaFl4WU5LM1hydmZ1aHdDV00yVk1vTkxtcXV3N3d0NE1QMTc0eHFFWFNMUk5kdXd1UGJTaVV3ZThjd0VjcGx6ajY4TUxGemR4ZkgybXV5aFhMVWxyMExnRmFzZEI?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMitAFBVV95cUxPWXpfTDdPUjdXVVF3NGNPd0RJaWdyNXJJcXBoeXUzTEtHN3Fzem5yVGw5X2xhenhNNFZ4Nm9yRmdocWxqUTgtMW5DemdNRFNmVHg2eDVpTFdtaFl4WU5LM1hydmZ1aHdDV00yVk1vTkxtcXV3N3d0NE1QMTc0eHFFWFNMUk5kdXd1UGJTaVV3ZThjd0VjcGx6ajY4TUxGemR4ZkgybXV5aFhMVWxyMExnRmFzZEI?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584165,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 1,
+          "chars": 55,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 1,
+          "chars": 6,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 26,
+          "chars": 5393,
+          "claim_found": true,
+          "claim": "Изложбата ще бъде открита на 7 октомври от 18:00 часа в Бургаската художествена галерия „Петко Задгорски“ и ще може да бъде разгледана до 30 октомври включително."
+        }
+      ],
+      "claim_found_count": 1,
+      "opened_count": 5,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "faragency.bg",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 2
+    },
+    {
+      "story_id": "s8a37bd28ab963e0",
+      "raw_title": "Логистични решения с поглед към бъдещето - БНР",
+      "editorial_title": "Логистични решения с поглед към бъдещето",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531384/logistichni-resheniya-s-pogled-kam-badeshteto",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531384/logistichni-resheniya-s-pogled-kam-badeshteto",
+          "bytes": 143408,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://nextlogistic.eu/",
+          "ok": true,
+          "final_url": "https://nextlogistic.eu/",
+          "bytes": 8567,
+          "final_host": "nextlogistic.eu",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.gw-world.com/bg/firma/ustoichivost/reshenija",
+          "ok": true,
+          "final_url": "https://www.gw-world.com/bg/firma/ustoichivost/reshenija",
+          "bytes": 69208,
+          "final_host": "gw-world.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxQcHhFa1F4Z2RZSjVCYlhpSjNTU3hMa0c5TU84eTNfQ3AtNUVHVzg0cHZScnlLWnBfYUVqWkxHOXNRbGFMRmlGc3NGU1ViejFVazBhUXFMWG5Dc2wzN05VSFRpQjA0djRqUWhBcmtRQkowb3hKaVJTUklQMi1KMkdjOWpFcFA?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxQcHhFa1F4Z2RZSjVCYlhpSjNTU3hMa0c5TU84eTNfQ3AtNUVHVzg0cHZScnlLWnBfYUVqWkxHOXNRbGFMRmlGc3NGU1ViejFVazBhUXFMWG5Dc2wzN05VSFRpQjA0djRqUWhBcmtRQkowb3hKaVJTUklQMi1KMkdjOWpFcFA?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 582794,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 52,
+          "chars": 6965,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 1,
+          "chars": 47,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 7,
+          "chars": 3557,
+          "claim_found": false,
+          "claim": ""
+        }
+      ],
+      "claim_found_count": 0,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "NO_RELEVANT_CLAIM_EXTRACTED",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "gw-world.com",
+        "news.google.com",
+        "nextlogistic.eu"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "gw-world.com",
+        "news.google.com",
+        "nextlogistic.eu"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s5ef31f8245eadc2",
+      "raw_title": "ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА",
+      "editorial_title": "ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА",
+      "discovered_via": "burgas-municipal-council",
+      "discoverer_kind": "official",
+      "discoverer_authority": true,
+      "publisher_domain": "burgascouncil.org",
+      "item_host": "burgascouncil.org",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 1,
+      "sources": 1,
+      "gaps": [
+        "Кои хора са засегнати и как?",
+        "Защо това има значение за читателя тук и сега?",
+        "Каква е практическата последица за читателя?",
+        "Какъв е обхватът (числа, брой участници/ползватели)?",
+        "Кой орган/отговорник е източникът на информацията?",
+        "Кога и къде?",
+        "Каква е сумата/финансирането и за какво точно?"
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.youtube.com/watch?v=GW-uodjwaGg",
+          "ok": false,
+          "error": "WebFetchError"
+        },
+        {
+          "url": "https://burgascouncil.org/",
+          "ok": true,
+          "final_url": "https://burgascouncil.org/",
+          "bytes": 66229,
+          "final_host": "burgascouncil.org",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.youtube.com/watch?v=v3n29fdsnW8",
+          "ok": false,
+          "error": "WebFetchError"
+        },
+        {
+          "url": "https://burgascouncil.org/node/3662",
+          "ok": true,
+          "final_url": "https://burgascouncil.org/node/3662",
+          "bytes": 67822,
+          "final_host": "burgascouncil.org",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 1,
+          "chars": 0,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 71,
+          "chars": 6938,
+          "claim_found": true,
+          "claim": "НОВИНИ КУЛТУРНА ПРОГРАМА СПОРТНА ПРОГРАМА ОБЯВЛЕНИЯ ЗА КОНКУРСИ ОБЩЕСТВЕНИ КОНСУЛТАЦИИ WWW.GOTOBURGAS.COM Обяви и съобщения ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА Публикувано от zh.gosp"
+        }
+      ],
+      "claim_found_count": 1,
+      "opened_count": 2,
+      "editor_gap": null,
+      "category": "OK",
+      "opened_hosts": [
+        "burgascouncil.org"
+      ],
+      "opened_authoritative_hosts": [
+        "burgascouncil.org"
+      ],
+      "opened_unregistered_hosts": [],
+      "unresolved_aggregator_opens": 0
+    },
+    {
+      "story_id": "sefe90cb2f7bdeda",
+      "raw_title": "Black Sea Open събира най-добрите тенис любители през уикенда в Бургас - Sportal.bg",
+      "editorial_title": "Black Sea Open събира най-добрите тенис любители през уикенда в Бургас",
+      "discovered_via": "google-news-burgas-region",
+      "discoverer_kind": "aggregator",
+      "discoverer_authority": false,
+      "publisher_domain": "sportal.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://sportal.bg/news-2026092108414064095",
+          "ok": true,
+          "final_url": "https://sportal.bg/news-2026092108414064095",
+          "bytes": 296385,
+          "final_host": "sportal.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.topnovini.com/story/4293709242",
+          "ok": true,
+          "final_url": "https://www.topnovini.com/story/4293709242",
+          "bytes": 168074,
+          "final_host": "topnovini.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://tenniszanaroda.com/news/view.php?id=11",
+          "ok": true,
+          "final_url": "https://tenniszanaroda.com/news/view.php?id=11",
+          "bytes": 23117,
+          "final_host": "tenniszanaroda.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiVkFVX3lxTE56LVMwUHNDWDVUa3lPT3BfYURsT0pXNDR1UUFzMUZFRzJGQk4tSlRocW45U3o4QTlBS2c4bjBnWGNoS2h4azRINFp3bWxBRlQ4VkpZa0hn?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiVkFVX3lxTE56LVMwUHNDWDVUa3lPT3BfYURsT0pXNDR1UUFzMUZFRzJGQk4tSlRocW45U3o4QTlBS2c4bjBnWGNoS2h4azRINFp3bWxBRlQ4VkpZa0hn?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 581368,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 33,
+          "chars": 6867,
+          "claim_found": true,
+          "claim": "Организаторите ще изчакат до сряда, 23 септември, преди да финализират групите, за да могат да реагират на евентуални промени."
+        },
+        {
+          "sentences": 7,
+          "chars": 2276,
+          "claim_found": true,
+          "claim": "Black Sea Open събира най-добрите тенис любителите идния уикенд в Бургас | Топ Новини НАЧАЛОБЪЛГАРИЯСВЯТБИЗНЕССПОРТТЕХНОЛОГИИНАУКАШОУБИЗНЕСЛАЙФЗДРАВЕВРЕМЕТО НачалоБългарияСвятБизнесСпортТехнологииНаук"
+        },
+        {
+          "sentences": 31,
+          "chars": 3275,
+          "claim_found": true,
+          "claim": "На 26 и 27 септември Бургас ще посрещне участниците в ERA Black Sea Open 2026 — два дни с тенис, награди и забавления за цялото семейство."
+        }
+      ],
+      "claim_found_count": 3,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "news.google.com",
+        "sportal.bg",
+        "tenniszanaroda.com",
+        "topnovini.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "news.google.com",
+        "sportal.bg",
+        "tenniszanaroda.com",
+        "topnovini.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sffd9303a1a71992",
+      "raw_title": "Булевард Демокрация на 21-ви септември - БНР",
+      "editorial_title": "Булевард Демокрация на 21-ви септември",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531342/bulevard-demokratsiya-na-21-vi-septemvri",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531342/bulevard-demokratsiya-na-21-vi-septemvri",
+          "bytes": 119129,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://bnrnews.bg/burgas/post/531762/bulevard-demokratsiya-na-22-septemvri",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531762/bulevard-demokratsiya-na-22-septemvri",
+          "bytes": 119434,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "http://bnr.bg/burgas/post/532791/po-bulevard-demokratsiya-na-24-septemvri",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/532791/po-bulevard-demokratsiya-na-24-septemvri",
+          "bytes": 124792,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTFBxbVM1TEVkNWhmWGFxTmh1RV85MG5Pb3pDNFFuV09NSFczMFNvTGpOWVNoTWpXb0t4ektDWDFWV0hjMGVEMzN4RDZrcG5iNlo0M281eXdlYjZIZmpFb1BhVkNYR0UtYkk3Znc0am5WRUZFaTM0dFctVXNhMGJJZw?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMifkFVX3lxTFBxbVM1TEVkNWhmWGFxTmh1RV85MG5Pb3pDNFFuV09NSFczMFNvTGpOWVNoTWpXb0t4ektDWDFWV0hjMGVEMzN4RDZrcG5iNlo0M281eXdlYjZIZmpFb1BhVkNYR0UtYkk3Znc0am5WRUZFaTM0dFctVXNhMGJJZw?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 582588,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 18,
+          "chars": 2614,
+          "claim_found": true,
+          "claim": "Булевард Демокрация на 21-ви септември - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрограма ХоризонтПрограма Христ"
+        },
+        {
+          "sentences": 15,
+          "chars": 2517,
+          "claim_found": true,
+          "claim": "\"Булевард Демокрация\" на 22 септември - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрограма ХоризонтПрограма Христо"
+        },
+        {
+          "sentences": 26,
+          "chars": 3476,
+          "claim_found": true,
+          "claim": "По \"Булевард Демокрация\" на 24 септември - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрограма ХоризонтПрограма Хри"
+        }
+      ],
+      "claim_found_count": 3,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sd417b914eb8f8f4",
+      "raw_title": "Кметът на Поморие представя стратегия за развитие на общинската болница на 24 септември - BurgasMedia",
+      "editorial_title": "Кметът на Поморие представя стратегия за развитие на общинската болница на 24 септември",
+      "discovered_via": "pomorie-municipality",
+      "discoverer_kind": "official",
+      "discoverer_authority": true,
+      "publisher_domain": "burgasmedia.com",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.facebook.com/BurgasMediaOfficial/posts/%D0%BA%D0%BC%D0%B5%D1%82%D1%8A%D1%82-%D0%BD%D0%B0-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D0%BF%D1%80%D0%B5%D0%B4%D1%81%D1%82%D0%B0%D0%B2%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D1%82%D0%B5%D0%B3%D0%B8%D1%8F-%D0%B7%D0%B0-%D1%80%D0%B0%D0%B7%D0%B2%D0%B8%D1%82%D0%B8%D0%B5-%D0%BD%D0%B0-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D1%81%D0%BA%D0%B0%D1%82%D0%B0-%D0%B1%D0%BE%D0%BB%D0%BD%D0%B8%D1%86%D0%B0-%D0%BD%D0%B0-24-%D1%81%D0%B5/122172923882967902/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/BurgasMediaOfficial/posts/%D0%BA%D0%BC%D0%B5%D1%82%D1%8A%D1%82-%D0%BD%D0%B0-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D0%BF%D1%80%D0%B5%D0%B4%D1%81%D1%82%D0%B0%D0%B2%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D1%82%D0%B5%D0%B3%D0%B8%D1%8F-%D0%B7%D0%B0-%D1%80%D0%B0%D0%B7%D0%B2%D0%B8%D1%82%D0%B8%D0%B5-%D0%BD%D0%B0-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D1%81%D0%BA%D0%B0%D1%82%D0%B0-%D0%B1%D0%BE%D0%BB%D0%BD%D0%B8%D1%86%D0%B0-%D0%BD%D0%B0-24-%D1%81%D0%B5/122172923882967902/",
+          "bytes": 599455,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://bnrnews.bg/burgas/post/531430/kmetat-na-pomorie-ivan-aleksiev-shte-predstavi-strategiyata-za-razvitie-na-bolnitsata",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531430/kmetat-na-pomorie-ivan-aleksiev-shte-predstavi-strategiyata-za-razvitie-na-bolnitsata",
+          "bytes": 120005,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/obshtina-pomorie-podgotvya-poetapen-plan-za-ozdravyavane-i-razvitie-na-obshtinskata-bolnitsa/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/obshtina-pomorie-podgotvya-poetapen-plan-za-ozdravyavane-i-razvitie-na-obshtinskata-bolnitsa/",
+          "bytes": 237449,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMivAFBVV95cUxPUTk3Y2FsMVcwTFFXbFB2VHhTSjNFZ2JJTEY1T05RWl9qY2ZxZm9oRWxqemx5ZWM2cFh1RnBSRTZHUzFJVXViWElzSFVOaElTQldVQ1FTU1Zpb2RhTk52MUI0RmhodzhWY3MtdHZCS1FYbGdWb2wydUhwcmpMNGpETGNwal9UVzMzMU1iLWRVenQyRTAyZUxhMDRiQjl6RzJYal90cm5VRUlyZHR0T0pUMnlzLTJCVU10WVJsVtIBwgFBVV95cUxNQzNwc0cyRUk1b293RTZxX0pJbkZUdmVkczNOVkF6ZnpPdTdISDQxUU04WXY4U2ZKZW50MXh3VFVWMkw4dEN6MTFrOENPLXNlZkRweExTSTRpUGtVSXJNWXprV3U1M3hmM2ZKX2tMOTRXT1ZpbHR6RFdIVi14aEJrOEl2TXdpZGYwbi00T25BT01QNnY0S0FDRzBDbHpxMUpjYy1IUEJMN2J1U1R1UVFkQWVRa0FyOTBWMzcyOTlpekxWZw?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMivAFBVV95cUxPUTk3Y2FsMVcwTFFXbFB2VHhTSjNFZ2JJTEY1T05RWl9qY2ZxZm9oRWxqemx5ZWM2cFh1RnBSRTZHUzFJVXViWElzSFVOaElTQldVQ1FTU1Zpb2RhTk52MUI0RmhodzhWY3MtdHZCS1FYbGdWb2wydUhwcmpMNGpETGNwal9UVzMzMU1iLWRVenQyRTAyZUxhMDRiQjl6RzJYal90cm5VRUlyZHR0T0pUMnlzLTJCVU10WVJsVtIBwgFBVV95cUxNQzNwc0cyRUk1b293RTZxX0pJbkZUdmVkczNOVkF6ZnpPdTdISDQxUU04WXY4U2ZKZW50MXh3VFVWMkw4dEN6MTFrOENPLXNlZkRweExTSTRpUGtVSXJNWXprV3U1M3hmM2ZKX2tMOTRXT1ZpbHR6RFdIVi14aEJrOEl2TXdpZGYwbi00T25BT01QNnY0S0FDRzBDbHpxMUpjYy1IUEJMN2J1U1R1UVFkQWVRa0FyOTBWMzcyOTlpekxWZw?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 590233,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 1,
+          "chars": 57,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 13,
+          "chars": 2457,
+          "claim_found": true,
+          "claim": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР Нов"
+        },
+        {
+          "sentences": 71,
+          "chars": 15417,
+          "claim_found": true,
+          "claim": "Община Поморие подготвя поетапен план за оздравяване и развитие на общинската болница – Община Поморие Skip to content 26.09.2026г."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com",
+        "pomorie.bg"
+      ],
+      "opened_authoritative_hosts": [
+        "pomorie.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sc47b12de6446c7f",
+      "raw_title": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Новини",
+      "editorial_title": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Новини",
+      "discovered_via": "google-news-burgas-region",
+      "discoverer_kind": "aggregator",
+      "discoverer_authority": false,
+      "publisher_domain": "bnrnews.bg",
+      "item_host": "news.google.com",
+      "member_count": 2,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531430/kmetat-na-pomorie-ivan-aleksiev-shte-predstavi-strategiyata-za-razvitie-na-bolnitsata",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531430/kmetat-na-pomorie-ivan-aleksiev-shte-predstavi-strategiyata-za-razvitie-na-bolnitsata",
+          "bytes": 120005,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "http://bnr.bg/burgas/post/533099/tarsyat-strategicheski-partnyor-za-zapazvaneto-i-razvitieto-na-mbal-pomorie",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/533099/tarsyat-strategicheski-partnyor-za-zapazvaneto-i-razvitieto-na-mbal-pomorie",
+          "bytes": 144126,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/bnrburgas/posts/%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0%D1%82%D0%B0-%D1%89%D0%B5-%D1%81%D0%B8-%D0%B7%D0%B0%D0%BF%D0%B0%D0%B7%D0%B8-51-%D0%BE%D1%82-%D0%BC%D0%B1%D0%B0%D0%BB-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D0%B0-%D0%B8%D0%B7%D0%B1%D1%80%D0%B0%D0%BD%D0%B8%D1%8F%D1%82-%D0%BF%D0%B0%D1%80%D1%82%D0%BD%D1%8C%D0%BE%D1%80-%D1%89%D0%B5-%D0%BF%D1%80%D0%B8%D0%B4%D0%BE%D0%B1%D0%B8%D0%B5-49-%D0%BE%D1%82-/1758467379440379/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/bnrburgas/posts/%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0%D1%82%D0%B0-%D1%89%D0%B5-%D1%81%D0%B8-%D0%B7%D0%B0%D0%BF%D0%B0%D0%B7%D0%B8-51-%D0%BE%D1%82-%D0%BC%D0%B1%D0%B0%D0%BB-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D0%B0-%D0%B8%D0%B7%D0%B1%D1%80%D0%B0%D0%BD%D0%B8%D1%8F%D1%82-%D0%BF%D0%B0%D1%80%D1%82%D0%BD%D1%8C%D0%BE%D1%80-%D1%89%D0%B5-%D0%BF%D1%80%D0%B8%D0%B4%D0%BE%D0%B1%D0%B8%D0%B5-49-%D0%BE%D1%82-/1758467379440379/",
+          "bytes": 601083,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiwAFBVV95cUxQRzIxWmdqVldRMnRsdTFlNEthMHBGeGszOWo2cEZFd2dMazRVWHp0REM3SEw1c2d6Q0J0aVpxMDJiTDlqNW80dG8tS3pfcUthU2lCX1BYb2dMWlpHMkVXV00yRk5kYmRvdDUxZzd0WUl0blVJb2U2bXk5MURwSUkxVlF0dkN6cXNwb0xPUjluUXl6b0J4bDhDUHZZUTUwSkR4bElIQkZZRllpTmczTlZrYkhNc2tPY3huMF8wY0NKdnQ?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiwAFBVV95cUxQRzIxWmdqVldRMnRsdTFlNEthMHBGeGszOWo2cEZFd2dMazRVWHp0REM3SEw1c2d6Q0J0aVpxMDJiTDlqNW80dG8tS3pfcUthU2lCX1BYb2dMWlpHMkVXV00yRk5kYmRvdDUxZzd0WUl0blVJb2U2bXk5MURwSUkxVlF0dkN6cXNwb0xPUjluUXl6b0J4bDhDUHZZUTUwSkR4bElIQkZZRllpTmczTlZrYkhNc2tPY3huMF8wY0NKdnQ?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584527,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 13,
+          "chars": 2457,
+          "claim_found": true,
+          "claim": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР Нов"
+        },
+        {
+          "sentences": 38,
+          "chars": 5249,
+          "claim_found": true,
+          "claim": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР Нови"
+        },
+        {
+          "sentences": 1,
+          "chars": 61,
+          "claim_found": false,
+          "claim": ""
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s6792591ccd82d76",
+      "raw_title": "Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Новини",
+      "editorial_title": "Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Новини",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnrnews.bg",
+      "item_host": "news.google.com",
+      "member_count": 4,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnr.bg/burgas/post/533336/spasiha-bedstvasht-delfin-v-mestnostta-krotirya-kray-pomorie",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/533336/spasiha-bedstvasht-delfin-v-mestnostta-krotirya-kray-pomorie",
+          "bytes": 120921,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://bntnews.bg/news/spasiha-bedstvasht-delfin-krai-pomorie-1414007news.html",
+          "ok": true,
+          "final_url": "https://bntnews.bg/news/spasiha-bedstvasht-delfin-krai-pomorie-1414007news.html",
+          "bytes": 111082,
+          "final_host": "bntnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/telegraph.bg/posts/-%D1%89%D0%B0%D1%81%D1%82%D0%BB%D0%B8%D0%B2-%D0%BA%D1%80%D0%B0%D0%B9-%D0%B7%D0%B0-%D0%B5%D0%B4%D0%B8%D0%BD-%D0%B4%D0%B5%D0%BB%D1%84%D0%B8%D0%BD-%D0%B1%D0%B5%D0%B4%D1%81%D1%82%D0%B2%D0%B0%D1%89-%D0%B4%D0%B5%D0%BB%D1%84%D0%B8%D0%BD-%D0%B5-%D0%B1%D0%B8%D0%BB-%D0%BE%D1%82%D0%BA%D1%80%D0%B8%D1%82-%D0%B2-%D0%BF%D0%BB%D0%B8%D1%82%D1%87%D0%B8%D0%BD%D0%B8%D1%82%D0%B5-%D0%BA%D1%80%D0%B0%D0%B9-%D0%BF%D0%BB%D0%B0%D0%B6/1674362468026592/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/telegraph.bg/posts/-%D1%89%D0%B0%D1%81%D1%82%D0%BB%D0%B8%D0%B2-%D0%BA%D1%80%D0%B0%D0%B9-%D0%B7%D0%B0-%D0%B5%D0%B4%D0%B8%D0%BD-%D0%B4%D0%B5%D0%BB%D1%84%D0%B8%D0%BD-%D0%B1%D0%B5%D0%B4%D1%81%D1%82%D0%B2%D0%B0%D1%89-%D0%B4%D0%B5%D0%BB%D1%84%D0%B8%D0%BD-%D0%B5-%D0%B1%D0%B8%D0%BB-%D0%BE%D1%82%D0%BA%D1%80%D0%B8%D1%82-%D0%B2-%D0%BF%D0%BB%D0%B8%D1%82%D1%87%D0%B8%D0%BD%D0%B8%D1%82%D0%B5-%D0%BA%D1%80%D0%B0%D0%B9-%D0%BF%D0%BB%D0%B0%D0%B6/1674362468026592/",
+          "bytes": 737388,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMinwFBVV95cUxNNEpyaUtJQ0pINVpwVGVjSlQ0ZllnOWNDR0xwdHRjZWVkSzB2aTRPd1ZHYlNRQlVsYzlwN2x1TEE5eG1YVVVIc0ZNWG9qUUtqeTBTM3R2R2daaUVZTkdNWW8wSVJfM2I0dGpNWVIzNEtIMDBvTTBoQzVWY2laVGp6ZV9NNDBsOUNwck8wSk50YkJsQUdYU0dRamRuQjVWaUU?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMinwFBVV95cUxNNEpyaUtJQ0pINVpwVGVjSlQ0ZllnOWNDR0xwdHRjZWVkSzB2aTRPd1ZHYlNRQlVsYzlwN2x1TEE5eG1YVVVIc0ZNWG9qUUtqeTBTM3R2R2daaUVZTkdNWW8wSVJfM2I0dGpNWVIzNEtIMDBvTTBoQzVWY2laVGp6ZV9NNDBsOUNwck8wSk50YkJsQUdYU0dRamRuQjVWaUU?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583584,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxQNUw2Z083eTZvQWNpZlVyakxITFRBZXdTVDhmNTB4YWptSzUyYUVNNG1lMmxxZExsZXZ5SzRIdEdtMnFFSWVNelBxRHd0Sk5Sanc2SklQWWo4YkNpX2V2Y1I2YmUyRnpkWDF1SDIzM011aEZNQ1U2dzFxRDZXZlg1X0NRRDFYUzNIQW9fTUgtNldoRXd6c3ppN0FB?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxQNUw2Z083eTZvQWNpZlVyakxITFRBZXdTVDhmNTB4YWptSzUyYUVNNG1lMmxxZExsZXZ5SzRIdEdtMnFFSWVNelBxRHd0Sk5Sanc2SklQWWo4YkNpX2V2Y1I2YmUyRnpkWDF1SDIzM011aEZNQ1U2dzFxRDZXZlg1X0NRRDFYUzNIQW9fTUgtNldoRXd6c3ppN0FB?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583384,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 13,
+          "chars": 2172,
+          "claim_found": true,
+          "claim": "Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрограма Хор"
+        },
+        {
+          "sentences": 49,
+          "chars": 4870,
+          "claim_found": true,
+          "claim": "В спасителната акция са се включили още доброволци, служители на Рибарското пристанище в Поморие и представители на Спасителния център за диви животни."
+        },
+        {
+          "sentences": 2,
+          "chars": 58,
+          "claim_found": false,
+          "claim": ""
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 5,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "bntnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "bntnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 2
+    },
+    {
+      "story_id": "s57b27b51563970d",
+      "raw_title": "Млади творци могат да се включат в „Бургас вдъхновява“ - БНР",
+      "editorial_title": "Млади творци могат да се включат в „Бургас вдъхновява“",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 2,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531492/mladi-tvortsi-mogat-da-se-vklyuchat-v-burgas-vdahnovyava",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531492/mladi-tvortsi-mogat-da-se-vklyuchat-v-burgas-vdahnovyava",
+          "bytes": 121295,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/61573681631695/posts/%EF%B8%8F-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%B2%D0%B4%D1%8A%D1%85%D0%BD%D0%BE%D0%B2%D1%8F%D0%B2%D0%B0-%D0%BA%D0%BE%D0%BD%D0%BA%D1%83%D1%80%D1%81-%D0%B7%D0%B0-%D0%BC%D0%BB%D0%B0%D0%B4%D0%B8-%D0%BF%D0%BE%D0%B5%D1%82%D0%B8-%D1%83%D0%BA%D0%BE%D0%B1-%D0%BA%D0%B0%D0%BD%D0%B8-%D0%BC%D0%BB%D0%B0%D0%B4%D0%B8-%D1%82%D0%B2%D0%BE%D1%80%D1%86%D0%B8-%D0%BE%D1%82-%D1%86%D1%8F%D0%BB%D0%B0%D1%82%D0%B0-%D1%81%D1%82%D1%80%D0%B0/122201175068789387/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/61573681631695/posts/%EF%B8%8F-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%B2%D0%B4%D1%8A%D1%85%D0%BD%D0%BE%D0%B2%D1%8F%D0%B2%D0%B0-%D0%BA%D0%BE%D0%BD%D0%BA%D1%83%D1%80%D1%81-%D0%B7%D0%B0-%D0%BC%D0%BB%D0%B0%D0%B4%D0%B8-%D0%BF%D0%BE%D0%B5%D1%82%D0%B8-%D1%83%D0%BA%D0%BE%D0%B1-%D0%BA%D0%B0%D0%BD%D0%B8-%D0%BC%D0%BB%D0%B0%D0%B4%D0%B8-%D1%82%D0%B2%D0%BE%D1%80%D1%86%D0%B8-%D0%BE%D1%82-%D1%86%D1%8F%D0%BB%D0%B0%D1%82%D0%B0-%D1%81%D1%82%D1%80%D0%B0/122201175068789387/",
+          "bytes": 604313,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.burgas.bg/bg/novini/page/36",
+          "ok": true,
+          "final_url": "https://www.burgas.bg/bg/novini/page/36",
+          "bytes": 58245,
+          "final_host": "burgas.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxPTkJKRlY1RG16OXJLYTRLX05OVF96OHdhdUY5WllZVld3dEt6YzZidDJwc1J1NWxzV0lWdTFnS1gxQXowWlh6d1ZvVnlhcENSeXRDenNxRzRFZ2dNa3pUdTNmNkNmTkhYRlctM2tnUF9yRWxQVVVJY2lvUXJrR3NXd013QmoySU1haFJkd29EYkc5TkE?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxPTkJKRlY1RG16OXJLYTRLX05OVF96OHdhdUY5WllZVld3dEt6YzZidDJwc1J1NWxzV0lWdTFnS1gxQXowWlh6d1ZvVnlhcENSeXRDenNxRzRFZ2dNa3pUdTNmNkNmTkhYRlctM2tnUF9yRWxQVVVJY2lvUXJrR3NXd013QmoySU1haFJkd29EYkc5TkE?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583236,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOQmx0S2NNVFFEWkZhY1RNdFotX2laTzlESHhRSWxobjBTOV82X2tDRjg1NHN3M3NXTXNRZGFGbS1kYnJRUTBWRkRybk9fOEtrX0M2TTh1M1dic19VWjNScVBid25wamNLb0RDcmtQTUpoN05mVFN5eGFvQ1JkSkpjcFBCTmwtQ3dYRmcwMlJMdkZ1eExGMFJSajhB?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOQmx0S2NNVFFEWkZhY1RNdFotX2laTzlESHhRSWxobjBTOV82X2tDRjg1NHN3M3NXTXNRZGFGbS1kYnJRUTBWRkRybk9fOEtrX0M2TTh1M1dic19VWjNScVBid25wamNLb0RDcmtQTUpoN05mVFN5eGFvQ1JkSkpjcFBCTmwtQ3dYRmcwMlJMdkZ1eExGMFJSajhB?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583395,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 16,
+          "chars": 2860,
+          "claim_found": true,
+          "claim": "Млади творци могат да се включат в „Бургас вдъхновява“ - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрограма Хоризо"
+        },
+        {
+          "sentences": 1,
+          "chars": 58,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 26,
+          "chars": 7266,
+          "claim_found": true,
+          "claim": "На 22 септември 1908 година в църквата… Новото издание на конкурса за поезия „Бургас вдъхновява“ дава поле за изява на млади таланти Понеделник, 21 Септември 2026 Ученическият комитет към Община Бурга"
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 5,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "burgas.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [
+        "burgas.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 2
+    },
+    {
+      "story_id": "s986d357afd5ffed",
+      "raw_title": "С победа за ОФК „Поморие“ започна първенството на „А“ Областна група за мъже - Община Поморие",
+      "editorial_title": "С победа за ОФК „Поморие“ започна първенството на „А“ Областна група за мъже",
+      "discovered_via": "pomorie-municipality",
+      "discoverer_kind": "official",
+      "discoverer_authority": true,
+      "publisher_domain": "www.pomorie.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://ofc.pomorie.bg/%D0%BF%D1%8A%D1%80%D0%B2%D0%B8-%D0%BA%D1%80%D1%8A%D0%B3-%D0%BF%D1%80%D0%B8-%D0%BC%D1%8A%D0%B6%D0%B5%D1%82%D0%B5-%D0%BE%D1%82-%D0%BF%D1%8A%D1%80%D0%B2%D0%B5%D0%BD%D1%81%D1%82%D0%B2%D0%BE-2026-2027/",
+          "ok": true,
+          "final_url": "https://ofc.pomorie.bg/%D0%BF%D1%8A%D1%80%D0%B2%D0%B8-%D0%BA%D1%80%D1%8A%D0%B3-%D0%BF%D1%80%D0%B8-%D0%BC%D1%8A%D0%B6%D0%B5%D1%82%D0%B5-%D0%BE%D1%82-%D0%BF%D1%8A%D1%80%D0%B2%D0%B5%D0%BD%D1%81%D1%82%D0%B2%D0%BE-2026-2027/",
+          "bytes": 156648,
+          "final_host": "ofc.pomorie.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/PomorieMunicipality/posts/7215ee9c/1568928505262259/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/PomorieMunicipality/posts/7215ee9c/1568928505262259/",
+          "bytes": 664413,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/posts/ofk/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/posts/ofk/",
+          "bytes": 276090,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMioAFBVV95cUxOX2tUV2xHNDNzNjZsOWF5TjZTNWdSeE5oNHRzcE9odVNHbF9JTGZ4YVY2eHhwRnhXdEN3ajNPWTF6Y3ROb05mN2E5ay1DSmNYTEZUQXFZenRHZjk3NFBIb2M2cG14X3A0bi00QnQ3blpHVlpvcFJ4U3dTRHRzWTBKcXIxbGRXYWdLWGJ4Y2VTdEZqN244d2RWWWpvRUdCUlJk?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMioAFBVV95cUxOX2tUV2xHNDNzNjZsOWF5TjZTNWdSeE5oNHRzcE9odVNHbF9JTGZ4YVY2eHhwRnhXdEN3ajNPWTF6Y3ROb05mN2E5ay1DSmNYTEZUQXFZenRHZjk3NFBIb2M2cG14X3A0bi00QnQ3blpHVlpvcFJ4U3dTRHRzWTBKcXIxbGRXYWdLWGJ4Y2VTdEZqN244d2RWWWpvRUdCUlJk?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583620,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 21,
+          "chars": 3029,
+          "claim_found": true,
+          "claim": "ПЪРВИ КРЪГ ПРИ МЪЖЕТЕ ОТ ПЪРВЕНСТВО 2026/2027 ГОДИНА И ПЪРВА ПОБЕДА – ОФК Поморие Продължете към съдържанието Мачове Предстоящи събития Резултати от играни срещи Класирания Клуб История Ръководство От"
+        },
+        {
+          "sentences": 1,
+          "chars": 62,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 61,
+          "chars": 16502,
+          "claim_found": true,
+          "claim": "ОФК Поморие – Община Поморие Skip to content 26.09.2026г."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "news.google.com",
+        "ofc.pomorie.bg",
+        "pomorie.bg"
+      ],
+      "opened_authoritative_hosts": [
+        "pomorie.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "news.google.com",
+        "ofc.pomorie.bg"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s8f0712d3faaeade",
+      "raw_title": "Флашмоб в Бургас за Световния ден за информираност за Алцхаймер - nova.bg",
+      "editorial_title": "Флашмоб в Бургас за Световния ден за информираност за Алцхаймер",
+      "discovered_via": "google-news-burgas-region",
+      "discoverer_kind": "aggregator",
+      "discoverer_authority": false,
+      "publisher_domain": "nova.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://nova.bg/news/view/2026/09/21/552217/%D1%84%D0%BB%D0%B0%D1%88%D0%BC%D0%BE%D0%B1-%D0%B2-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%B7%D0%B0-%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D0%B2%D0%BD%D0%B8%D1%8F-%D0%B4%D0%B5%D0%BD-%D0%B7%D0%B0-%D0%B8%D0%BD%D1%84%D0%BE%D1%80%D0%BC%D0%B8%D1%80%D0%B0%D0%BD%D0%BE%D1%81%D1%82-%D0%B7%D0%B0-%D0%B0%D0%BB%D1%86%D1%85%D0%B0%D0%B9%D0%BC%D0%B5%D1%80/",
+          "ok": true,
+          "final_url": "https://nova.bg/news/view/2026/09/21/552217/%D1%84%D0%BB%D0%B0%D1%88%D0%BC%D0%BE%D0%B1-%D0%B2-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%B7%D0%B0-%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D0%B2%D0%BD%D0%B8%D1%8F-%D0%B4%D0%B5%D0%BD-%D0%B7%D0%B0-%D0%B8%D0%BD%D1%84%D0%BE%D1%80%D0%BC%D0%B8%D1%80%D0%B0%D0%BD%D0%BE%D1%81%D1%82-%D0%B7%D0%B0-%D0%B0%D0%BB%D1%86%D1%85%D0%B0%D0%B9%D0%BC%D0%B5%D1%80/",
+          "bytes": 409849,
+          "final_host": "nova.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/Burgas.Municipality/posts/%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D1%89%D0%B5-%D0%BE%D1%82%D0%B1%D0%B5%D0%BB%D0%B5%D0%B6%D0%B8-%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D0%B2%D0%BD%D0%B8%D1%8F-%D0%B4%D0%B5%D0%BD-%D0%B7%D0%B0-%D0%B8%D0%BD%D1%84%D0%BE%D1%80%D0%BC%D0%B8%D1%80%D0%B0%D0%BD%D0%BE%D1%81%D1%82-%D0%B7%D0%B0-%D0%B1%D0%BE%D0%BB%D0%B5%D1%81%D1%82%D1%82%D0%B0-%D0%BD%D0%B0-%D0%B0%D0%BB%D1%86%D1%85%D0%B0%D0%B9%D0%BC%D0%B5%D1%80-%D1%81-%D1%84%D0%BB%D0%B0/1094673673112831/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/Burgas.Municipality/posts/%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D1%89%D0%B5-%D0%BE%D1%82%D0%B1%D0%B5%D0%BB%D0%B5%D0%B6%D0%B8-%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D0%B2%D0%BD%D0%B8%D1%8F-%D0%B4%D0%B5%D0%BD-%D0%B7%D0%B0-%D0%B8%D0%BD%D1%84%D0%BE%D1%80%D0%BC%D0%B8%D1%80%D0%B0%D0%BD%D0%BE%D1%81%D1%82-%D0%B7%D0%B0-%D0%B1%D0%BE%D0%BB%D0%B5%D1%81%D1%82%D1%82%D0%B0-%D0%BD%D0%B0-%D0%B0%D0%BB%D1%86%D1%85%D0%B0%D0%B9%D0%BC%D0%B5%D1%80-%D1%81-%D1%84%D0%BB%D0%B0/1094673673112831/",
+          "bytes": 607267,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.focus-news.net/novini/regioni/Burgas-otbelyazva-Svetovniya-den-za-informiranost-za-bolestta-na-Alchaimer-3026020",
+          "ok": true,
+          "final_url": "https://www.focus-news.net/novini/regioni/Burgas-otbelyazva-Svetovniya-den-za-informiranost-za-bolestta-na-Alchaimer-3026020",
+          "bytes": 88385,
+          "final_host": "focus-news.net",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMilARBVV95cUxOSTBTNV9iWWZvMnY2RDNJMFVzNUZLcVpXNUhFQ0Z0RVp6d3pRcHFIUnJWa1RrZEFSeGV0MWgwZ1M0dG11WnljVElYLWt5Yl9VT1hjTWRZOGhWOEU0cXFJWVhoUllTR0JIbXFNZlQ3V2NITHo0VlJJclMyelBXZDNBLUVXelRmTXpUUUhhektXejZXTW45Wm9QY0lLQXQtc3dwSXphUGVETVEzdDZlS1ZBd1hERUFrS3BuYVUyY3pkWlZkX3lsT09VUXQ5T1MyV2d1Y2psdnBWa2s2UWsyRnd4V2YtUkoxVW1wUXdGVzFGYUdGNnJOb0Iwd01QMnpVYnpUTXNBZDczLW45ckduU2NnM01NaEFoUlJQLXdnZnIzMzFnT2lsQzZrbVRXdHhwTmw0WnlTVEpST3Q1dGtKb3BkcnU3SS1aWTlhdlVDdG0xNm1pVVBCYUhTTkgzTHV4bFhDNVR4Mi1wMzNjN2JaTW1DQXg4aE9iM3RvZ3JSSnFSVlRQU0dlRWY4TllqbUtXcjhxWDY4dmIwOEQ3N0dXNnFJcnFldGpJbFllVTJ3N2lRUnNXYVU0VXJNRmF6ZDVWckZBRXVvak9UeW5hVUl1bTJtb0FaZXUyZDN6QjlIU3Z3WS0zcnJYNFExY2lZOE1OMUQzcEVqQlRjcDZEZl9WVFlsYzBaak5DUl93RXZLX053VXdZd2gt?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMilARBVV95cUxOSTBTNV9iWWZvMnY2RDNJMFVzNUZLcVpXNUhFQ0Z0RVp6d3pRcHFIUnJWa1RrZEFSeGV0MWgwZ1M0dG11WnljVElYLWt5Yl9VT1hjTWRZOGhWOEU0cXFJWVhoUllTR0JIbXFNZlQ3V2NITHo0VlJJclMyelBXZDNBLUVXelRmTXpUUUhhektXejZXTW45Wm9QY0lLQXQtc3dwSXphUGVETVEzdDZlS1ZBd1hERUFrS3BuYVUyY3pkWlZkX3lsT09VUXQ5T1MyV2d1Y2psdnBWa2s2UWsyRnd4V2YtUkoxVW1wUXdGVzFGYUdGNnJOb0Iwd01QMnpVYnpUTXNBZDczLW45ckduU2NnM01NaEFoUlJQLXdnZnIzMzFnT2lsQzZrbVRXdHhwTmw0WnlTVEpST3Q1dGtKb3BkcnU3SS1aWTlhdlVDdG0xNm1pVVBCYUhTTkgzTHV4bFhDNVR4Mi1wMzNjN2JaTW1DQXg4aE9iM3RvZ3JSSnFSVlRQU0dlRWY4TllqbUtXcjhxWDY4dmIwOEQ3N0dXNnFJcnFldGpJbFllVTJ3N2lRUnNXYVU0VXJNRmF6ZDVWckZBRXVvak9UeW5hVUl1bTJtb0FaZXUyZDN6QjlIU3Z3WS0zcnJYNFExY2lZOE1OMUQzcEVqQlRjcDZEZl9WVFlsYzBaak5DUl93RXZLX053VXdZd2gt?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 594463,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 39,
+          "chars": 10842,
+          "claim_found": true,
+          "claim": "На живо Uncharted: Извън картата (премиера) Новините на NOVA България Общество Начало Новините на NOVA Флашмоб в Бургас за Световния ден за информираност за Алцхаймер Начало България Флашмоб в Бургас "
+        },
+        {
+          "sentences": 1,
+          "chars": 54,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 36,
+          "chars": 5699,
+          "claim_found": true,
+          "claim": "От 15.00 часа в Експо център \"Флора“ темата ще продължи в по-различен формат с \"Кафене на забравената поръчка“ – подкаст на живо с кафе, музика, разговори и раздвижване."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "focus-news.net",
+        "news.google.com",
+        "nova.bg"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "focus-news.net",
+        "news.google.com",
+        "nova.bg"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sf827c3aea1076f5",
+      "raw_title": "Общинският съвет одобри дигитализацията на Гробищния парк в Бургас - БНР",
+      "editorial_title": "Общинският съвет одобри дигитализацията на Гробищния парк в Бургас",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531144/obshtinskiyat-savet-odobri-digitalizatsiyata-na-grobishtniya-park-v-burgas",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531144/obshtinskiyat-savet-odobri-digitalizatsiyata-na-grobishtniya-park-v-burgas",
+          "bytes": 128196,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/bnrburgas/posts/%D1%81%D1%8A%D0%B2%D0%B5%D1%82%D0%BD%D0%B8%D1%86%D0%B8%D1%82%D0%B5-%D0%B3%D0%BB%D0%B0%D1%81%D1%83%D0%B2%D0%B0%D1%85%D0%B0-%D0%BF%D1%80%D0%B5%D0%B4%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D1%8F-%D1%81%D0%B2%D1%8A%D1%80%D0%B7%D0%B0%D0%BD%D0%B8-%D1%81-%D0%B4%D0%B8%D0%B3%D0%B8%D1%82%D0%B0%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%D1%82%D0%B0-%D0%BD%D0%B0-%D0%BF%D0%B0%D1%80%D0%BA%D0%B0-%D0%BF%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D1%8F%D0%BD%D0%B5%D1%82/1754368489850268/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/bnrburgas/posts/%D1%81%D1%8A%D0%B2%D0%B5%D1%82%D0%BD%D0%B8%D1%86%D0%B8%D1%82%D0%B5-%D0%B3%D0%BB%D0%B0%D1%81%D1%83%D0%B2%D0%B0%D1%85%D0%B0-%D0%BF%D1%80%D0%B5%D0%B4%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D1%8F-%D1%81%D0%B2%D1%8A%D1%80%D0%B7%D0%B0%D0%BD%D0%B8-%D1%81-%D0%B4%D0%B8%D0%B3%D0%B8%D1%82%D0%B0%D0%BB%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D1%8F%D1%82%D0%B0-%D0%BD%D0%B0-%D0%BF%D0%B0%D1%80%D0%BA%D0%B0-%D0%BF%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D1%8F%D0%BD%D0%B5%D1%82/1754368489850268/",
+          "bytes": 604105,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.bta.bg/bg/news/bulgaria/1205616-obshtinski-savetnitsi-predlagat-nov-ustroystven-plan-i-digitalizatsiya-na-grobis",
+          "ok": true,
+          "final_url": "https://www.bta.bg/bg/news/bulgaria/1205616-obshtinski-savetnitsi-predlagat-nov-ustroystven-plan-i-digitalizatsiya-na-grobis",
+          "bytes": 368703,
+          "final_host": "bta.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "media",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxQRmFVNmt2d2xfTzdsb3JCaHBKamlnWU1OWFFoNU8tcFRkenV6eVRld2VzaFI2dVBCU2RmSWp3Z2JqZkV2NTRidHZWSlprWnNCTVhGd1NkdDhqZ1BlMGw2TzJ5azVxZG9HblNaNkc0RnVoZU9FV1JKLXBheHk4YmxMMl9wbFZMU2hMdXlzZ3ZMdGtXVTNWOVNGRl9FUmdWQTJCcGdwOGl0RWFONEE?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxQRmFVNmt2d2xfTzdsb3JCaHBKamlnWU1OWFFoNU8tcFRkenV6eVRld2VzaFI2dVBCU2RmSWp3Z2JqZkV2NTRidHZWSlprWnNCTVhGd1NkdDhqZ1BlMGw2TzJ5azVxZG9HblNaNkc0RnVoZU9FV1JKLXBheHk4YmxMMl9wbFZMU2hMdXlzZ3ZMdGtXVTNWOVNGRl9FUmdWQTJCcGdwOGl0RWFONEE?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583901,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 27,
+          "chars": 4449,
+          "claim_found": true,
+          "claim": "Общинският съвет одобри дигитализацията на Гробищния парк в Бургас - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПро"
+        },
+        {
+          "sentences": 1,
+          "chars": 61,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 23,
+          "chars": 17253,
+          "claim_found": true,
+          "claim": "Двете предложения са внесени като проекти за решения до Общински съвет - Бургас и предстои да бъдат гласувани на 21 септември."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "bta.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [
+        "bta.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s8c6e139ccae2f4f",
+      "raw_title": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие - БНР",
+      "editorial_title": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 3,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/533099/tarsyat-strategicheski-partnyor-za-zapazvaneto-i-razvitieto-na-mbal-pomorie",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/533099/tarsyat-strategicheski-partnyor-za-zapazvaneto-i-razvitieto-na-mbal-pomorie",
+          "bytes": 144126,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/bnrburgas/posts/%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0%D1%82%D0%B0-%D1%89%D0%B5-%D1%81%D0%B8-%D0%B7%D0%B0%D0%BF%D0%B0%D0%B7%D0%B8-51-%D0%BE%D1%82-%D0%BC%D0%B1%D0%B0%D0%BB-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D0%B0-%D0%B8%D0%B7%D0%B1%D1%80%D0%B0%D0%BD%D0%B8%D1%8F%D1%82-%D0%BF%D0%B0%D1%80%D1%82%D0%BD%D1%8C%D0%BE%D1%80-%D1%89%D0%B5-%D0%BF%D1%80%D0%B8%D0%B4%D0%BE%D0%B1%D0%B8%D0%B5-49-%D0%BE%D1%82-/1758467379440379/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/bnrburgas/posts/%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0%D1%82%D0%B0-%D1%89%D0%B5-%D1%81%D0%B8-%D0%B7%D0%B0%D0%BF%D0%B0%D0%B7%D0%B8-51-%D0%BE%D1%82-%D0%BC%D0%B1%D0%B0%D0%BB-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D0%B0-%D0%B8%D0%B7%D0%B1%D1%80%D0%B0%D0%BD%D0%B8%D1%8F%D1%82-%D0%BF%D0%B0%D1%80%D1%82%D0%BD%D1%8C%D0%BE%D1%80-%D1%89%D0%B5-%D0%BF%D1%80%D0%B8%D0%B4%D0%BE%D0%B1%D0%B8%D0%B5-49-%D0%BE%D1%82-/1758467379440379/",
+          "bytes": 605910,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.bta.bg/bg/news/bulgaria/regional-news/oblast-burgas/1211431?download=1",
+          "ok": true,
+          "final_url": "https://www.bta.bg/bg/news/bulgaria/regional-news/oblast-burgas/1211431?download=1",
+          "bytes": 364319,
+          "final_host": "bta.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "media",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxNNkZYZnZzenkzR2x1Y2xjclBVOGhzTmFLeFhzXzY4MnhRMC1FcGx4UWZQTGpta1ljTmViUXFWT1hKWnYySDVtWV81TlBsQzVtdlp6b181RHNEY2pQNU9teEpHdGlkdDVNdTRzTC1IZ3lKaU1xM0tOTE5odlNVc2xhQ0RGcjd3WjhXVUNkcGpGWkVTVVprT29adGNSMVdyWFR2eENkczdNT0NhZWNN?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxNNkZYZnZzenkzR2x1Y2xjclBVOGhzTmFLeFhzXzY4MnhRMC1FcGx4UWZQTGpta1ljTmViUXFWT1hKWnYySDVtWV81TlBsQzVtdlp6b181RHNEY2pQNU9teEpHdGlkdDVNdTRzTC1IZ3lKaU1xM0tOTE5odlNVc2xhQ0RGcjd3WjhXVUNkcGpGWkVTVVprT29adGNSMVdyWFR2eENkczdNT0NhZWNN?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583953,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxPRkVfbGJzaFNVOGFTT3dWUGJYcW1oTnUzZVJDZTVLcUtqVHV3amxaRnJfMXlUbGZselNnR1NUTG9IYmR6cmIyaWsyRDREcVQ3Ujk4eVpjYUZITFE4RVRJNVU5YXcyUUdYdWpKZEhXbHJTdVVmaFhGY2lHdkhheFZXUGFOSmpXQ0VuU2dnVHYwVE1MUU9pNWhnTHJZQkFnR2dvYVdFa2hXZGhSYWhkSmM3Y2I5MA?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxPRkVfbGJzaFNVOGFTT3dWUGJYcW1oTnUzZVJDZTVLcUtqVHV3amxaRnJfMXlUbGZselNnR1NUTG9IYmR6cmIyaWsyRDREcVQ3Ujk4eVpjYUZITFE4RVRJNVU5YXcyUUdYdWpKZEhXbHJTdVVmaFhGY2lHdkhheFZXUGFOSmpXQ0VuU2dnVHYwVE1MUU9pNWhnTHJZQkFnR2dvYVdFa2hXZGhSYWhkSmM3Y2I5MA?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584141,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 38,
+          "chars": 5249,
+          "claim_found": true,
+          "claim": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР Нови"
+        },
+        {
+          "sentences": 1,
+          "chars": 61,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 39,
+          "chars": 17929,
+          "claim_found": true,
+          "claim": "Средствата трябва да бъдат възстановени до края на 2026 г."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 5,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "bta.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [
+        "bta.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 2
+    },
+    {
+      "story_id": "s15cb3bde7ca3775",
+      "raw_title": "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 септември - Община Поморие",
+      "editorial_title": "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 септември",
+      "discovered_via": "pomorie-municipality",
+      "discoverer_kind": "official",
+      "discoverer_authority": true,
+      "publisher_domain": "www.pomorie.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.facebook.com/PomorieMunicipality/posts/7215ee9c/1568888658599577/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/PomorieMunicipality/posts/7215ee9c/1568888658599577/",
+          "bytes": 593402,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/posts/4_sport/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/posts/4_sport/",
+          "bytes": 280780,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/posts/ofk/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/posts/ofk/",
+          "bytes": 276090,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNMU9SampLMHcyMl9jTEZYTWlUN254aHlHOEVCRktTTnNacEk3NWJNVFlwS2ZSNGtfTWJYTFdrQnl1TFJTM3BNckVHczdfOV8yc0VlQXlCd2U3Q2F0ZnFJTEJKRTF2N2RiZDg2RFNkZEVpLTVuWURERW95TlRCbFZ4Q0ZlbmZaQkNRSnlxTXBEVkN5SnBZSHJLQTVYcG9IVFNPZkpHWGlyakJtYWk1aVM2b0hB?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNMU9SampLMHcyMl9jTEZYTWlUN254aHlHOEVCRktTTnNacEk3NWJNVFlwS2ZSNGtfTWJYTFdrQnl1TFJTM3BNckVHczdfOV8yc0VlQXlCd2U3Q2F0ZnFJTEJKRTF2N2RiZDg2RFNkZEVpLTVuWURERW95TlRCbFZ4Q0ZlbmZaQkNRSnlxTXBEVkN5SnBZSHJLQTVYcG9IVFNPZkpHWGlyakJtYWk1aVM2b0hB?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584138,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 1,
+          "chars": 62,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 61,
+          "chars": 16890,
+          "claim_found": true,
+          "claim": "Спорт – Община Поморие Skip to content 26.09.2026г."
+        },
+        {
+          "sentences": 61,
+          "chars": 16502,
+          "claim_found": true,
+          "claim": "ОФК Поморие – Община Поморие Skip to content 26.09.2026г."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "news.google.com",
+        "pomorie.bg"
+      ],
+      "opened_authoritative_hosts": [
+        "pomorie.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s2b6aa99c8114257",
+      "raw_title": "Приеха важни решения за Гробищния парк в Бургас - ФОКУС",
+      "editorial_title": "Приеха важни решения за Гробищния парк в Бургас - ФОКУС",
+      "discovered_via": "google-news-burgas-region",
+      "discoverer_kind": "aggregator",
+      "discoverer_authority": false,
+      "publisher_domain": "www.focus-news.net",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.focus-news.net/novini/regioni/Prieha-vazhni-resheniya-za-Grobishtniya-park-v-Burgas-3028215",
+          "ok": true,
+          "final_url": "https://www.focus-news.net/novini/regioni/Prieha-vazhni-resheniya-za-Grobishtniya-park-v-Burgas-3028215",
+          "bytes": 84765,
+          "final_host": "focus-news.net",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.focus-news.net/novini/regioni/burgas-novini",
+          "ok": true,
+          "final_url": "https://www.focus-news.net/novini/regioni/burgas-novini",
+          "bytes": 119125,
+          "final_host": "focus-news.net",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/100064864205365/posts/%D0%BF%D1%80%D0%B8%D0%B5%D1%85%D0%B0-%D0%B2%D0%B0%D0%B6%D0%BD%D0%B8-%D1%80%D0%B5%D1%88%D0%B5%D0%BD%D0%B8%D1%8F-%D0%B7%D0%B0-%D0%B3%D1%80%D0%BE%D0%B1%D0%B8%D1%89%D0%BD%D0%B8%D1%8F-%D0%BF%D0%B0%D1%80%D0%BA-%D0%B2-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81/1546546757517450/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/100064864205365/posts/%D0%BF%D1%80%D0%B8%D0%B5%D1%85%D0%B0-%D0%B2%D0%B0%D0%B6%D0%BD%D0%B8-%D1%80%D0%B5%D1%88%D0%B5%D0%BD%D0%B8%D1%8F-%D0%B7%D0%B0-%D0%B3%D1%80%D0%BE%D0%B1%D0%B8%D1%89%D0%BD%D0%B8%D1%8F-%D0%BF%D0%B0%D1%80%D0%BA-%D0%B2-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81/1546546757517450/",
+          "bytes": 804682,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMipgFBVV95cUxOY09YZlZvSzlPbDV3VTBHbm93VlNOYndsOWMyOGRNR2pUYjd4ZFIzUXdFUkkzbnV4QnNtU1o0TERkci16VGo3N2JEWnZMbld5Y3Y1YVFhOHkwdUxtYVBnMnlTbTN0VFJOZHUybWN5aDU5d0xKMndBWFJPcEpKMmdaa0NsX2hLSHhoZWx0S2lCQTRTNWdFdVU3ZzBoNGpJMVNFNDJLMGhn?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMipgFBVV95cUxOY09YZlZvSzlPbDV3VTBHbm93VlNOYndsOWMyOGRNR2pUYjd4ZFIzUXdFUkkzbnV4QnNtU1o0TERkci16VGo3N2JEWnZMbld5Y3Y1YVFhOHkwdUxtYVBnMnlTbTN0VFJOZHUybWN5aDU5d0xKMndBWFJPcEpKMmdaa0NsX2hLSHhoZWx0S2lCQTRTNWdFdVU3ZzBoNGpJMVNFNDJLMGhn?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583747,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 26,
+          "chars": 4786,
+          "claim_found": true,
+          "claim": "Още от категорията Недялко Йорданов представя три нови книги и поетично-музикален рецитал в НХК 25.09 Ето кога ще има свободен вход в музеите на Акве Калиде и Ченгене Скеле 25.09 Непълнолетен троши ко"
+        },
+        {
+          "sentences": 27,
+          "chars": 7035,
+          "claim_found": true,
+          "claim": "08:51 ч., 25.09.2026 г."
+        },
+        {
+          "sentences": 1,
+          "chars": 56,
+          "claim_found": false,
+          "claim": ""
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "focus-news.net",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "focus-news.net",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "se3fa89b6bf474d2",
+      "raw_title": "Очаквайте в \"Акценти\" на 21 септември! - БНР",
+      "editorial_title": "Очаквайте в \"Акценти\" на 21 септември!",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/530990/ochakvayte-v-aktsenti-na-21-septemvri",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/530990/ochakvayte-v-aktsenti-na-21-septemvri",
+          "bytes": 121658,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://old-news.bnr.bg/burgas/post/101706737",
+          "ok": false,
+          "error": "WebFetchError"
+        },
+        {
+          "url": "https://www.facebook.com/bnrburgas/posts/%D0%B2%D0%B7%D0%B5%D0%BC%D0%B8-%D0%B2%D1%81%D1%8F%D0%BA%D0%B0-%D0%B2%D1%8A%D0%B7%D0%BC%D0%BE%D0%B6%D0%BD%D0%BE%D1%81%D1%82-%D0%BA%D0%BE%D1%8F%D1%82%D0%BE-%D0%B6%D0%B8%D0%B2%D0%BE%D1%82%D1%8A%D1%82-%D1%82%D0%B8-%D0%B4%D0%B0%D0%B2%D0%B0-%D0%B7%D0%B0%D1%89%D0%BE%D1%82%D0%BE-%D0%BD%D1%8F%D0%BA%D0%BE%D0%B8-%D0%BD%D0%B5%D1%89%D0%B0-%D1%81%D0%B5-%D1%81%D0%BB%D1%83%D1%87%D0%B2%D0%B0%D1%82-%D1%81%D0%B0%D0%BC%D0%BE-%D0%B2/1754204613199989/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/bnrburgas/posts/%D0%B2%D0%B7%D0%B5%D0%BC%D0%B8-%D0%B2%D1%81%D1%8F%D0%BA%D0%B0-%D0%B2%D1%8A%D0%B7%D0%BC%D0%BE%D0%B6%D0%BD%D0%BE%D1%81%D1%82-%D0%BA%D0%BE%D1%8F%D1%82%D0%BE-%D0%B6%D0%B8%D0%B2%D0%BE%D1%82%D1%8A%D1%82-%D1%82%D0%B8-%D0%B4%D0%B0%D0%B2%D0%B0-%D0%B7%D0%B0%D1%89%D0%BE%D1%82%D0%BE-%D0%BD%D1%8F%D0%BA%D0%BE%D0%B8-%D0%BD%D0%B5%D1%89%D0%B0-%D1%81%D0%B5-%D1%81%D0%BB%D1%83%D1%87%D0%B2%D0%B0%D1%82-%D1%81%D0%B0%D0%BC%D0%BE-%D0%B2/1754204613199989/",
+          "bytes": 602966,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMie0FVX3lxTE9kZ0l1T1VlYTZodTBFdi1FZ0ZOem84V1lWWTkzMUhnUlhKT1E5dXpwcWdnT2VacDItWEJ6VFlERDMzbzJORTJSTVB4ZDdyakFaWkRIbWpRQmVoUXBFXzVRemtyd28yZ1J5dWFGR2tWUm9JYzFCQ2NhU280aw?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMie0FVX3lxTE9kZ0l1T1VlYTZodTBFdi1FZ0ZOem84V1lWWTkzMUhnUlhKT1E5dXpwcWdnT2VacDItWEJ6VFlERDMzbzJORTJSTVB4ZDdyakFaWkRIbWpRQmVoUXBFXzVRemtyd28yZ1J5dWFGR2tWUm9JYzFCQ2NhU280aw?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 582479,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 24,
+          "chars": 3157,
+          "claim_found": true,
+          "claim": "Очаквайте в \"Акценти\" на 21 септември!"
+        },
+        {
+          "sentences": 1,
+          "chars": 0,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 1,
+          "chars": 56,
+          "claim_found": false,
+          "claim": ""
+        }
+      ],
+      "claim_found_count": 1,
+      "opened_count": 3,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s29a3dfc4dfcc787",
+      "raw_title": "Осем метъл банди с фронт дами срещу домашното насилие - БНР Новини",
+      "editorial_title": "Осем метъл банди с фронт дами срещу домашното насилие - БНР Новини",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnrnews.bg",
+      "item_host": "news.google.com",
+      "member_count": 4,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "http://bnr.bg/burgas/post/533561/osem-metal-bandi-s-front-dami-sreshtu-domashnoto-nasilie",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/533561/osem-metal-bandi-s-front-dami-sreshtu-domashnoto-nasilie",
+          "bytes": 129274,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/Burgas.Municipality/posts/%D0%BE%D1%81%D0%B5%D0%BC-%D0%BC%D0%B5%D1%82%D1%8A%D0%BB-%D0%B1%D0%B0%D0%BD%D0%B4%D0%B8-%D1%81-%D1%84%D1%80%D0%BE%D0%BD%D1%82-%D0%B4%D0%B0%D0%BC%D0%B8-%D1%81-%D0%BD%D0%B5%D0%B6%D0%BD%D0%B8-%D0%B3%D0%BB%D0%B0%D1%81%D0%BE%D0%B2%D0%B5-%D0%B8-%D1%82%D0%B5%D0%B6%D0%BA%D0%B8-%D1%80%D0%B8%D1%84%D0%BE%D0%B2%D0%B5-%D1%89%D0%B5-%D0%B7%D0%B0%D1%81%D1%82%D0%B0%D0%BD%D0%B0%D1%82-%D0%B7%D0%B0%D0%B4-%D0%BA%D0%B0%D1%83/1102432232336975/",
+          "ok": false,
+          "error": "WebFetchError"
+        },
+        {
+          "url": "https://www.eranova.bg/osem-metal-bandi-zastavat-zad-kauzata-sreshtu-domashnoto-nasilie-na-festival-v-burgas-30983",
+          "ok": true,
+          "final_url": "https://www.eranova.bg/osem-metal-bandi-zastavat-zad-kauzata-sreshtu-domashnoto-nasilie-na-festival-v-burgas-30983",
+          "bytes": 349982,
+          "final_host": "eranova.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOUlZxZThUdzAxeEp0Ny1sblhWenN0OEhNSkxuMDlRd2FWZDJ2Mm9zSnkxUHBUZWM4VUdnVmI2dVhybnhPLUdEOGZWYU1FYlVaMzVwZHhCaFlhbkdZQXNaNkM4Vnl6ZWdaVkZvNlVLOVd5TnRNRm5fX1VSU2IyT0pVZi1TUjBsalEtbjJPb0dwclVqRVk4alV5cnJB?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOUlZxZThUdzAxeEp0Ny1sblhWenN0OEhNSkxuMDlRd2FWZDJ2Mm9zSnkxUHBUZWM4VUdnVmI2dVhybnhPLUdEOGZWYU1FYlVaMzVwZHhCaFlhbkdZQXNaNkM4Vnl6ZWdaVkZvNlVLOVd5TnRNRm5fX1VSU2IyT0pVZi1TUjBsalEtbjJPb0dwclVqRVk4alV5cnJB?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583441,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxPNzEtcDZOd0Z1WU40cWd1bk9iMnJ3Q3h2eDBfWmhsUXpzemVrdXoyZ1gyOEV1ZGNBWUdtNUVpNW9GdVZqdkM4RENRUEVmZVVZOUM4X1lYb3JUNl9JN05KeTg1b2tfOWxiVDBFQy04ZkVhTHRPUkxZYllzT2s5TXNxVzhtcVBWU2MzVk5sLXFxWEp5ajA?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxPNzEtcDZOd0Z1WU40cWd1bk9iMnJ3Q3h2eDBfWmhsUXpzemVrdXoyZ1gyOEV1ZGNBWUdtNUVpNW9GdVZqdkM4RENRUEVmZVVZOUM4X1lYb3JUNl9JN05KeTg1b2tfOWxiVDBFQy04ZkVhTHRPUkxZYllzT2s5TXNxVzhtcVBWU2MzVk5sLXFxWEp5ajA?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583215,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMizAFBVV95cUxQVm83TnY1RGxGMzZNTHhDc09lekxNVTZhOE5JNmpTZVRjWUdzVkZXR2pIODZJX2hjQjZUcEFKSDhadHB6bVBIdHZra2NpOHQ4YWxlSFUtSlR5amtMV1BERXVCOFY4bktCS3psNWZQU3hPVnJTcGgyZm5fWnRJbzdMVFY3UmVLNGlkdHlYZnZQMU9nRmlCb21PLVA2QTBoQUJXSkZEZVE1Sl9kMHlGcThTcjY5RlhrbnZaeWY3N3RiTHdIZFRSMzN1akRtV1U?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMizAFBVV95cUxQVm83TnY1RGxGMzZNTHhDc09lekxNVTZhOE5JNmpTZVRjWUdzVkZXR2pIODZJX2hjQjZUcEFKSDhadHB6bVBIdHZra2NpOHQ4YWxlSFUtSlR5amtMV1BERXVCOFY4bktCS3psNWZQU3hPVnJTcGgyZm5fWnRJbzdMVFY3UmVLNGlkdHlYZnZQMU9nRmlCb21PLVA2QTBoQUJXSkZEZVE1Sl9kMHlGcThTcjY5RlhrbnZaeWY3N3RiTHdIZFRSMzN1akRtV1U?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584907,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 31,
+          "chars": 4800,
+          "claim_found": true,
+          "claim": "Осем метъл банди с фронт дами срещу домашното насилие - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрограма Хоризон"
+        },
+        {
+          "sentences": 1,
+          "chars": 0,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 25,
+          "chars": 3978,
+          "claim_found": true,
+          "claim": "Осем метъл банди застават зад каузата срещу домашното насилие на фестивал в Бургас Последно в EraNova.bg Избори 2026 Бургас България Региони По света Крими Общество и Здраве Спорт Шик Сигнал до ЕраНов"
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 5,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bnrnews.bg",
+        "eranova.bg",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "bnrnews.bg",
+        "eranova.bg",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 3
+    },
+    {
+      "story_id": "sc3b21bc1a29839a",
+      "raw_title": "Вокална група „Таланти“ подготвя благотворителен концерт в помощ на „слънчевите деца“ - Община Поморие",
+      "editorial_title": "Вокална група „Таланти“ подготвя благотворителен концерт в помощ на „слънчевите деца“",
+      "discovered_via": "pomorie-municipality",
+      "discoverer_kind": "official",
+      "discoverer_authority": true,
+      "publisher_domain": "www.pomorie.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.pomorie.bg/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/",
+          "bytes": 339456,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/posts/good-news/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/posts/good-news/",
+          "bytes": 284052,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/posts/0kultura/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/posts/0kultura/",
+          "bytes": 284545,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNd3plUDFBM25pRXEzOHc1aXdQcVdTS1ZDOF9hSUVqRU45Y1ZpQzhwaGNWRzZ6TlB1ZnJqYXBibXduMkZRYVdDZXdZYngxR29MWDMwd05nN3dKUmh4bXAwbC1rYy1LRVlzVUVTQ1pLYVdUSTE4NjNkVDlSdTYtZUgxS3NmRnp6TDdYLTQ3RUhyUGFNdFlaYnZxV1JMUGRDUUpNcmphRzVCVFZkZm9DSUFtR2lB?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNd3plUDFBM25pRXEzOHc1aXdQcVdTS1ZDOF9hSUVqRU45Y1ZpQzhwaGNWRzZ6TlB1ZnJqYXBibXduMkZRYVdDZXdZYngxR29MWDMwd05nN3dKUmh4bXAwbC1rYy1LRVlzVUVTQ1pLYVdUSTE4NjNkVDlSdTYtZUgxS3NmRnp6TDdYLTQ3RUhyUGFNdFlaYnZxV1JMUGRDUUpNcmphRzVCVFZkZm9DSUFtR2lB?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584108,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 43,
+          "chars": 13453,
+          "claim_found": true,
+          "claim": "35, ал.1,т.2 и т.4 от ЗПКОНПИ Приемни дни Структура АДМИНИСТРАТИВНИ ДЕЙНОСТИ Бюджет и финанси Приходи местни данъци и туризъм Банкови сметки Услуги МДТ Обявления МДТ График по населени места Туризъм О"
+        },
+        {
+          "sentences": 58,
+          "chars": 16836,
+          "claim_found": true,
+          "claim": "Добрата новина – Община Поморие Skip to content 26.09.2026г."
+        },
+        {
+          "sentences": 62,
+          "chars": 17070,
+          "claim_found": true,
+          "claim": "Култура – Община Поморие Skip to content 26.09.2026г."
+        }
+      ],
+      "claim_found_count": 3,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "news.google.com",
+        "pomorie.bg"
+      ],
+      "opened_authoritative_hosts": [
+        "pomorie.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sb7871edafdd5b27",
+      "raw_title": "Официално: Бургас прие бюджет от над 350 млн. евро за 2026 г. - ФОКУС",
+      "editorial_title": "Официално: Бургас прие бюджет от над 350 млн. евро за 2026 г. - ФОКУС",
+      "discovered_via": "google-news-burgas-region",
+      "discoverer_kind": "aggregator",
+      "discoverer_authority": false,
+      "publisher_domain": "www.focus-news.net",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.focus-news.net/novini/regioni/Oficialno-Burgas-prie-byudzhet-ot-nad-350-mln-evro-za-2026-g-3028270",
+          "ok": true,
+          "final_url": "https://www.focus-news.net/novini/regioni/Oficialno-Burgas-prie-byudzhet-ot-nad-350-mln-evro-za-2026-g-3028270",
+          "bytes": 93423,
+          "final_host": "focus-news.net",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.focus-news.net/novini/regioni/Obshtina-Burgas-obsuzhda-byudzhet-ot-nad-350-mln-evro-za-2026-g-3014242",
+          "ok": true,
+          "final_url": "https://www.focus-news.net/novini/regioni/Obshtina-Burgas-obsuzhda-byudzhet-ot-nad-350-mln-evro-za-2026-g-3014242",
+          "bytes": 82237,
+          "final_host": "focus-news.net",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/100064864205365/posts/%D0%BE%D1%84%D0%B8%D1%86%D0%B8%D0%B0%D0%BB%D0%BD%D0%BE-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%BF%D1%80%D0%B8%D0%B5-%D0%B1%D1%8E%D0%B4%D0%B6%D0%B5%D1%82-%D0%BE%D1%82-%D0%BD%D0%B0%D0%B4-350-%D0%BC%D0%BB%D0%BD-%D0%B5%D0%B2%D1%80%D0%BE-%D0%B7%D0%B0-2026-%D0%B3/1546569294181863/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/100064864205365/posts/%D0%BE%D1%84%D0%B8%D1%86%D0%B8%D0%B0%D0%BB%D0%BD%D0%BE-%D0%B1%D1%83%D1%80%D0%B3%D0%B0%D1%81-%D0%BF%D1%80%D0%B8%D0%B5-%D0%B1%D1%8E%D0%B4%D0%B6%D0%B5%D1%82-%D0%BE%D1%82-%D0%BD%D0%B0%D0%B4-350-%D0%BC%D0%BB%D0%BD-%D0%B5%D0%B2%D1%80%D0%BE-%D0%B7%D0%B0-2026-%D0%B3/1546569294181863/",
+          "bytes": 798079,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxOZXNDdDJVMy1nSlRrekhJMVNJSEpkSmd5R2dfRU92dkFvaEY5YUQtVWUyWDFTN0ZNU3BpNjJmdTJXbF9LMTBUZk9SLW5DX1pybG9aaUFxbExiTUVPeWswcHZOSkZmbmVLdzRNRV9rUXZfVHJuTm43NWdvZDF2SVQwNmdOeEZOMHFUUnFFRUI3dVozM0tVbjNyRkQyaEhnZTZpLXJ4c19Od25oYl91MzlZ?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxOZXNDdDJVMy1nSlRrekhJMVNJSEpkSmd5R2dfRU92dkFvaEY5YUQtVWUyWDFTN0ZNU3BpNjJmdTJXbF9LMTBUZk9SLW5DX1pybG9aaUFxbExiTUVPeWswcHZOSkZmbmVLdzRNRV9rUXZfVHJuTm43NWdvZDF2SVQwNmdOeEZOMHFUUnFFRUI3dVozM0tVbjNyRkQyaEhnZTZpLXJ4c19Od25oYl91MzlZ?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584039,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 62,
+          "chars": 6282,
+          "claim_found": true,
+          "claim": "Официално: Бургас прие бюджет от над 350 млн."
+        },
+        {
+          "sentences": 26,
+          "chars": 4015,
+          "claim_found": true,
+          "claim": "Община Бургас обсъжда бюджет от над 350 млн."
+        },
+        {
+          "sentences": 1,
+          "chars": 61,
+          "claim_found": true,
+          "claim": "I ♥ Burgas - Официално: Бургас прие бюджет от над 350 млн...."
+        }
+      ],
+      "claim_found_count": 3,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "facebook.com",
+        "focus-news.net",
+        "news.google.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "focus-news.net",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "sff6fa8460da5b18",
+      "raw_title": "Скритите течове у дома: сигналите, които не бива да пренебрегваме - БНР",
+      "editorial_title": "Скритите течове у дома: сигналите, които не бива да пренебрегваме",
+      "discovered_via": "bnr-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "bnr.bg",
+      "item_host": "news.google.com",
+      "member_count": 1,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://bnrnews.bg/burgas/post/531388/skritite-techove-u-doma-signalite-koito-ne-biva-da-prenebregvame",
+          "ok": true,
+          "final_url": "https://bnrnews.bg/burgas/post/531388/skritite-techove-u-doma-signalite-koito-ne-biva-da-prenebregvame",
+          "bytes": 142501,
+          "final_host": "bnrnews.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://alonis.bg/otkrivane-na-techove-s-termokamera-burgas/",
+          "ok": true,
+          "final_url": "https://alonis.bg/otkrivane-na-techove-s-termokamera-burgas/",
+          "bytes": 201541,
+          "final_host": "alonis.bg",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://viktechove.com/skriti-techove-panelni-blokove-druzhba/",
+          "ok": true,
+          "final_url": "https://viktechove.com/skriti-techove-panelni-blokove-druzhba/",
+          "bytes": 166334,
+          "final_host": "viktechove.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxOOXlRRTZmbGNZODBjSVo5UmdIUWlpSXZjX1AxNTZvbWxrcEFOanhqZjJrR0RoZUprVW5vdzllZmlFcWo2dHp0Uk1tLU0xMERVcVVlenFfVFdESjNWS2JjblJUd3dwcWI2b0l6WVZfQVl2S1IwLW0tR0pFQXpKX202X3lMQ0xxV29sdE4yLVVqLXF0ZFN4djlfRl9HZ3BDdw?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMingFBVV95cUxOOXlRRTZmbGNZODBjSVo5UmdIUWlpSXZjX1AxNTZvbWxrcEFOanhqZjJrR0RoZUprVW5vdzllZmlFcWo2dHp0Uk1tLU0xMERVcVVlenFfVFdESjNWS2JjblJUd3dwcWI2b0l6WVZfQVl2S1IwLW0tR0pFQXpKX202X3lMQ0xxV29sdE4yLVVqLXF0ZFN4djlfRl9HZ3BDdw?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 583525,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 51,
+          "chars": 6348,
+          "claim_found": true,
+          "claim": "Скритите течове у дома: сигналите, които не бива да пренебрегваме - БНР Бургас БНРДетското.БНРАрхивен фонд на БНР Радио България bg en de ru fr es sr el sq tr ro БНР Бургас БНР Бургас БНР НовинитеПрог"
+        },
+        {
+          "sentences": 133,
+          "chars": 19161,
+          "claim_found": true,
+          "claim": "Откриване на течове в Бургас и региона Предлагаме намиране на течове с термокамера в Бургас и всички квартали на града: Меден Рудник Сарафово Лазур Славейков Изгрев Зорница Възраждане Център Извършвам"
+        },
+        {
+          "sentences": 157,
+          "chars": 17616,
+          "claim_found": true,
+          "claim": "06.06.2026 От дългогодишния си опит отлично знам какво изпитвате, когато след изморителен работен ден се приберете у дома и усетите онази специфична, тежка миризма на влага, или когато вдигнете поглед"
+        }
+      ],
+      "claim_found_count": 3,
+      "opened_count": 4,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "alonis.bg",
+        "bnrnews.bg",
+        "news.google.com",
+        "viktechove.com"
+      ],
+      "opened_authoritative_hosts": [],
+      "opened_unregistered_hosts": [
+        "alonis.bg",
+        "bnrnews.bg",
+        "news.google.com",
+        "viktechove.com"
+      ],
+      "unresolved_aggregator_opens": 1
+    },
+    {
+      "story_id": "s8eda5c22ebfb492",
+      "raw_title": "Община Поморие и Общинският съвет ще търсят стратегически партньор, който да инвестира и модернизира общинската болница в града - БТА",
+      "editorial_title": "Община Поморие и Общинският съвет ще търсят стратегически партньор, който да инвестира и модернизира общинската болница в града",
+      "discovered_via": "bta-burgas",
+      "discoverer_kind": "media",
+      "discoverer_authority": true,
+      "publisher_domain": "www.bta.bg",
+      "item_host": "news.google.com",
+      "member_count": 3,
+      "existing_research": false,
+      "assessed": "assessed",
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Не е намерен отворен източник, който потвърждава основното твърдение."
+      ],
+      "error": null,
+      "opens": [
+        {
+          "url": "https://www.bta.bg/bg/news/bulgaria/regional-news/oblast-burgas/1211431-obshtina-pomorie-i-obshtinskiyat-savet-shte-tarsyat-strategicheski-partnyor-koy",
+          "ok": true,
+          "final_url": "https://www.bta.bg/bg/news/bulgaria/regional-news/oblast-burgas/1211431-obshtina-pomorie-i-obshtinskiyat-savet-shte-tarsyat-strategicheski-partnyor-koy",
+          "bytes": 363913,
+          "final_host": "bta.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "media",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.facebook.com/PomorieMunicipality/posts/%D0%BF%D1%80%D0%B5%D0%B4-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D1%81%D1%82%D0%BE%D0%B8-%D0%B2%D1%8A%D0%BF%D1%80%D0%BE%D1%81-%D0%BA%D0%BE%D0%B9%D1%82%D0%BE-%D0%BE%D1%82%D0%B4%D0%B0%D0%B2%D0%BD%D0%B0-%D1%87%D0%B0%D0%BA%D0%B0-%D1%80%D0%B5%D1%88%D0%B5%D0%BD%D0%B8%D0%B5-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0%D1%82%D0%B0-%D0%B8-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D1%81%D0%BA%D0%B8-%D1%81%D1%8A%D0%B2%D0%B5%D1%82-%D1%89%D0%B5/1572049081616868/",
+          "ok": true,
+          "final_url": "https://www.facebook.com/PomorieMunicipality/posts/%D0%BF%D1%80%D0%B5%D0%B4-%D0%BF%D0%BE%D0%BC%D0%BE%D1%80%D0%B8%D0%B5-%D1%81%D1%82%D0%BE%D0%B8-%D0%B2%D1%8A%D0%BF%D1%80%D0%BE%D1%81-%D0%BA%D0%BE%D0%B9%D1%82%D0%BE-%D0%BE%D1%82%D0%B4%D0%B0%D0%B2%D0%BD%D0%B0-%D1%87%D0%B0%D0%BA%D0%B0-%D1%80%D0%B5%D1%88%D0%B5%D0%BD%D0%B8%D0%B5-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D0%B0%D1%82%D0%B0-%D0%B8-%D0%BE%D0%B1%D1%89%D0%B8%D0%BD%D1%81%D0%BA%D0%B8-%D1%81%D1%8A%D0%B2%D0%B5%D1%82-%D1%89%D0%B5/1572049081616868/",
+          "bytes": 772725,
+          "final_host": "facebook.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": false
+        },
+        {
+          "url": "https://www.pomorie.bg/pomorie-iska-novo-badeshte-za-obshtinskata-si-bolnitsa/",
+          "ok": true,
+          "final_url": "https://www.pomorie.bg/pomorie-iska-novo-badeshte-za-obshtinskata-si-bolnitsa/",
+          "bytes": 242774,
+          "final_host": "pomorie.bg",
+          "in_registry": true,
+          "factual_authority": true,
+          "registry_kind": "official",
+          "still_aggregator": false
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMi5gFBVV95cUxNUVhwTDk4cVRNNDUyS01sTHlSb01Md0N3SHRNLTU1M0ZYaVhCa1RIR1dsTEZMTUxnLVhZVy0zYWtTVHpxTWFvb0ozNnJSdmxJSUNELTduNVl4Y1hyeC00Y1UyN2dPR09SRGNFeFRzV0Jfd0d5QnBfU245WmhCRWcxVENzLThGOEsyeWEyQlZMUnlfWmlPZktSMnV0WVdRNEljdVVVSzJveldwaVFFZ0Y2aHI4U2dUakRsd2dpMUdMMWF1c3pHY0hDUUk4ZmVkVzRHcG0wQkFmMk83UlhMZDVKWmxBVVgwdw?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMi5gFBVV95cUxNUVhwTDk4cVRNNDUyS01sTHlSb01Md0N3SHRNLTU1M0ZYaVhCa1RIR1dsTEZMTUxnLVhZVy0zYWtTVHpxTWFvb0ozNnJSdmxJSUNELTduNVl4Y1hyeC00Y1UyN2dPR09SRGNFeFRzV0Jfd0d5QnBfU245WmhCRWcxVENzLThGOEsyeWEyQlZMUnlfWmlPZktSMnV0WVdRNEljdVVVSzJveldwaVFFZ0Y2aHI4U2dUakRsd2dpMUdMMWF1c3pHY0hDUUk4ZmVkVzRHcG0wQkFmMk83UlhMZDVKWmxBVVgwdw?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 585655,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        },
+        {
+          "url": "https://news.google.com/rss/articles/CBMiwAFBVV95cUxNZDFfSktXbkdydEluNDVPMWhscU02VHpzM0I0T1dFT1N3UmlUWTV0MzBpUFJMYzNVNUVHQUdtdzhpc1VkenR3eVU0eURHSDNLREtaZzNzdWJZSUdyWUUyZGZObjF6VmZlTHU0T1ZJblRldUdtMnpZdXIzUTduSThmN2lDTXNEajRZVTBGeVdtcUZiTVo1dzdDdHBnUGFWOXJNb01Tc04zZGlPNUYzUm9EZ193ZnZQUmdYZEV1WkpRU20?oc=5",
+          "ok": true,
+          "final_url": "https://news.google.com/rss/articles/CBMiwAFBVV95cUxNZDFfSktXbkdydEluNDVPMWhscU02VHpzM0I0T1dFT1N3UmlUWTV0MzBpUFJMYzNVNUVHQUdtdzhpc1VkenR3eVU0eURHSDNLREtaZzNzdWJZSUdyWUUyZGZObjF6VmZlTHU0T1ZJblRldUdtMnpZdXIzUTduSThmN2lDTXNEajRZVTBGeVdtcUZiTVo1dzdDdHBnUGFWOXJNb01Tc04zZGlPNUYzUm9EZ193ZnZQUmdYZEV1WkpRU20?oc=5&ucbcb=1&hl=bg&gl=BG&ceid=BG:bg",
+          "bytes": 584533,
+          "final_host": "news.google.com",
+          "in_registry": false,
+          "factual_authority": false,
+          "registry_kind": null,
+          "still_aggregator": true
+        }
+      ],
+      "claim_attempts": [
+        {
+          "sentences": 39,
+          "chars": 17795,
+          "claim_found": true,
+          "claim": "Средствата трябва да бъдат възстановени до края на 2026 г."
+        },
+        {
+          "sentences": 1,
+          "chars": 59,
+          "claim_found": false,
+          "claim": ""
+        },
+        {
+          "sentences": 102,
+          "chars": 17584,
+          "claim_found": true,
+          "claim": "Поморие иска ново бъдеще за общинската си болница – Община Поморие Skip to content 26.09.2026г."
+        }
+      ],
+      "claim_found_count": 2,
+      "opened_count": 5,
+      "editor_gap": "Не е намерен отворен източник, който потвърждава основното твърдение.",
+      "category": "CLAIM_NEEDS_CORROBORATION",
+      "opened_hosts": [
+        "bta.bg",
+        "facebook.com",
+        "news.google.com",
+        "pomorie.bg"
+      ],
+      "opened_authoritative_hosts": [
+        "bta.bg",
+        "pomorie.bg"
+      ],
+      "opened_unregistered_hosts": [
+        "facebook.com",
+        "news.google.com"
+      ],
+      "unresolved_aggregator_opens": 2
+    }
+  ],
+  "totals": {
+    "stories_sampled": 24,
+    "stories_with_opened_pages": 24,
+    "stories_with_a_claim": 23,
+    "stories_with_facts": 1,
+    "stories_with_the_no_open_source_gap": 23,
+    "research_errors": 0,
+    "google_news_discovery": 23,
+    "official_discoverer_third_party_publisher": 4
+  },
+  "categories": {
+    "CLAIM_NEEDS_CORROBORATION": 22,
+    "NO_RELEVANT_CLAIM_EXTRACTED": 1,
+    "OK": 1
+  },
+  "providers": {},
+  "notes": []
+}
