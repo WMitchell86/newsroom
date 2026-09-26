@@ -226,6 +226,13 @@ def refresh_newsroom(
     # only exists after the identity stage, so it is merged into that same
     # latest-run record. This is the only extra state the refresh adds.
     source_health.record_run_stories(stories.get("new_stories", 0), path=paths["last_run"])
+    # V1.1-F2A: the same latest-run record carries whether this run's identity
+    # stage could classify everything it needed to. Without it a run that kept a
+    # third of the corpus separate looked exactly like a run where nothing
+    # interesting happened, and the problem surfaced days later as duplicates.
+    grouping = stories.get("grouping")
+    if isinstance(grouping, dict):
+        source_health.record_run_grouping(grouping, path=paths["last_run"])
 
     return {
         "collected": int(summary.get("collected", 0)),

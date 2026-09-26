@@ -257,6 +257,15 @@ export const todayProjection: TodayProjection = {
     newStories: 23,
     failedSources: 0,
   },
+  // V1.1-F2A: a healthy run reports health and shows no warning. A run that
+  // predates grouping-health reporting uses `null` and is also silent.
+  groupingHealth: {
+    status: "healthy",
+    lastSuccessfulSemanticClassificationAt: "2026-09-25T04:31:00Z",
+    semanticRequired: 12,
+    semanticAnswered: 12,
+    semanticDegraded: 0,
+  },
   // 2 rows rendered out of 2 qualifying: the cap notice is absent by default.
   storyAttentionTotal: 2,
   storyAttentionShown: 2,

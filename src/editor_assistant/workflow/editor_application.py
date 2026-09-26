@@ -24,6 +24,7 @@ from editor_assistant.workflow import (
     editor_article_store,
     editor_projections,
     editor_queries,
+    grouping_health,
     inbox_store,
     live_store,
     newsroom_refresh,
@@ -1686,6 +1687,34 @@ def _today_last_refresh() -> dict | None:
     }
 
 
+def _today_grouping_health() -> dict | None:
+    """Story-grouping health for the latest run, or `None` when unknown.
+
+    Today shows a compact warning only when grouping actually degraded. A run
+    that predates this field reports `None` ("unknown"), which the frontend
+    treats as *no warning*: inventing a warning for historical runs would be a
+    claim the data does not support, and a permanent status chip would train the
+    editor to ignore the surface entirely.
+
+    Only the aggregate status and counters cross into the editor DTO. Route
+    ids, provider names and HTTP categories stay in the operational store.
+    """
+    # Resolved through `source_health.last_run_path`, not through
+    # `newsroom_paths`, so the documented `NEWSROOM_LAST_RUN_PATH` override is
+    # honoured and the reading path is identical to the writing path.
+    record = source_health.read_last_run(source_health.last_run_path())
+    block = grouping_health.read_grouping_health(record)
+    if block is None:
+        return None
+    return {
+        "status": block[grouping_health.FIELD_STATUS],
+        "lastSuccessfulSemanticClassificationAt": block[grouping_health.FIELD_LAST_SUCCESS],
+        "semanticRequired": block[grouping_health.FIELD_REQUIRED],
+        "semanticAnswered": block[grouping_health.FIELD_ANSWERED],
+        "semanticDegraded": block[grouping_health.FIELD_DEGRADED],
+    }
+
+
 def read_today() -> dict:
     result = editor_queries.read_today(
         stories_path=_paths()["stories"],
@@ -1794,6 +1823,7 @@ def read_today() -> dict:
     articles.sort(key=lambda row: (row["timestamp"], row["objectId"]), reverse=True)
     return {
         "lastRefresh": _today_last_refresh(),
+        "groupingHealth": _today_grouping_health(),
         "storyAttentionTotal": result["storyAttentionTotal"],
         "storyAttentionShown": len(new_developments) + len(new_stories),
         "newDevelopments": new_developments,

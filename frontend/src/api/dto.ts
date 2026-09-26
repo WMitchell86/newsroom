@@ -333,9 +333,41 @@ export interface LastRefresh {
   failedSources: number;
 }
 
+/**
+ * Story-grouping health for the latest run (V1.1-F2A).
+ *
+ * `null` means **unknown** — the run predates this field. The UI must treat
+ * that as "no warning": a run that never reported grouping health cannot be
+ * claimed to have been unhealthy.
+ *
+ * `healthy` and `unknown` are both silent. Only a real degradation is surfaced,
+ * because permanent status chrome would train the editor to ignore the surface.
+ */
+export type GroupingHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "budget_exhausted"
+  | "unavailable";
+
+export interface GroupingHealth {
+  status: GroupingHealthStatus;
+  /** ISO-8601 UTC instant of the last successful semantic classification. */
+  lastSuccessfulSemanticClassificationAt: string | null;
+  /** Publications that reached the anchored shortlist and needed a decision. */
+  semanticRequired: number;
+  semanticAnswered: number;
+  /**
+   * Publications kept separate because classification could not be completed.
+   * This is a measure of quality loss, not of traffic.
+   */
+  semanticDegraded: number;
+}
+
 export interface TodayProjection {
   /** `null` means no run has ever happened — not "ran with nothing to show". */
   lastRefresh: LastRefresh | null;
+  /** `null` when the latest run predates grouping-health reporting. */
+  groupingHealth: GroupingHealth | null;
   /** Every Story that qualifies as current, before the cap. */
   storyAttentionTotal: number;
   /** How many of those the cap actually lets through. */

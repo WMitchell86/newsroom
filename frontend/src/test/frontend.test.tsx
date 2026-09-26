@@ -3,6 +3,7 @@ import { queryKeys, storiesOptions, todayOptions } from "../api/queries";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TodayProjection } from "../api/dto";
 import { AppShell } from "../app/AppShell";
 import { ArticleListPage } from "../pages/ArticleListPage";
 import { ArticleWorkspace } from "../pages/ArticleWorkspace";
@@ -2246,5 +2247,150 @@ describe("Today — D2 fast triage", () => {
     const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
     expect(posts).toHaveLength(1);
     release(dataResponse({ status: "succeeded", result: { status: "draft_created", articleId: activeDraftArticle.id } }));
+  });
+});
+
+/**
+ * V1.1-F2A — Story-grouping health on Today.
+ *
+ * The rule being pinned: grouping health is visible only when it actually
+ * degraded, and never in operator vocabulary. A healthy run and a run that
+ * predates the field are both silent, because permanent status chrome would
+ * train the editor to ignore the surface.
+ */
+describe("Today grouping health", () => {
+  function withHealth(health: TodayProjection["groupingHealth"]): TodayProjection {
+    return { ...todayProjection, groupingHealth: health };
+  }
+
+  it("shows no grouping warning when grouping is healthy", async () => {
+    fetchMock.mockResolvedValue(dataResponse(withHealth({
+      status: "healthy",
+      lastSuccessfulSemanticClassificationAt: "2026-09-25T04:31:00Z",
+      semanticRequired: 12,
+      semanticAnswered: 12,
+      semanticDegraded: 0,
+    })));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByRole("heading", { name: "Нови истории" })).toBeInTheDocument();
+    expect(screen.queryByText(/Групирането на истории е ограничено/)).toBeNull();
+    expect(screen.queryByText(/Лимитът за групиране/)).toBeNull();
+  });
+
+  it("stays silent when the run predates grouping-health reporting", async () => {
+    fetchMock.mockResolvedValue(dataResponse(withHealth(null)));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.queryByText(/Групирането на истории е ограничено/)).toBeNull();
+  });
+
+  it("warns in editor language when the grouping budget is exhausted", async () => {
+    fetchMock.mockResolvedValue(dataResponse(withHealth({
+      status: "budget_exhausted",
+      lastSuccessfulSemanticClassificationAt: "2026-09-25T04:31:00Z",
+      semanticRequired: 182,
+      semanticAnswered: 79,
+      semanticDegraded: 103,
+    })));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("Лимитът за групиране е изчерпан");
+    expect(notice).toHaveTextContent("103");
+  });
+
+  it("warns generically when the semantic route is unavailable", async () => {
+    fetchMock.mockResolvedValue(dataResponse(withHealth({
+      status: "unavailable",
+      lastSuccessfulSemanticClassificationAt: null,
+      semanticRequired: 40,
+      semanticAnswered: 0,
+      semanticDegraded: 40,
+    })));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("Групирането на истории е ограничено");
+    // A provider outage is NOT described as a budget problem.
+    expect(notice).not.toHaveTextContent("Лимитът за групиране е изчерпан");
+  });
+
+  it("never leaks provider, model or HTTP vocabulary into the DOM", async () => {
+    fetchMock.mockResolvedValue(dataResponse(withHealth({
+      status: "budget_exhausted",
+      lastSuccessfulSemanticClassificationAt: null,
+      semanticRequired: 5,
+      semanticAnswered: 0,
+      semanticDegraded: 5,
+    })));
+    const { container } = renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    const rendered = (container.textContent ?? "").toLowerCase();
+    for (const forbidden of [
+      "gemini",
+      "openrouter",
+      "429",
+      "role_hard_budget",
+      "flash",
+      "quota",
+      "provider",
+      "route",
+    ]) {
+      expect(rendered).not.toContain(forbidden);
+    }
+  });
+
+  it("clears the warning after a healthy refresh without a browser reload", async () => {
+    // The canonical latest-run state flips from degraded to healthy when the
+    // refresh completes; Today must refetch and drop the notice on its own.
+    let degraded = true;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-refresh" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-refresh") {
+        degraded = false;
+        return dataResponse({ status: "succeeded" });
+      }
+      return dataResponse(
+        withHealth(
+          degraded
+            ? {
+                status: "budget_exhausted",
+                lastSuccessfulSemanticClassificationAt: null,
+                semanticRequired: 9,
+                semanticAnswered: 0,
+                semanticDegraded: 9,
+              }
+            : {
+                status: "healthy",
+                lastSuccessfulSemanticClassificationAt: "2026-09-25T05:00:00Z",
+                semanticRequired: 9,
+                semanticAnswered: 9,
+                semanticDegraded: 0,
+              },
+        ),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByRole("status")).toHaveTextContent("Лимитът за групиране е изчерпан");
+
+    await user.click(screen.getByRole("button", { name: "Обнови" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+    // Recovery came from canonical latest-run state via a refetch, not a reload.
+    expect(screen.getByRole("heading", { name: "Днес" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/today").length).toBeGreaterThan(1);
   });
 });

@@ -39,6 +39,10 @@ publisher domains and times — never whole article bodies and never a long hist
 
 from __future__ import annotations
 
+import logging
+
+_LOG = logging.getLogger(__name__)
+
 RELATIONS = ("SAME_STORY", "NEW_DEVELOPMENT", "RELATED_BACKGROUND", "DIFFERENT_STORY")
 
 #: Relations that keep the item inside the story.
@@ -52,6 +56,42 @@ MAX_ANCHORS = 8
 
 class RelationError(ValueError):
     """Malformed model output (never stored, never acted on)."""
+
+
+#: Why a semantic classification did not produce an answer (V1.1-F2A).
+#:
+#: These are **observability labels only**. They never change a decision: a
+#: failure keeps the publication separate in every case, exactly as before.
+#: The distinction exists because "budget exhausted" and "provider unreachable"
+#: need different operator responses, and F1 showed that collapsing them into
+#: one opaque `None` made a budget misconfiguration invisible for a full day.
+FAILURE_BUDGET = "budget_exhausted"
+FAILURE_UNAVAILABLE = "unavailable"
+FAILURE_INVALID = "invalid_response"
+
+#: Markers the router uses when a route is skipped because the internal daily
+#: role budget is spent. Kept as substrings because the router's skip reasons
+#: are operator-facing Bulgarian text, and matching the router's own category
+#: constants would couple this module to its wording.
+_ROLE_BUDGET_MARKERS = ("твърд дневен лимит", "role hard budget")
+_ROLE_BUDGET_CATEGORY = "ROLE_HARD_BUDGET"
+
+
+def classify_failure(trace) -> str:
+    """Classify a routing trace as budget exhaustion or plain unavailability.
+
+    `trace` is the router's own skip/attempt trace. A trace that mentions the
+    role's hard daily limit is a *self-imposed* limit and is reported as
+    `budget_exhausted`; anything else (quota, auth, provider outage, no key) is
+    reported as `unavailable`, which is a different operational problem.
+    """
+    for entry in trace or ():
+        reason = str((entry or {}).get("reason") or "")
+        if any(marker in reason for marker in _ROLE_BUDGET_MARKERS):
+            return FAILURE_BUDGET
+        if str((entry or {}).get("event") or "") == "SKIPPED" and (_ROLE_BUDGET_CATEGORY in reason):
+            return FAILURE_BUDGET
+    return FAILURE_UNAVAILABLE
 
 
 def _cut(text, limit):
@@ -199,12 +239,18 @@ def parse_relation(payload):
     }
 
 
-def classify(item, story, items_by_id, *, call_model=None):
+def classify(item, story, items_by_id, *, call_model=None, on_failure=None):
     """Ask the semantic model for the relation, or return `None`.
 
     `None` means **no merge** (provider unavailable, rate-limited, malformed
     output) — the caller creates a separate story flagged for review. An
     infrastructure failure must never force a merge.
+
+    `on_failure(reason)` (V1.1-F2A) is an optional **observability** callback.
+    It is told *why* the classification failed — `budget_exhausted`,
+    `unavailable` or `invalid_response` — and is used only to report grouping
+    health. It can never change the returned value or any grouping decision: the
+    merge/no-merge behaviour below is byte-for-byte unchanged.
     """
     if call_model is None:
         try:
@@ -212,19 +258,34 @@ def classify(item, story, items_by_id, *, call_model=None):
 
             call_model = generate.call_model
         except Exception:  # noqa: BLE001 - no provider import must stay a no-merge
+            _report_failure(on_failure, FAILURE_UNAVAILABLE, None)
             return None
     prompt = render_prompt(build_context(item, story, items_by_id))
     try:
         raw, _meta = call_model(prompt, role="story")
-    except Exception:  # noqa: BLE001 - any transport/provider failure is a no-merge
+    except Exception as exc:  # noqa: BLE001 - any transport/provider failure is a no-merge
+        trace = getattr(exc, "trace", None)
+        _report_failure(on_failure, classify_failure(trace), trace)
         return None
     try:
         from editor_assistant.drafting.generate import _extract_first_object
 
         payload = _extract_first_object(raw)
     except Exception:  # noqa: BLE001 - unparseable output is a no-merge
+        _report_failure(on_failure, FAILURE_INVALID, None)
         return None
     try:
         return parse_relation(payload)
     except RelationError:
+        _report_failure(on_failure, FAILURE_INVALID, None)
         return None
+
+
+def _report_failure(on_failure, reason, trace) -> None:
+    """Invoke the optional observability callback; a broken reporter is ignored."""
+    if on_failure is None:
+        return
+    try:
+        on_failure(reason, trace)
+    except Exception as exc:  # noqa: BLE001 - reporting must never change a decision
+        _LOG.debug("grouping-health reporter failed: %s", type(exc).__name__)

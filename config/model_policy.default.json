@@ -57,8 +57,8 @@
       "purpose": "SAME_STORY / NEW_DEVELOPMENT / RELATED_BACKGROUND / DIFFERENT_STORY",
       "default_payload_class": "public",
       "on_exhausted": "conservative",
-      "soft_calls_day": 60,
-      "hard_calls_day": 100,
+      "soft_calls_day": 900,
+      "hard_calls_day": 1200,
       "routes": [
         {
           "provider": "gemini",

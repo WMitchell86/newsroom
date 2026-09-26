@@ -28,17 +28,21 @@ propagation an editor action explicitly asks for).
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 
 from editor_assistant.workflow import (
     blocked_domains,
+    grouping_health,
     inbox_store,
     publication_identity,
     source_health,
     story_relation,
     story_store,
 )
+
+_LOG = logging.getLogger(__name__)
 
 #: Only recent stories are candidates (no long-term topic memory yet).
 STORY_SHORTLIST_DAYS = 7
@@ -196,6 +200,53 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def _health_stamp(moment=None):
+    """UTC second-precision stamp for the grouping-health summary.
+
+    Deliberately local: the run summary is a timestamped record, not canonical
+    Story state, so it does not need `story_store`'s member/store stamping.
+    """
+    return (moment or _now()).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _health_recorder(health):
+    """A recorder that exposes the expected verbs, or `None` when unusable.
+
+    Grouping health is observability. A caller that passes a malformed recorder
+    must degrade to "no reporting", never to a different grouping decision.
+    """
+    if health is None:
+        return None
+    required = (
+        getattr(health, "required_semantic", None),
+        getattr(health, "answered", None),
+    )
+    return health if all(callable(fn) for fn in required) else None
+
+
+def _safe_health(fn, **kwargs) -> None:
+    """Run a recorder verb; a broken recorder is logged, never propagated."""
+    try:
+        fn(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - reporting must never change a decision
+        _LOG.debug("grouping-health recorder failed: %s", type(exc).__name__)
+
+
+def _health_reporter(record):
+    """The `classify(on_failure=...)` callback, or `None`."""
+    if record is None:
+        return None
+    factory = getattr(record, "failure_reporter", None)
+    if not callable(factory):
+        return None
+
+    def report(reason, trace=None):
+        _safe_health(record.failed, reason=reason)
+
+    del factory
+    return report
+
+
 def tokens(text):
     """Lowercased word/number tokens (Cyrillic + Latin)."""
     return TOKEN_RX.findall(str(text or "").lower())
@@ -339,11 +390,17 @@ def deterministic_relation(item, story, detail):
     return None, "below the deterministic threshold"
 
 
-def process_item(item, store, items_by_id, *, semantic=True, call_model=None, now=None):
+def process_item(
+    item, store, items_by_id, *, semantic=True, call_model=None, now=None, health=None
+):
     """Assign one unassigned item. Returns an outcome dict; never raises for models.
 
     The caller decides whether to persist `store` (the service works on a copy in
     dry-run mode).
+
+    `health` (V1.1-F2A) is an optional `grouping_health.GroupingHealth` recorder.
+    It is **observability only**: every merge/no-merge decision below is
+    unchanged, and a broken or absent recorder cannot alter an outcome.
     """
     key = publication_identity.publication_key(item)
     outcome = {
@@ -416,8 +473,17 @@ def process_item(item, store, items_by_id, *, semantic=True, call_model=None, no
     if anchored and semantic:
         outcome["semantic_call"] = True
         outcome["anchors"] = [why for _s, _d, why in anchored]
+        record = _health_recorder(health)
+        if record is not None:
+            _safe_health(record.required_semantic)
         for story, detail, _why in anchored:
-            answer = story_relation.classify(item, story, items_by_id, call_model=call_model)
+            answer = story_relation.classify(
+                item,
+                story,
+                items_by_id,
+                call_model=call_model,
+                on_failure=_health_reporter(record),
+            )
             if answer is None:
                 # Infrastructure failure never merges: keep separate, flag review.
                 outcome.update(
@@ -429,6 +495,8 @@ def process_item(item, store, items_by_id, *, semantic=True, call_model=None, no
                     ),
                 )
                 break
+            if record is not None:
+                _safe_health(record.answered, at=_health_stamp())
             if answer["relation"] == "DIFFERENT_STORY":
                 continue
             story_store.add_member(
@@ -487,7 +555,7 @@ def process_item(item, store, items_by_id, *, semantic=True, call_model=None, no
     return outcome
 
 
-def build_plan(*, inbox=None, stories=None, semantic=True, call_model=None, now=None):
+def build_plan(*, inbox=None, stories=None, semantic=True, call_model=None, now=None, health=None):
     """Compute outcomes over every **unassigned** item without writing anything."""
     return _plan(
         inbox=inbox,
@@ -496,6 +564,7 @@ def build_plan(*, inbox=None, stories=None, semantic=True, call_model=None, now=
         call_model=call_model,
         now=now,
         only_unassigned=True,
+        health=health,
     )
 
 
@@ -529,6 +598,7 @@ def rebuild(
             ),
             "overrides": len(overrides),
         }
+    health = grouping_health.GroupingHealth(enabled=semantic)
     plan = _plan(
         inbox=inbox,
         stories=stories,
@@ -538,10 +608,12 @@ def rebuild(
         only_unassigned=False,
         fresh=True,
         blocked_path=blocked_path,
+        health=health,
     )
     summary = _summarize(plan["outcomes"], dry_run=preview, semantic=semantic)
     summary["rebuilt_from_scratch"] = True
     summary["stories"] = len(plan["store"]["stories"])
+    summary["grouping"] = health.summary()
     if not preview:
         story_store.write_store(plan["store"], stories)
         for story in plan["store"]["stories"]:
@@ -572,6 +644,7 @@ def _plan(
     only_unassigned=True,
     fresh=False,
     blocked_path=None,
+    health=None,
 ):
     items = inbox_store.read_items(inbox)
     items_by_id = {item["item_id"]: item for item in items}
@@ -624,10 +697,21 @@ def _plan(
             continue
         outcomes.append(
             process_item(
-                item, store, items_by_id, semantic=semantic, call_model=call_model, now=now
+                item,
+                store,
+                items_by_id,
+                semantic=semantic,
+                call_model=call_model,
+                now=now,
+                health=health,
             )
         )
-    return {"store": store, "outcomes": outcomes, "items_by_id": items_by_id}
+    return {
+        "store": store,
+        "outcomes": outcomes,
+        "items_by_id": items_by_id,
+        "health": health,
+    }
 
 
 def _summarize(outcomes, *, dry_run, semantic):
@@ -680,6 +764,7 @@ def update(
     `dry_run=True` computes the plan and writes nothing. There is no daemon, no
     polling loop and no scheduling here — the caller owns those (cron/CLI/UI).
     """
+    health = grouping_health.GroupingHealth(enabled=semantic)
     plan = _plan(
         inbox=inbox,
         stories=stories,
@@ -687,9 +772,11 @@ def update(
         call_model=call_model,
         now=now,
         blocked_path=blocked_path,
+        health=health,
     )
     summary = _summarize(plan["outcomes"], dry_run=dry_run, semantic=semantic)
     summary["stories"] = len(plan["store"]["stories"])
+    summary["grouping"] = health.summary()
     if not dry_run and plan["outcomes"]:
         story_store.write_store(plan["store"], stories)
         # A SAME_STORY arrival in an already-SEEN/IGNORED story must not look like

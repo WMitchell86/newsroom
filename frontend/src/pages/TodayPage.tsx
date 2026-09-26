@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { createIdempotencyKey, ignoreStory, quickDraftStory, refreshNewsroom } from "../api/client";
-import type { TodayAttention, TodayProjection } from "../api/dto";
+import type { GroupingHealth, TodayAttention, TodayProjection } from "../api/dto";
 import { queryKeys, todayOptions } from "../api/queries";
 import { getErrorMessage } from "../shared/errorMessage";
 import { safeInternalTarget } from "../shared/safeNavigation";
@@ -48,6 +48,37 @@ function LastRefreshLine({ projection }: { projection: TodayProjection }) {
       </>
     ) : " · 0 проблема с източници"}
   </p>;
+}
+
+/**
+ * V1.1-F2A: Story grouping was conservative for part of the last run.
+ *
+ * The editor needs to know that some publications may appear as separate
+ * Stories, because that is a real editorial consequence — not a technical
+ * footnote. The wording is deliberately operational: no route ids, no provider
+ * names, no HTTP categories, no model ids. Those belong in Settings later, not
+ * on the first screen.
+ *
+ * Renders **nothing** when grouping was healthy, or when the run predates
+ * grouping-health reporting: operational health must not consume editor
+ * attention while there is nothing wrong.
+ */
+function GroupingHealthNotice({ health }: { health: GroupingHealth | null }) {
+  if (!health || health.status === "healthy") {
+    return null;
+  }
+  const degraded = health.semanticDegraded;
+  const count =
+    degraded === 1 ? "1 публикация" : `${degraded} публикации`;
+  const message =
+    health.status === "budget_exhausted"
+      ? `Лимитът за групиране е изчерпан. Част от публикациите може да се показват като отделни истории (${count}).`
+      : `Групирането на истории е ограничено. Част от публикациите може да се показват отделно (${count}).`;
+  return (
+    <p className={styles.groupingNotice} role="status">
+      {message}
+    </p>
+  );
 }
 
 /**
@@ -355,6 +386,7 @@ export function TodayPage() {
       </div>
 
       <LastRefreshLine projection={projection} />
+      <GroupingHealthNotice health={projection.groupingHealth} />
 
       {hasAttention ? <div aria-live="polite">
         <AttentionSection title="Нови развития" items={projection.newDevelopments} queryClient={queryClient} />

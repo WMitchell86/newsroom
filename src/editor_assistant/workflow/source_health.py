@@ -280,6 +280,26 @@ def record_run_stories(new_stories, *, path=None):
     return record
 
 
+def record_run_grouping(grouping, *, path=None):
+    """Attach Story-grouping health to the latest-run summary (V1.1-F2A).
+
+    Same shape as `record_run_stories`: merged into the single latest-run record
+    rather than appended as history, because Today reports the run that actually
+    happened. Grouping health is the operator-facing summary of whether that
+    run's identity stage could classify everything it needed to.
+
+    A run that was never recorded stays unrecorded — this never invents a run,
+    and a run without a `grouping` block is *unknown*, not healthy.
+    """
+    record = read_last_run(path)
+    if record is None:
+        return None
+    record["grouping"] = dict(grouping or {})
+    payload = json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
+    live_store.atomic_write(last_run_path(path), payload)
+    return record
+
+
 def read_last_run(path=None):
     store = last_run_path(path)
     if not store.exists():
