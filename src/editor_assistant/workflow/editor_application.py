@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from editor_assistant.drafting.evidence import EvidenceError, validate_packet
 from editor_assistant.workflow import (
     article_generation,
+    article_readiness,
     article_validation,
     editor_article_store,
     editor_projections,
@@ -75,11 +76,34 @@ class EditorVersionConflict(EditorApplicationError):
     status = 409
 
 
-class EditorBlockingGap(EditorApplicationError):
-    """The canonical Story basis still has a blocking gap. No generation."""
+class EditorDraftNotReady(EditorApplicationError):
+    """V1.1-B — the refusal class for every evidence-remedy reason.
 
-    code = "BLOCKING_GAP"
+    `STORY_UNASSESSED`, `NO_CONFIRMED_FACTS`, `NO_OPEN_SOURCE` and
+    `BLOCKING_GAP` are four distinct semantic reasons, not one generic
+    "something is missing". They share an HTTP status and a remedy (research the
+    owning Story), so they share a class — but the instance `code` is always the
+    exact readiness code, never a collapsed umbrella code. The editor and the
+    API therefore receive the same string the preparation projection reported.
+    """
+
     status = 409
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+class EditorBlockingGap(EditorDraftNotReady):
+    """The canonical Story basis still has a blocking gap. No generation.
+
+    A named subclass rather than a separate contract: `BLOCKING_GAP` is one
+    member of the `EditorDraftNotReady` family, kept as its own class so
+    existing callers that catch it specifically keep working unchanged.
+    """
+
+    def __init__(self, message: str):
+        super().__init__("BLOCKING_GAP", message)
 
 
 class EditorSafetyBlocked(EditorApplicationError):
@@ -458,22 +482,39 @@ def _article_actions(
     content: dict,
     state: str | None,
     validation,
-    blocking_gaps: list[dict] | None = None,
+    readiness: article_readiness.DraftReadiness | None = None,
 ) -> tuple[list[str], dict | None]:
+    """The available actions and the one next action, for the editor.
+
+    **V1.1-B:** `MAKE_DRAFT` is no longer decided here. It comes from the SAME
+    `article_readiness` evaluation that `start_article_draft` enforces, so the
+    two can never disagree: there is no separate action predicate left to drift.
+    """
     if article.get("finalized_at"):
         return [], None
     if state == "preparation":
-        blocking_gaps = blocking_gaps or []
         if not editor_projections.focus_is_confirmed(article):
             return ["SELECT_FOCUS"], _next_action("SELECT_FOCUS", "FOCUS_REQUIRED", "Избери фокус")
         # Backend-authorized manual continuation uses the same editor and the
         # same atomic content save. There is no separate manual Draft mode.
         actions = ["CHANGE_FOCUS", "EDIT"]
-        if blocking_gaps:
+        readiness = readiness or article_readiness.DraftReadiness(
+            eligible=False,
+            reason_code=article_readiness.STORY_UNAVAILABLE,
+            reason_message=article_readiness.REASON_MESSAGES[article_readiness.STORY_UNAVAILABLE],
+        )
+        if readiness.eligible:
+            actions.append("MAKE_DRAFT")
+            return actions, _next_action("MAKE_DRAFT", readiness.reason_code, "Направи чернова")
+        # Focus is already confirmed here, so the only remaining refusals are
+        # evidence ones. Those whose remedy is research route the editor to the
+        # owning Story — which stays the sole owner of research orchestration.
+        # A refusal with no research remedy (a stopped safety guard, an
+        # unavailable Story) must not pretend that research would help.
+        if readiness.is_researchable:
             actions.append("RESEARCH_MORE")
-            return actions, _next_action("RESEARCH_MORE", "BLOCKING_GAP", "Проучи още")
-        actions.append("MAKE_DRAFT")
-        return actions, _next_action("MAKE_DRAFT", "DRAFT_ELIGIBLE", "Направи чернова")
+            return actions, _next_action("RESEARCH_MORE", readiness.reason_code, "Проучи още")
+        return actions, _next_action("CHANGE_FOCUS", readiness.reason_code, "Промени фокуса")
     if state == "ready":
         # C5 completes the Ready surface: the editor may go back to `Чернова` or
         # freeze this exact validated version. The backend still offers nothing
@@ -534,14 +575,23 @@ def _article_projection(
     blocking_gaps = [item for item in missing["items"] if item.get("blocking")]
     non_blocking_gaps = [item for item in missing["items"] if not item.get("blocking")]
     focus_confirmed = editor_projections.focus_is_confirmed(article)
-    actions, next_action = _article_actions(article, content, state, validation, blocking_gaps)
+    # V1.1-B: the projection and the Draft command read the SAME decision. The
+    # snapshot is assembled from state this projection already loaded, so no
+    # second evidence read and no second predicate exist.
+    readiness = article_readiness.evaluate(
+        article_readiness.build_snapshot(article, content, story, facts, missing)
+    )
+    actions, next_action = _article_actions(article, content, state, validation, readiness)
     preparation = None
     if state == "preparation":
         preparation = {
             "focusConfirmed": focus_confirmed,
+            # The editor-facing reason comes from the backend decision. React
+            # never derives it, and never renders a second, competing message.
+            "draftReadiness": readiness.as_dto(),
             "blockingGaps": blocking_gaps,
             "nonBlockingGaps": non_blocking_gaps,
-            "draftEligible": focus_confirmed and not blocking_gaps,
+            "draftEligible": readiness.eligible,
             "availableActions": actions,
         }
     return (
@@ -1017,35 +1067,27 @@ def _draft_snapshot(article_id: str) -> dict:
     Deliberately a snapshot of *server* state: the request carries no facts, no
     focus, no title and no evidence, so a client cannot talk the backend into
     drafting from material it chose.
+
+    **V1.1-B:** the readiness-relevant part is now assembled by the shared
+    `article_readiness.build_snapshot`, the very builder the Article preparation
+    projection uses. There is exactly one evidence snapshot in the product, and
+    the command adds only its own packet metadata (headline, summary) on top.
     """
     article = _active_article(article_id)
     content = editor_article_store.get_article_content(article_id)
     story = _story(article["story_id"])
     facts, missing = _story_evidence_projection(article["story_id"])
     items_by_id = _story_items()
-    source_url = next(
-        (
-            str((fact.get("source") or {}).get("url") or "")
-            for fact in facts
-            if str((fact.get("source") or {}).get("url") or "")
-        ),
-        "",
+    snapshot = article_readiness.build_snapshot(article, content, story, facts, missing)
+    snapshot.update(
+        {
+            "headline": _story_title(story, items_by_id) or article["working_title"],
+            "summary": str(
+                (items_by_id.get(story.get("representative_item_id")) or {}).get("summary") or ""
+            ),
+        }
     )
-    return {
-        "article": article,
-        "content": content,
-        "story": story,
-        "content_version": int(content["content_version"]),
-        "facts": facts,
-        "gaps": list(missing["items"]),
-        "blocking_gaps": [item for item in missing["items"] if item.get("blocking")],
-        "assessed_at": missing.get("assessedAt"),
-        "headline": _story_title(story, items_by_id) or article["working_title"],
-        "summary": str(
-            (items_by_id.get(story.get("representative_item_id")) or {}).get("summary") or ""
-        ),
-        "source_url": source_url,
-    }
+    return snapshot
 
 
 def _draft_signature(snapshot: dict) -> str:
@@ -1067,18 +1109,34 @@ def _running_draft(article_id: str) -> dict | None:
 
 
 def _raise_draft_refusal(exc: article_generation.DraftRefused) -> None:
-    """Map a stable refusal onto the editor error contract, never its raw text."""
-    if exc.code == "BLOCKING_GAP":
-        raise EditorBlockingGap("Има непопълнена информация, която пречи да продължите.") from exc
-    if exc.code == "SAFETY_BLOCKED":
-        raise EditorSafetyBlocked("Проверката за безопасност спря операцията.") from exc
-    if exc.code == "ARTICLE_VERSION_CONFLICT":
-        raise EditorVersionConflict(
-            "Статията е променена, преди черновата да се създаде. Няма загубени локални промени."
-        ) from exc
-    if exc.code == "INVALID_TRANSITION":
-        raise EditorInvalidTransition(str(exc)) from exc
-    raise EditorApplicationError("Черновата не може да бъде създадена от този материал.") from exc
+    """Map a stable refusal onto the editor error contract, never its raw text.
+
+    **V1.1-B:** the code is carried through unchanged, so the HTTP refusal names
+    the same semantic reason the preparation projection already showed. The
+    wording comes from the one `article_readiness` message table, so the command
+    and the UI can never describe one state with two different sentences.
+    """
+    code = exc.code
+    if code == article_generation.OP_INVALID_TRANSITION:
+        # A transport-level refusal (a generation already in flight), not a
+        # readiness decision, so it keeps its own class and code.
+        raise EditorInvalidTransition(exc.message) from exc
+    if code in article_readiness.LIFECYCLE_CODES:
+        # Lifecycle and lineage are transition problems, not evidence-readiness
+        # problems. They keep the historical `INVALID_TRANSITION` contract while
+        # the editor still receives the specific, actionable message.
+        raise EditorInvalidTransition(exc.message) from exc
+    if code == article_readiness.SAFETY_BLOCKED:
+        raise EditorSafetyBlocked(exc.message) from exc
+    if code == article_readiness.ARTICLE_VERSION_CONFLICT:
+        raise EditorVersionConflict(exc.message) from exc
+    if code == article_readiness.BLOCKING_GAP:
+        raise EditorBlockingGap(exc.message) from exc
+    # Every evidence-readiness refusal — including the three that are not a
+    # blocking gap and used to be silently collapsed into one — is reported with
+    # its own exact code at 409. The editor can therefore act on the reason, and
+    # the wording is the one the projection already showed.
+    raise EditorDraftNotReady(code, exc.message) from exc
 
 
 def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
@@ -1098,17 +1156,22 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
     with _COMMAND_LOCK:
         article = _active_article(article_id)
         snapshot = _draft_snapshot(article_id)
-        try:
-            article_generation.evaluate(snapshot)
-        except article_generation.DraftRefused as exc:
-            _raise_draft_refusal(exc)
+        # **V1.1-B:** the command evaluates the ONE canonical readiness decision
+        # and refuses with its exact current reason. Stale frontend eligibility
+        # is never trusted: canonical state is re-read here, so a gap that
+        # appeared after the render refuses instead of generating over it.
+        readiness = article_readiness.evaluate(snapshot)
+        if not readiness.eligible:
+            _raise_draft_refusal(
+                article_generation.DraftRefused(readiness.reason_code, readiness.reason_message)
+            )
         dto = _article_dto(article, snapshot["content"], _story_reference(article))
         if "MAKE_DRAFT" not in dto["availableActions"]:
-            # The same derivation that produced `availableActions` is the policy
-            # authority; the client never decides that it may draft.
-            raise EditorInvalidTransition(
-                "Черновата не е налична в текущото състояние на статията."
-            )
+            # The invariant in code: `MAKE_DRAFT` is derived from the very same
+            # decision evaluated above. If it were ever derived from anything
+            # else, the command fails loudly here instead of the UI silently
+            # diverging from the backend.
+            raise EditorApplicationError("Черновата не е налична в текущото състояние на статията.")
     in_flight = _running_draft(article_id)
     if in_flight is not None:
         return in_flight

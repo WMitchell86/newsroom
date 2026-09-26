@@ -668,7 +668,18 @@ describe("Articles", () => {
         canonical = {
           ...canonical,
           editorialFocus: { text: body.focus, confirmedAt: "2026-09-25T11:00:00Z" },
-          preparation: { ...canonical.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"] },
+          // V1.1-B: the backend is the sole authority for readiness. The
+          // fixture mirrors exactly what it would now return.
+          preparation: {
+            ...canonical.preparation!,
+            focusConfirmed: true,
+            draftEligible: true,
+            draftReadiness: {
+              code: "DRAFT_ELIGIBLE",
+              message: "Има достатъчно потвърдена информация за чернова.",
+            },
+            availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+          },
           availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
           nextAction: { action: "MAKE_DRAFT", reasonCode: "DRAFT_ELIGIBLE", label: "Направи чернова", primary: true },
         };
@@ -699,7 +710,9 @@ describe("Articles", () => {
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ focus: "Обясняваме промяната и последиците." }) }),
     ));
     expect(await screen.findByRole("button", { name: "Промени фокуса" })).toBeInTheDocument();
-    expect(screen.getByText(/Фокусът е потвърден и няма блокиращи липси/)).toBeInTheDocument();
+    // V1.1-B: the readiness sentence is the backend's, rendered verbatim —
+    // no longer a React-authored claim about focus and gaps.
+    expect(screen.getByText("Има достатъчно потвърдена информация за чернова.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Направи чернова" })).toBeInTheDocument();
   });
 
@@ -1034,7 +1047,162 @@ describe("Articles", () => {
 
 });
 
+/**
+ * V1.1-B — the Preparation surface renders ONE canonical readiness decision.
+ *
+ * Before this slice the page derived its own sentence from `draftEligible`,
+ * which said "the focus is confirmed and there are no blocking gaps" for
+ * Articles the backend would refuse. The reason now arrives as
+ * `preparation.draftReadiness` and React only renders it.
+ */
+describe("V1.1-B shared Draft readiness", () => {
+  type Readiness = NonNullable<ArticleDetail["preparation"]>["draftReadiness"];
+
+  function preparationWith(
+    readiness: { code: string; message: string },
+    extra: Partial<NonNullable<ArticleDetail["preparation"]>> = {},
+  ): ArticleDetail {
+    const base = {
+      focusConfirmed: true,
+      blockingGaps: [],
+      nonBlockingGaps: [],
+      draftEligible: false,
+      draftReadiness: readiness as Readiness,
+      availableActions: ["CHANGE_FOCUS", "EDIT", "RESEARCH_MORE"],
+      ...extra,
+    } as NonNullable<ArticleDetail["preparation"]>;
+    return {
+      ...activePreparationArticle,
+      state: "preparation",
+      editorialFocus: {
+        text: activePreparationArticle.editorialFocus.text,
+        confirmedAt: "2026-09-25T09:40:00Z",
+      },
+      preparation: base,
+      availableActions: base.availableActions,
+      nextAction: {
+        action: "RESEARCH_MORE",
+        reasonCode: readiness.code,
+        label: "Проучи още",
+        primary: true,
+      },
+    };
+  }
+
+  async function renderPreparation(article: ArticleDetail) {
+    fetchMock.mockResolvedValue(dataResponse(article));
+    renderWithProviders(
+      <Routes>
+        <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
+        <Route path="/stories/:storyId" element={<StoryWorkspace />} />
+      </Routes>,
+      { initialEntries: [`/articles/${article.id}`] },
+    );
+    return screen.findByRole("heading", { name: "Подготовка за чернова" });
+  }
+
+  it("shows the backend reason for an unassessed Story and no enabled Draft", async () => {
+    await renderPreparation(
+      preparationWith({
+        code: "STORY_UNASSESSED",
+        message: "Историята трябва първо да бъде проучена.",
+      }),
+    );
+    expect(screen.getByText("Историята трябва първо да бъде проучена.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Направи чернова" })).toBeNull();
+    // No contradictory green sentence anywhere on the page.
+    expect(screen.queryByText(/Фокусът е потвърден и няма блокиращи липси/)).toBeNull();
+    expect(screen.queryByText(/Има още редакционска работа/)).toBeNull();
+  });
+  it("renders the actual blocking gap and keeps Draft unavailable", async () => {
+    await renderPreparation(
+      preparationWith(
+        {
+          code: "BLOCKING_GAP",
+          message: "Има непопълнена информация, която пречи да продължите.",
+        },
+        {
+          blockingGaps: [
+            {
+              id: "gap_when",
+              question: "Кога започва изпълнението?",
+              kind: "unresolved",
+              blocking: true,
+            },
+          ],
+        },
+      ),
+    );
+    expect(screen.getByText("Кога започва изпълнението?")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Направи чернова" })).toBeNull();
+  });
+
+  it("keeps Draft unavailable when there is no opened source", async () => {
+    await renderPreparation(
+      preparationWith({
+        code: "NO_OPEN_SOURCE",
+        message: "Няма отворен източник, върху който да се изгради черновата.",
+      }),
+    );
+    expect(
+      screen.getByText("Няма отворен източник, върху който да се изгради черновата."),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Направи чернова" })).toBeNull();
+  });
+
+  it("renders exactly one readiness line, taken from the backend DTO", async () => {
+    await renderPreparation(
+      preparationWith({
+        code: "NO_CONFIRMED_FACTS",
+        message: "Няма потвърдени факти, върху които да се изгради черновата.",
+      }),
+    );
+    // Exactly one element carries a readiness code: the single canonical line.
+    expect(document.querySelectorAll("[data-readiness-code]")).toHaveLength(1);
+    expect(document.querySelector("[data-readiness-code]")).toHaveAttribute(
+      "data-readiness-code",
+      "NO_CONFIRMED_FACTS",
+    );
+    expect(screen.queryByRole("button", { name: "Направи чернова" })).toBeNull();
+  });
+
+  it("shows the primary Draft action only for a fully eligible Article", async () => {
+    const eligible = preparationWith(
+      {
+        code: "DRAFT_ELIGIBLE",
+        message: "Има достатъчно потвърдена информация за чернова.",
+      },
+      { draftEligible: true, availableActions: ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"] },
+    );
+    await renderPreparation({
+      ...eligible,
+      availableActions: ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"],
+      nextAction: {
+        action: "MAKE_DRAFT",
+        reasonCode: "DRAFT_ELIGIBLE",
+        label: "Направи чернова",
+        primary: true,
+      },
+    });
+    expect(screen.getByText("Има достатъчно потвърдена информация за чернова.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Направи чернова" })).toBeEnabled();
+    expect(document.querySelectorAll("[data-readiness-code]")).toHaveLength(1);
+  });
+
+  it("routes the editor to the owning Story when research is the remedy", async () => {
+    await renderPreparation(
+      preparationWith({
+        code: "STORY_UNASSESSED",
+        message: "Историята трябва първо да бъде проучена.",
+      }),
+    );
+    const research = screen.getByRole("link", { name: "Проучи още" });
+    expect(research).toHaveAttribute("href", `/stories/${activePreparationArticle.story.id}`);
+  });
+});
+
 describe("C4 Отбележи като готова", () => {
+
   const reviewWarning = {
     id: "warn_review_1",
     severity: "review" as const,

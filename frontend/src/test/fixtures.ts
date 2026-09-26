@@ -151,6 +151,11 @@ export const activePreparationArticle: ArticleDetail = {
   content: { title: "Ремонтът на булевард „Свобода“ — какво предстои", body: "", version: 0 },
   preparation: {
     focusConfirmed: false,
+    // V1.1-B: the readiness reason comes from the backend, never from React.
+    draftReadiness: {
+      code: "FOCUS_NOT_CONFIRMED",
+      message: "Потвърдете фокуса, преди да правите чернова.",
+    },
     blockingGaps: [],
     nonBlockingGaps: [storyDetail.missingInformation!.items[0]!],
     draftEligible: false,

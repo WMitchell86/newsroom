@@ -41,9 +41,8 @@ from pathlib import Path
 from editor_assistant.drafting import evidence as evidence_mod
 from editor_assistant.workflow import (
     angles,
-    blocked_domains,
+    article_readiness,
     editor_article_store,
-    editor_projections,
     live,
     live_store,
     story_operations,
@@ -57,12 +56,53 @@ from editor_assistant.workflow.workbench import state as pipeline_state
 #: belongs to.
 SCOPE_PREFIX = "article-draft:"
 
+#: The one transport-level refusal that is NOT a readiness decision: this
+#: Article already has a generation in flight. It deliberately keeps its
+#: historical code so existing callers and the operation registry are unchanged.
+OP_INVALID_TRANSITION = "INVALID_TRANSITION"
+
 #: Editor wording for every stable failure this command can end in. Anything not
 #: listed here is a provider/transport problem and stays retryable.
+#:
+#: V1.1-B: the readiness codes are the SAME strings the preparation projection
+#: reports as `draftReadiness.code`, so a command-time refusal and the reason
+#: the editor was shown can never be different words for one state.
 _OPERATION_ERRORS = {
     "BLOCKING_GAP": (
         "BLOCKING_GAP",
         "Има непопълнена информация, която пречи да продължите.",
+        False,
+    ),
+    "STORY_UNASSESSED": (
+        "STORY_UNASSESSED",
+        "Историята трябва първо да бъде проучена.",
+        False,
+    ),
+    "NO_CONFIRMED_FACTS": (
+        "NO_CONFIRMED_FACTS",
+        "Няма потвърдени факти, върху които да се изгради черновата.",
+        False,
+    ),
+    "NO_OPEN_SOURCE": (
+        "NO_OPEN_SOURCE",
+        "Няма отворен източник, върху който да се изгради черновата.",
+        False,
+    ),
+    "FOCUS_NOT_CONFIRMED": (
+        "FOCUS_NOT_CONFIRMED",
+        "Потвърдете фокуса, преди да правите чернова.",
+        False,
+    ),
+    "NOT_IN_PREPARATION": (
+        "NOT_IN_PREPARATION",
+        "Черновата не е налична в текущото състояние на статията.",
+        False,
+    ),
+    "STORY_UNAVAILABLE": ("STORY_UNAVAILABLE", "Историята на статията вече не е достъпна.", False),
+    "ARTICLE_HAS_TEXT": ("ARTICLE_HAS_TEXT", "Статията вече има текст.", False),
+    "WORKING_TITLE_REQUIRED": (
+        "WORKING_TITLE_REQUIRED",
+        "Работното заглавие не може да е празно.",
         False,
     ),
     "SAFETY_BLOCKED": ("SAFETY_BLOCKED", "Проверката за безопасност спря операцията.", False),
@@ -168,46 +208,19 @@ def _today(assessed_at: str) -> str:
 def evaluate(snapshot: dict) -> None:
     """Re-evaluate every editor precondition from canonical state.
 
+    **V1.1-B: this is no longer a second predicate.** It delegates to the one
+    canonical `article_readiness.evaluate` and only converts the decision into
+    the classified `DraftRefused` the command path already speaks. The Article
+    preparation projection consumes that same decision directly, so the UI can
+    no longer offer `MAKE_DRAFT` for an Article this function will refuse.
+
     Raises `DraftRefused` with a stable reason code. It runs once when the
     command is accepted and again inside the worker, so nothing here depends on
     any value the client sent.
     """
-    article = snapshot["article"]
-    content = snapshot["content"]
-    story = snapshot["story"]
-    if article.get("finalized_at"):
-        raise DraftRefused("INVALID_TRANSITION", "Финализирана статия не може да получи чернова.")
-    if story.get("story_id") != article.get("story_id"):
-        raise DraftRefused("INVALID_TRANSITION", "Историята на статията вече не е достъпна.")
-    if story.get("status") == "IGNORED":
-        raise DraftRefused("INVALID_TRANSITION", "Игнорирана Story не може да получи чернова.")
-    if int(content.get("content_version", -1)) != int(snapshot["content_version"]):
-        # The editor typed (or another command wrote) while this command was
-        # queued. Generating now would silently discard that text.
-        raise DraftRefused(
-            "ARTICLE_VERSION_CONFLICT",
-            "Статията е променена, преди черновата да се създаде. Няма загубени локални промени.",
-        )
-    if str(content.get("body") or "").strip():
-        raise DraftRefused("INVALID_TRANSITION", "Статията вече има текст.")
-    if not str(content.get("title") or "").strip():
-        raise DraftRefused("INVALID_TRANSITION", "Работното заглавие не може да е празно.")
-    if not editor_projections.focus_is_confirmed(article):
-        raise DraftRefused("INVALID_TRANSITION", "Потвърдете фокуса, преди да правите чернова.")
-    if snapshot["blocking_gaps"]:
-        raise DraftRefused("BLOCKING_GAP", "Има непопълнена информация, която пречи да продължите.")
-    if not snapshot["facts"]:
-        raise DraftRefused("BLOCKING_GAP", "Няма потвърдени факти от източници.")
-    url = str(snapshot.get("source_url") or "")
-    if not url:
-        raise DraftRefused("BLOCKING_GAP", "Няма отворен източник за тази история.")
-    # Safety: the same two guards the mature pipeline applies to any factual
-    # input, re-checked here so a blocked or circular source can never reach a
-    # model call from the editor surface.
-    if live.is_chernomorie_source(url):
-        raise DraftRefused("SAFETY_BLOCKED", "Проверката за безопасност спря операцията.")
-    if blocked_domains.is_blocked(url):
-        raise DraftRefused("SAFETY_BLOCKED", "Проверката за безопасност спря операцията.")
+    readiness = article_readiness.evaluate(snapshot)
+    if not readiness.eligible:
+        raise DraftRefused(readiness.reason_code, readiness.reason_message)
 
 
 def build_packet(snapshot: dict, evidence_id: str) -> dict:

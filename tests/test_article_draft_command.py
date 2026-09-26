@@ -24,6 +24,7 @@ import pytest
 from editor_assistant.drafting import generate as gen
 from editor_assistant.workflow import (
     article_generation,
+    article_readiness,
     inbox_store,
     story_operations,
     story_research_store,
@@ -361,16 +362,24 @@ def test_a_second_request_with_the_same_key_returns_the_same_operation(newsroom,
 
 
 def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, model):
-    """A valid key is not enough: the server's own action list decides."""
+    """A valid key is not enough: the server's own action list decides.
+
+    V1.1-B: an unconfirmed Focus is its own semantic reason
+    (`FOCUS_NOT_CONFIRMED`), no longer folded into a generic invalid transition.
+    """
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
         working_title="Без потвърден фокус",
         now="2026-09-25T09:00:00Z",
     )
-    assert "MAKE_DRAFT" not in app.read_article(article["article_id"])["availableActions"]
-    with pytest.raises(app.EditorInvalidTransition):
+    projection = app.read_article(article["article_id"])
+    assert "MAKE_DRAFT" not in projection["availableActions"]
+    assert projection["preparation"]["draftEligible"] is False
+    assert projection["preparation"]["draftReadiness"]["code"] == "FOCUS_NOT_CONFIRMED"
+    with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article["article_id"], idempotency_key="no-focus")
+    assert refusal.value.code == "FOCUS_NOT_CONFIRMED"
     assert not _drafts() and not _cases()
     assert model == [], "a refused command must not reach the model"
 
@@ -387,8 +396,13 @@ def test_a_blocking_gap_stops_generation_before_any_provider_work(newsroom, prep
     )
     article = app.read_article(prepared["article_id"])
     assert article["preparation"]["draftEligible"] is False
-    with pytest.raises(app.EditorBlockingGap):
+    # V1.1-B: the blocking gap is explained BY the gap, with its own code.
+    assert article["preparation"]["draftReadiness"]["code"] == "BLOCKING_GAP"
+    assert article["nextAction"]["reasonCode"] == "BLOCKING_GAP"
+    assert article["nextAction"]["action"] == "RESEARCH_MORE"
+    with pytest.raises(app.EditorBlockingGap) as refusal:
         app.start_article_draft(prepared["article_id"], idempotency_key="blocked")
+    assert refusal.value.code == "BLOCKING_GAP"
     assert model == [], "a blocking gap must stop the command before the model"
     assert not _drafts() and not _cases()
     # The Article is exactly as the editor left it.
@@ -396,7 +410,80 @@ def test_a_blocking_gap_stops_generation_before_any_provider_work(newsroom, prep
     assert stored["content_version"] == 0 and stored["internal_refs"]["draft_id"] is None
 
 
-def test_without_confirmed_evidence_the_command_is_a_stable_blocking_gap(newsroom, model):
+def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
+    """V1.1-B §3: no evidence yet means `STORY_UNASSESSED`, not "no facts".
+
+    Before V1.1-B this state was reported as a blocking gap, which told the
+    editor to research a Story for a gap that did not exist.
+    """
+    article = articles.create_editor_article(
+        story_id="s-one",
+        stories_path=newsroom / "stories.json",
+        working_title="Още непроучена история",
+        now="2026-09-25T09:00:00Z",
+    )
+    articles.update_editor_focus(article["article_id"], "Да обясним решението и последиците.")
+    projection = app.read_article(article["article_id"])
+    preparation = projection["preparation"]
+    assert preparation["draftEligible"] is False
+    assert preparation["draftReadiness"]["code"] == "STORY_UNASSESSED"
+    assert preparation["draftReadiness"]["message"] == "Историята трябва първо да бъде проучена."
+    # No Article-level fake gap is displayed, and MAKE_DRAFT is absent.
+    assert preparation["blockingGaps"] == []
+    assert "MAKE_DRAFT" not in projection["availableActions"]
+    # The remedy is research, and research stays owned by the Story.
+    assert projection["nextAction"]["action"] == "RESEARCH_MORE"
+    assert "RESEARCH_MORE" in projection["availableActions"]
+    with pytest.raises(app.EditorDraftNotReady) as refusal:
+        app.start_article_draft(article["article_id"], idempotency_key="unassessed")
+    assert refusal.value.code == "STORY_UNASSESSED"
+    assert model == []
+
+
+def test_facts_without_an_opened_source_is_its_own_reason(newsroom, prepared, model):
+    """V1.1-B §5: a fact with no usable source URL is `NO_OPEN_SOURCE`.
+
+    It is not the same condition as a missing factual detail, and it is never
+    collapsed into the generic blocking-gap message.
+
+    The canonical research store refuses a source with an empty URL, so this
+    state is reached through verified legacy Article lineage — which is exactly
+    why the code exists rather than being dead: a fact can carry no usable URL
+    without the canonical store ever having allowed one.
+    """
+    snapshot = app._draft_snapshot(prepared["article_id"])
+    # A fact whose source carries no URL: the fact exists, the source does not
+    # reach generation.
+    snapshot["facts"] = [
+        {
+            "id": "legacy_fact_1",
+            "text": "Съветът е насрочил гласуване за вторник.",
+            "source": {"id": "src_1", "name": "Вестник", "url": ""},
+            "locator": "Протокол, т. 1",
+            "scope": "current",
+        }
+    ]
+    snapshot["blocking_gaps"] = []
+    snapshot["evidence_status"] = "assessed"
+    snapshot["source_url"] = ""
+
+    readiness = article_readiness.evaluate(snapshot)
+    assert readiness.eligible is False
+    assert readiness.reason_code == "NO_OPEN_SOURCE"
+    assert readiness.fact_count == 1 and readiness.has_open_source is False
+    with pytest.raises(article_generation.DraftRefused) as refusal:
+        article_generation.evaluate(snapshot)
+    assert refusal.value.code == "NO_OPEN_SOURCE"
+    assert model == []
+
+
+def test_without_confirmed_evidence_the_command_names_the_missing_facts(newsroom, model):
+    """An assessed Story with no usable fact is `NO_CONFIRMED_FACTS`.
+
+    V1.1-B §4: a distinct, named condition — not the generic blocking gap, and
+    not the same as an unassessed Story. The store forbids the false clean state
+    `assessed + 0 facts + 0 gaps`, so the honest form carries a non-blocking gap.
+    """
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -404,8 +491,28 @@ def test_without_confirmed_evidence_the_command_is_a_stable_blocking_gap(newsroo
         now="2026-09-25T09:00:00Z",
     )
     articles.update_editor_focus(article["article_id"], "Фокус")
-    with pytest.raises(app.EditorBlockingGap):
+    story_research_store.merge_research(
+        "s-one",
+        sources=[],
+        facts=[],
+        gaps=[
+            {
+                "id": "gap_who",
+                "question": "Кой е основният заинтересован?",
+                "blocking": False,
+            }
+        ],
+        assessed_at="2026-09-25T11:00:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="no-facts-round",
+    )
+    projection = app.read_article(article["article_id"])
+    assert projection["preparation"]["draftEligible"] is False
+    assert projection["preparation"]["draftReadiness"]["code"] == "NO_CONFIRMED_FACTS"
+    assert projection["preparation"]["blockingGaps"] == []
+    with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article["article_id"], idempotency_key="no-facts")
+    assert refusal.value.code == "NO_CONFIRMED_FACTS"
     assert model == []
 
 
@@ -425,8 +532,11 @@ def test_a_blocked_or_circular_source_is_a_safety_stop(newsroom, prepared, model
 
 def test_an_ignored_story_cannot_receive_a_draft(newsroom, prepared, model):
     app.ignore_story("s-one")
-    with pytest.raises(app.EditorInvalidTransition):
+    # V1.1-B: an unavailable Story is a lifecycle/lineage refusal, so it keeps
+    # the historical transition class while the message names the real reason.
+    with pytest.raises(app.EditorInvalidTransition) as refusal:
         app.start_article_draft(prepared["article_id"], idempotency_key="ignored")
+    assert str(refusal.value) == "Историята на статията вече не е достъпна."
     assert model == []
 
 
@@ -533,7 +643,10 @@ def test_a_queued_operation_refuses_to_overwrite_editor_text(newsroom, prepared,
     assert len(calls) >= 2, "the worker must re-read the canonical state"
     assert row["status"] == "failed"
     status = app.operation_status(started["operationToken"])
-    assert status["error"]["code"] == "INVALID_TRANSITION"
+    # V1.1-B: the editor's text is a named refusal (`ARTICLE_HAS_TEXT`), not a
+    # generic invalid transition. The invariant — no model, no overwrite — is
+    # unchanged; only the reason is now specific and actionable.
+    assert status["error"]["code"] == "ARTICLE_HAS_TEXT"
     assert status["error"]["retryable"] is False
     assert model == [], "a stale operation must not reach the model"
     assert not _drafts() and not _cases()

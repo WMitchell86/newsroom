@@ -145,11 +145,40 @@ export interface ArticleValidation {
   readyEligible: boolean;
 }
 
+/**
+ * V1.1-B: the one canonical Draft-readiness reason, decided by the backend.
+ * `code` is the stable contract; `message` is the exact editor wording. React
+ * renders both verbatim and never derives eligibility from local state.
+ */
+export type DraftReadinessCode =
+  | "DRAFT_ELIGIBLE"
+  | "FOCUS_NOT_CONFIRMED"
+  | "STORY_UNASSESSED"
+  | "NO_CONFIRMED_FACTS"
+  | "NO_OPEN_SOURCE"
+  | "BLOCKING_GAP"
+  | "NOT_IN_PREPARATION"
+  | "STORY_UNAVAILABLE"
+  | "ARTICLE_HAS_TEXT"
+  | "SAFETY_BLOCKED"
+  | "ARTICLE_VERSION_CONFLICT"
+  | "WORKING_TITLE_REQUIRED";
+
+export interface DraftReadiness {
+  code: DraftReadinessCode;
+  message: string;
+}
+
 export interface PreparationProjection {
   focusConfirmed: boolean;
   blockingGaps: MissingInformationItem[];
   nonBlockingGaps: MissingInformationItem[];
   draftEligible: boolean;
+  /**
+   * The single readiness explanation. There is exactly one, so the page can
+   * never render a green line beside a blocking one.
+   */
+  draftReadiness: DraftReadiness;
   availableActions: AvailableAction[];
 }
 
@@ -242,6 +271,15 @@ export type ApiErrorCode =
   | "INVALID_TRANSITION"
   | "ARTICLE_VERSION_CONFLICT"
   | "BLOCKING_GAP"
+  // V1.1-B: the evidence-remedy reasons stay distinct end to end.
+  | "STORY_UNASSESSED"
+  | "NO_CONFIRMED_FACTS"
+  | "NO_OPEN_SOURCE"
+  | "FOCUS_NOT_CONFIRMED"
+  | "NOT_IN_PREPARATION"
+  | "STORY_UNAVAILABLE"
+  | "ARTICLE_HAS_TEXT"
+  | "WORKING_TITLE_REQUIRED"
   | "SAFETY_BLOCKED"
   | "SOURCE_UNAVAILABLE"
   | "INTERNAL_ERROR";

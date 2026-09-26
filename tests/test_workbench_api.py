@@ -351,6 +351,12 @@ def test_start_article_creates_canonical_preparation_article_and_retry_is_idempo
     assert article["editorialFocus"]["confirmedAt"] is None
     assert article["preparation"] == {
         "focusConfirmed": False,
+        # V1.1-B: the backend now reports WHY a Draft is unavailable, instead of
+        # leaving React to guess. The reason comes from the one shared decision.
+        "draftReadiness": {
+            "code": "FOCUS_NOT_CONFIRMED",
+            "message": "Потвърдете фокуса, преди да правите чернова.",
+        },
         "blockingGaps": [],
         "nonBlockingGaps": [],
         "draftEligible": False,
@@ -450,9 +456,39 @@ def test_preparation_focus_title_readiness_and_today_projection(api_server, api_
     )
     assert focused["editorialFocus"]["confirmedAt"] is not None
     assert focused["preparation"]["focusConfirmed"] is True
-    assert focused["preparation"]["draftEligible"] is True
-    assert focused["preparation"]["availableActions"] == ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"]
-    assert focused["nextAction"]["action"] == "MAKE_DRAFT"
+    # V1.1-B: a confirmed Focus is NOT sufficient. This Story has never been
+    # researched, so the honest answer is `STORY_UNASSESSED` — before V1.1-B
+    # this exact state returned `draftEligible: true` and offered MAKE_DRAFT,
+    # which the command then refused. That contradiction is now impossible.
+    assert focused["preparation"]["draftEligible"] is False
+    assert focused["preparation"]["draftReadiness"]["code"] == "STORY_UNASSESSED"
+    assert "MAKE_DRAFT" not in focused["preparation"]["availableActions"]
+    assert "MAKE_DRAFT" not in focused["availableActions"]
+    assert focused["nextAction"]["action"] == "RESEARCH_MORE"
+    assert focused["nextAction"]["reasonCode"] == "STORY_UNASSESSED"
+
+    # Once the Story carries real evidence, the SAME decision becomes eligible.
+    story_research_store.merge_research(
+        "s-one",
+        sources=[{"id": "vestnik", "name": "Вестник", "url": "https://vestnik.test/2026/budget"}],
+        facts=[
+            {
+                "id": "fact_budget",
+                "text": "Съветът одобри 1,2 милиона лева за ремонта на булеварда.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 4",
+            }
+        ],
+        gaps=[],
+        assessed_at="2026-09-25T09:30:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="eligibility-proof",
+    )
+    researched = _data(request(api_server, f"/api/v1/articles/{article_id}"))
+    assert researched["preparation"]["draftEligible"] is True
+    assert researched["preparation"]["draftReadiness"]["code"] == "DRAFT_ELIGIBLE"
+    assert researched["preparation"]["availableActions"] == ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"]
+    assert researched["nextAction"]["action"] == "MAKE_DRAFT"
 
     story_research_store.save_story_research(
         {
@@ -480,12 +516,15 @@ def test_preparation_focus_title_readiness_and_today_projection(api_server, api_
     )
     blocked = _data(request(api_server, f"/api/v1/articles/{article_id}"))
     assert blocked["preparation"]["draftEligible"] is False
+    # V1.1-B: a real blocking gap is explained BY the gap, with its own code.
+    assert blocked["preparation"]["draftReadiness"]["code"] == "BLOCKING_GAP"
     assert blocked["preparation"]["blockingGaps"][0]["question"] == "Кога започва изпълнението?"
     assert (
         blocked["preparation"]["nonBlockingGaps"][0]["question"] == "Кой е основният заинтересован?"
     )
     assert blocked["availableActions"] == ["CHANGE_FOCUS", "EDIT", "RESEARCH_MORE"]
     assert blocked["nextAction"]["action"] == "RESEARCH_MORE"
+    assert blocked["nextAction"]["reasonCode"] == "BLOCKING_GAP"
     assert "MAKE_DRAFT" not in blocked["availableActions"]
 
     empty = request(
@@ -507,11 +546,14 @@ def test_draft_endpoint_requires_an_idempotency_key_and_accepts_no_fields(api_se
     )
     # The Article is still in preparation with no confirmed focus, so the
     # backend - not the transport - refuses even with a valid key.
+    # V1.1-B: it refuses with the exact semantic reason, not a generic
+    # invalid transition.
     unconfirmed = request(
         api_server, path, method="POST", headers={"Idempotency-Key": "unconfirmed"}
     )
     assert unconfirmed[0] == 409
-    assert unconfirmed[1]["error"]["code"] == "INVALID_TRANSITION"
+    assert unconfirmed[1]["error"]["code"] == "FOCUS_NOT_CONFIRMED"
+    assert unconfirmed[1]["error"]["message"] == "Потвърдете фокуса, преди да правите чернова."
     assert (
         request(
             api_server,

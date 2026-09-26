@@ -168,10 +168,14 @@ export function PreparationWorkspace({
         <section className={styles.preparationSection} aria-labelledby="preparation-readiness-heading">
           <h2 className={styles.contextLabel} id="preparation-readiness-heading">Подготовка за чернова</h2>
           {preparation ? <>
-            <p className={preparation.draftEligible ? styles.eligible : styles.notEligible}>
-              {preparation.draftEligible
-                ? "Фокусът е потвърден и няма блокиращи липси. Следващата възможност е „Направи чернова“."
-                : "Има още редакционска работа преди черновата да стане възможна."}
+            {/* V1.1-B: exactly ONE readiness sentence, taken verbatim from the
+                backend decision. There is no second, competing explanation, so
+                a green line can never appear beside a blocking one. */}
+            <p
+              className={preparation.draftEligible ? styles.eligible : styles.notEligible}
+              data-readiness-code={preparation.draftReadiness.code}
+            >
+              {preparation.draftReadiness.message}
             </p>
             {preparation.blockingGaps.length ? (
               <p className={styles.pending}>
@@ -193,7 +197,10 @@ export function PreparationWorkspace({
                 <button className={ui.retry} type="button" onClick={() => onEditingChange(true)}>Редактирай</button>
               </div>
             ) : null}
-            {article.availableActions.includes("MAKE_DRAFT") && preparation.draftEligible ? (
+            {/* `MAKE_DRAFT` comes from the SAME backend decision as the sentence
+                above, so an enabled Draft button and a blocking message can
+                never both be on screen. */}
+            {article.availableActions.includes("MAKE_DRAFT") ? (
               <div className={styles.preparationActions}>
                  <button
                    className={ui.retry}
@@ -210,6 +217,16 @@ export function PreparationWorkspace({
                  </span> : null}
                </div>
              ) : null}
+            {/* Research stays owned by the Story. When the backend says research
+                is the remedy, the editor gets a direct path to it — even with no
+                gap to show, which is the unassessed case. */}
+            {article.availableActions.includes("RESEARCH_MORE") ? (
+              <p className={styles.pending}>
+                <Link to={`/stories/${encodeURIComponent(article.story.id)}`}>
+                  Проучи още
+                </Link>
+              </p>
+            ) : null}
 
           </> : <EmptyState>Няма проекция за подготовката.</EmptyState>}
         </section>

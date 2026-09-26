@@ -22,6 +22,16 @@ _MESSAGES = {
     "INVALID_TRANSITION": "Това действие не е налично в текущото състояние.",
     "ARTICLE_VERSION_CONFLICT": "Черновата е променена в друга сесия. Няма загубени локални промени.",
     "BLOCKING_GAP": "Има непопълнена информация, която пречи да продължите.",
+    # V1.1-B: the four evidence-remedy reasons stay distinct at the API boundary
+    # too. They share a remedy (research the owning Story), never a message.
+    "STORY_UNASSESSED": "Историята трябва първо да бъде проучена.",
+    "NO_CONFIRMED_FACTS": "Няма потвърдени факти, върху които да се изгради черновата.",
+    "NO_OPEN_SOURCE": "Няма отворен източник, върху който да се изгради черновата.",
+    "FOCUS_NOT_CONFIRMED": "Потвърдете фокуса, преди да правите чернова.",
+    "NOT_IN_PREPARATION": "Черновата не е налична в текущото състояние на статията.",
+    "STORY_UNAVAILABLE": "Историята на статията вече не е достъпна.",
+    "ARTICLE_HAS_TEXT": "Статията вече има текст.",
+    "WORKING_TITLE_REQUIRED": "Работното заглавие не може да е празно.",
     "SAFETY_BLOCKED": "Проверката за безопасност спря операцията.",
     "SOURCE_UNAVAILABLE": "Източникът временно не е наличен.",
     "INTERNAL_ERROR": "Вътрешна грешка. Опитайте отново.",
