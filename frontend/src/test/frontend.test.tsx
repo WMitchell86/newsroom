@@ -22,6 +22,7 @@ import {
   todayProjection,
 } from "./fixtures";
 import { renderWithProviders } from "./render";
+import { formatLastRefresh, newPublicationsLabel } from "../shared/editorLabels";
 
 import type { ArticleDetail, StoryDetail } from "../api/dto";
 function errorResponse(code: string, message: string, status: number, retryable = false) {
@@ -238,6 +239,246 @@ describe("Today", () => {
 
     expect(await screen.findByRole("heading", { name: "Източникът „Огледало“ не се обнови" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Прегледай източниците" })).toHaveAttribute("href", "/settings");
+  });
+});
+
+describe("Today — D1 refresh context", () => {
+  /** D1: the run time is shown in newsroom local time, not the browser's. */
+  it("shows the last refresh in Europe/Sofia time with the run's real counts", async () => {
+    // A run that finished just now, so the newsroom day is unambiguously today.
+    // The exact clock wording is asserted in the `formatLastRefresh` unit tests,
+    // which pin `now`; this checks what the page actually renders.
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      lastRefresh: { ...todayProjection.lastRefresh!, finishedAt: new Date().toISOString() },
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    // The line is one paragraph, so it is asserted as a whole: the counts are
+    // siblings of the time, not separate elements.
+    const line = screen.getByText(/Последно обновяване:/)?.textContent ?? "";
+    expect(line).toMatch(/Последно обновяване: \d{2}:\d{2}/);
+    expect(line).not.toMatch(/вчера/);
+    expect(line).toContain("37 нови публикации");
+    expect(line).toContain("0 проблема с източници");
+  });
+
+  it("names yesterday explicitly instead of showing a bare time", async () => {
+    // The exact clock wording is asserted in the `formatLastRefresh` unit
+    // tests; this checks the page routes a run from the previous newsroom day
+    // into the named form rather than a bare time.
+    const yesterday = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString();
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      lastRefresh: { ...todayProjection.lastRefresh!, finishedAt: yesterday },
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByText(/Последно обновяване: вчера, \d{2}:\d{2}/)).toBeInTheDocument();
+  });
+
+  it("states the date for a run older than yesterday", async () => {
+    const stale = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      lastRefresh: { ...todayProjection.lastRefresh!, finishedAt: stale },
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    // A stale run can never be mistaken for a fresh one: no "вчера", and the
+    // line carries a full calendar date rather than a bare clock time.
+    const line = screen.getByText(/Последно обновяване:/)?.textContent ?? "";
+    expect(line).not.toMatch(/вчера/);
+    expect(line).toMatch(/\d{4}/);
+    expect(line).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("handles a fresh installation honestly instead of a placeholder dash", async () => {
+    fetchMock.mockResolvedValue(dataResponse({ ...todayProjection, lastRefresh: null }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByText("Все още няма извършено обновяване.")).toBeInTheDocument();
+    // Never-run is not a reason to hide the way to fix it.
+    expect(screen.getByRole("button", { name: "Обнови" })).toBeEnabled();
+  });
+
+  it("surfaces failed sources as a count without internal detail", async () => {
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      lastRefresh: { ...todayProjection.lastRefresh!, failedSources: 2 },
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    const line = screen.getByText(/Последно обновяване:/)?.textContent ?? "";
+    expect(line).toContain("2 проблема с източници");
+  });
+});
+
+describe("Today — D1 cap and ordering", () => {
+  it("discloses the cap and links the withheld Stories to the full collection", async () => {
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      storyAttentionTotal: 47,
+      storyAttentionShown: 30,
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByText(/Показани са 30 от 47 текущи истории/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Виж всички в Истории" })).toHaveAttribute(
+      "href",
+      "/stories",
+    );
+  });
+
+  it("shows no cap line when everything that qualifies is shown", async () => {
+    fetchMock.mockResolvedValue(dataResponse(todayProjection));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.queryByText(/Показани са/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Виж всички в Истории" })).toBeNull();
+  });
+
+  it("renders no section chrome for an empty group", async () => {
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      newDevelopments: [],
+      newStories: [],
+      problems: [],
+      storyAttentionTotal: 0,
+      storyAttentionShown: 0,
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    // A heading over "nothing here" is chrome, not information.
+    expect(screen.queryByRole("heading", { name: "Нови развития" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Нови истории" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Проблеми" })).toBeNull();
+    // The group that does have work is still there.
+    expect(screen.getByRole("heading", { name: "Статии за действие" })).toBeInTheDocument();
+  });
+
+  it("renders Stories in the order the backend delivered, without re-sorting", async () => {
+    // Deliberately reversed on the wire: if the page re-sorted, this order
+    // would change. Backend ordering stays authoritative.
+    const wireOrder = [...todayProjection.newStories].reverse();
+    fetchMock.mockResolvedValue(dataResponse({
+      ...todayProjection,
+      newDevelopments: [],
+      newStories: wireOrder,
+      storyAttentionTotal: wireOrder.length,
+      storyAttentionShown: wireOrder.length,
+    }));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    const rendered = screen
+      .getAllByRole("link", { name: /Поморие/ })
+      .map((node) => node.getAttribute("href"));
+    expect(rendered).toEqual(wireOrder.map((item) => `/stories/${item.objectId}`));
+  });
+
+  it("updates the refresh line and counts after a completed refresh", async () => {
+    // The first GET is the pre-refresh page; every GET after the POST is the
+    // refetch, which is the only thing that can change the line.
+    let refreshed = false;
+    const afterRun = {
+      ...todayProjection,
+      lastRefresh: {
+        finishedAt: new Date().toISOString(),
+        newPublications: 12,
+        newStories: 4,
+        failedSources: 0,
+      },
+    };
+    const beforeRun = {
+      ...todayProjection,
+      lastRefresh: {
+        finishedAt: new Date().toISOString(),
+        newPublications: 37,
+        newStories: 23,
+        failedSources: 0,
+      },
+    };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        refreshed = true;
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-d1" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-d1") return dataResponse({ status: "succeeded" });
+      if (url.startsWith("/api/v1/stories")) return dataResponse({ stories: [] });
+      return dataResponse(refreshed ? afterRun : beforeRun);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByText(/Последно обновяване:/)?.textContent).toContain("37 нови публикации");
+
+    await user.click(screen.getByRole("button", { name: "Обнови" }));
+
+    // The refetch is what changes the line; the button only starts the run.
+    await waitFor(() =>
+      expect(screen.getByText(/Последно обновяване:/)?.textContent).toContain("12 нови публикации"),
+    );
+    expect(screen.getByText(/Последно обновяване:/)?.textContent).not.toContain("37 нови");
+  });
+});
+
+describe("D1 newsroom-local time formatting", () => {
+  const refresh = (finishedAt: string) => ({
+    finishedAt,
+    newPublications: 0,
+    newStories: null,
+    failedSources: 0,
+  });
+
+  // D1 §9/§18: the exact clock wording is asserted here, with an explicit
+  // `now`, so it does not depend on the machine the suite runs on.
+  it("renders a run from the same newsroom day as a bare local time", () => {
+    expect(
+      formatLastRefresh(refresh("2026-09-23T04:32:51Z"), new Date("2026-09-23T09:00:00Z")),
+    ).toBe("07:32");
+  });
+
+  it("names the previous newsroom day", () => {
+    expect(
+      formatLastRefresh(refresh("2026-09-22T18:42:00Z"), new Date("2026-09-23T09:00:00Z")),
+    ).toBe("вчера, 21:42");
+  });
+
+  it("states the calendar date for anything older", () => {
+    const rendered = formatLastRefresh(
+      refresh("2026-09-20T04:32:51Z"),
+      new Date("2026-09-23T09:00:00Z"),
+    );
+    expect(rendered).not.toMatch(/вчера/);
+    expect(rendered).toMatch(/20/);
+    expect(rendered).toMatch(/07:32/);
+  });
+
+  it("uses the newsroom day, not the UTC day, at the midnight boundary", () => {
+    // 22:10 UTC on the 22nd is 01:10 on the 23rd in the newsroom, so it is
+    // *today*, even though its UTC date is the previous one.
+    expect(
+      formatLastRefresh(refresh("2026-09-22T22:10:00Z"), new Date("2026-09-23T00:30:00Z")),
+    ).toBe("01:10");
+  });
+
+  it("returns null for a never-run install and an unreadable timestamp", () => {
+    expect(formatLastRefresh(null, new Date("2026-09-23T09:00:00Z"))).toBeNull();
+    expect(formatLastRefresh(refresh("not-a-date"), new Date("2026-09-23T09:00:00Z"))).toBeNull();
+  });
+
+  it("pluralizes the publication count", () => {
+    expect(newPublicationsLabel(1)).toBe("1 нова публикация");
+    expect(newPublicationsLabel(37)).toBe("37 нови публикации");
   });
 });
 

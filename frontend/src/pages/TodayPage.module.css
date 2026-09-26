@@ -59,6 +59,27 @@
   font-weight: 600;
 }
 
+/* D1: the refresh context line and the cap disclosure are deliberately quiet.
+   They answer "how current is this screen?", not "what do I do next?" — the
+   attention rows below stay the loudest thing on the page. */
+.refreshMeta,
+.capNotice {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.capNotice a {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.refreshFailed {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
 .list,
 .problemList {
   margin: 0;

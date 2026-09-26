@@ -500,6 +500,139 @@ def build_fixture(*, newsroom: Path, editorial: Path) -> dict:
 
 
 # --------------------------------------------------------------------------
+# V1.1-D1 fixture: a Today screen with real shape
+# --------------------------------------------------------------------------
+
+
+def build_today_fixture(*, newsroom: Path, editorial: Path) -> dict:
+    """Seed the D1 shape: a large stale backlog, a small current set, work.
+
+    This exists because the *interesting* Today is the one the real corpus
+    produced: far more `NEW` Stories than an editor can act on, almost all of
+    them days old. A fixture with three tidy current Stories cannot show
+    whether the horizon, the cap or the ordering actually work.
+
+    Timestamps are derived from the real clock, not hard-coded, because the
+    horizon is defined against the current `Europe/Sofia` date. A hard-coded
+    fixture date would silently stop testing anything the day after it was
+    written.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from editor_assistant.workflow import editor_article_store as articles
+    from editor_assistant.workflow import (
+        inbox_store,
+        newsroom_refresh,
+        sources_registry,
+        story_operations,
+        story_store,
+    )
+
+    newsroom.mkdir(parents=True, exist_ok=True)
+    editorial.mkdir(parents=True, exist_ok=True)
+    stories_path = newsroom / "stories.json"
+    inbox_path = newsroom / "inbox.jsonl"
+    _release_refresh_lock(newsroom_refresh)
+
+    now = datetime.now(timezone.utc)
+
+    def stamp(**delta) -> str:
+        return (now - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    STALE = 120  # untouched backlog, far outside the horizon
+    CURRENT = 25  # what an editor can actually scan
+
+    items = []
+    stories = []
+
+    def add(story_id: str, when: str, title: str) -> None:
+        item = _item(f"{story_id}-origin", title, discovered_at=when)
+        items.append(item)
+        story = story_store.new_story(item, publication_key=f"pk-{story_id}", now=when)
+        story["story_id"] = story_id
+        story["status"] = "NEW"
+        stories.append(story)
+
+    for index in range(STALE):
+        add(f"s-d1-stale-{index:03d}", stamp(days=9 + index // 20), f"Стара история {index}")
+
+    for index in range(CURRENT):
+        # Ids are scrambled against time on purpose, so a page that ordered by
+        # id would look obviously wrong in the rendered sequence.
+        suffix = f"{(index * 613) % CURRENT:03d}"
+        add(f"s-d1-now-{suffix}", stamp(minutes=25 * index), f"Текуща история {suffix}")
+
+    inbox_store.save_items(items, inbox_path)
+    story_store.write_store({"stories": stories}, stories_path)
+
+    # A Draft Article on a current Story, so Article attention is present and
+    # the proof can show that Story volume does not displace it.
+    draft = articles.create_editor_article(
+        story_id="s-d1-now-000",
+        stories_path=stories_path,
+        working_title="Работа по текущата история",
+        now=stamp(minutes=5),
+        root=editorial,
+        idempotency_key="d1-draft",
+    )
+    articles.update_editor_focus(
+        draft["article_id"],
+        "Да разкажем какво предстои по темата.",
+        now=stamp(minutes=4),
+        root=editorial,
+    )
+    articles.save_article_content(
+        draft["article_id"],
+        0,
+        "Работа по текущата история",
+        CLEAN_BODY,
+        now=stamp(minutes=3),
+        root=editorial,
+    )
+
+    story_operations.clear()
+
+    sources_registry.add_source(
+        path=newsroom / "sources.json",
+        source_id="d1-vestnik",
+        name="Д1 тестов емисион",
+        kind="official",
+        collector="rss",
+        url="https://vestnik.example.test/rss.xml",
+        priority="high",
+        factual_authority=True,
+    )
+
+    # A completed run, so the refresh line has something true to say.
+    from editor_assistant.workflow import source_health
+
+    source_health.record_run(
+        {
+            "finished_at": stamp(hours=2),
+            "started_at": stamp(hours=2, minutes=1),
+            "collected": 157,
+            "new": 37,
+            "duplicate": 120,
+            "failed": 0,
+            "blocked": 0,
+            "blocked_filtered": 0,
+            "sources": [{"source_id": "d1-vestnik", "status": "OK"}],
+        },
+        path=newsroom / "last_run.json",
+    )
+    source_health.record_run_stories(12, path=newsroom / "last_run.json")
+
+    return {
+        "newsroom": newsroom,
+        "editorial": editorial,
+        "stories_path": stories_path,
+        "draft_article_id": draft["article_id"],
+        "stale_count": STALE,
+        "current_count": CURRENT,
+    }
+
+
+# --------------------------------------------------------------------------
 # external boundary substitutes
 # --------------------------------------------------------------------------
 

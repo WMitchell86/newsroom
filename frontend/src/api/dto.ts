@@ -276,7 +276,32 @@ export interface TodayProblem {
   target: string;
 }
 
+/**
+ * D1: the last completed newsroom run, as Today needs to describe it.
+ *
+ * This is a projection of the existing `last_run.json`, not the file itself:
+ * per-source problem detail, blocked/duplicate counts and source ids stay in
+ * the operational store and never cross into the editor's first screen.
+ */
+export interface LastRefresh {
+  /** ISO-8601 UTC instant the run finished; rendered in Europe/Sofia. */
+  finishedAt: string;
+  newPublications: number;
+  /**
+   * `null` when the run predates this field. An absent count is honest; a
+   * fabricated `0` would be a claim the store cannot support.
+   */
+  newStories: number | null;
+  failedSources: number;
+}
+
 export interface TodayProjection {
+  /** `null` means no run has ever happened — not "ran with nothing to show". */
+  lastRefresh: LastRefresh | null;
+  /** Every Story that qualifies as current, before the cap. */
+  storyAttentionTotal: number;
+  /** How many of those the cap actually lets through. */
+  storyAttentionShown: number;
   newDevelopments: TodayAttention[];
   newStories: TodayAttention[];
   articlesRequiringAction: TodayAttention[];

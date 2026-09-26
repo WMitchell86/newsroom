@@ -259,6 +259,27 @@ def record_run(summary, *, path=None):
     return record
 
 
+def record_run_stories(new_stories, *, path=None):
+    """Attach the run's new-Story count to the last-run summary.
+
+    The collection summary is recorded before the identity stage has grouped the
+    inbox, so the Story count is the one field that is only known afterwards.
+    It is merged into the *existing* single latest-run record rather than
+    appended as history: Today needs to say "37 нови публикации, 12 нови
+    истории" about the run that actually happened, and a run log would be a
+    much larger thing to own and keep correct.
+
+    A run that was never recorded stays unrecorded. This never invents a run.
+    """
+    record = read_last_run(path)
+    if record is None:
+        return None
+    record["new_stories"] = max(int(new_stories or 0), 0)
+    payload = json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
+    live_store.atomic_write(last_run_path(path), payload)
+    return record
+
+
 def read_last_run(path=None):
     store = last_run_path(path)
     if not store.exists():

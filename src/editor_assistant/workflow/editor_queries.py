@@ -7,17 +7,54 @@ of returned dictionaries.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from editor_assistant.workflow import (
     editor_article_store,
     editor_projections,
     inbox_store,
+    source_health,
     story_editor_metadata,
     story_store,
 )
 
+#: Calendar days of recency Today keeps, counted backwards from the current
+#: `Europe/Sofia` date. `1` means "today plus the previous calendar day".
+#:
+#: A calendar horizon, not a rolling 24-hour window, because editorial work is
+#: calendar-based: the morning editor still sees yesterday evening, and a
+#: backlog that is several days old leaves the first screen on its own instead
+#: of requiring anybody to mark it reviewed.
+TODAY_HORIZON_PREVIOUS_DAYS = 1
+
+#: Hard bound on Story attention rows. Today is an attention surface, not the
+#: Story database: an editor should be able to scan the first screen without
+#: receiving 251 decisions at once. The complete collection stays reachable
+#: under «Истории», and the remainder is reported as a count, never silently
+#: dropped.
+TODAY_STORY_CAP = 30
+
 
 class EditorQueryError(ValueError):
     """Editor records cannot be composed into a valid projection."""
+
+
+def today_horizon_start(now=None) -> date:
+    """The oldest `Europe/Sofia` calendar date Today still considers current."""
+    return source_health.sofia_date(now) - timedelta(days=TODAY_HORIZON_PREVIOUS_DAYS)
+
+
+def story_is_within_horizon(story: dict, *, horizon_start: date) -> bool:
+    """Whether a Story's canonical change timestamp is inside the horizon.
+
+    Both sides are real `Europe/Sofia` calendar dates, so a naive date is never
+    compared and the server's own timezone is never inferred. A Story whose
+    timestamp cannot be read is *not* current: nothing proves it arrived.
+    """
+    moment = source_health.parse_timestamp(editor_projections.story_chronology_at(story))
+    if moment is None:
+        return False
+    return source_health.sofia_date(moment) >= horizon_start
 
 
 def _metadata_by_story(rows) -> dict[str, dict]:
@@ -84,6 +121,41 @@ def read_story_editor_projection(
     )
 
 
+def _chronological(rows, *, newest, tie_breaker) -> list[dict]:
+    """Newest first on a timestamp key, with an ascending-id tie-break.
+
+    Two stable passes. The id pass establishes a deterministic base order, and
+    the timestamp pass then only reorders whole groups of rows, so rows sharing
+    a timestamp keep ascending id order. The result is a total, reproducible
+    order that is never a reverse sort on a hash-derived id — which is exactly
+    what made the previous ordering look random.
+    """
+    ordered = sorted(rows, key=tie_breaker)
+    ordered.sort(key=newest, reverse=True)
+    return ordered
+
+
+def _story_attention_row(story: dict, metadata: dict, items_by_id: dict, attention: str) -> dict:
+    """One Story attention row: the canonical fields Today needs, precomputed.
+
+    Everything here is an in-memory join over the single snapshot the caller
+    already read. The row carries its own title, summary and canonical change
+    timestamp so the API layer never re-reads a store to decorate one row.
+    """
+    projected = editor_projections.project_story_editor(story, metadata, items_by_id, ())
+    representative = items_by_id.get(story.get("representative_item_id")) or {}
+    developments = editor_projections.meaningful_developments(story, items_by_id)
+    latest = developments[0] if developments else {}
+    return {
+        "id": story["story_id"],
+        "attention": attention,
+        "title": str(representative.get("title") or latest.get("title") or ""),
+        "summary": str(representative.get("summary") or latest.get("summary") or ""),
+        "latestChangeAt": editor_projections.story_chronology_at(story),
+        "unreviewedDevelopmentCount": projected["unreviewed_development_count"],
+    }
+
+
 def project_today(
     *,
     stories,
@@ -93,23 +165,53 @@ def project_today(
     article_contents,
     validation_digests=None,
     article_next_actions=None,
+    now=None,
+    story_cap=TODAY_STORY_CAP,
 ) -> dict:
-    """Pure Today composition; callers provide current validation/action context."""
+    """Pure Today composition; callers provide current validation/action context.
+
+    **Ordering.** Story attention is ordered by the canonical change timestamp
+    the editor already sees as `latestChangeAt`, newest first. The previous key
+    was `latest_development.changed_at`, which is empty for every Story in the
+    real corpus (no member is classified `NEW_DEVELOPMENT`), so the sort
+    degenerated into a reverse sort on the hash-derived Story id.
+
+    **Horizon.** Ordinary `NEW_STORY` attention must be current: today or the
+    previous calendar day in `Europe/Sofia`. A Story survives the horizon only
+    for an explicit current reason — an unreviewed meaningful development —
+    never merely because its status is still `NEW`, so an untouched backlog
+    retires itself instead of living forever.
+
+    **Cap.** After the horizon, at most `story_cap` Story rows are emitted, and
+    the qualifying total is always reported, so a bounded first screen never
+    hides the fact that more work exists.
+    """
     digests = dict(validation_digests or {})
     next_actions = dict(article_next_actions or {})
     canonical_ids = _story_ids(stories)
-    story_entries = []
+    horizon_start = today_horizon_start(now)
+
+    candidates = []
     for story in stories:
         story_id = story["story_id"]
         story_metadata = metadata.get(
             story_id, story_editor_metadata.default_story_editor_metadata(story_id)
         )
-        projected = editor_projections.project_story_editor(
-            story, story_metadata, items_by_id, article_records
-        )
         attention = editor_projections.derive_story_attention(story, story_metadata)
-        if attention:
-            story_entries.append({"attention": attention, "story": projected})
+        if not attention:
+            continue
+        current = story_is_within_horizon(story, horizon_start=horizon_start)
+        if not current and not editor_projections.has_unreviewed_development(story, story_metadata):
+            continue
+        candidates.append(_story_attention_row(story, story_metadata, items_by_id, attention))
+
+    candidates = _chronological(
+        candidates,
+        newest=lambda row: row["latestChangeAt"],
+        tie_breaker=lambda row: row["id"],
+    )
+    total = len(candidates)
+    shown = candidates[: max(int(story_cap), 0)]
 
     article_entries = []
     for article in article_records:
@@ -134,18 +236,19 @@ def project_today(
             )
             article_entries.append({"next_action": next_action, "article": projected})
 
-    story_entries.sort(
-        key=lambda row: (
-            ((row["story"].get("latest_development") or {}).get("changed_at") or ""),
-            row["story"]["id"],
-        ),
-        reverse=True,
+    # Article work is bounded on its own terms and never competes with Story
+    # attention for the Story cap, so a full Story list cannot displace an
+    # in-progress Article.
+    article_entries = _chronological(
+        article_entries,
+        newest=lambda row: row["article"]["timestamps"]["updated_at"],
+        tie_breaker=lambda row: row["article"]["id"],
     )
-    article_entries.sort(
-        key=lambda row: (row["article"]["timestamps"]["updated_at"], row["article"]["id"]),
-        reverse=True,
-    )
-    return {"stories": story_entries, "articles": article_entries}
+    return {
+        "stories": shown,
+        "storyAttentionTotal": total,
+        "articles": article_entries,
+    }
 
 
 def read_today(
@@ -156,8 +259,17 @@ def read_today(
     article_root=None,
     validation_digests=None,
     article_next_actions=None,
+    now=None,
+    story_cap=TODAY_STORY_CAP,
 ) -> dict:
-    """Read and derive Today without writing an attention row or queue."""
+    """Read and derive Today without writing an attention row or queue.
+
+    Every canonical store is read exactly once here and the result is joined
+    in memory, so the cost of this projection is proportional to the corpus and
+    not to the number of rows it returns. `list_stories` is the reference for
+    that batching shape. There is no cache layer: the fix is to stop re-reading
+    the same JSON file once per Story, not to remember it.
+    """
     store = story_store.read_store(stories_path)
     stories = store["stories"]
     items = inbox_store.read_items(inbox_path)
@@ -186,4 +298,6 @@ def read_today(
         article_contents=contents,
         validation_digests=validation_digests,
         article_next_actions=article_next_actions,
+        now=now,
+        story_cap=story_cap,
     )

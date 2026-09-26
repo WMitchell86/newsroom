@@ -222,6 +222,10 @@ def refresh_newsroom(
         blocked_path=paths["blocked"],
         now=now,
     )
+    # The collection summary is already on disk by this point; the Story count
+    # only exists after the identity stage, so it is merged into that same
+    # latest-run record. This is the only extra state the refresh adds.
+    source_health.record_run_stories(stories.get("new_stories", 0), path=paths["last_run"])
 
     return {
         "collected": int(summary.get("collected", 0)),

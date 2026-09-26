@@ -1320,6 +1320,32 @@ def read_article(article_id: str) -> dict:
     return _article_dto_by_id(article_id)
 
 
+def _today_last_refresh() -> dict | None:
+    """The last run's editor-facing summary, or `None` if no run ever happened.
+
+    Only four numbers and the finish time cross this boundary. The raw
+    `last_run.json` shape — per-source problem detail, blocked counts, duplicate
+    counts, source ids — stays in the operational store, because Today is an
+    attention surface and not source diagnostics.
+    """
+    record = source_health.read_last_run(
+        newsroom_refresh.newsroom_paths(_newsroom_root())["last_run"]
+    )
+    if not record:
+        return None
+    finished_at = str(record.get("finished_at") or "")
+    if not finished_at:
+        return None
+    new_stories = record.get("new_stories")
+    return {
+        "finishedAt": finished_at,
+        "newPublications": int(record.get("new") or 0),
+        # `None` when the run predates this field: absent is honest, zero is a claim.
+        "newStories": None if new_stories is None else int(new_stories),
+        "failedSources": int(record.get("failed") or 0),
+    }
+
+
 def read_today() -> dict:
     result = editor_queries.read_today(
         stories_path=_paths()["stories"],
@@ -1328,31 +1354,55 @@ def read_today() -> dict:
     )
     new_developments = []
     new_stories = []
-    for entry in result["stories"]:
-        detail = _story_detail(entry["story"]["id"])
+    # The Story row already carries its canonical title, summary, change
+    # timestamp and development count from the single in-memory snapshot taken
+    # above. The previous implementation called `_story_detail()` per row, which
+    # re-read the Story store, the inbox, the metadata store and the whole
+    # Article store once for every Story on the page.
+    for row in result["stories"]:
         item = {
             "objectType": "story",
-            "objectId": entry["story"]["id"],
-            "title": detail["title"],
-            "reason": entry["attention"],
-            "summary": detail["summary"],
-            "timestamp": detail["latestChangeAt"],
+            "objectId": row["id"],
+            "title": row["title"],
+            "reason": row["attention"],
+            "summary": row["summary"],
+            "timestamp": row["latestChangeAt"],
             "nextAction": "REVIEW",
-            "delta": {"unreviewedDevelopmentCount": detail["unreviewedDevelopmentCount"]},
+            "delta": {"unreviewedDevelopmentCount": row["unreviewedDevelopmentCount"]},
         }
-        if entry["attention"] == "NEW_STORY":
+        if row["attention"] == "NEW_STORY":
             new_stories.append(item)
         else:
             item["reason"] = "UNREVIEWED_DEVELOPMENT"
             new_developments.append(item)
     articles = []
-    for article in editor_article_store.read_editor_articles():
+    # One snapshot of each canonical store, reused for every Article row. The
+    # previous implementation called `_article_projection_by_id()` per Article,
+    # and each of those re-read the Story store, the whole inbox, the metadata
+    # store and the entire Article index — so the remaining cost still grew
+    # with the number of Articles on the page.
+    stories = story_store.read_store(_paths()["stories"])["stories"]
+    stories_by_id = {row["story_id"]: row for row in stories}
+    items_by_id = _story_items()
+    article_records = editor_article_store.read_editor_articles()
+    for article in article_records:
         # The real current-content digest decides readiness, exactly as it does
         # in the Article workspace: a `Готова` Article stops asking for action
         # and a stale checkpoint starts asking again.
-        dto, current_digest = _article_projection_by_id(article["article_id"])
-        concrete_next_action = (dto.get("nextAction") or {}).get("action")
         content = editor_article_store.get_article_content(article["article_id"])
+        story = stories_by_id.get(article["story_id"])
+        # An Article whose Story is gone is not today's problem; it keeps its
+        # own workspace's handling and is simply absent from this projection.
+        if story is None:
+            continue
+        dto, current_digest = _article_projection(
+            article,
+            content,
+            _story_reference(article, items_by_id, story),
+            story,
+            items_by_id,
+        )
+        concrete_next_action = (dto.get("nextAction") or {}).get("action")
         if not editor_projections.article_today_eligible(
             article,
             content,
@@ -1373,6 +1423,9 @@ def read_today() -> dict:
         )
     articles.sort(key=lambda row: (row["timestamp"], row["objectId"]), reverse=True)
     return {
+        "lastRefresh": _today_last_refresh(),
+        "storyAttentionTotal": result["storyAttentionTotal"],
+        "storyAttentionShown": len(new_developments) + len(new_stories),
         "newDevelopments": new_developments,
         "newStories": new_stories,
         "articlesRequiringAction": articles,

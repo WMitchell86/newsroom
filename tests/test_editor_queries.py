@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from editor_assistant.workflow import (
     editor_article_store,
     editor_queries,
@@ -33,7 +35,9 @@ def _seed(root):
     origin = _inbox_item("origin", title="Първоначална")
     development = _inbox_item("development")
     inbox_store.save_items([origin, development], inbox_path)
-    story = story_store.new_story(origin, publication_key="publication-origin")
+    story = story_store.new_story(
+        origin, publication_key="publication-origin", now="2026-09-25T08:00:00Z"
+    )
     story["story_id"] = "s-one"
     story_store.add_member(
         story,
@@ -74,10 +78,19 @@ def test_read_today_composes_story_article_and_writes_no_attention_state(tmp_pat
         metadata_root=tmp_path,
         article_root=article_root,
         article_next_actions={article["article_id"]: "SELECT_FOCUS"},
+        # The fixture is dated 2026-09-25, so the clock is pinned rather than
+        # left to drift into (or out of) the horizon as real time advances.
+        now=datetime(2026, 9, 25, 12, tzinfo=timezone.utc),
     )
 
     assert [entry["attention"] for entry in result["stories"]] == ["FOLLOWED_DEVELOPMENT"]
-    assert result["stories"][0]["story"]["unreviewed_development_count"] == 1
+    # D1: the row carries the canonical fields directly, so the API layer never
+    # re-reads a store to decorate one Story.
+    assert result["stories"][0]["unreviewedDevelopmentCount"] == 1
+    # The representative is the development, exactly as the Story page shows it.
+    assert result["stories"][0]["title"] == "Развитие"
+    assert result["stories"][0]["latestChangeAt"] == "2026-09-25T08:00:00Z"
+    assert result["storyAttentionTotal"] == 1
     assert result["articles"][0]["article"]["id"] == article["article_id"]
     assert result["articles"][0]["article"]["state"] == "preparation"
     assert result["articles"][0]["next_action"] == "SELECT_FOCUS"

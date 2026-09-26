@@ -249,6 +249,17 @@ export const activeReadyArticle: ArticleDetail = {
 };
 
 export const todayProjection: TodayProjection = {
+  // D1: a run from earlier today, in Europe/Sofia terms. 04:32 UTC is 07:32 in
+  // the newsroom, which is the time the page must show.
+  lastRefresh: {
+    finishedAt: "2026-09-25T04:32:51Z",
+    newPublications: 37,
+    newStories: 23,
+    failedSources: 0,
+  },
+  // 2 rows rendered out of 2 qualifying: the cap notice is absent by default.
+  storyAttentionTotal: 2,
+  storyAttentionShown: 2,
   newDevelopments: [
     {
       objectId: "story-sunche-vo",

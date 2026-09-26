@@ -160,6 +160,29 @@ def derive_story_attention(story: dict, metadata: dict) -> str | None:
     return None
 
 
+def story_chronology_at(story: dict) -> str:
+    """The one canonical chronological timestamp of a Story.
+
+    Today sorts on this value and prints this value, so the order the editor
+    sees and the date printed beside each row can never disagree.
+    `latest_material_change_at` is canonical whenever the Story has material
+    changes and empty when it has none, so `last_seen_at` is the documented
+    fallback. Neither depends on a `NEW_DEVELOPMENT` member existing.
+    """
+    return str(story.get("latest_material_change_at") or story.get("last_seen_at") or "")
+
+
+def has_unreviewed_development(story: dict, metadata: dict) -> bool:
+    """A genuinely unreviewed meaningful New Development exists for this Story.
+
+    This is the one explicit *current reason* that outlives the recency horizon:
+    an editor has not looked at something that arrived, so dropping it by age
+    would hide real work. It is a fact about review state, not a timestamp, so
+    it is not subject to a clock.
+    """
+    return bool(unreviewed_development_ids(story, metadata))
+
+
 def article_today_eligible(
     article: dict,
     content: dict,

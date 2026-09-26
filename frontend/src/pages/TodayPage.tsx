@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { refreshNewsroom } from "../api/client";
-import type { TodayAttention } from "../api/dto";
+import type { TodayAttention, TodayProjection } from "../api/dto";
 import { queryKeys, todayOptions } from "../api/queries";
 import { getErrorMessage } from "../shared/errorMessage";
 import { safeInternalTarget } from "../shared/safeNavigation";
-import { formatDate } from "../shared/editorLabels";
+import {
+  formatDate,
+  formatLastRefresh,
+  newPublicationsLabel,
+} from "../shared/editorLabels";
 import {
   EmptyState,
   ErrorState,
@@ -14,6 +18,52 @@ import {
   Section,
 } from "../shared/EditorPrimitives";
 import styles from "./TodayPage.module.css";
+
+/**
+ * D1: the newsroom's own refresh context, above the attention lists.
+ *
+ * A never-run install says so in words. A run with failed sources is surfaced
+ * as a count, because the sanitized `problems` list below is the actionable
+ * form and a raw exception message has no place on the editor's first screen.
+ */
+function LastRefreshLine({ projection }: { projection: TodayProjection }) {
+  const { lastRefresh } = projection;
+  if (!lastRefresh) {
+    return <p className={styles.refreshMeta}>Все още няма извършено обновяване.</p>;
+  }
+  const moment = formatLastRefresh(lastRefresh);
+  return <p className={styles.refreshMeta}>
+    {moment ? <>Последно обновяване: {moment}</> : "Последно обновяване: —"}
+    {" · "}
+    {newPublicationsLabel(lastRefresh.newPublications)}
+    {lastRefresh.failedSources > 0 ? (
+      <>
+        {" · "}
+        <span className={styles.refreshFailed}>
+          {lastRefresh.failedSources === 1
+            ? "1 проблем с източник"
+            : `${lastRefresh.failedSources} проблема с източници`}
+        </span>
+      </>
+    ) : " · 0 проблема с източници"}
+  </p>;
+}
+
+/**
+ * D1: the cap is disclosed, never silent.
+ *
+ * Today is bounded on purpose, so the number it withheld is stated and linked
+ * to the complete collection. A bounded first screen that hid its own backlog
+ * would be indistinguishable from a broken one.
+ */
+function StoryCapNotice({ projection }: { projection: TodayProjection }) {
+  const { storyAttentionTotal, storyAttentionShown } = projection;
+  if (storyAttentionTotal <= storyAttentionShown) return null;
+  return <p className={styles.capNotice}>
+    Показани са {storyAttentionShown} от {storyAttentionTotal} текущи истории ·{" "}
+    <Link to="/stories">Виж всички в Истории</Link>
+  </p>;
+}
 
 function objectHref(item: TodayAttention): string {
   const base = item.objectType === "story" ? "/stories" : "/articles";
@@ -65,14 +115,20 @@ function AttentionRow({ item }: { item: TodayAttention }) {
   );
 }
 
+/**
+ * D1: an empty group is not rendered at all.
+ *
+ * A heading with a `0` and an "empty" line under it is chrome, not
+ * information: on a quiet day it made Today look like a broken page. The
+ * section appears only when it has something to decide.
+ */
 function AttentionSection({ title, items }: { title: string; items: TodayAttention[] }) {
+  if (!items.length) return null;
   return (
-    <Section title={title} meta={items.length ? String(items.length) : "0"}>
-      {items.length ? (
-        <ul className={styles.list}>
-          {items.map((item) => <AttentionRow item={item} key={`${item.objectType}-${item.objectId}`} />)}
-        </ul>
-      ) : <EmptyState>Няма записи в тази група.</EmptyState>}
+    <Section title={title} meta={String(items.length)}>
+      <ul className={styles.list}>
+        {items.map((item) => <AttentionRow item={item} key={`${item.objectType}-${item.objectId}`} />)}
+      </ul>
     </Section>
   );
 }
@@ -141,12 +197,15 @@ export function TodayPage() {
         <RefreshControl />
       </div>
 
+      <LastRefreshLine projection={projection} />
+
       {hasAttention ? <div aria-live="polite">
         <AttentionSection title="Нови развития" items={projection.newDevelopments} />
         <AttentionSection title="Нови истории" items={projection.newStories} />
+        <StoryCapNotice projection={projection} />
         <AttentionSection title="Статии за действие" items={projection.articlesRequiringAction} />
-        <Section title="Проблеми" meta={String(projection.problems.length)}>
-          {projection.problems.length ? (
+        {projection.problems.length ? (
+          <Section title="Проблеми" meta={String(projection.problems.length)}>
             <ul className={styles.problemList}>
               {projection.problems.map((problem) => {
                 const target = safeInternalTarget(problem.target);
@@ -157,8 +216,8 @@ export function TodayPage() {
                 </li>;
               })}
             </ul>
-          ) : null}
-        </Section>
+          </Section>
+        ) : null}
       </div> : <EmptyState>Няма редакционни задачи, които да изискват внимание сега.</EmptyState>}
     </div>
   );
