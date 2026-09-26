@@ -160,9 +160,82 @@
   text-decoration: none;
 }
 
+/* D2 §26: three editorial intents, one visual hierarchy.
+   `Чернова` is the positive, forward action and is the only filled control.
+   `Прегледай` is the ordinary navigation link it has always been, and
+   `Игнорирай` is deliberately quiet rather than destructive-red: it is a routine
+   triage move, fully reversible from the Story surface. This is triage, not a
+   toolbar, and it borrows interaction speed rather than any swipe aesthetic. */
+.triageActions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.quiet,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.quiet {
+  color: var(--color-text-secondary);
+}
+
+.quiet:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.secondary {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.secondary:hover {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent);
+}
+
+.quiet:disabled,
+.secondary:disabled {
+  cursor: default;
+  color: var(--color-text-secondary);
+}
+
+/* §23: the blocker is one concise, truthful sentence on the row itself — never a
+   modal, never a wizard, and never a list of internal stages. */
+.blocker {
+  margin: var(--space-3) 0 0;
+  color: var(--color-error);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
 .action:hover {
   color: var(--color-surface);
   background: var(--color-accent-hover);
+}
+
+.action:disabled {
+  cursor: default;
+  color: var(--color-text-secondary);
+  background: var(--color-evidence);
 }
 
 .problem {

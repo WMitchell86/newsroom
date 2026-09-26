@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
@@ -366,6 +367,13 @@ class PageProbe:
         self.failed_requests: list[str] = []
         self.external_requests: list[str] = []
         self.api_404_urls: list[str] = []
+        #: Every same-origin request the page made, in order. Lets a proof assert
+        #: the ABSENCE of a call ("no research endpoint was touched"), which is
+        #: stronger than asserting how long something took.
+        self.requests: list = []
+        #: Every SPA route the browser actually rendered, in order. Lets a proof
+        #: assert that an intermediate screen was never visited.
+        self.visited_routes: list[str] = []
         self._wire()
 
     def _wire(self) -> None:
@@ -375,6 +383,15 @@ class PageProbe:
         page.on("requestfailed", self._on_request_failed)
         page.on("request", self._on_request)
         page.on("response", self._on_response)
+        page.on("framenavigated", self._on_frame_navigated)
+
+    def _on_frame_navigated(self, frame) -> None:
+        # Only the main frame: a route change is a product navigation, and the
+        # path is recorded so a proof can assert one was absent.
+        if frame == self.page.main_frame:
+            route = urlsplit(frame.url).path or "/"
+            if not self.visited_routes or self.visited_routes[-1] != route:
+                self.visited_routes.append(route)
 
     def _on_console(self, message) -> None:
         if message.type != "error":
@@ -393,6 +410,7 @@ class PageProbe:
 
     def _on_request(self, request) -> None:
         url = request.url
+        self.requests.append(request)
         if url.startswith(("http://", "https://")) and not url.startswith(self.base_url):
             self.external_requests.append(url)
 
@@ -406,6 +424,8 @@ class PageProbe:
         self.failed_requests.clear()
         self.external_requests.clear()
         self.api_404_urls.clear()
+        self.requests.clear()
+        self.visited_routes.clear()
 
     def assert_clean(self, *, context: str, allow_api_404: bool = False) -> None:
         """The §8 gate: page errors and console errors are failures.

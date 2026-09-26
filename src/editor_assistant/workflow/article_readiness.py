@@ -201,6 +201,78 @@ def _refusal(
     )
 
 
+def evaluate_evidence(
+    *,
+    evidence_status: str,
+    facts: list[dict],
+    blocking_gaps: list[dict],
+    source_url: str,
+) -> DraftReadiness:
+    """The evidence half of `evaluate`, answerable without an Article (§7 D2).
+
+    `evaluate` answers a question about one Article: may *this* Article start a
+    Draft? Its first two steps are about the Article (lifecycle, lineage, Focus,
+    content version) and the rest is about the Story's evidence basis, which
+    exists and is canonical long before any Article does.
+
+    V1.1-D2 has to ask that second question at a point where no Article exists
+    yet — §10 requires evidence to be judged sufficient *before* an Article is
+    created, so a Story that cannot acquire evidence leaves no empty Preparation
+    Article behind. Duplicating the rules here would create a second readiness
+    authority that could drift, which §16 forbids. So the evidence steps live
+    here once, and `evaluate` calls this function for them: one taxonomy, one
+    message per code, one place a new evidence reason is added.
+
+    The order is the one `evaluate` already documents: unassessed is "no basis",
+    a real blocking gap is explained by the gap, and facts without a usable
+    opened source are not usable material.
+    """
+    blocking_gaps = list(blocking_gaps or [])
+    fact_count = len(facts or [])
+    has_open_source = bool(source_url)
+
+    def refusal(code: str) -> DraftReadiness:
+        return _refusal(
+            code,
+            evidence_status=evidence_status,
+            fact_count=fact_count,
+            has_open_source=has_open_source,
+            blocking_gaps=blocking_gaps,
+        )
+
+    # V1.1-A: an unresearched Story is UNASSESSED, not a clean empty basis.
+    # Checked before facts so the editor is told to research the Story rather
+    # than shown a fabricated Article-level gap.
+    if evidence_status != "assessed":
+        return refusal(STORY_UNASSESSED)
+    # A real blocking gap is explained by the gap itself, never by a generic
+    # "something is missing".
+    if blocking_gaps:
+        return refusal(BLOCKING_GAP)
+    # Facts and an opened source are separate failures with separate reasons.
+    if not fact_count:
+        return refusal(NO_CONFIRMED_FACTS)
+    if not has_open_source:
+        return refusal(NO_OPEN_SOURCE)
+    # The same deterministic guard the mature pipeline applies to any factual
+    # input, re-checked before the Article exists rather than only before a
+    # model call. Imported here to keep this module free of a cycle through
+    # `live`.
+    from editor_assistant.workflow.cases import is_chernomorie_source
+
+    if is_chernomorie_source(source_url) or blocked_domains.is_blocked(source_url):
+        return refusal(SAFETY_BLOCKED)
+    return DraftReadiness(
+        eligible=True,
+        reason_code=DRAFT_ELIGIBLE,
+        reason_message=REASON_MESSAGES[DRAFT_ELIGIBLE],
+        evidence_status=evidence_status,
+        fact_count=fact_count,
+        has_open_source=True,
+        blocking_gaps=[],
+    )
+
+
 def evaluate(snapshot: dict) -> DraftReadiness:
     """The canonical decision: can this exact Article generate a Draft now?
 
@@ -263,37 +335,12 @@ def evaluate(snapshot: dict) -> DraftReadiness:
     if not editor_projections.focus_is_confirmed(article):
         return refusal(FOCUS_NOT_CONFIRMED)
 
-    # 3. V1.1-A: an unresearched Story is UNASSESSED, not a clean empty basis.
-    # Checked before facts so the editor is told to research the Story rather
-    # than shown a fabricated Article-level gap.
-    if evidence_status != "assessed":
-        return refusal(STORY_UNASSESSED)
-
-    # 4. A real blocking gap is explained by the gap itself, never by a
-    # generic "something is missing".
-    if blocking_gaps:
-        return refusal(BLOCKING_GAP)
-
-    # 5. Facts and an opened source are separate failures with separate
-    # reasons: a fact without a usable source is not usable material.
-    if not fact_count:
-        return refusal(NO_CONFIRMED_FACTS)
-    if not has_open_source:
-        return refusal(NO_OPEN_SOURCE)
-
-    # 6. The same two guards the mature pipeline applies to any factual input.
-    # Imported here to keep this module free of a cycle through `live`.
-    from editor_assistant.workflow.cases import is_chernomorie_source
-
-    if is_chernomorie_source(source_url) or blocked_domains.is_blocked(source_url):
-        return refusal(SAFETY_BLOCKED)
-
-    return DraftReadiness(
-        eligible=True,
-        reason_code=DRAFT_ELIGIBLE,
-        reason_message=REASON_MESSAGES[DRAFT_ELIGIBLE],
+    # 3-6. The evidence decision, in one place. V1.1-D2 must be able to ask the
+    # same question before an Article exists (§10), so the rules live in
+    # `evaluate_evidence` and are applied here rather than restated.
+    return evaluate_evidence(
         evidence_status=evidence_status,
-        fact_count=fact_count,
-        has_open_source=True,
-        blocking_gaps=[],
+        facts=facts,
+        blocking_gaps=blocking_gaps,
+        source_url=source_url,
     )

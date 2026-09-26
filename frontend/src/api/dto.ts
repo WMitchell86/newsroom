@@ -10,7 +10,10 @@ export type AvailableAction =
   | "MAKE_DRAFT"
   | "EDIT"
   | "MARK_READY"
-  | "FINALIZE";
+  | "FINALIZE"
+  // V1.1-D2: the one Today fast-triage command. It exists only on a Today
+  // Story row; the Story and Article workspaces keep their explicit actions.
+  | "QUICK_DRAFT";
 
 export interface NextAction {
   action: AvailableAction;
@@ -255,18 +258,53 @@ interface AttentionBase {
   timestamp: string;
 }
 
+/**
+ * D2: the narrow Quick Draft state for one Today Story row.
+ *
+ * The backend decides availability and the label; the client renders them and
+ * derives nothing. `articleId` is present when a unique active Article already
+ * exists, which is what lets the row say «Отвори чернова» instead of creating a
+ * second one.
+ */
+export interface TodayQuickDraft {
+  available: boolean;
+  label: string;
+  articleId: string | null;
+  /** Why the row withholds the button; `null` when it is offered. */
+  reasonCode: string | null;
+}
+
 export type TodayAttention =
   | (AttentionBase & {
       objectType: "story";
       reason: "NEW_STORY" | "UNREVIEWED_DEVELOPMENT";
       nextAction: "REVIEW";
       delta: { unreviewedDevelopmentCount: number };
+      /** `REVIEW` keeps its existing meaning; `QUICK_DRAFT` is backend-gated. */
+      availableActions: AvailableAction[];
+      quickDraft: TodayQuickDraft;
     })
   | (AttentionBase & {
       objectType: "article";
       reason: "PREPARATION" | "DRAFT" | "READY";
       nextAction: NextAction;
     });
+
+/** D2: the only three outcomes a Quick Draft can report. */
+export type QuickDraftStatus = "draft_created" | "existing_article" | "needs_attention";
+
+/**
+ * D2: the operation result. Deliberately narrow — no Case id, no EvidencePacket
+ * id, no provider, no search internals and no model id ever cross here.
+ */
+export interface QuickDraftResult {
+  status: QuickDraftStatus;
+  /** Present whenever a real Article is the destination. */
+  articleId?: string;
+  storyId?: string;
+  reasonCode?: string;
+  message?: string;
+}
 
 export interface TodayProblem {
   id: string;

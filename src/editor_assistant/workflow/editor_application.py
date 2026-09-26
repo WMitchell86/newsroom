@@ -27,6 +27,7 @@ from editor_assistant.workflow import (
     inbox_store,
     live_store,
     newsroom_refresh,
+    quick_draft,
     source_health,
     story_editor_metadata,
     story_identity,
@@ -991,6 +992,14 @@ def operation_status(token: str) -> dict:
                 "status": row["status"],
                 "error": article_generation.operation_error(row.get("error_code") or ""),
             }
+        if quick_draft.is_quick_draft_scope(row.get("story_id")):
+            # §19: a Quick Draft failure carries only a bounded code and one
+            # editor sentence. No provider, no model id, no search internals.
+            return {
+                "operationToken": token,
+                "status": row["status"],
+                "error": quick_draft.operation_error(),
+            }
         return {
             "operationToken": token,
             "status": row["status"],
@@ -1197,6 +1206,70 @@ def _record_draft_failure(article_id: str, snapshot: dict, basis: str, code: str
         LOG.warning("could not persist the draft failure marker for %s", article_id)
 
 
+def _run_draft_generation(article_id: str, token: str) -> dict:
+    """The one synchronous C2 Draft execution, shared by both callers (§7 D2).
+
+    Extracted from the `Направи чернова` operation worker so the Quick Draft
+    orchestration runs the *same* code rather than a simplified copy. Nothing
+    here is aware of which caller asked: the preflight, the V1.1-C failure
+    marker, the version guards and the published result are identical.
+
+    Raising `article_generation.DraftRefused` (with a stable `code`) is the
+    contract: the normal operation turns it into a bounded operation failure,
+    and the Quick Draft orchestration turns the same refusal into an
+    editor-facing `needs_attention` result.
+    """
+    try:
+        # Stale revalidation: the Article may have been edited, refocused or
+        # re-gapped while this operation was queued. That is a stable
+        # refusal, never a silent overwrite of the editor's text.
+        current = _draft_snapshot(article_id)
+        try:
+            article_generation.evaluate(current)
+        except article_generation.DraftRefused as exc:
+            # Re-raise as the classified refusal so the bounded operation
+            # keeps the stable code instead of a generic failure. This is the
+            # preflight: it raises BEFORE any generation is attempted, which is
+            # exactly why it must never record a failure marker.
+            raise article_generation.DraftRefused(exc.code, exc.message) from exc
+        # V1.1-C: the preflight is crossed, so from here a failure is a real
+        # generation failure. The marker is written only for the classes that
+        # qualify, and only against the basis this attempt actually used, so a
+        # readiness refusal can never open the manual editor.
+        attempted_basis = article_draft_failure.basis_digest(current)
+        try:
+            with _COMMAND_LOCK:
+                article_generation.generate(current, root=_editorial_root())
+        except article_generation.DraftRefused as exc:
+            _record_draft_failure(article_id, current, attempted_basis, exc.code)
+            raise
+        except editor_article_store.ArticleVersionConflict as exc:
+            raise article_generation.DraftRefused(
+                "ARTICLE_VERSION_CONFLICT",
+                "Статията е променена, преди черновата да се създаде.",
+            ) from exc
+        except Exception:
+            # An unclassified transport/provider failure: the attempt happened
+            # and produced no Draft, so it is the one case the empty refusal
+            # code stands for.
+            _record_draft_failure(article_id, current, attempted_basis, "")
+            raise
+        return _article_dto_by_id(article_id)
+    except article_generation.DraftRefused:
+        raise
+    except EditorApplicationError as exc:
+        raise article_generation.DraftRefused(exc.code, str(exc)) from exc
+    except editor_article_store.ArticleVersionConflict as exc:
+        raise article_generation.DraftRefused(
+            "ARTICLE_VERSION_CONFLICT",
+            "Статията е променена, преди черновата да се създаде.",
+        ) from exc
+    except Exception as exc:
+        raise article_generation.DraftRefused("", "Source unavailable") from exc
+    finally:
+        article_generation.release(article_id, token)
+
+
 def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
     """Begin the one editor-facing Draft action (C2 «Направи чернова»).
 
@@ -1254,60 +1327,327 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
         _raise_draft_refusal(exc)
 
     def work():
-        try:
-            # Stale revalidation: the Article may have been edited, refocused or
-            # re-gapped while this operation was queued. That is a stable
-            # refusal, never a silent overwrite of the editor's text.
-            current = _draft_snapshot(article_id)
-            try:
-                article_generation.evaluate(current)
-            except article_generation.DraftRefused as exc:
-                # Re-raise as the classified refusal so the bounded operation
-                # keeps the stable code instead of a generic failure. This is
-                # the preflight: it raises BEFORE any generation is attempted,
-                # which is exactly why it must never record a failure marker.
-                raise article_generation.DraftRefused(exc.code, exc.message) from exc
-            # V1.1-C: the preflight is crossed, so from here a failure is a real
-            # generation failure. The marker is written only for the classes
-            # that qualify, and only against the basis this attempt actually
-            # used, so a readiness refusal can never open the manual editor.
-            attempted_basis = article_draft_failure.basis_digest(current)
-            try:
-                with _COMMAND_LOCK:
-                    article_generation.generate(current, root=_editorial_root())
-            except article_generation.DraftRefused as exc:
-                _record_draft_failure(article_id, current, attempted_basis, exc.code)
-                raise
-            except editor_article_store.ArticleVersionConflict as exc:
-                raise article_generation.DraftRefused(
-                    "ARTICLE_VERSION_CONFLICT",
-                    "Статията е променена, преди черновата да се създаде.",
-                ) from exc
-            except Exception:
-                # An unclassified transport/provider failure: the attempt
-                # happened and produced no Draft, so it is the one case the
-                # empty refusal code stands for.
-                _record_draft_failure(article_id, current, attempted_basis, "")
-                raise
-            return _article_dto_by_id(article_id)
-        except article_generation.DraftRefused:
-            raise
-        except EditorApplicationError as exc:
-            raise article_generation.DraftRefused(exc.code, str(exc)) from exc
-        except editor_article_store.ArticleVersionConflict as exc:
-            raise article_generation.DraftRefused(
-                "ARTICLE_VERSION_CONFLICT",
-                "Статията е променена, преди черновата да се създаде.",
-            ) from exc
-        except Exception as exc:
-            raise article_generation.DraftRefused("", "Source unavailable") from exc
-        finally:
-            article_generation.release(article_id, token)
+        # The same synchronous execution the Quick Draft orchestration calls.
+        return _run_draft_generation(article_id, token)
 
     try:
         operation_token, view = story_operations.start(scope, signature, work, key=key)
     except story_operations.BusyError as exc:
         article_generation.release(article_id, token)
+        raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
+    return {"operationToken": operation_token, "status": view["status"]}
+
+
+# --------------------------------------------------------------------------
+# V1.1-D2 — Quick Draft orchestration («Today → Чернова»)
+# --------------------------------------------------------------------------
+
+
+def _story_articles(story_id: str) -> tuple[list[dict], dict[str, dict]]:
+    """Every canonical Article of this Story, with its current content."""
+    records = [
+        row
+        for row in editor_article_store.read_editor_articles()
+        if row.get("story_id") == story_id
+    ]
+    contents = {
+        row["article_id"]: editor_article_store.get_article_content(row["article_id"])
+        for row in records
+    }
+    return records, contents
+
+
+def _research_remedy_needed(story_id: str, story: dict) -> bool:
+    """Whether this Story still warrants one *allowed* research round (§8).
+
+    The same three conditions `start_story_research` enforces: the Story is not
+    ignored, there is something real to research (an unassessed basis, or a real
+    gap), and the existing round cap is not exhausted. Quick Draft therefore
+    never runs autonomous research beyond the cap the product already had.
+    """
+    if story.get("status") == "IGNORED":
+        return False
+    basis = story_research_store.get_story_research(story_id)
+    unassessed = _evidence_status(basis) == story_research_store.EVIDENCE_UNASSESSED
+    _, legacy_gaps, _ = _legacy_story_evidence(
+        story_id, editor_article_store.read_editor_articles()
+    )
+    gaps = list(basis["gaps"]) + legacy_gaps
+    if not (unassessed or gaps):
+        return False
+    return basis["research_rounds"] < readiness_mod.MAX_RESEARCH_ROUNDS
+
+
+def _quick_evidence_verdict(story_id: str, articles: list[dict]):
+    """The ONE evidence decision, asked before any Article is created (§10).
+
+    This is `article_readiness.evaluate_evidence` over the canonical Story
+    projection — the same function the Article preparation projection and the
+    Draft command use, with the same reason codes and the same one message per
+    code. It answers a question that exists independently of any Article, which
+    is exactly why the Article must be created *after* it: a Story that cannot
+    acquire enough evidence should not leave an empty Preparation Article behind
+    merely because the editor clicked.
+    """
+    facts, missing = _story_evidence_projection(story_id, articles)
+    return article_readiness.evaluate_evidence(
+        evidence_status=str(missing.get("evidenceStatus") or ""),
+        facts=facts,
+        blocking_gaps=[row for row in missing["items"] if row.get("blocking")],
+        source_url=article_readiness._first_source_url(facts),
+    )
+
+
+def _create_quick_article(story_id: str, story: dict) -> str | None:
+    """Create the one canonical Article, only once evidence is sufficient.
+
+    The working title is the existing canonical Story→Article title; no AI title
+    generation is introduced here (§15). The Focus is left unconfirmed and set
+    immediately afterwards through the ordinary focus command, so a
+    Quick-Draft-created Article is indistinguishable from one the editor started
+    by hand.
+    """
+    title = _story_title(story, _story_items()) or "Работа за статия"
+    with _COMMAND_LOCK:
+        try:
+            created = editor_article_store.create_editor_article(
+                story_id=story_id,
+                stories_path=_paths()["stories"],
+                working_title=title,
+                editorial_focus="",
+                idempotency_key=f"quick-draft:{story_id}",
+            )
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown canonical story_id" in str(exc):
+                raise EditorNotFound("Story не е намерена.") from exc
+            LOG.warning("quick draft could not create an Article for %s", story_id)
+            return None
+    return created["article_id"]
+
+
+def _confirm_quick_focus(article_id: str, story_id: str) -> str:
+    """Confirm the default straight-news Focus, unless one is already confirmed.
+
+    A confirmed editor Focus is never touched (§14) — the quick Focus exists only
+    to remove an unnecessary screen when the editor has not chosen an angle, and
+    the click itself is the confirmation of this default (§13).
+
+    Returns `""` on success, or the editor-safe reason the Focus could not be
+    established. It never returns an internal exception text.
+    """
+    article = _article(article_id)
+    if editor_projections.focus_is_confirmed(article):
+        return ""
+    story = _story(story_id)
+    focus = quick_draft.default_focus(_story_title(story, _story_items()))
+    if not focus:
+        # No clean Story title means no honest subject. The Article is left
+        # untouched, and the canonical readiness decision reports the real
+        # reason (WORKING_TITLE_REQUIRED) when the command asks it.
+        return article_readiness.REASON_MESSAGES[article_readiness.WORKING_TITLE_REQUIRED]
+    with _COMMAND_LOCK:
+        try:
+            editor_article_store.update_editor_focus(article_id, focus)
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown article_id" in str(exc):
+                raise EditorNotFound("Статията не е намерена.") from exc
+            LOG.warning("quick draft could not confirm the Focus for %s", article_id)
+            return quick_draft.FOCUS_UNCONFIRMABLE_MESSAGE
+    return ""
+
+
+def _run_quick_draft(story_id: str) -> dict:
+    """The one Quick Draft sequence, run synchronously inside the worker.
+
+    The canonical order, and every step delegated to existing machinery:
+
+    1. reload the canonical Story;
+    2. if the evidence basis still warrants an *allowed* research round, run the
+       SAME `research_story` implementation the «Проучи още» command runs;
+    3. reload the canonical evidence and re-evaluate it honestly — research
+       completion never implies a Draft (§9);
+    4. resolve the Article, creating one only if evidence is already sufficient
+       (§10) and only when the existing-Article situation is unambiguous (§11);
+    5. establish the quick straight-news Focus if none is confirmed (§13/§14);
+    6. ask the ONE V1.1-B readiness decision for the concrete Article (§16);
+    7. generate through the SAME C2 pipeline, sharing the V1.1-C failure marker
+       (§17/§18);
+    8. return the narrow, editor-facing result (§19).
+
+    A step that cannot safely complete stops here with the real blocker. It
+    never fabricates a Draft, never invents a fact, and never bypasses a safety
+    guard — the orchestration may automate steps, never override a result.
+    """
+    story = _story(story_id)
+    if story.get("status") == "IGNORED":
+        return quick_draft.result_needs_attention(
+            story_id,
+            quick_draft.STORY_IGNORED,
+            "Историята е игнорирана и не може да се направи чернова.",
+        )
+
+    # 2. Research, when the canonical basis warrants it and the round cap allows.
+    # `research_story` is the same synchronous implementation the normal command
+    # runs, including the cap; a transport failure stops rather than degrades.
+    if _research_remedy_needed(story_id, story):
+        try:
+            research_story(story_id)
+        except (EditorResearchUnavailable, EditorInvalidTransition) as exc:
+            return quick_draft.result_needs_attention(
+                story_id, quick_draft.DRAFT_GENERATION_FAILED, str(exc)
+            )
+
+    # 3. Re-evaluate the canonical evidence. This is the honest re-check: a
+    # completed research round that did not produce usable material stops the
+    # command *before* an Article exists, so nothing is left behind to clean up.
+    articles, contents = _story_articles(story_id)
+    verdict = _quick_evidence_verdict(story_id, articles)
+    if not verdict.eligible:
+        return quick_draft.result_needs_attention(
+            story_id, verdict.reason_code, verdict.reason_message
+        )
+
+    # 4. Existing-Article resolution. Multiple active Articles is a supported
+    # canonical feature, so ambiguity stops and asks instead of guessing.
+    resolved = quick_draft.plan(articles, contents, story_id)
+    if resolved["outcome"] == quick_draft.PLAN_AMBIGUOUS:
+        return quick_draft.result_needs_attention(
+            story_id,
+            quick_draft.MULTIPLE_ACTIVE_ARTICLES,
+            "Историята има повече от една активна статия. Изберете коя да продължите.",
+        )
+    if resolved["outcome"] == quick_draft.PLAN_EXISTING:
+        # A Draft already exists, or the Article is Ready. Never regenerate,
+        # never reopen: just take the editor to it (§11).
+        return quick_draft.result_existing_article(resolved["articleId"])
+
+    article_id = (
+        resolved["articleId"]
+        if resolved["outcome"] == quick_draft.PLAN_REUSE
+        else _create_quick_article(story_id, story)
+    )
+    if not article_id:
+        return quick_draft.result_needs_attention(
+            story_id,
+            quick_draft.DRAFT_GENERATION_FAILED,
+            "Статията не може да бъде създадена за тази история.",
+        )
+
+    # 5. The default Focus, only where none is confirmed. An empty string means
+    # the Focus is in place; anything else is the real reason it is not.
+    focus_problem = _confirm_quick_focus(article_id, story_id)
+    if focus_problem:
+        return quick_draft.result_needs_attention(
+            story_id,
+            quick_draft.FOCUS_UNCONFIRMABLE,
+            focus_problem,
+            article_id=article_id,
+        )
+
+    # 6. The ONE readiness decision for the concrete Article now that it exists
+    # with a confirmed Focus. Re-read from canonical state: the click, the
+    # research round and the Focus write all happened after the click.
+    snapshot = _draft_snapshot(article_id)
+    readiness = article_readiness.evaluate(snapshot)
+    if not readiness.eligible:
+        # A refusal with a research remedy is reported with its own exact code.
+        # Quick Draft does not research again here: it already spent its one
+        # allowed round in step 2, and a second speculative round would be
+        # autonomous research the product does not permit.
+        return quick_draft.result_needs_attention(
+            story_id,
+            readiness.reason_code,
+            readiness.reason_message,
+            article_id=article_id,
+        )
+
+    # 7. The SAME C2 generation pipeline the «Направи чернова» command runs,
+    # through the same synchronous worker, so safety, audit, originality and the
+    # V1.1-C failure marker are identical. A Quick Draft is an ordinary Draft
+    # produced through ordinary generation; only the way here was different.
+    generation_token = quick_draft.scope_for(story_id)
+    try:
+        article_generation.acquire(article_id, generation_token)
+    except article_generation.DraftRefused:
+        return quick_draft.result_needs_attention(
+            story_id,
+            quick_draft.DRAFT_GENERATION_FAILED,
+            "Черновата за тази статия вече се създава.",
+            article_id=article_id,
+        )
+    try:
+        _run_draft_generation(article_id, generation_token)
+    except article_generation.DraftRefused as exc:
+        # V1.1-C already recorded the durable failure marker inside the shared
+        # worker. Report the real reason and keep the Preparation Article, where
+        # the editor finds the retry plus the earned «Редактирай» (§18, §40).
+        return quick_draft.result_needs_attention(
+            story_id,
+            exc.code or quick_draft.DRAFT_GENERATION_FAILED,
+            exc.message,
+            article_id=article_id,
+        )
+
+    # 8. The one positive result. A plain truthy check, not a claim of success:
+    # if the worker returned without publishing a Draft, the editor is told the
+    # truth rather than navigated to an empty Article.
+    refreshed = editor_article_store.get_article_content(article_id)
+    if quick_draft.is_empty_preparation(_article(article_id), refreshed):
+        return quick_draft.result_needs_attention(
+            story_id,
+            quick_draft.DRAFT_GENERATION_FAILED,
+            "Черновата не можа да бъде създадена. Опитайте отново.",
+            article_id=article_id,
+        )
+    return quick_draft.result_draft_created(article_id)
+
+
+def start_quick_draft(story_id: str, *, idempotency_key: str = "") -> dict:
+    """The one Quick Draft command: «Today → Чернова» (§5, §6).
+
+    Transport only. The browser expresses one editorial intent; the application
+    layer owns the sequence, and the partial-failure semantics never live in
+    React. Returns a bounded operation token for the shared registry — no Celery,
+    no queue service, no second job system, no workflow engine.
+
+    **Idempotency (§12).** The Idempotency-Key pins the operation, so a double
+    click, a browser retry, a network retry and an editor who returns while the
+    work is still running all address the same operation and therefore the same
+    research round, the same Article and the same generation attempt.
+    """
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise EditorApplicationError("Idempotency key is required.")
+    key = idempotency_key.strip()
+    story = _story(story_id)
+    if story.get("status") == "IGNORED":
+        raise EditorInvalidTransition("Историята е игнорирана.")
+    scope = quick_draft.scope_for(story_id)
+    # An explicit key pins the operation to that request alone. Binding it to
+    # mutable Story state would hand a repeated request a new token and repeat
+    # the whole orchestration.
+    token = story_operations.token_for(scope, "", 0, key)
+    accepted = story_operations.get(token)
+    if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
+        return {"operationToken": token, "status": accepted["status"]}
+    running = quick_draft.active_token(story_id)
+    if running:
+        row = story_operations.get(running)
+        if row is not None and row["status"] in {"pending", "running"}:
+            # §29: a second click while the same work is in flight reattaches to
+            # the running operation instead of starting parallel work.
+            return {"operationToken": running, "status": row["status"]}
+    quick_draft.acquire(story_id, token)
+
+    def work():
+        try:
+            return _run_quick_draft(story_id)
+        finally:
+            quick_draft.release(story_id, token)
+
+    try:
+        operation_token, view = story_operations.start(scope, "", work, key=key)
+    except story_operations.BusyError as exc:
+        quick_draft.release(story_id, token)
         raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
     return {"operationToken": operation_token, "status": view["status"]}
 
@@ -1359,7 +1699,28 @@ def read_today() -> dict:
     # above. The previous implementation called `_story_detail()` per row, which
     # re-read the Story store, the inbox, the metadata store and the whole
     # Article store once for every Story on the page.
+    #
+    # V1.1-D2: the same snapshot also answers the quick-draft availability of
+    # every row, so the triage buttons cost no extra store read either. Read
+    # once here and reused by the Story loop and the Article loop below.
+    stories = story_store.read_store(_paths()["stories"])["stories"]
+    stories_by_id = {row["story_id"]: row for row in stories}
+    article_records = editor_article_store.read_editor_articles()
+    contents_by_id = {
+        row["article_id"]: editor_article_store.get_article_content(row["article_id"])
+        for row in article_records
+    }
     for row in result["stories"]:
+        # V1.1-D2 §4/§43: the backend is the authority for whether this row may
+        # offer `Чернова`. It is computed from the same single in-memory snapshot
+        # taken above, so the row costs no additional store read and the frontend
+        # derives nothing locally. `Прегледай` keeps its existing REVIEW semantics
+        # untouched (§25); `Игнорирай` is the ordinary canonical Ignore command.
+        quick = quick_draft.availability(
+            story=stories_by_id[row["id"]],
+            articles=article_records,
+            contents=contents_by_id,
+        )
         item = {
             "objectType": "story",
             "objectId": row["id"],
@@ -1369,6 +1730,16 @@ def read_today() -> dict:
             "timestamp": row["latestChangeAt"],
             "nextAction": "REVIEW",
             "delta": {"unreviewedDevelopmentCount": row["unreviewedDevelopmentCount"]},
+            "availableActions": ["REVIEW", "IGNORE"]
+            + (["QUICK_DRAFT"] if quick["available"] else []),
+            "quickDraft": {
+                "available": quick["available"],
+                "label": quick["label"],
+                "articleId": quick["articleId"],
+                # The reason a row withholds the button, so the projection is
+                # inspectable and the frontend never has to re-derive it.
+                "reasonCode": quick["reasonCode"],
+            },
         }
         if row["attention"] == "NEW_STORY":
             new_stories.append(item)
@@ -1384,12 +1755,11 @@ def read_today() -> dict:
     stories = story_store.read_store(_paths()["stories"])["stories"]
     stories_by_id = {row["story_id"]: row for row in stories}
     items_by_id = _story_items()
-    article_records = editor_article_store.read_editor_articles()
     for article in article_records:
         # The real current-content digest decides readiness, exactly as it does
         # in the Article workspace: a `Готова` Article stops asking for action
         # and a stale checkpoint starts asking again.
-        content = editor_article_store.get_article_content(article["article_id"])
+        content = contents_by_id[article["article_id"]]
         story = stories_by_id.get(article["story_id"])
         # An Article whose Story is gone is not today's problem; it keeps its
         # own workspace's handling and is simply absent from this projection.

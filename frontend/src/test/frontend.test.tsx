@@ -1991,3 +1991,260 @@ describe("V1.1-C manual continuation and one body editor", () => {
     });
   });
 });
+
+/**
+ * D2 §44: the Today fast-triage row.
+ *
+ * The important assertions here are the negative ones. The row must show exactly
+ * one status while a Quick Draft runs, must never show the internal stage
+ * vocabulary, must send exactly one POST per click, and must land the editor on
+ * the Draft itself rather than on the Story or the Preparation screen.
+ */
+describe("Today — D2 fast triage", () => {
+  const storyRow = (overrides: Record<string, unknown> = {}) => ({
+    objectId: "story-sunche-vo",
+    objectType: "story" as const,
+    title: storyDetail.title,
+    summary: "Съветът прие бюджета за детските градини.",
+    timestamp: "2026-09-25T09:30:00Z",
+    reason: "UNREVIEWED_DEVELOPMENT" as const,
+    nextAction: "REVIEW" as const,
+    delta: { unreviewedDevelopmentCount: 2 },
+    availableActions: ["REVIEW", "IGNORE", "QUICK_DRAFT"],
+    quickDraft: { available: true, label: "Чернова", articleId: null, reasonCode: null },
+    ...overrides,
+  });
+
+  function todayWith(row: Record<string, unknown>) {
+    return {
+      ...todayProjection,
+      newDevelopments: [row] as never,
+      newStories: [] as never,
+      articlesRequiringAction: [] as never,
+      problems: [] as never,
+    };
+  }
+
+  it("shows Игнорирай, Прегледай and Чернова from the backend's own actions", async () => {
+    fetchMock.mockResolvedValue(dataResponse(todayWith(storyRow())));
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.getByRole("button", { name: "Игнорирай" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Прегледай" })).toHaveAttribute(
+      "href",
+      `/stories/${storyDetail.id}`,
+    );
+    expect(screen.getByRole("button", { name: "Чернова" })).toBeInTheDocument();
+    // §4: the frontend derives nothing. A row the backend withholds the action
+    // from renders no button, whatever the row itself claims.
+    fetchMock.mockResolvedValue(
+      dataResponse(
+        todayWith(
+          storyRow({
+            availableActions: ["REVIEW", "IGNORE"],
+            quickDraft: { available: false, label: "Чернова", articleId: null, reasonCode: "MULTIPLE_ACTIVE_ARTICLES" },
+          }),
+        ),
+      ),
+    );
+  });
+
+  it("never offers Чернова when the backend withheld it", async () => {
+    fetchMock.mockResolvedValue(
+      dataResponse(
+        todayWith(
+          storyRow({
+            availableActions: ["REVIEW", "IGNORE"],
+            quickDraft: {
+              available: false,
+              label: "Чернова",
+              articleId: null,
+              reasonCode: "MULTIPLE_ACTIVE_ARTICLES",
+            },
+          }),
+        ),
+      ),
+    );
+    renderWithProviders(<TodayPage />, { route: "/" });
+
+    await screen.findByRole("heading", { name: "Днес" });
+    expect(screen.queryByRole("button", { name: "Чернова" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Игнорирай" })).toBeInTheDocument();
+  });
+
+  it("shows exactly one status while running and no internal stage vocabulary", async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-quick" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-quick") return pending;
+      return dataResponse(todayWith(storyRow()));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Чернова" }));
+
+    // §20: one sentence, and it is about the editor's request, not our stages.
+    expect(await screen.findByRole("button", { name: "Подготвя се чернова…" })).toBeDisabled();
+    for (const stage of ["Проучване", "Отваряне", "Проверка", "Създаване", "Генериране", "researching", "generating"]) {
+      expect(screen.queryByText(stage)).toBeNull();
+    }
+    // The row is still on Today: no intermediate navigation happened.
+    expect(screen.getByRole("heading", { name: "Днес" })).toBeInTheDocument();
+
+    release(dataResponse({ status: "succeeded", result: { status: "draft_created", articleId: activeDraftArticle.id } }));
+  });
+
+  it("sends exactly one POST per click and lands on the Draft itself", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-quick" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-quick") {
+        return dataResponse({ status: "succeeded", result: { status: "draft_created", articleId: activeDraftArticle.id } });
+      }
+      return dataResponse(todayWith(storyRow()));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<TodayPage />} />
+        <Route path="/articles/:articleId" element={<p>Draft workspace</p>} />
+      </Routes>,
+      { route: "/" },
+    );
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Чернова" }));
+
+    // §21: the editor lands on the actual Draft, not on Story or Preparation.
+    expect(await screen.findByText("Draft workspace")).toBeInTheDocument();
+    const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.[0]).toBe(`/api/v1/stories/${storyDetail.id}/quick-draft`);
+    expect((posts[0]?.[1] as RequestInit).headers).toEqual(
+      expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+    );
+  });
+
+  it("navigates to an existing Draft without regenerating it", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-quick" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-quick") {
+        return dataResponse({
+          status: "succeeded",
+          result: { status: "existing_article", articleId: activeDraftArticle.id },
+        });
+      }
+      return dataResponse(todayWith(storyRow()));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<TodayPage />} />
+        <Route path="/articles/:articleId" element={<p>Draft workspace</p>} />
+      </Routes>,
+      { route: "/" },
+    );
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Чернова" }));
+
+    expect(await screen.findByText("Draft workspace")).toBeInTheDocument();
+  });
+
+  it("stays on Today and shows the real blocker when the path cannot complete", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-quick" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-quick") {
+        return dataResponse({
+          status: "succeeded",
+          result: {
+            status: "needs_attention",
+            storyId: storyDetail.id,
+            reasonCode: "BLOCKING_GAP",
+            message: "Има непопълнена информация, която пречи да продължите.",
+          },
+        });
+      }
+      return dataResponse(todayWith(storyRow()));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<TodayPage />} />
+        <Route path="/articles/:articleId" element={<p>Draft workspace</p>} />
+      </Routes>,
+      { route: "/" },
+    );
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Чернова" }));
+
+    // §23: one concise sentence on the row, no modal, no wizard, and the way
+    // out — «Прегледай» — is still right there.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Има непопълнена информация, която пречи да продължите.",
+    );
+    expect(screen.getByRole("heading", { name: "Днес" })).toBeInTheDocument();
+    expect(screen.queryByText("Draft workspace")).toBeNull();
+    expect(screen.getByRole("link", { name: "Прегледай" })).toBeInTheDocument();
+  });
+
+  it("removes an ignored row only after the canonical refetch", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return dataResponse(storyDetail);
+      // The canonical refetch no longer returns the row: the Story is ignored.
+      return dataResponse(todayWith(storyRow({ availableActions: ["REVIEW", "IGNORE"] })));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getAllByRole("button", { name: "Игнорирай" })[0]!);
+
+    // §24: the row is gone because the server said so and the page refetched,
+    // never because the browser faked persistent state.
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/today").length).toBeGreaterThan(1);
+    });
+    const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
+    expect(posts.some(([url]) => String(url).endsWith("/ignore"))).toBe(true);
+    // No confirmation dialog: the command is reversible from the Story surface.
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("cannot start a second Quick Draft while one is pending on the same row", async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true, status: 202, json: async () => ({ data: { operationToken: "op-quick" } }) } as Response;
+      }
+      if (url === "/api/v1/operations/op-quick") return pending;
+      return dataResponse(todayWith(storyRow()));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    await user.click(screen.getByRole("button", { name: "Чернова" }));
+    const pendingButton = await screen.findByRole("button", { name: "Подготвя се чернова…" });
+    expect(pendingButton).toBeDisabled();
+    // A second click on the disabled control cannot fire another command.
+    await user.click(pendingButton);
+
+    const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
+    expect(posts).toHaveLength(1);
+    release(dataResponse({ status: "succeeded", result: { status: "draft_created", articleId: activeDraftArticle.id } }));
+  });
+});

@@ -258,6 +258,22 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
                     "operationToken"
                 ]
             }
+        if method == "POST" and len(parts) == 5 and parts[4] == "quick-draft":
+            # §5/§12: one orchestration command, one operation token, and a
+            # REQUIRED Idempotency-Key so a double click, a browser retry and a
+            # returning editor all address the same Quick Draft.
+            if _body_required(handler):
+                body = _body(handler, set())
+                if body:
+                    raise ApiError(400, "VALIDATION_ERROR", "Черновата не приема полета.")
+            key = handler.headers.get("Idempotency-Key", "").strip()
+            if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+                raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+            return 202, {
+                "operationToken": app.start_quick_draft(story_id, idempotency_key=key)[
+                    "operationToken"
+                ]
+            }
     if len(parts) == 4 and parts[:3] == [*prefix, "operations"] and method == "GET":
         return 200, app.operation_status(
             _identifier(parts[3], re.compile(r"op_[0-9a-f]{24}\Z"), "операция")

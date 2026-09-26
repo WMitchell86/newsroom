@@ -3,6 +3,7 @@ import type {
   ArchiveArticle,
   ArticleDetail,
   ArticleSummary,
+  QuickDraftResult,
   StoryDetail,
   TodayProjection,
 } from "./dto";
@@ -229,6 +230,65 @@ export async function makeArticleDraft(articleId: string, idempotencyKey: string
   }
   if (isRecord(value) && "content" in value) return value as unknown as ArticleDetail;
   throw new ApiError(200, "INTERNAL_ERROR", "Черновата не върна актуализирана статия.", true);
+}
+
+/**
+ * «Днес → Чернова» (D2): one click, one intent, one backend orchestration.
+ *
+ * The browser never chains research → article → focus → draft. It expresses a
+ * single editorial decision and the application layer owns the sequence, so the
+ * partial-failure semantics cannot live in React.
+ *
+ * The bounded poll is deliberately much longer than Research's ~2s: this one
+ * operation can legitimately include a live research round, page opening and a
+ * real model generation. An exhausted budget is a statement about the *wait*
+ * ("still preparing"), never a claim that generation failed, and the backend
+ * work is never cancelled because the browser stopped looking.
+ */
+export const QUICK_DRAFT_POLL_BUDGET: OperationPollBudget = { attempts: 180, delayMs: 1000 };
+
+function operationQuickDraft(value: ResearchOperation): QuickDraftResult | null {
+  const candidate = value.result;
+  if (!isRecord(candidate)) return null;
+  const data = isRecord(candidate) && "data" in candidate && isRecord(candidate.data)
+    ? candidate.data
+    : candidate;
+  if (typeof data.status !== "string") return null;
+  if (data.status !== "draft_created" && data.status !== "existing_article" && data.status !== "needs_attention") {
+    return null;
+  }
+  return data as unknown as QuickDraftResult;
+}
+
+/**
+ * Ask the backend for one Quick Draft and wait for its bounded operation.
+ *
+ * `idempotencyKey` is required and generated once per click, so a double click,
+ * a browser retry and a returning editor all address the same operation.
+ */
+export async function quickDraftStory(
+  storyId: string,
+  idempotencyKey: string,
+): Promise<QuickDraftResult> {
+  const value = await sendStoryCommand<unknown>(
+    `/stories/${encodeURIComponent(storyId)}/quick-draft`,
+    "POST",
+    undefined,
+    { "Idempotency-Key": idempotencyKey },
+  );
+  if (!isRecord(value) || typeof value.operationToken !== "string") {
+    throw new ApiError(200, "INTERNAL_ERROR", "Черновата не върна резултат.", true);
+  }
+  const result = await pollOperationFor<QuickDraftResult>(value.operationToken, {
+    budget: QUICK_DRAFT_POLL_BUDGET,
+    malformed: "Черновата не можа да бъде подготвена. Опитайте отново.",
+    succeededWithoutResult: "Операцията не върна резултат за черновата.",
+    // Truthful wording about the wait. Never "generation failed": the backend
+    // may still be working, and the editor's own retry reattaches to it.
+    exhausted: "Черновата все още се подготвя. Опитайте отново след малко.",
+    extract: operationQuickDraft,
+  });
+  return result as QuickDraftResult;
 }
 
 export interface ResearchOperation {
