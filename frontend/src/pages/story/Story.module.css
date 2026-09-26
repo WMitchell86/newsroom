@@ -1,0 +1,552 @@
+/* V1.2-G2: the Story workspace.
+   The G1 desk, at reading width. Same warm canvas, same serif/sans split, same
+   petrol accent, same thin dividers instead of card chrome — the only real
+   difference from Today is the measure: prose and evidence stop around 820px so
+   a line of editorial text stays readable, and the page itself stops at 1080px
+   so evidence is not stretched across a wide monitor. */
+
+/* §8: an editorial measure, not a dashboard. */
+.page {
+  width: 100%;
+  max-width: 1080px;
+}
+
+/* ----------------------------------------------------------------- header */
+
+/* §30: a quiet way back. Browser-back is not a navigation affordance. */
+.back {
+  display: inline-block;
+  margin-bottom: var(--space-6);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--color-accent);
+}
+
+.kicker {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+/* §4: strong, not oversized. The full text, no card, a comfortable measure. */
+.title {
+  max-width: 820px;
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 38px;
+  letter-spacing: -.012em;
+}
+
+/* §3: compact, and only what the backend actually holds. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* §26: a Story-state warning belongs next to the state it describes, not in a
+   warning zone at the top of the page. */
+.ignoredNotice {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-warning);
+  color: var(--color-text-secondary);
+  background: var(--color-warning-surface);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+/* ---------------------------------------------------------------- actions */
+
+/* §29: at most one filled control on the page, and the header is where it
+   lives. Everything else is outlined or plain text.
+
+   The row is capped at the same 860px measure the facts, gaps, Articles and
+   publications use. Without that cap the separated follow control is pushed to
+   the far edge of the 1080px page and stops reading as part of the same
+   content column. */
+.actionCluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  max-width: 860px;
+  margin: var(--space-6) 0 0;
+}
+
+.actionControl {
+  display: inline-flex;
+  align-items: center;
+}
+
+.primary,
+.secondary,
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.primary {
+  border: 1px solid var(--color-accent);
+  color: var(--color-surface);
+  background: var(--color-accent);
+}
+
+.primary:hover:not(:disabled) {
+  border-color: var(--color-accent-hover);
+  background: var(--color-accent-hover);
+}
+
+.secondary {
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.secondary:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent);
+}
+
+.quiet {
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-weight: 500;
+}
+
+.quiet:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.primary:disabled,
+.secondary:disabled,
+.quiet:disabled {
+  cursor: default;
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+  background: var(--color-evidence);
+}
+
+/* §7: following is a bookmark, not a workflow state. It sits at the quiet end
+   of the action row, separated, and never becomes a coloured banner. */
+.followControl {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--color-border-light);
+}
+
+.actionError {
+  max-width: 320px;
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* ----------------------------------------------------------------- prose */
+
+.prose {
+  max-width: 820px;
+  margin: 0;
+  font-size: 16px;
+  line-height: 25px;
+}
+
+/* §11: newsroom notes. Plain text, a thin rule between facts, and the source
+   sitting directly under the statement it supports. */
+.factList,
+.gapList,
+.articleList,
+.publicationList,
+.chronologyList,
+.developmentList {
+  max-width: 860px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fact {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.fact:first-child {
+  border-top: 1px solid var(--color-border-light);
+}
+
+.factText {
+  margin: 0;
+  font-size: 15px;
+  line-height: 23px;
+}
+
+/* The source visibly belongs to the fact above it. */
+.sourceLine {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.sourceLink {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sourceLink:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* §14: a blocking gap is a real editorial obstacle and is marked; a non-blocking
+   one is context and is not. Neither is an error box, and neither is red. */
+.gap {
+  padding: var(--space-3) 0 var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-border);
+}
+
+.gap + .gap {
+  padding-top: var(--space-2);
+}
+
+.gapBlocking {
+  border-left-color: var(--color-warning);
+}
+
+.gapKind {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.gapBlockingTag {
+  margin-left: var(--space-2);
+  color: var(--color-warning);
+}
+
+.gapQuestion {
+  margin: var(--space-1) 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.gapReason {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+/* §9/§15: the one honest sentence for a Story nobody has researched yet, and
+   the research action that belongs to it. */
+.unassessed {
+  max-width: 820px;
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border-light);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.unassessedText {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* §16: one calm status while the round runs, and the backend's own sentence
+   when it fails. No stage vocabulary, anywhere. */
+.researchControl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.researchStatus {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.researchError {
+  max-width: 460px;
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-warning);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+/* -------------------------------------------------------------- articles */
+
+.article {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.article:first-child {
+  border-top: 1px solid var(--color-border-light);
+}
+
+.articleTitle {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.articleTitle a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.articleTitle a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.articleMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.articleState {
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------- publications */
+
+/* §19: a list, not cards. One publication per line, the publisher and the
+   moment on the same quiet metadata line. */
+.publication {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.publication:first-child {
+  border-top: 1px solid var(--color-border-light);
+}
+
+.publicationTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 21px;
+}
+
+.publicationTitle a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.publicationTitle a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.publicationMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* §21: identifiable, restrained. */
+.developmentTag {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.showAll {
+  margin-top: var(--space-3);
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  cursor: pointer;
+}
+
+.showAll:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* §20: chronology is preserved, but it is the quietest thing on the page. */
+.chronology {
+  margin-top: var(--space-4);
+}
+
+.chronologyToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  cursor: pointer;
+}
+
+.chronologyToggle:hover {
+  color: var(--color-text);
+}
+
+.event {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.eventTitle {
+  color: var(--color-text);
+}
+
+/* §25: exceptional grouping corrections live at the bottom, collapsed, with
+   no destructive emphasis. They never compete with editorial work. */
+.correctionArea {
+  max-width: 860px;
+  margin-top: var(--space-10);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.correctionToggle {
+  padding: 0;
+  border: 0;
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  cursor: pointer;
+}
+
+.correctionToggle:hover {
+  color: var(--color-text);
+}
+
+.correctionList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.correctionControl {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius);
+  color: var(--color-text-secondary);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+  cursor: default;
+}
+
+.correctionNote {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* ----------------------------------------------------------------- narrow */
+
+/* §33: desktop first, but a narrower laptop stacks the publication and Article
+   metadata instead of pushing it off-screen. No separate mobile model. */
+@media (max-width: 1240px) {
+  .followControl {
+    margin-left: 0;
+  }
+}
+
+/* §21: a development keeps its own heading inside the context block, so the
+   editor can scan "what changed" without it becoming a panel of its own. */
+.developmentTitle {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-editorial);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+/* The header block itself: nothing but a back link, a kicker, the title and
+   the metadata line. */
+.header {
+  display: block;
+}

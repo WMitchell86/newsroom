@@ -78,6 +78,14 @@ export interface ArticleReference {
   updatedAt?: string;
   /** Present once the Article is finalized: the link then targets the Archive. */
   finalizedAt?: string | null;
+  /**
+   * V1.2-G2: the canonical state word, from the same
+   * `derive_article_state` decision the Article workspace and Today read. It is
+   * `null` for a finalized Article, which has left the active workflow, and
+   * absent on a projection written before this field existed — never a state
+   * guessed in its place.
+   */
+  state?: ArticleState | null;
 }
 
 export interface Publication {
@@ -121,6 +129,15 @@ export interface StoryDetail extends StorySummary {
   relatedArticles: ArticleReference[];
   factsAndSources: FactAndSource[];
   missingInformation: MissingInformation;
+  /**
+   * V1.2-G2: the number of **independent publishers** behind this Story,
+   * surfaced from the `story_store.metrics` computation the system already uses
+   * for Today. It is corroboration context, never evidence authority: a Story
+   * can have five publishers and still have no opened, promotable page. `null`
+   * means the members carry no publisher identity — unknown, not a measured
+   * zero — and the UI must not print the zero.
+   */
+  publisherCount?: number | null;
   correction: {
     available: boolean;
     actions: Array<"DETACH_PUBLICATION" | "MERGE_STORY">;

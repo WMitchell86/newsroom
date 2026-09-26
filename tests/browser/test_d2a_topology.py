@@ -173,10 +173,13 @@ def test_keyboard_reaches_navigation_and_activates_a_disclosure(page, spa_runtim
     nav_labels = [item for item in reached if item in PRIMARY_AREAS]
     assert len(nav_labels) >= 3, f"Tab did not reach the primary navigation: {reached}"
 
-    # A disclosure is operable from the keyboard alone.
+    # A disclosure is operable from the keyboard alone. V1.2-G2 made
+    # `Публикации` a real section - it is content the editor reads, not
+    # something they open - so the Story page's remaining disclosure is the
+    # chronology toggle (§20), which stayed a disclosure on purpose.
     probe.page.goto(f"{probe.base_url}/stories/{spa_runtime['story_id']}", wait_until="load")
     probe.page.locator("main").wait_for(state="visible")
-    disclosure = probe.page.get_by_role("button", name="Публикации")
+    disclosure = probe.page.get_by_role("button", name="Хронология")
     disclosure.focus()
     assert probe.page.evaluate(
         "() => document.activeElement?.getAttribute('aria-controls') !== null"

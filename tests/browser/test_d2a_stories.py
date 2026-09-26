@@ -118,44 +118,66 @@ def test_story_title_navigates_to_the_workspace(page, spa_runtime):
 # --------------------------------------------------------------------------
 
 
-def test_story_workspace_renders_every_frozen_area(page, spa_runtime):
-    """Title, context, development, facts, missing info, articles, disclosures."""
+def test_story_workspace_renders_the_editorial_hierarchy(page, spa_runtime):
+    """Title, context, facts, missing info, Articles, publications, chronology.
+
+    V1.2-G2 §2 replaced the old sequence of equal-weight backend panels with the
+    editor's own order, so the assertions follow the approved hierarchy rather
+    than the retired one:
+
+      * the Story's development is now part of `Какво се случи`, labelled but not
+        promoted to a section of its own (§21);
+      * `Факти и източници` and `Какво липсва` keep their frozen words;
+      * the related Article block is now simply `Статии` (§22);
+      * `Публикации` is a real section, not a collapsed disclosure (§18/§19).
+    """
     probe = page
     open_story(probe, spa_runtime["story_id"])
     main = probe.page.locator("main")
 
-    # Title and current context.
+    # Title, a quiet way back, and the current context.
     probe.page.get_by_role("heading", name="Ремонтът започва през октомври", level=1).wait_for(
         state="visible"
     )
+    probe.page.get_by_role("link", name="← Истории").wait_for(state="visible")
     main.get_by_text("Общинският съвет одобри 1,2 милиона лева").first.wait_for(state="visible")
 
-    # New development, facts/sources and missing information.
-    main.get_by_role("heading", name="Ново развитие", level=2).wait_for(state="visible")
+    # The development belongs to the context, not to a panel.
+    main.get_by_role("heading", name="Какво се случи", level=2).wait_for(state="visible")
+    main.get_by_text("Ново развитие").first.wait_for(state="visible")
+
+    # Facts with their sources, and the real gaps.
     main.get_by_role("heading", name="Факти и източници", level=2).first.wait_for(state="visible")
     main.get_by_role("heading", name="Какво липсва", level=2).first.wait_for(state="visible")
     main.get_by_text("Кога точно започва ремонтът?").first.wait_for(state="visible")
 
-    # Related Articles.
-    main.get_by_role("heading", name="Статии по тази история", level=2).wait_for(state="visible")
+    # Related Articles and the grouped publications, two different things.
+    main.get_by_role("heading", name="Статии", level=2).first.wait_for(state="visible")
     main.get_by_role("link", name="Свързана статия за навигация").first.wait_for(state="visible")
+    main.get_by_role("heading", name="Публикации", level=2).first.wait_for(state="visible")
     assert_spa_shell(probe.page)
     probe.assert_clean(context="Story Workspace rendering")
 
 
-def test_story_disclosures_open_and_close_in_the_browser(page, spa_runtime):
-    """Collapsible Publications and chronology are operable disclosure controls."""
+def test_the_story_chronology_is_a_subordinate_disclosure(page, spa_runtime):
+    """§20: the canonical chronology is preserved, quiet and collapsible.
+
+    G2 made `Публикации` a real section, because it is content the editor reads
+    rather than something they have to open. The chronology stayed a disclosure
+    and stayed the quietest control on the page.
+    """
     probe = page
     open_story(probe, spa_runtime["story_id"])
 
-    for label in ("Публикации", "Хронология"):
-        button = probe.page.get_by_role("button", name=label)
-        button.wait_for(state="visible")
-        assert button.get_attribute("aria-expanded") == "false", f"{label} started expanded"
-        button.click()
-        assert button.get_attribute("aria-expanded") == "true", f"{label} did not expand"
-        button.click()
-        assert button.get_attribute("aria-expanded") == "false", f"{label} did not collapse"
+    # The publications are visible without a click.
+    probe.page.get_by_role("heading", name="Публикации", level=2).first.wait_for(state="visible")
+    button = probe.page.get_by_role("button", name="Хронология")
+    button.wait_for(state="visible")
+    assert button.get_attribute("aria-expanded") == "false", "chronology started expanded"
+    button.click()
+    assert button.get_attribute("aria-expanded") == "true", "chronology did not expand"
+    button.click()
+    assert button.get_attribute("aria-expanded") == "false", "chronology did not collapse"
     probe.assert_clean(context="Story disclosures")
 
 

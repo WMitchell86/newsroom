@@ -795,19 +795,8 @@ def _story_detail(story_id: str) -> dict:
             }
         )
     chronology.sort(key=lambda row: (row["at"], row["publicationId"]), reverse=True)
-    related_articles = [
-        {
-            "id": row["article_id"],
-            "title": row["working_title"],
-            "updatedAt": row["updated_at"],
-            # A finalized Article stays related to its Story; the link then
-            # targets the Archive instead of an active workspace.
-            "finalizedAt": row.get("finalized_at"),
-        }
-        for row in articles
-        if row.get("story_id") == story_id
-    ]
     facts, missing = _story_evidence_projection(story_id, articles)
+    related_articles = _story_related_articles(story_id, articles, story, items_by_id, facts, missing)
     result.update(
         {
             "whatHappened": result["summary"],
@@ -823,10 +812,85 @@ def _story_detail(story_id: str) -> dict:
             "relatedArticles": related_articles,
             "factsAndSources": facts,
             "missingInformation": missing,
+            # V1.2-G2 §3: the independent-publisher count, surfaced from the
+            # `story_store.metrics` computation the system already uses for
+            # Today. Already-existing domain data, no new semantics: React must
+            # never count a source itself, and the count is corroboration
+            # context, never evidence authority.
+            "publisherCount": story_store.metrics(story, items_by_id)["publisher_count"],
             "correction": {"available": False, "actions": []},
         }
     )
     return result
+
+
+def _story_article_state(
+    article: dict,
+    content: dict,
+    *,
+    story: dict,
+    items_by_id: dict,
+    facts: list[dict],
+    missing: dict,
+) -> str | None:
+    """The canonical Article state, decided exactly as the workspace decides it.
+
+    V1.2-G2 §22: the Story page shows which state each of its Articles is in, so
+    the editor can see at a glance whether a Story already has a Preparation, a
+    Draft or a Готова piece. That word is not a second decision: it comes from
+    the same `_current_validation` digest and the same
+    `editor_projections.derive_article_state` the Article workspace and Today
+    read, so the three surfaces can never disagree about one Article.
+    """
+    _, validation = _current_validation(
+        article,
+        content,
+        story=story,
+        facts=facts,
+        gaps=list(missing["items"]),
+        headline=_story_headline(article, story, items_by_id),
+        assessed_at=str(missing.get("assessedAt") or ""),
+    )
+    digest = validation.digest if validation is not None else None
+    return editor_projections.derive_article_state(article, content, digest)
+
+
+def _story_related_articles(
+    story_id: str,
+    articles: list[dict],
+    story: dict,
+    items_by_id: dict,
+    facts: list[dict],
+    missing: dict,
+) -> list[dict]:
+    """The Story's Articles, each with its canonical state.
+
+    A finalized Article stays related to its Story; the link then targets the
+    Archive, and `derive_article_state` answers `None` for it, which is the
+    truth: it has left the active workflow.
+    """
+    rows = []
+    for record in articles:
+        if record.get("story_id") != story_id:
+            continue
+        content = editor_article_store.get_article_content(record["article_id"])
+        rows.append(
+            {
+                "id": record["article_id"],
+                "title": record["working_title"],
+                "updatedAt": record["updated_at"],
+                "finalizedAt": record.get("finalized_at"),
+                "state": _story_article_state(
+                    record,
+                    content,
+                    story=story,
+                    items_by_id=items_by_id,
+                    facts=facts,
+                    missing=missing,
+                ),
+            }
+        )
+    return rows
 
 
 def _research_bootstrap_context(story: dict, items_by_id: dict) -> dict:

@@ -1125,3 +1125,285 @@ def _deterministic_feed() -> bytes:
         f"<title>Тестова емисия</title><link>https://vestnik.example.test/</link>"
         f"{body}</channel></rss>"
     ).encode()
+
+
+# --------------------------------------------------------------------------
+# V1.2-G2 Story workspace fixtures
+# --------------------------------------------------------------------------
+
+#: A real Nesebar line of news, used by every G2 Story so the review reads like
+#: a newsroom and not like a lorem-ipsum mockup. The Story identity, the grouping
+#: and the evidence basis are all written through the canonical stores.
+G2_STORIES = {
+    # A. unassessed: three publications, nobody has looked yet.
+    "s-g2-a": {
+        "title": "Община Несебър започва ремонта на крайбрежната алея",
+        "summary": "Ремонтът обхваща около 1,2 километра и трябва да завърши преди сезона.",
+        "publishers": 3,
+        "relation": "SAME_STORY",
+    },
+    # B. assessed with evidence and an active Draft.
+    "s-g2-b": {
+        "title": "Детските градини в Слънчево получават средства за обновяване",
+        "summary": "Парите са предвидени за топлоизолация и нова детска площадка.",
+        "publishers": 3,
+        "relation": "SAME_STORY",
+    },
+    # C. assessed, with one real blocking gap next to confirmed facts.
+    "s-g2-c": {
+        "title": "Ремонтът на булевард „Свобода“ ще започне през октомври",
+        "summary": "Градът обяви график, който още не е потвърден от изпълнителя.",
+        "publishers": 2,
+        "relation": "SAME_STORY",
+    },
+    # D. multi-publication: twelve grouped publications, two opened sources.
+    "s-g2-d": {
+        "title": "Пускането на фестивала за средиземноморска кухра се отлага",
+        "summary": "Организаторите обявиха нова дата след като община Поморие поиска отлагане.",
+        "publishers": 12,
+        "relation": "SAME_STORY",
+    },
+}
+
+G2_SOURCES = {
+    "bnr": {"id": "bnr", "name": "БНР", "url": "https://bnr.example.test/g2-nesebar"},
+    "vestnik": {"id": "vestnik", "name": "Вестник", "url": "https://vestnik.example.test/g2-nesebar"},
+    "grad": {"id": "grad", "name": "ГРАД", "url": "https://grad.example.test/g2-slunčevo"},
+}
+
+def build_g2_story_fixture(*, newsroom: Path, editorial: Path) -> dict:
+    """Seed the four Story states the G2 review is about.
+
+    A. an **unassessed** Story — three publications, no evidence row at all, and
+       `RESEARCH_MORE` genuinely available;
+    B. an **assessed** Story — four confirmed facts on three opened sources, no
+       gaps, and one real active Draft;
+    C. an **assessed** Story with a **blocking gap** whose confirmed facts stay
+       in place next to it, and research still available;
+    D. a **multi-publication** Story — twelve grouped publications, of which only
+       two are opened evidence sources, so the publications/evidence distinction
+       is judged on real data rather than on a caption.
+
+    Written through the canonical stores only — every file on disk is a valid
+    store row, exactly as the pipeline would have written it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from editor_assistant.workflow import editor_article_store as articles
+    from editor_assistant.workflow import (
+        inbox_store,
+        newsroom_refresh,
+        sources_registry,
+        story_operations,
+        story_research_store,
+        story_store,
+    )
+
+    newsroom.mkdir(parents=True, exist_ok=True)
+    editorial.mkdir(parents=True, exist_ok=True)
+    stories_path = newsroom / "stories.json"
+    inbox_path = newsroom / "inbox.jsonl"
+    _release_refresh_lock(newsroom_refresh)
+
+    now = datetime.now(timezone.utc)
+
+    def stamp(**delta) -> str:
+        return (now - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    items: list[dict] = []
+    stories: list[dict] = []
+    publication_ids: dict[str, list[str]] = {}
+    for index, (story_id, shape) in enumerate(G2_STORIES.items()):
+        count = shape["publishers"]
+        when = stamp(minutes=25 * index + 4)
+        ids = [f"{story_id}-p{position}" for position in range(count)]
+        publication_ids[story_id] = ids
+        for position, item_id in enumerate(ids):
+            items.append(
+                {
+                    "item_id": item_id,
+                    "source_id": f"g2-vestnik-{position}",
+                    "source_item_id": item_id,
+                    "title": shape["title"] if position == 0 else f"{shape['title']} - отразяване",
+                    "url": f"https://vestnik.example.test/{item_id}",
+                    "published_at": stamp(minutes=25 * index + 4 + position),
+                    "discovered_at": stamp(minutes=25 * index + 4 + position),
+                    "summary": shape["summary"],
+                    "source_kind": "media",
+                    "publisher_domain": f"g2-publisher-{position}.example.test",
+                    "status": "NEW",
+                }
+            )
+        story = story_store.new_story(items[-count], publication_key=f"pk-{story_id}", now=when)
+        story["story_id"] = story_id
+        for position in range(1, count):
+            story_store.add_member(
+                story,
+                items[-count + position],
+                # A further publication of the SAME event. This is what
+                # independent corroboration looks like in the store, and it is
+                # deliberately NOT a new development.
+                relation=shape["relation"],
+                relation_source="semantic",
+                publication_key=f"pk-{story_id}-{position}",
+                now=stamp(minutes=25 * index + 4 + position),
+            )
+        story["status"] = "NEW" if story_id == "s-g2-a" else "SEEN"
+        stories.append(story)
+
+    items_by_id = {item["item_id"]: item for item in items}
+    for story in stories:
+        story_store.refresh_times(
+            story,
+            {member["item_id"]: items_by_id[member["item_id"]] for member in story["members"]},
+            now=stamp(minutes=1),
+        )
+        story["status"] = "NEW" if story["story_id"] == "s-g2-a" else "SEEN"
+
+    inbox_store.save_items(items, inbox_path)
+    story_store.write_store({"stories": stories}, stories_path)
+    story_operations.clear()
+
+    for position in range(3):
+        sources_registry.add_source(
+            path=newsroom / "sources.json",
+            source_id=f"g2-vestnik-{position}",
+            name=f"Г2 емисия {position}",
+            kind="media",
+            collector="rss",
+            url=f"https://vestnik.example.test/rss-{position}.xml",
+            priority="normal",
+        )
+
+    # B. four confirmed facts on three opened sources, and an assessed basis
+    #    with no gap at all.
+    story_research_store.merge_research(
+        "s-g2-b",
+        sources=[
+            G2_SOURCES["grad"],
+            {"id": "vestnik-b", "name": "Вестник", "url": "https://vestnik.example.test/g2-slunčevo"},
+        ],
+        facts=[
+            {
+                "id": "fact_g2_gr_kindergarten",
+                "text": "Общината обяви 420 000 лева за обновяване на две детски градини в Слънчево.",
+                "sourceId": "grad",
+                "locator": "Решение № 18, т. 4",
+            },
+            {
+                "id": "fact_g2_gr_insulation",
+                "text": "Средствата са предвидени за топлоизолация на двете сгради.",
+                "sourceId": "vestnik-b",
+                "locator": "Средства, трети абзац",
+            },
+            {
+                "id": "fact_g2_gr_playground",
+                "text": "В едната градина ще бъде изградена нова детска площадка.",
+                "sourceId": "vestnik-b",
+                "locator": "Средства, пети абзац",
+            },
+        ],
+        gaps=[],
+        assessed_at=stamp(minutes=30),
+        canonical_story={"story_id": "s-g2-b"},
+        operation_id="g2-fixture-b",
+        count_round=True,
+    )
+
+    # C. the same confirmed facts plus one real blocking gap. A failure to
+    #    research must not remove them, so the fixture keeps both in the store.
+    story_research_store.merge_research(
+        "s-g2-c",
+        sources=[G2_SOURCES["vestnik"]],
+        facts=[
+            {
+                "id": "fact_g2_c_money",
+                "text": "Общинският съвет одобри 1,2 милиона лева за ремонта на булевард „Свобода“.",
+                "sourceId": "vestnik",
+                "locator": "Протокол, т. 4",
+            }
+        ],
+        gaps=[
+            {
+                "id": "gap_g2_c_date",
+                "question": "Остава непотвърдено кой е точно официалният график за започване на ремонта.",
+                "kind": "unresolved",
+                "blocking": True,
+            },
+            {
+                "id": "gap_g2_c_traffic",
+                "question": "Ще има ли временна организация на движението по булеварда?",
+                "kind": "missing_fact",
+                "blocking": False,
+            },
+        ],
+        assessed_at=stamp(minutes=40),
+        canonical_story={"story_id": "s-g2-c"},
+        operation_id="g2-fixture-c",
+        count_round=True,
+    )
+
+    # D. twelve grouped publications; only two of them are opened evidence.
+    story_research_store.merge_research(
+        "s-g2-d",
+        sources=[
+            {"id": "festival", "name": "Организаторите на фестивала", "url": "https://festival.example.test/g2"},
+            {"id": "pomorie", "name": "Община Поморие", "url": "https://pomorie.example.test/g2"},
+        ],
+        facts=[
+            {
+                "id": "fact_g2_d_date",
+                "text": "Фестивалът за средиземноморска кухра се отлага за следващата година.",
+                "sourceId": "festival",
+                "locator": "Съобщение за медиите, първи абзац",
+            },
+            {
+                "id": "fact_g2_d_reason",
+                "text": "Отлагането е по искане на община Поморие заради строителни работи.",
+                "sourceId": "pomorie",
+                "locator": "Решение № 91, т. 2",
+            },
+        ],
+        gaps=[],
+        assessed_at=stamp(minutes=50),
+        canonical_story={"story_id": "s-g2-d"},
+        operation_id="g2-fixture-d",
+        count_round=True,
+    )
+
+    # B's Article: a real Draft, so the Story page can show the canonical state
+    # word and the link into the workspace.
+    draft = articles.create_editor_article(
+        story_id="s-g2-b",
+        stories_path=stories_path,
+        working_title="Обновяване на градините в Слънчево",
+        now=stamp(minutes=8),
+        root=editorial,
+    )
+    articles.update_editor_focus(
+        draft["article_id"],
+        "Да покажем защо средствата за градините са важни за семействата в Слънчево.",
+        now=stamp(minutes=7),
+        root=editorial,
+    )
+    articles.save_article_content(
+        draft["article_id"],
+        0,
+        "Обновяване на градините в Слънчево",
+        "Общината обяви 420 000 лева за обновяване на две детски градини в Слънчево. "
+        "Средствата са предвидени за топлоизолация на двете сгради.",
+        now=stamp(minutes=6),
+        root=editorial,
+    )
+
+    return {
+        "newsroom": newsroom,
+        "editorial": editorial,
+        "stories_path": stories_path,
+        "unassessed_story_id": "s-g2-a",
+        "assessed_story_id": "s-g2-b",
+        "blocking_story_id": "s-g2-c",
+        "many_publications_story_id": "s-g2-d",
+        "draft_article_id": draft["article_id"],
+        "many_publication_count": len(publication_ids["s-g2-d"]),
+    }

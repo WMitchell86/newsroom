@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   createIdempotencyKey,
   followStory,
@@ -10,405 +10,160 @@ import {
   startArticle,
   unfollowStory,
 } from "../api/client";
-import type { ArticleReference, MissingInformationItem, StoryDetail } from "../api/dto";
 import { getErrorMessage } from "../shared/errorMessage";
-import { formatDate } from "../shared/editorLabels";
 import {
   invalidateArticleProjections,
   invalidateStoryProjections,
   storyOptions,
 } from "../api/queries";
-import {
-  Disclosure,
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  PageHeader,
-  Section,
-} from "../shared/EditorPrimitives";
-import styles from "./StoryWorkspace.module.css";
+import { EmptyState, ErrorState, LoadingState } from "../shared/EditorPrimitives";
+import { StoryActions } from "./story/StoryActions";
+import { StoryArticleSummary } from "./story/StoryArticleSummary";
+import { StoryContext } from "./story/StoryContext";
+import { StoryEvidence } from "./story/StoryEvidence";
+import { StoryGapList } from "./story/StoryGapList";
+import { StoryGroupingCorrection } from "./story/StoryGroupingCorrection";
+import { StoryHeader } from "./story/StoryHeader";
+import { StoryPublications } from "./story/StoryPublications";
+import { headerPrimaryAction } from "./story/storyView";
+import styles from "./story/Story.module.css";
 
-function articleHref(article: ArticleReference): string {
-  // A finalized Article has left the active workflow: its traceability link
-  // points at the read-only Archive view, never at a dead workspace.
-  if (article.finalizedAt) return `/archive/${encodeURIComponent(article.id)}`;
-  return `/articles/${encodeURIComponent(article.id)}`;
-}
-
-function safeExternalUrl(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-
-const missingKindLabels: Record<MissingInformationItem["kind"], string> = {
-  missing_fact: "Липсва факт",
-  conflict: "Противоречие",
-  unresolved: "Неизяснен въпрос",
-};
-
-function Developments({ story }: { story: StoryDetail }) {
-  const developments = story.newDevelopments.filter((item) => item.unreviewed);
-  const publicationById = new Map(story.publications.map((item) => [item.id, item]));
-
-  return (
-    <Section title="Ново развитие" meta={developments.length ? String(developments.length) : "0"}>
-      {developments.length ? (
-        <ol className={styles.developmentList}>
-          {developments.map((development) => {
-            const publication = publicationById.get(development.publicationId);
-            return (
-              <li className={styles.development} key={development.id}>
-                <h3 className={styles.itemTitle}>{development.title}</h3>
-                <p className={styles.itemSummary}>{development.summary}</p>
-                <p className={styles.meta}>
-                  <span>Промяна: {formatDate(development.changedAt)}</span>
-                  {publication ? <span>Публикация: {publication.source.name}</span> : null}
-                </p>
-              </li>
-            );
-          })}
-        </ol>
-      ) : <EmptyState>Няма непрегледани нови развития.</EmptyState>}
-    </Section>
-  );
-}
-
-function FactsAndSources({ story }: { story: StoryDetail }) {
-  if (!story.factsAndSources) return null;
-  const unassessed = story.missingInformation?.evidenceStatus === "unassessed";
-
-  return (
-    <Section title="Факти и източници" meta={String(story.factsAndSources.length)}>
-      {story.factsAndSources.length ? (
-        <ul className={styles.factList}>
-          {story.factsAndSources.map((fact) => {
-            const sourceUrl = safeExternalUrl(fact.source.url);
-            return (
-              <li className={styles.fact} key={fact.id}>
-                <p className={styles.factText}>{fact.text}</p>
-                <span className={styles.sourceName}>
-                  {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer">{fact.source.name}</a> : fact.source.name}
-                </span>
-                <p className={styles.meta}>
-                  {fact.source.domain ? <span>{fact.source.domain}</span> : null}
-                  {fact.locator ? <span>{fact.locator}</span> : null}
-                  {fact.scope === "background" ? <span>Контекст</span> : null}
-                </p>
-              </li>
-            );
-          })}
-        </ul>
-      ) : unassessed ? <EmptyState>Историята още не е проучена.</EmptyState> : <EmptyState>Няма налични факти и източници.</EmptyState>}
-    </Section>
-  );
-}
-
-function MissingInformationSection({ story, research }: {
-  story: StoryDetail;
-  research: { isPending: boolean; error: unknown; mutate: () => void };
-}) {
-  const missing = story.missingInformation;
-  if (!missing) return null;
-  // V1.1-A §12-§13: an UNASSESSED Story must never render "Оценено на …".
-  const assessedLabel = missing.assessedAt && missing.evidenceStatus !== "unassessed"
-    ? `Оценено на ${formatDate(missing.assessedAt)}`
-    : null;
-
-  return (
-    <Section title="Какво липсва" meta={String(missing.items.length)}>
-      {assessedLabel ? <p className={styles.meta}>{assessedLabel}</p> : null}
-      {missing.items.length ? (
-        <>
-          <ul className={styles.gapList}>
-            {missing.items.map((item) => (
-              <li className={`${styles.gap} ${item.blocking ? styles.gapBlocking : ""}`} key={item.id}>
-                <span className={styles.gapKind}>
-                  {missingKindLabels[item.kind]}{item.blocking ? " · пречи" : ""}
-                </span>
-                <p className={styles.gapQuestion}>{item.question}</p>
-                {item.reason ? <p className={styles.gapReason}>{item.reason}</p> : null}
-              </li>
-            ))}
-          </ul>
-          {story.availableActions.includes("RESEARCH_MORE") ? (
-            <div className={styles.researchControl}>
-              <button
-                className={`${styles.action} ${styles.tertiaryAction}`}
-                type="button"
-                disabled={research.isPending}
-                onClick={research.mutate}
-                data-research-trigger="missing-information"
-              >
-                {research.isPending ? "Проучва се…" : "Проучи още"}
-              </button>
-              {research.isPending ? <span role="status" aria-live="polite">Проучването е в ход.</span> : null}
-              {research.error ? <span role="alert" className={styles.actionError}>{getErrorMessage(research.error, "Проучването не можа да се изпълни. Опитайте отново.")}</span> : null}
-            </div>
-          ) : null}
-        </>
-      ) : missing.evidenceStatus === "unassessed" ? (
-        <>
-          <EmptyState>Историята още не е проучена.</EmptyState>
-          {story.availableActions.includes("RESEARCH_MORE") ? (
-            <div className={styles.researchControl}>
-              <button
-                className={`${styles.action} ${styles.tertiaryAction}`}
-                type="button"
-                disabled={research.isPending}
-                onClick={research.mutate}
-                data-research-trigger="missing-information"
-              >
-                {research.isPending ? "Проучва се…" : "Проучи още"}
-              </button>
-              {research.isPending ? <span role="status" aria-live="polite">Проучването е в ход.</span> : null}
-              {research.error ? <span role="alert" className={styles.actionError}>{getErrorMessage(research.error, "Проучването не можа да се изпълни. Опитайте отново.")}</span> : null}
-            </div>
-          ) : null}
-        </>
-      ) : <EmptyState>Няма отбелязани липсващи информации.</EmptyState>}
-    </Section>
-  );
-}
-
-function RelatedArticles({ story }: { story: StoryDetail }) {
-  return (
-    <Section title="Статии по тази история" meta={String(story.relatedArticles.length)}>
-      {story.relatedArticles.length ? (
-        <ul className={styles.referenceList}>
-          {story.relatedArticles.map((article) => (
-            <li className={styles.reference} key={article.id}>
-              <h3 className={styles.itemTitle}>
-                <Link to={articleHref(article)}>{article.title ?? "Свързана статия"}</Link>
-              </h3>
-              {article.updatedAt ? <p className={styles.meta}>Обновена: {formatDate(article.updatedAt)}</p> : null}
-            </li>
-          ))}
-        </ul>
-      ) : <EmptyState>Няма статии по тази история.</EmptyState>}
-    </Section>
-  );
-}
-
-function Publications({ story }: { story: StoryDetail }) {
-  return (
-    <Section title="Публикации">
-      <Disclosure label={`Публикации (${story.publications.length})`}>
-        {story.publications.length ? (
-          <ul className={styles.publicationList}>
-            {story.publications.map((publication) => {
-              const publicationUrl = safeExternalUrl(publication.url);
-              return (
-                <li className={styles.publication} key={publication.id}>
-                  <h3 className={styles.itemTitle}>
-                    {publicationUrl ? <a href={publicationUrl} target="_blank" rel="noreferrer">{publication.title}</a> : publication.title}
-                  </h3>
-                  <p className={styles.meta}>
-                    <span>{publication.source.name}</span>
-                    {publication.source.domain ? <span>{publication.source.domain}</span> : null}
-                    <span>Публикувана: {formatDate(publication.publishedAt)}</span>
-                    <span>Открита: {formatDate(publication.discoveredAt)}</span>
-                  </p>
-                  <p className={styles.publicationSummary}>{publication.summary}</p>
-                </li>
-              );
-            })}
-          </ul>
-        ) : <EmptyState>Няма публикации.</EmptyState>}
-      </Disclosure>
-    </Section>
-  );
-}
-
-function Chronology({ story }: { story: StoryDetail }) {
-  return (
-    <Section title="Хронология">
-      <Disclosure label={`Хронология (${story.chronology.length})`}>
-        {story.chronology.length ? (
-          <ol className={styles.chronologyList}>
-            {story.chronology.map((event) => (
-              <li className={styles.event} key={`${event.publicationId}-${event.at}-${event.title}`}>
-                <p className={styles.eventKind}>{event.kind === "NEW_DEVELOPMENT" ? "Ново развитие" : "Събитие"}</p>
-                <h3 className={styles.itemTitle}>{event.title}</h3>
-                <p className={styles.meta}>{formatDate(event.at)}</p>
-              </li>
-            ))}
-          </ol>
-        ) : <EmptyState>Няма хронологични събития.</EmptyState>}
-      </Disclosure>
-    </Section>
-  );
-}
-
-type StoryCommand = "REVIEW" | "FOLLOW" | "UNFOLLOW" | "IGNORE" | "START_ARTICLE";
-
-function StoryActions({ story, headingRef }: { story: StoryDetail; headingRef: RefObject<HTMLHeadingElement | null> }) {
+/**
+ * V1.2-G2: the Story workspace.
+ *
+ * The page answers four questions and then gets out of the way: what happened,
+ * what is confirmed, what is missing, and what can I do from here. It is the G1
+ * desk at reading width — same shell, same rail, same type, same buttons — and
+ * it is a *presentation* slice: the Story research semantics, the evidence
+ * rules, Draft readiness, Quick Draft, grouping, ranking and every canonical
+ * store are exactly as B4A and V1.1 left them.
+ *
+ * Two rules run through the whole page and are why it looks the way it does:
+ *
+ *   * **Absence renders as absence.** A section with no meaningful content is
+ *     not drawn. "No facts" on an unassessed Story is not a clean evidence
+ *     basis, and the page never dresses it up as one.
+ *   * **The backend is the authority.** Every action comes from
+ *     `availableActions`, every gap from the projection, every fact with its
+ *     own source. React derives no permission, no category, no locality, no
+ *     importance and no trust judgement.
+ */
+export function StoryWorkspace() {
+  const { storyId = "" } = useParams();
+  const story = useQuery({ ...storyOptions(storyId), enabled: Boolean(storyId) });
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // One instant for the whole render, so two relative timestamps on the page can
+  // never disagree because the clock ticked between them.
+  const [now] = useState(() => new Date());
+
   const observedDevelopmentIds = useRef<string[]>([]);
   const startArticleKey = useRef("");
-  const available = (action: StoryCommand) => story.availableActions.includes(action);
+
   const refreshProjections = async () => {
-    await invalidateStoryProjections(queryClient, story.id);
+    await invalidateStoryProjections(queryClient, storyId);
     headingRef.current?.focus();
   };
-  const observed = () => [...observedDevelopmentIds.current];
+
   const review = useMutation({
-    mutationFn: (observedIds: string[]) => reviewStory(story.id, observedIds),
+    mutationFn: (observedIds: string[]) => reviewStory(storyId, observedIds),
     onSuccess: refreshProjections,
   });
   const follow = useMutation({
-    mutationFn: () => followStory(story.id),
+    mutationFn: () => followStory(storyId),
     onSuccess: refreshProjections,
   });
   const unfollow = useMutation({
-    mutationFn: () => unfollowStory(story.id),
+    mutationFn: () => unfollowStory(storyId),
     onSuccess: refreshProjections,
   });
   const ignore = useMutation({
-    mutationFn: () => ignoreStory(story.id),
+    mutationFn: () => ignoreStory(storyId),
+    onSuccess: refreshProjections,
+  });
+  const research = useMutation({
+    mutationFn: () => researchMoreStory(storyId),
     onSuccess: refreshProjections,
   });
   const start = useMutation({
     mutationFn: () => {
       if (!startArticleKey.current) startArticleKey.current = createIdempotencyKey();
-      return startArticle(story.id, startArticleKey.current);
+      return startArticle(storyId, startArticleKey.current);
     },
     onSuccess: async (article) => {
-      await invalidateArticleProjections(queryClient, article.id, story.id);
+      await invalidateArticleProjections(queryClient, article.id, storyId);
       navigate(`/articles/${encodeURIComponent(article.id)}`);
     },
   });
-  const commandPending = review.isPending || follow.isPending || unfollow.isPending || ignore.isPending || start.isPending;
 
+  const value = story.data;
+  // `Прегледай` sends exactly the A/B snapshot the editor saw, and the command
+  // is what re-decides; the page keeps no unreviewed-development state of its own.
   useLayoutEffect(() => {
-    observedDevelopmentIds.current = story.newDevelopments
+    observedDevelopmentIds.current = (value?.newDevelopments ?? [])
       .filter((development) => development.unreviewed)
       .map((development) => development.id);
-  }, [story.newDevelopments]);
-
-  return (
-    <>
-      <div className={styles.actionCluster} aria-label="Действия за историята" aria-busy={commandPending}>
-      {available("REVIEW") ? (
-        <span className={styles.actionControl}>
-          <button
-            className={`${styles.action} ${styles.primaryAction}`}
-            type="button"
-            disabled={commandPending}
-            onClick={() => review.mutate(observed())}
-          >
-            {review.isPending ? "Преглежда се…" : "Прегледай"}
-          </button>
-        </span>
-      ) : null}
-      {available("FOLLOW") ? (
-        <span className={styles.actionControl}>
-          <button
-            className={`${styles.action} ${styles.secondaryAction}`}
-            type="button"
-            disabled={commandPending}
-            onClick={() => follow.mutate()}
-          >
-            {follow.isPending ? "Следи се…" : "Следи"}
-          </button>
-        </span>
-      ) : null}
-      {available("UNFOLLOW") ? (
-        <span className={styles.actionControl}>
-          <button
-            className={`${styles.action} ${styles.secondaryAction}`}
-            type="button"
-            disabled={commandPending}
-            onClick={() => unfollow.mutate()}
-          >
-            {unfollow.isPending ? "Следването се прекратява…" : "Спри следването"}
-          </button>
-        </span>
-      ) : null}
-      {available("IGNORE") ? (
-        <span className={styles.actionControl}>
-          <button
-            className={`${styles.action} ${styles.tertiaryAction}`}
-            type="button"
-            disabled={commandPending}
-            onClick={() => ignore.mutate()}
-          >
-            {ignore.isPending ? "Игнорира се…" : "Игнорирай"}
-          </button>
-        </span>
-      ) : null}
-      {available("START_ARTICLE") ? (
-        <span className={styles.actionControl}>
-          <button
-            className={`${styles.action} ${styles.secondaryAction}`}
-            type="button"
-            disabled={commandPending}
-            onClick={() => start.mutate()}
-          >
-            {start.isPending ? "Започва се…" : "Започни статия"}
-          </button>
-        </span>
-      ) : null}
-      {start.isPending ? <span role="status" aria-live="polite">Статията се създава.</span> : null}
-      {[review.error, follow.error, unfollow.error, ignore.error, start.error].map((error, index) => error ? (
-        <span className={styles.actionError} role="alert" key={index}>
-          {getErrorMessage(error, "Действието не можа да се изпълни. Опитайте отново.")}
-        </span>
-      ) : null)}
-      </div>
-    </>
-  );
-}
-
-export function StoryWorkspace() {
-  const { storyId = "" } = useParams();
-  const story = useQuery({ ...storyOptions(storyId), enabled: Boolean(storyId) });
-  const queryClient = useQueryClient();
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const research = useMutation({
-    mutationFn: () => researchMoreStory(storyId),
-    onSuccess: async () => {
-      await invalidateStoryProjections(queryClient, storyId);
-      headingRef.current?.focus();
-    },
-  });
+  }, [value?.newDevelopments]);
 
   if (!storyId) return <EmptyState>Историята не е намерена.</EmptyState>;
   if (story.isPending) return <LoadingState label="Зареждане на историята…" />;
   if (story.isError) return <ErrorState error={story.error} onRetry={() => void story.refetch()} />;
+  if (!value) return <EmptyState>Историята не е намерена.</EmptyState>;
 
-  const value = story.data;
+  const researchPending = research.isPending;
+  const commandError =
+    [review.error, follow.error, unfollow.error, ignore.error, start.error].find(Boolean) ?? null;
 
   return (
     <div className={styles.page}>
-      <PageHeader kicker="История" title={value.title} lede={value.summary} headingRef={headingRef} />
-      <p className={styles.statusLine}>
-        <span>Прегледана: {value.reviewed ? "да" : "не"}</span>
-        <span>Следена: {value.followed ? "да" : "не"}</span>
-        {value.ignored ? <span>Игнорирана</span> : null}
-      </p>
-      {value.ignored ? (
-        <p className={styles.ignoredNotice} role="note">
-          Тази история е извън фокуса на „Днес“. Прегледът ѝ връща към обичайното редакционно състояние.
-        </p>
-      ) : null}
-      <StoryActions story={value} headingRef={headingRef} />
+      <StoryHeader story={value} now={now} headingRef={headingRef} />
 
-      <Section title="Какво се случи">
-        <p className={styles.prose}>{value.whatHappened}</p>
-      </Section>
+      <StoryActions
+        actions={value.availableActions}
+        primary={headerPrimaryAction(value)}
+        commands={{
+          pending:
+            researchPending ||
+            review.isPending ||
+            follow.isPending ||
+            unfollow.isPending ||
+            ignore.isPending ||
+            start.isPending,
+          reviewPending: review.isPending,
+          followPending: follow.isPending,
+          unfollowPending: unfollow.isPending,
+          ignorePending: ignore.isPending,
+          startPending: start.isPending,
+          error: commandError
+            ? getErrorMessage(commandError, "Действието не можа да се изпълни. Опитайте отново.")
+            : null,
+          onReview: () => review.mutate([...observedDevelopmentIds.current]),
+          onFollow: () => follow.mutate(),
+          onUnfollow: () => unfollow.mutate(),
+          onIgnore: () => ignore.mutate(),
+          onStartArticle: () => start.mutate(),
+        }}
+      />
 
-      <Developments story={value} />
-      <FactsAndSources story={value} />
-      <MissingInformationSection story={value} research={research} />
-      <RelatedArticles story={value} />
-      <Publications story={value} />
-      <Chronology story={value} />
+      <StoryContext story={value} now={now} />
+      <StoryEvidence story={value} />
+      <StoryGapList
+        story={value}
+        research={{
+          available: value.availableActions.includes("RESEARCH_MORE"),
+          pending: researchPending,
+          // §17: the backend's own sentence. The frontend never invents
+          // «ненадежден източник» — a failed round says what actually failed.
+          error: research.error
+            ? getErrorMessage(research.error, "Проучването не можа да се изпълни. Опитайте отново.")
+            : null,
+          onResearch: () => research.mutate(),
+        }}
+      />
+      <StoryArticleSummary story={value} />
+      <StoryPublications story={value} />
+      <StoryGroupingCorrection story={value} />
     </div>
   );
 }

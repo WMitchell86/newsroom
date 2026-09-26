@@ -1596,3 +1596,64 @@ def test_assessed_clean_basis_offers_no_research_and_refuses_the_command(api_ser
     )
     assert status == 409
     assert payload["error"]["code"] == "INVALID_TRANSITION"
+
+
+# --------------------------------------------------------------------------
+# V1.2-G2: the two narrow Story-projection additions
+# --------------------------------------------------------------------------
+
+
+def test_story_detail_carries_the_independent_publisher_count(api_server, api_store):
+    """§3/§39: the count the page shows comes from the existing computation.
+
+    `story_store.metrics` already counts independent publishers for Today. The
+    Story detail now surfaces that same number, so React never counts a source
+    and never invents one. No new semantics and no new store: the list
+    projection is deliberately unchanged, because only the workspace needs it.
+    """
+    detail = _data(request(api_server, "/api/v1/stories/s-one"))
+    store = story_store.read_store(api_store["stories"])
+    story = story_store.story_by_id(store, "s-one")
+    items = {row["item_id"]: row for row in inbox_store.read_items(api_store["inbox"])}
+    assert detail["publisherCount"] == story_store.metrics(story, items)["publisher_count"]
+    # The Stories list keeps its own shape; the addition is workspace-only.
+    listed = _data(request(api_server, "/api/v1/stories?filter=all"))["stories"][0]
+    assert "publisherCount" not in listed
+
+
+def test_story_detail_reports_each_related_articles_canonical_state(api_server, api_store):
+    """§22/§39: the state word is the same decision, not a second one.
+
+    A Preparation Article reads `preparation` here and in its own workspace; a
+    finalized Article reads `null`, because it has left the active workflow. The
+    projection adds the existing derived value — it does not add a state.
+    """
+    article_id = api_store["article"]["article_id"]
+    detail = _data(request(api_server, "/api/v1/stories/s-one"))
+    related = next(row for row in detail["relatedArticles"] if row["id"] == article_id)
+    workspace = _data(request(api_server, f"/api/v1/articles/{article_id}"))
+    assert related["state"] == workspace["state"] == "preparation"
+
+    articles.save_article_content(
+        article_id,
+        expected_version=0,
+        title="Работа",
+        body="Общинският съвет одобри бюджета за ремонта.",
+        root=api_store["root"] / "editorial",
+    )
+    records = articles.read_editor_articles()
+    for row in records:
+        if row["article_id"] != article_id:
+            continue
+        row["editorial_focus"] = "Да разкажем какво се е променило в бюджета."
+        row["focus_confirmed_at"] = "2026-09-25T09:30:00Z"
+        row["draft_established_version"] = 1
+        row["ready_version"] = 1
+        row["ready_at"] = "2026-09-25T09:59:00Z"
+        row["ready_validation_digest"] = "digest-for-the-proof"
+        row["finalized_at"] = "2026-09-25T10:00:00Z"
+    articles.save_editor_articles(records)
+    archived = _data(request(api_server, "/api/v1/stories/s-one"))
+    finalized = next(row for row in archived["relatedArticles"] if row["id"] == article_id)
+    assert finalized["state"] is None
+    assert finalized["finalizedAt"] == "2026-09-25T10:00:00Z"
