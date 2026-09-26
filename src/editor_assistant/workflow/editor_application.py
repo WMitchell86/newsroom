@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from editor_assistant.drafting.evidence import EvidenceError, validate_packet
 from editor_assistant.workflow import (
+    article_draft_failure,
     article_generation,
     article_readiness,
     article_validation,
@@ -483,12 +484,21 @@ def _article_actions(
     state: str | None,
     validation,
     readiness: article_readiness.DraftReadiness | None = None,
+    manual_continuation: bool = False,
 ) -> tuple[list[str], dict | None]:
     """The available actions and the one next action, for the editor.
 
     **V1.1-B:** `MAKE_DRAFT` is no longer decided here. It comes from the SAME
     `article_readiness` evaluation that `start_article_draft` enforces, so the
     two can never disagree: there is no separate action predicate left to drift.
+
+    **V1.1-C:** `EDIT` on a Preparation Article is a *recovery* path, not an
+    alternative to `Направи чернова`. It is offered only when a durable marker
+    records that an eligible generation genuinely failed on this exact basis
+    (`manual_continuation`), so a clean preparation Article no longer shows it.
+    `MAKE_DRAFT` remains the next action when readiness allows, and both are
+    offered together after a failure, because a provider outage is worth a retry
+    before the editor writes the story by hand.
     """
     if article.get("finalized_at"):
         return [], None
@@ -497,7 +507,9 @@ def _article_actions(
             return ["SELECT_FOCUS"], _next_action("SELECT_FOCUS", "FOCUS_REQUIRED", "Избери фокус")
         # Backend-authorized manual continuation uses the same editor and the
         # same atomic content save. There is no separate manual Draft mode.
-        actions = ["CHANGE_FOCUS", "EDIT"]
+        actions = ["CHANGE_FOCUS"]
+        if manual_continuation:
+            actions.append("EDIT")
         readiness = readiness or article_readiness.DraftReadiness(
             eligible=False,
             reason_code=article_readiness.STORY_UNAVAILABLE,
@@ -578,10 +590,17 @@ def _article_projection(
     # V1.1-B: the projection and the Draft command read the SAME decision. The
     # snapshot is assembled from state this projection already loaded, so no
     # second evidence read and no second predicate exist.
-    readiness = article_readiness.evaluate(
-        article_readiness.build_snapshot(article, content, story, facts, missing)
+    readiness_snapshot = article_readiness.build_snapshot(article, content, story, facts, missing)
+    readiness = article_readiness.evaluate(readiness_snapshot)
+    # V1.1-C: manual continuation is a SEPARATE question from readiness, not a
+    # second half of it. It is answered from one durable marker bound to this
+    # exact basis, so it survives a reload and expires by itself when the
+    # material changes — no attempt counter, no process state, no client state.
+    failure = article.get("draft_generation_failure")
+    manual_continuation = article_draft_failure.is_current(article, readiness_snapshot)
+    actions, next_action = _article_actions(
+        article, content, state, validation, readiness, manual_continuation
     )
-    actions, next_action = _article_actions(article, content, state, validation, readiness)
     preparation = None
     if state == "preparation":
         preparation = {
@@ -592,6 +611,14 @@ def _article_projection(
             "blockingGaps": blocking_gaps,
             "nonBlockingGaps": non_blocking_gaps,
             "draftEligible": readiness.eligible,
+            # V1.1-C: the recovery context, or null. It is the reason class and
+            # when it happened — never a provider error, a model name or a path.
+            "draftFailure": None
+            if not manual_continuation
+            else {
+                "reasonCode": str(failure["reason_code"]),
+                "failedAt": str(failure["failed_at"]),
+            },
             "availableActions": actions,
         }
     return (
@@ -1139,6 +1166,37 @@ def _raise_draft_refusal(exc: article_generation.DraftRefused) -> None:
     raise EditorDraftNotReady(code, exc.message) from exc
 
 
+def _record_draft_failure(article_id: str, snapshot: dict, basis: str, code: str) -> None:
+    """Persist the durable manual-continuation marker, if this failure qualifies.
+
+    **V1.1-C — the ordering contract.** This is called only from the worker, only
+    after the deterministic preflight passed and generation was actually
+    attempted, and only when no Draft was published. A preflight refusal
+    (`STORY_UNASSESSED`, `BLOCKING_GAP`, a stale version, an Article that already
+    has text) never reaches it, which is why those can never open the editor.
+
+    A non-qualifying code, or a marker that cannot be written, is not an error:
+    the operation still fails with its own stable code. The recovery path is a
+    convenience of a genuine failure, never a precondition for reporting one, so
+    it must never mask the real refusal or turn it into a different one.
+    """
+    reason = article_draft_failure.reason_for(code)
+    if not reason:
+        return
+    try:
+        editor_article_store.record_draft_generation_failure(
+            article_id,
+            content_version=int(snapshot["content_version"]),
+            basis_digest=basis,
+            reason_code=reason,
+            root=_editorial_root(),
+        )
+    except (editor_article_store.ArticleStoreError, OSError):
+        # The failure itself is still reported truthfully; only the recovery
+        # affordance is lost, and it returns on the next genuine failure.
+        LOG.warning("could not persist the draft failure marker for %s", article_id)
+
+
 def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
     """Begin the one editor-facing Draft action (C2 «Направи чернова»).
 
@@ -1205,10 +1263,32 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
                 article_generation.evaluate(current)
             except article_generation.DraftRefused as exc:
                 # Re-raise as the classified refusal so the bounded operation
-                # keeps the stable code instead of a generic failure.
+                # keeps the stable code instead of a generic failure. This is
+                # the preflight: it raises BEFORE any generation is attempted,
+                # which is exactly why it must never record a failure marker.
                 raise article_generation.DraftRefused(exc.code, exc.message) from exc
-            with _COMMAND_LOCK:
-                article_generation.generate(current, root=_editorial_root())
+            # V1.1-C: the preflight is crossed, so from here a failure is a real
+            # generation failure. The marker is written only for the classes
+            # that qualify, and only against the basis this attempt actually
+            # used, so a readiness refusal can never open the manual editor.
+            attempted_basis = article_draft_failure.basis_digest(current)
+            try:
+                with _COMMAND_LOCK:
+                    article_generation.generate(current, root=_editorial_root())
+            except article_generation.DraftRefused as exc:
+                _record_draft_failure(article_id, current, attempted_basis, exc.code)
+                raise
+            except editor_article_store.ArticleVersionConflict as exc:
+                raise article_generation.DraftRefused(
+                    "ARTICLE_VERSION_CONFLICT",
+                    "Статията е променена, преди черновата да се създаде.",
+                ) from exc
+            except Exception:
+                # An unclassified transport/provider failure: the attempt
+                # happened and produced no Draft, so it is the one case the
+                # empty refusal code stands for.
+                _record_draft_failure(article_id, current, attempted_basis, "")
+                raise
             return _article_dto_by_id(article_id)
         except article_generation.DraftRefused:
             raise

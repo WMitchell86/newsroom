@@ -405,6 +405,21 @@ def build_fixture(*, newsroom: Path, editorial: Path) -> dict:
     )
     ids["related_article_id"] = related
 
+    # V1.1-C: a fresh Preparation Article on the complete Story, kept purely for
+    # the manual-continuation proof. It must start in Preparation, because the
+    # recovery editor is offered only after a genuine generation failure, and it
+    # must be eligible, so the failure can really happen at the provider.
+    continuation = _new_article(
+        stories_path=stories_path,
+        editorial=editorial,
+        story_id="s-d2a-clean",
+        key="d2a-continuation",
+        title="Обновяването на парка — ръчно продължение",
+        focus="Да разкажем какво предстои за парка в центъра.",
+        now="2026-09-25T09:11:00Z",
+    )
+    ids["continuation_article_id"] = continuation
+
     ids["manual_article_id"] = manual["article_id"]
 
     # Finalized Archive Article: the read-only archived surface (§22, §24, §25).

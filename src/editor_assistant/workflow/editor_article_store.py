@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from editor_assistant.workflow import live_store, story_store
+from editor_assistant.workflow import article_draft_failure, live_store, story_store
 
 ROOT = Path(__file__).resolve().parents[3]
 ARTICLE_FIELDS = {
@@ -46,7 +46,15 @@ ARTICLE_FIELDS = {
     # content version the immutable generation audit assessed.
     "draft_established_version",
     "generated_content_version",
+    # V1.1-C: the durable identity of the last genuine generation failure. It
+    # exists so `Редактирай` can be a recovery path rather than an always-on
+    # escape hatch, and it is bound to the generation basis it was produced from.
+    "draft_generation_failure",
 }
+#: The editor-safe failure marker. Deliberately narrow: the content version it
+#: was produced against, a digest of the material, when it happened, and one
+#: reason *class*. Never a provider exception, prompt, payload or model name.
+DRAFT_FAILURE_FIELDS = {"content_version", "basis_digest", "failed_at", "reason_code"}
 INTERNAL_REF_FIELDS = {"idea_id", "evidence_id", "case_id", "draft_id"}
 CONTENT_FIELDS = {"article_id", "title", "body", "content_version", "updated_at"}
 #: The immutable finalized Article. It is the Archive's canonical content, so
@@ -180,7 +188,11 @@ def validate_editor_article(raw) -> dict:
             f"unknown Article fields {unknown} (allowed: {sorted(ARTICLE_FIELDS)})"
         )
     missing = sorted(
-        (ARTICLE_FIELDS - {"draft_established_version", "generated_content_version"}) - set(raw)
+        (
+            ARTICLE_FIELDS
+            - {"draft_established_version", "generated_content_version", "draft_generation_failure"}
+        )
+        - set(raw)
     )
     if missing:
         raise ArticleStoreError(f"Article missing fields: {missing}")
@@ -233,6 +245,7 @@ def validate_editor_article(raw) -> dict:
         raise ArticleStoreError("generated_content_version cannot exceed content_version")
     if generated_content_version is not None and draft_established_version is None:
         raise ArticleStoreError("generated_content_version requires a durable Draft")
+    draft_generation_failure = _validate_draft_failure(raw.get("draft_generation_failure"))
     focus_confirmed_at = _timestamp(raw["focus_confirmed_at"], "focus_confirmed_at", nullable=True)
     if finalized_at is not None and ready_version is None:
         raise ArticleStoreError("a finalized Article requires a valid readiness checkpoint")
@@ -255,6 +268,42 @@ def validate_editor_article(raw) -> dict:
         "finalized_at": finalized_at,
         "draft_established_version": draft_established_version,
         "generated_content_version": generated_content_version,
+        "draft_generation_failure": draft_generation_failure,
+    }
+
+
+def _validate_draft_failure(raw) -> dict | None:
+    """Validate the durable generation-failure marker, or `None` when absent.
+
+    A closed schema on purpose: a provider exception, a prompt or a payload
+    cannot be stored here even by accident, because it is not one of the four
+    fields. The reason is checked against the one policy taxonomy, so an internal
+    exception name can never be persisted as if it were an editor-safe class.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ArticleStoreError("draft_generation_failure must be an object or null")
+    unknown = sorted(set(raw) - DRAFT_FAILURE_FIELDS)
+    if unknown:
+        raise ArticleStoreError(f"unknown draft_generation_failure fields {unknown}")
+    missing = sorted(DRAFT_FAILURE_FIELDS - set(raw))
+    if missing:
+        raise ArticleStoreError(f"draft_generation_failure missing fields: {missing}")
+    reason = _required_text(raw["reason_code"], "draft_generation_failure.reason_code")
+    if reason not in article_draft_failure.REASON_CODES:
+        raise ArticleStoreError(
+            f"draft_generation_failure.reason_code is not a known class: {reason}"
+        )
+    return {
+        "content_version": _version(
+            raw["content_version"], "draft_generation_failure.content_version"
+        ),
+        "basis_digest": _required_text(
+            raw["basis_digest"], "draft_generation_failure.basis_digest"
+        ),
+        "failed_at": _timestamp(raw["failed_at"], "draft_generation_failure.failed_at"),
+        "reason_code": reason,
     }
 
 
@@ -480,6 +529,7 @@ def create_editor_article(
                 "finalized_at": None,
                 "draft_established_version": None,
                 "generated_content_version": None,
+                "draft_generation_failure": None,
             }
         )
         _write_content(
@@ -615,11 +665,72 @@ def save_article_content(
         record["ready_at"] = None
         if new_body.strip() and record["draft_established_version"] is None:
             record["draft_established_version"] = next_version
+        if new_body.strip():
+            # V1.1-C: the first non-empty manual save establishes Draft identity,
+            # so the Preparation recovery marker has done its work and is
+            # retired here. An empty body never reaches this branch, which is
+            # what keeps "typed then deleted" in Preparation.
+            record["draft_generation_failure"] = None
         # The immutable candidate document is written first. The Article record
         # remains the atomic current-version pointer; a failed pointer update
         # leaves the previous version readable and only an orphan candidate.
         _replace_article(record, root=root)
         return content
+
+
+def record_draft_generation_failure(
+    article_id: str,
+    *,
+    content_version: int,
+    basis_digest: str,
+    reason_code: str,
+    now=None,
+    root=None,
+) -> dict:
+    """Persist the durable marker for one genuine generation failure.
+
+    The only writer of `draft_generation_failure`. It is deliberately separate
+    from `save_article_content`: recording a failure is not an editorial edit,
+    must not create a content version, and must not touch the editor's text, the
+    working title or the internal refs. The failure is bound to the exact
+    `content_version` and basis digest it was produced from, so a later material
+    change retires it instead of leaving a stale recovery path open.
+    """
+    if reason_code not in article_draft_failure.REASON_CODES:
+        raise ArticleStoreError(f"unknown draft failure class: {reason_code}")
+    version = _version(content_version, "content_version")
+    digest = _required_text(basis_digest, "basis_digest")
+    stamp = _timestamp(now or _now(), "draft_generation_failure.failed_at")
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
+        record = deepcopy(get_editor_article(article_id, root=root))
+        if record["finalized_at"]:
+            raise ArticleStoreError("finalized Article cannot record a generation failure")
+        if version != record["content_version"]:
+            raise ArticleVersionConflict(
+                f"expected content_version {version}, current is {record['content_version']}"
+            )
+        record["draft_generation_failure"] = {
+            "content_version": version,
+            "basis_digest": digest,
+            "failed_at": stamp,
+            "reason_code": reason_code,
+        }
+        return _replace_article(record, root=root)
+
+
+def clear_draft_generation_failure(article_id: str, *, root=None) -> dict:
+    """Retire the recovery marker, leaving every other field untouched.
+
+    Called when a real Draft exists, whether it was generated or hand written:
+    from that point the Article is a Draft, so the Preparation recovery path no
+    longer means anything and must not leak into Draft state.
+    """
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
+        record = deepcopy(get_editor_article(article_id, root=root))
+        if record["draft_generation_failure"] is None:
+            return record
+        record["draft_generation_failure"] = None
+        return _replace_article(record, root=root)
 
 
 def publish_generated_draft(
@@ -677,6 +788,10 @@ def publish_generated_draft(
         record["ready_at"] = None
         record["draft_established_version"] = next_version
         record["generated_content_version"] = next_version
+        # V1.1-C: a published Draft ends the Preparation recovery path, so a
+        # previous failure must not survive into Draft state and keep
+        # authorizing a manual continuation that is no longer meaningful.
+        record["draft_generation_failure"] = None
         _replace_article(record, root=root)
         return content
 

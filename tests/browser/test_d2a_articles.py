@@ -15,6 +15,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from .fixture_data import SLOW_DRAFT_PROVIDER_SECONDS
 from .helpers import (
     assert_spa_shell,
+    fail_generation_once,
     nav_link,
     open_article,
     path_of,
@@ -380,8 +381,11 @@ def test_finalize_navigates_to_archive_and_leaves_the_active_lists(page, spa_run
     story_id = "s-d2a-clean"
     open_article(probe, article_id)
 
-    # Preparation -> Редактирай -> a manual body, so the Article can be reviewed.
-    probe.page.get_by_role("button", name="Редактирай").click()
+    # Preparation -> a real generation failure -> Редактирай -> a manual body,
+    # so the Article can be reviewed. V1.1-C: the recovery action is earned by
+    # a genuine failure, never offered on a clean Article.
+    fail_generation_once(probe, article_id)
+    probe.page.get_by_role("button", name="Редактирай").first.click()
     body = probe.page.locator("textarea#article-working-body").first
     body.wait_for(state="visible")
     body.fill("Града получиха средства за обновяване на централния парк.")
@@ -433,14 +437,25 @@ def test_finalize_navigates_to_archive_and_leaves_the_active_lists(page, spa_run
 
 
 def test_manual_continuation_reaches_draft_in_the_browser(page, spa_runtime):
-    """Preparation -> Редактирай -> manual body -> Чернова, with no generation."""
-    probe = page
-    article_id = spa_runtime["manual_article_id"]
-    open_article(probe, article_id)
-    assert state_marker(probe.page) == "чернова", "the seeded manual Draft is not a Чернова"
+    """Preparation -> a real generation failure -> Редактирай -> manual body -> Чернова.
 
-    probe.page.get_by_role("button", name="Редактирай").click()
-    body = probe.page.locator("textarea#article-working-body").first
+    V1.1-C: the manual editor is no longer offered on a clean Article, so this
+    proof now earns it the way an editor would — by attempting generation and
+    having it genuinely fail — before writing the story by hand.
+    """
+    probe = page
+    article_id = spa_runtime["continuation_article_id"]
+    open_article(probe, article_id)
+    assert state_marker(probe.page) == "подготовка", "the Article is not in Preparation"
+    # Before any failure, the recovery action is absent.
+    assert probe.page.get_by_role("button", name="Редактирай").count() == 0
+
+    fail_generation_once(probe, article_id)
+    probe.page.get_by_role("button", name="Редактирай").first.click()
+    # §13/§14: exactly ONE body control, with the accessible name the editor
+    # sees. The duplicate textarea this replaces would make this count 2.
+    body = probe.page.get_by_role("textbox", name="Текст на статията")
+    assert body.count() == 1
     body.wait_for(state="visible")
     manual = "Града получиха средства за обновяване на парка. Работата е в ход."
     body.fill(manual)
@@ -451,3 +466,17 @@ def test_manual_continuation_reaches_draft_in_the_browser(page, spa_runtime):
     # No generated lineage was invented for the manual path.
     assert detail.get("generatedContentVersion") in (None, 0)
     probe.assert_clean(context="manual continuation")
+
+    # §30 C: the text is durable across a real browser reload, which also proves
+    # the recovery decision came from canonical state and not from React.
+    probe.page.reload(wait_until="load")
+    probe.page.get_by_text(manual, exact=False).first.wait_for(state="visible", timeout=30000)
+    reloaded = probe.page.request.get(f"{probe.base_url}/api/v1/articles/{article_id}").json()[
+        "data"
+    ]
+    assert reloaded["content"]["body"] == manual
+    assert reloaded["state"] == "draft"
+    # §18: the Article is an ordinary Draft now — no Preparation projection, so
+    # no recovery affordance is left behind.
+    assert reloaded["preparation"] is None
+    assert reloaded["nextAction"]["action"] == "MARK_READY"

@@ -196,18 +196,11 @@ export function ArticleContentEditor({
       onChange={(event) => change(event.target.value, body)}
       onBlur={() => void flush()}
     />
-    <textarea
-      className={styles.editorBody}
-      id="article-working-body"
-      value={body}
-      onChange={(event) => change(title, event.target.value)}
-      onBlur={() => void flush()}
-    />
-    {status === "error" && !serverConflict ? (
-      <button className={styles.autosaveRetry} type="button" onClick={() => void flush()}>Опитайте отново</button>
-    ) : null}
-    {navigationWarning ? <p className={styles.navigationWarning} role="alert">{navigationWarning}</p> : null}
-
+    {/* V1.1-C: exactly ONE body control. This component used to render a second
+        textarea bound to the same `body` state, under the same DOM id, which
+        made the labelled control a duplicate and every test drove the orphan.
+        Autosave, flush and conflict handling are unchanged — only the duplicate
+        control and its duplicated retry/warning blocks are gone. */}
     <label className={styles.editorLabel} htmlFor="article-working-body">Текст на статията</label>
     <textarea
       className={styles.editorBody}

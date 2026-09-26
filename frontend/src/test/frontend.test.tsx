@@ -15,6 +15,7 @@ import {
   activeDraftArticle,
   activePreparationArticle,
   activeReadyArticle,
+  failedPreparationArticle,
   finalizeResult,
   finalizedArchiveArticle,
   storyDetail,
@@ -786,7 +787,9 @@ describe("Articles", () => {
     );
     await user.click(await screen.findByRole("button", { name: "Направи чернова" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Източникът временно не е наличен.");
-    expect(screen.getByRole("button", { name: "Направи чернова" })).toBeEnabled();
+    // V1.1-C §10: a temporary provider failure is worth a retry, so the action
+    // stays available and now says so.
+    expect(screen.getByRole("button", { name: "Опитай отново" })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Чернова" })).toBeNull();
   });
 
@@ -957,24 +960,21 @@ describe("Articles", () => {
 
   it("continues a failed Preparation manually into the same canonical Draft", async () => {
     const user = userEvent.setup();
-    const eligible = {
-      ...activePreparationArticle,
-      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
-      preparation: { ...activePreparationArticle.preparation!, focusConfirmed: true, draftEligible: true, availableActions: ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"] as ArticleDetail["availableActions"] },
-      availableActions: ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"] as ArticleDetail["availableActions"],
-    };
-    let canonical: ArticleDetail = eligible;
+    // V1.1-C: the DTO is the post-failure one — the backend offers `EDIT` only
+    // because a durable failure marker exists for this exact basis.
+    const failed = failedPreparationArticle;
+    let canonical: ArticleDetail = failed;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "PUT" && url.endsWith("/content")) {
         const body = JSON.parse(String(init.body)) as { title: string; body: string; expectedVersion: number };
-        canonical = { ...activeDraftArticle, id: eligible.id, story: eligible.story, content: { title: body.title, body: body.body, version: body.expectedVersion + 1 }, warnings: [] };
+        canonical = { ...activeDraftArticle, id: failed.id, story: failed.story, content: { title: body.title, body: body.body, version: body.expectedVersion + 1 }, warnings: [] };
         return dataResponse(canonical);
       }
       return dataResponse(canonical);
     });
     renderWithProviders(
       <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
-      { initialEntries: [`/articles/${eligible.id}`] },
+      { initialEntries: [`/articles/${failed.id}`] },
     );
     await user.click(await screen.findByRole("button", { name: "Редактирай" }));
     const editor = screen.getByRole("textbox", { name: "Текст на статията" });
@@ -984,6 +984,26 @@ describe("Articles", () => {
     expect(await screen.findByRole("heading", { name: "Чернова" })).toBeInTheDocument();
     expect(editor).toHaveValue("Ръчен текст след Generation failure.");
     expect(fetchMock.mock.calls.every(([url, init]) => !(url.endsWith("/draft") && init?.method === "POST"))).toBe(true);
+  });
+
+  it("keeps the failed Article in Preparation and retries the same content version", async () => {
+    // V1.1-C §26: a stale marker must not keep the editor open. Changing the
+    // working title changes the generation basis, so the backend drops `EDIT`
+    // and React must not resurrect it from anything it remembers.
+    const retitled: ArticleDetail = {
+      ...failedPreparationArticle,
+      content: { ...failedPreparationArticle.content, title: "Друг работно заглавие" },
+      preparation: { ...failedPreparationArticle.preparation!, draftFailure: null },
+      availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+    };
+    fetchMock.mockResolvedValue(dataResponse(retitled));
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${retitled.id}`] },
+    );
+    expect(await screen.findByRole("button", { name: "Направи чернова" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Редактирай" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Текст на статията" })).toBeNull();
   });
 
 
@@ -1612,5 +1632,121 @@ describe("Archive and Settings", () => {
       expect.stringContaining("Канали за вход"), expect.stringContaining("Система"),
     ]);
     entries.forEach((entry) => expect(entry).toHaveAttribute("aria-disabled", "true"));
+  });
+});
+
+/**
+ * V1.1-C — the two Preparation defects, locked from the DOM up.
+ *
+ * The previous suite could not catch either one: `getByRole` on a duplicated
+ * `id` silently resolved to the orphan textarea the tests happened to drive, and
+ * the always-on `Редактирай` was asserted as correct behaviour. These tests are
+ * written so that loophole is impossible — `getAllByRole(...).length` and an
+ * explicit id-uniqueness guard over the whole document.
+ */
+describe("V1.1-C manual continuation and one body editor", () => {
+  function preparationRoute() {
+    return (
+      <Routes>
+        <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
+        <Route path="/stories/:storyId" element={<p>История</p>} />
+        <Route path="/archive/:articleId" element={<p>Архивна статия</p>} />
+      </Routes>
+    );
+  }
+
+  async function openPreparation(article: ArticleDetail) {
+    fetchMock.mockResolvedValue(dataResponse(article));
+    const user = userEvent.setup();
+    renderWithProviders(preparationRoute(), { initialEntries: [`/articles/${article.id}`] });
+    return user;
+  }
+
+  it("offers no Редактирай on a fresh preparation Article, only generation", async () => {
+    const eligibleFresh: ArticleDetail = {
+      ...activePreparationArticle,
+      editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
+      preparation: {
+        ...activePreparationArticle.preparation!,
+        focusConfirmed: true,
+        draftEligible: true,
+        draftReadiness: { code: "DRAFT_ELIGIBLE", message: "Има достатъчно потвърдена информация за чернова." },
+        draftFailure: null,
+        availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+      },
+      availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT"],
+    };
+    await openPreparation(eligibleFresh);
+
+    // The exact defect: focus confirmed + eligible, and the manual editor is
+    // still absent. A clean Article is never a recovery case.
+    expect(await screen.findByRole("button", { name: "Направи чернова" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Редактирай" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Текст на статията" })).toBeNull();
+  });
+
+  it("offers Редактирай as a secondary recovery action after a real failure", async () => {
+    const user = await openPreparation(failedPreparationArticle);
+
+    const makeDraft = await screen.findByRole("button", { name: "Направи чернова" });
+    const edit = screen.getByRole("button", { name: "Редактирай" });
+    // Retry stays primary: recovery must not displace normal generation.
+    expect(
+      makeDraft.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      makeDraft.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_CONTAINED_BY,
+    ).toBeFalsy();
+
+    await user.click(edit);
+    // §29: while editing there is exactly one editor and no contradictory
+    // "no text yet" notice underneath it.
+    expect(screen.getAllByRole("textbox", { name: "Текст на статията" })).toHaveLength(1);
+    expect(screen.queryByText("Текстът на статията още не е създаден.")).toBeNull();
+  });
+
+  it("renders exactly one labelled body control and no duplicate DOM ids", async () => {
+    const user = await openPreparation(failedPreparationArticle);
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+
+    // §28: the assertion the old suite could not make.
+    expect(screen.getAllByRole("textbox", { name: "Текст на статията" })).toHaveLength(1);
+
+    // Exactly the expected controls: the working title, the editorial focus
+    // (Preparation's own field) and ONE body. No second body control.
+    const title = screen.getByRole("textbox", { name: "Заглавие" });
+    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    expect(screen.getAllByRole("textbox")).toHaveLength(3);
+    expect(screen.getByRole("textbox", { name: "Редакционен фокус" })).toBeInTheDocument();
+    expect(body).toHaveAttribute("id", "article-working-body");
+    expect(title).toHaveAttribute("id", "article-working-title");
+    // No orphan: the labelled control is the one the label points at.
+    expect(document.querySelector('label[for="article-working-body"]')).not.toBeNull();
+    expect(document.getElementById("article-working-body")).toBe(body);
+
+    // DOM-level duplicate-id guard, so a second body control cannot return
+    // under a different label or a different tag.
+    const ids = Array.from(document.querySelectorAll("[id]")).map((node) => node.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    // The only two textareas on this page are the editorial focus and the body.
+    expect(document.querySelectorAll("textarea")).toHaveLength(2);
+    expect(document.querySelectorAll("#article-working-body")).toHaveLength(1);
+  });
+
+  it("keeps autosave: one body field still persists on the 800 ms timer", async () => {
+    const user = await openPreparation(failedPreparationArticle);
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    await user.type(body, "Ръчен текст.");
+    // The 800 ms passive autosave fires without any blur or navigation.
+    await waitFor(() => {
+      const save = fetchMock.mock.calls.filter(
+        ([url, init]) => url.endsWith("/content") && init?.method === "PUT",
+      );
+      expect(save.length).toBeGreaterThan(0);
+      expect(JSON.parse(String((save.at(-1)?.[1] as RequestInit).body))).toMatchObject({
+        body: "Ръчен текст.",
+      });
+    });
   });
 });

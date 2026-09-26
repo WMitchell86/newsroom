@@ -360,6 +360,9 @@ def test_start_article_creates_canonical_preparation_article_and_retry_is_idempo
         "blockingGaps": [],
         "nonBlockingGaps": [],
         "draftEligible": False,
+        # V1.1-C: no generation has been attempted, so there is no recovery
+        # context and the manual editor is not offered.
+        "draftFailure": None,
         "availableActions": ["SELECT_FOCUS"],
     }
     serialized = json.dumps(article, ensure_ascii=False)
@@ -487,7 +490,13 @@ def test_preparation_focus_title_readiness_and_today_projection(api_server, api_
     researched = _data(request(api_server, f"/api/v1/articles/{article_id}"))
     assert researched["preparation"]["draftEligible"] is True
     assert researched["preparation"]["draftReadiness"]["code"] == "DRAFT_ELIGIBLE"
-    assert researched["preparation"]["availableActions"] == ["CHANGE_FOCUS", "EDIT", "MAKE_DRAFT"]
+    # V1.1-C: a clean preparation Article offers generation only. `EDIT` is a
+    # recovery path after a genuine generation failure, never an alternative to
+    # `Направи чернова` on a clean Article, so it is absent here and
+    # `draftFailure` is null.
+    assert researched["preparation"]["availableActions"] == ["CHANGE_FOCUS", "MAKE_DRAFT"]
+    assert "EDIT" not in researched["availableActions"]
+    assert researched["preparation"]["draftFailure"] is None
     assert researched["nextAction"]["action"] == "MAKE_DRAFT"
 
     story_research_store.save_story_research(
@@ -522,10 +531,14 @@ def test_preparation_focus_title_readiness_and_today_projection(api_server, api_
     assert (
         blocked["preparation"]["nonBlockingGaps"][0]["question"] == "Кой е основният заинтересован?"
     )
-    assert blocked["availableActions"] == ["CHANGE_FOCUS", "EDIT", "RESEARCH_MORE"]
+    assert blocked["availableActions"] == ["CHANGE_FOCUS", "RESEARCH_MORE"]
     assert blocked["nextAction"]["action"] == "RESEARCH_MORE"
     assert blocked["nextAction"]["reasonCode"] == "BLOCKING_GAP"
     assert "MAKE_DRAFT" not in blocked["availableActions"]
+    # V1.1-C: a readiness refusal is not a generation failure, so it never opens
+    # the manual editor and never records a durable failure marker.
+    assert "EDIT" not in blocked["availableActions"]
+    assert blocked["preparation"]["draftFailure"] is None
 
     empty = request(
         api_server,

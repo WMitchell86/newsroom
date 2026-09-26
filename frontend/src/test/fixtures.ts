@@ -159,6 +159,8 @@ export const activePreparationArticle: ArticleDetail = {
     blockingGaps: [],
     nonBlockingGaps: [storyDetail.missingInformation!.items[0]!],
     draftEligible: false,
+    // V1.1-C: no generation has been attempted, so there is no recovery path.
+    draftFailure: null,
     availableActions: ["SELECT_FOCUS"],
   },
   readiness: { isCurrent: false, readyVersion: null, readyAt: null },
@@ -166,6 +168,40 @@ export const activePreparationArticle: ArticleDetail = {
   nextAction: { action: "SELECT_FOCUS", reasonCode: "FOCUS_REQUIRED", label: "Избери фокус", primary: true },
   isFinalized: false,
   finalizedAt: null,
+};
+
+/**
+ * V1.1-C: the only Preparation state that offers the manual editor — a fully
+ * eligible Article whose generation genuinely failed on this exact basis. Retry
+ * (`Направи чернова`) stays primary and `Редактирай` is the recovery option.
+ */
+export const failedPreparationArticle: ArticleDetail = {
+  ...activePreparationArticle,
+  editorialFocus: {
+    text: activePreparationArticle.editorialFocus.text,
+    confirmedAt: "2026-09-25T11:00:00Z",
+  },
+  preparation: {
+    ...activePreparationArticle.preparation!,
+    focusConfirmed: true,
+    draftEligible: true,
+    draftReadiness: {
+      code: "DRAFT_ELIGIBLE",
+      message: "Има достатъчно потвърдена информация за чернова.",
+    },
+    draftFailure: {
+      reasonCode: "PROVIDER_UNAVAILABLE",
+      failedAt: "2026-09-25T11:05:00Z",
+    },
+    availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT", "EDIT"],
+  },
+  availableActions: ["CHANGE_FOCUS", "MAKE_DRAFT", "EDIT"],
+  nextAction: {
+    action: "MAKE_DRAFT",
+    reasonCode: "DRAFT_ELIGIBLE",
+    label: "Направи чернова",
+    primary: true,
+  },
 };
 
 export const activeDraftArticle: ArticleDetail = {

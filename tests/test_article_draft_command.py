@@ -221,11 +221,35 @@ def test_draft_identity_survives_body_deletion_and_generation_audit_becomes_stal
         app.start_article_draft(article_id, idempotency_key="must-not-overwrite")
 
 
-def test_manual_first_save_needs_no_generated_draft_and_keeps_lineage(newsroom, prepared):
+def test_manual_first_save_needs_no_generated_draft_and_keeps_lineage(
+    newsroom, prepared, model, monkeypatch
+):
+    """C3's manual continuation, now reached only the way C3 intended.
+
+    V1.1-C: `EDIT` is a recovery path, so this Article must first have a genuine
+    generation failure on its own basis. Everything after that is unchanged C3:
+    the first non-empty save makes THIS Article a Draft, with no Case, no
+    generated Draft and no fabricated lineage.
+    """
     article_id = prepared["article_id"]
     before_story = app.read_story("s-one")["id"]
     assert not _drafts() and not _cases()
-    assert "EDIT" in app.read_article(article_id)["availableActions"]
+    # A clean preparation Article is offered generation, never the manual editor.
+    fresh = app.read_article(article_id)
+    assert "MAKE_DRAFT" in fresh["availableActions"]
+    assert "EDIT" not in fresh["availableActions"]
+
+    def failing_provider(prompt_text, *, api_key, timeout, role="draft", **_kw):
+        raise RuntimeError("provider transport is down")
+
+    monkeypatch.setattr(gen, "_call_gemini", failing_provider)
+    _, failed = _run(article_id, "provider-down")
+    assert failed["status"] == "failed"
+
+    recovered = app.read_article(article_id)
+    assert recovered["state"] == "preparation"
+    assert "EDIT" in recovered["availableActions"]
+    assert recovered["preparation"]["draftFailure"]["reasonCode"] == "PROVIDER_UNAVAILABLE"
 
     saved = app.save_content(article_id, 0, prepared["working_title"], "Ръчно написан текст.")
 
@@ -247,6 +271,9 @@ def test_manual_first_save_needs_no_generated_draft_and_keeps_lineage(newsroom, 
         "case_id": None,
         "draft_id": None,
     }
+    # V1.1-C: the recovery marker is retired by the Draft it produced, so no
+    # Preparation fallback leaks into Draft state.
+    assert stored["draft_generation_failure"] is None
     with pytest.raises(app.EditorInvalidTransition):
         app.start_article_draft(article_id, idempotency_key="overwrite-manual")
 

@@ -169,6 +169,18 @@ export interface DraftReadiness {
   message: string;
 }
 
+/**
+ * V1.1-C: the durable generation failure that makes manual continuation a
+ * legitimate recovery path. `reasonCode` is the stable editor-safe class; it is
+ * never a provider error, a model name or a path.
+ */
+export type DraftFailureCode = "PROVIDER_UNAVAILABLE" | "GENERATION_FAILED";
+
+export interface DraftFailure {
+  reasonCode: DraftFailureCode;
+  failedAt: string;
+}
+
 export interface PreparationProjection {
   focusConfirmed: boolean;
   blockingGaps: MissingInformationItem[];
@@ -179,6 +191,12 @@ export interface PreparationProjection {
    * never render a green line beside a blocking one.
    */
   draftReadiness: DraftReadiness;
+  /**
+   * V1.1-C: null unless an eligible generation genuinely failed on this exact
+   * basis. `availableActions` carries `EDIT` precisely when this is non-null, so
+   * the page never derives the recovery path from its own local state.
+   */
+  draftFailure: DraftFailure | null;
   availableActions: AvailableAction[];
 }
 

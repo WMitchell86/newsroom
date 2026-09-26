@@ -65,6 +65,32 @@ def open_article(probe, article_id: str) -> None:
     probe.page.locator("main").wait_for(state="visible")
 
 
+def fail_generation_once(probe, article_id: str) -> None:
+    """Drive one real generation attempt that genuinely fails, through the UI.
+
+    V1.1-C: `Редактирай` is a recovery path, so a browser proof of manual
+    continuation must first EARN it. The provider boundary substitute is swapped
+    for one that raises, `Направи чернова` is really clicked, the failed
+    operation is really awaited, and the page is refetched from the server — so
+    the recovery action that appears was produced by canonical state, not by
+    anything the browser remembered.
+    """
+    from editor_assistant.drafting import generate as gen
+
+    original = gen._call_gemini
+    gen._call_gemini = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("provider is down"))
+    try:
+        page = probe.page
+        page.get_by_role("button", name="Направи чернова").first.click()
+        # The operation really runs and really fails; the UI reports it.
+        page.get_by_role("alert").first.wait_for(state="visible", timeout=120000)
+    finally:
+        gen._call_gemini = original
+    # A canonical refetch: the action list comes back from the server.
+    page.goto(f"{probe.base_url}/articles/{article_id}", wait_until="load")
+    page.get_by_role("button", name="Редактирай").first.wait_for(state="visible", timeout=30000)
+
+
 def primary_nav(page):
     return page.get_by_role("navigation", name="Основни раздели")
 

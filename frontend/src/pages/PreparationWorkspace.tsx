@@ -192,11 +192,6 @@ export function PreparationWorkspace({
                 <strong>Липсва, но не пречи:</strong> {gap.question}
               </li>)}
             </ul>
-            {article.availableActions.includes("EDIT") && preparation.draftEligible ? (
-              <div className={styles.preparationActions}>
-                <button className={ui.retry} type="button" onClick={() => onEditingChange(true)}>Редактирай</button>
-              </div>
-            ) : null}
             {/* `MAKE_DRAFT` comes from the SAME backend decision as the sentence
                 above, so an enabled Draft button and a blocking message can
                 never both be on screen. */}
@@ -208,7 +203,7 @@ export function PreparationWorkspace({
                    disabled={draft.isPending || (draftError !== "" && !draftRetryable)}
                    onClick={() => draft.mutate()}
                  >
-                   {draft.isPending ? "Черновата се създава…" : "Направи чернова"}
+                   {draft.isPending ? "Черновата се създава…" : draftError && draftRetryable ? "Опитай отново" : "Направи чернова"}
                  </button>
                  {draft.isPending ? <span role="status" aria-live="polite">Черновата се създава.</span> : null}
                  {draftError ? <span className={styles.fieldError} role="alert">
@@ -217,6 +212,21 @@ export function PreparationWorkspace({
                  </span> : null}
                </div>
              ) : null}
+            {/* V1.1-C: `Редактирай` is a RECOVERY path, not an alternative to
+                `Направи чернова`. The backend offers it only after a genuine
+                generation failure, and it renders AFTER the Draft action, which
+                stays primary: a provider outage is worth a retry before the
+                editor writes the story by hand. The `draftEligible` conjunct
+                that used to gate this button is gone, so the button can no
+                longer contradict the backend decision. */}
+            {article.availableActions.includes("EDIT") ? (
+              <div className={styles.preparationActions}>
+                <p className={styles.pending}>
+                  Автоматичното създаване не успя. Можете да опитате отново или да напишете текста сами.
+                </p>
+                <button className={ui.retry} type="button" onClick={() => onEditingChange(true)}>Редактирай</button>
+              </div>
+            ) : null}
             {/* Research stays owned by the Story. When the backend says research
                 is the remedy, the editor gets a direct path to it — even with no
                 gap to show, which is the unassessed case. */}
@@ -242,6 +252,10 @@ export function PreparationWorkspace({
         </ul> : <p className={styles.pending}>Няма налични факти и източници.</p>}
       </aside>
     </div>
-    <p className={styles.noDraftNotice}>Текстът на статията още не е създаден.</p>
+    {/* V1.1-C: this notice described an Article with no Draft, so it must not
+        contradict an open body editor — the editor IS the current state. It was
+        rendered unconditionally, which is how "Текстът на статията още не е
+        създаден." appeared directly under a textarea the editor was typing into. */}
+    {!editing ? <p className={styles.noDraftNotice}>Текстът на статията още не е създаден.</p> : null}
   </div>;
 }
