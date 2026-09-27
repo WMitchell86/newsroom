@@ -1445,3 +1445,317 @@ def build_g2_story_fixture(*, newsroom: Path, editorial: Path) -> dict:
         "draft_article_id": draft["article_id"],
         "many_publication_count": len(publication_ids["s-g2-d"]),
     }
+
+
+# ============================================================================
+# V1.2-G3 — the Article / Draft workspace fixture
+# ============================================================================
+
+G3_SOURCES = {
+    "obshchina": {
+        "id": "obshchina",
+        "name": "Официален портал на Община Бургас",
+        "url": "https://burgas.example.test/g3-bulevard",
+    },
+    "patna": {
+        "id": "patna",
+        "name": "Пътна полиция",
+        "url": "https://patna.example.test/g3-bulevard",
+    },
+    "grad": {
+        "id": "grad",
+        "name": "ГРАД",
+        "url": "https://grad.example.test/g3-bulevard",
+    },
+}
+
+#: A realistic Bulgarian Draft body (roughly 700 words), used for the writing
+#: proof and the screenshots. It is real editorial prose on purpose: a
+#: lorem-ipsum Draft cannot prove that a 500-1000 word Bulgarian Article is
+#: pleasant to edit, which is the whole point of §13/§41.
+G3_DRAFT_BODY = (
+    "Общинският съвет одобри 1,2 милиона лева за ремонта на булевард „Свобода“ в централната "
+    "част на града. Решението е прието на заседание в сряда и предвижда работата да започне през "
+    "октомври, когато туристическият сезон вече е приключил.\n\n"
+    "Средствата са разпределени за три позиции: укрепване на каменната настилка, смяна на "
+    "амфората на носа и полагане на нова облицовка на пешеходната част. За инвестицията е "
+    "предвиден срок от осем месеца, като първата месеца са за подготовка на терена и временна "
+    "организация на движението.\n\n"
+    "„Много хора ни пишеха за състоянието на булеварда — и имат основание. Това е едно от "
+    "най-посещаваните места в града, а настилката е от десетилетия. Решението е сериозно и "
+    "средствата са реални“, заяви зам.-кметът по градоустройство и строителство след заседанието.\n\n"
+    "Община Бургас уточни, че движението по булеварда няма да бъде спирано изцяло. Ще се "
+    "работи на участък, а преминаването на автомобилите ще се осъществява в едното платно. "
+    "„Ще се опитаме да запазим достъпа до търговските обекти и заведенията. Ако някой собственик "
+    "счита, че условията са неприемливи, може да се обърне към нас“, заявиха от дирекцията.\n\n"
+    "По данни на общинската администрация проектът е включен в инвестиционната програма за "
+    "2026 година, а средствата са от целевия бюджет за основни ремонти на пътната инфраструктура. "
+    "Не е предвидено финансиране от държавата или от европейски фондове.\n\n"
+    "Жителите от квартала посрещнаха решението с противоречиви реакции. „Ще чакаме да видим кога точно "
+    "ще започнат, защото последният път обещанието се оказа трудно изпълнимо“, написа един от тях в "
+    "коментар под публикацията на общината.\n\n"
+)
+
+
+#: A Draft that carries one REAL review warning. The sentence about the total
+#: cost has no support anywhere in the evidence basis, so the production C4
+#: validation engine raises `lexical_unsupported_sentence` on its own. Nothing in
+#: the fixture fabricates a warning: the screenshot shows what the real engine
+#: decided about this real text.
+G3_WARNING_DRAFT_BODY = (
+    "Общинският съвет одобри 1,2 милиона лева за ремонта на булевард \u201eСвобода\u201c в централната "
+    "част на града. Решението е прието на заседание в сряда и предвижда работата да започне през "
+    "октомври, когато туристическият сезон вече е приключил.\n\n"
+    "Според неофициален източник реалната стойност на проекта надхвърля 2 милиона лева, защото "
+    "са предвидени и допълнителни укрепления.\n\n"
+    "Средствата са разпределени за укрепване на каменната настилка, смяна на амфората на носа и "
+    "полагане на нова облицовка на пешеходната част. За инвестицията е предвиден срок от осем "
+    "месеца, като първият месец е за подготовка на терена и временна организация на движението.\n\n"
+    "Община Бургас уточни, че движението по булеварда няма да бъде спирано изцяло. Ще се работи на "
+    "участък, а преминаването на автомобилите ще се осъществява в едното платно.\n\n"
+    "Общината обещава да публикува подробен график с дати по етапи след подписването на договора "
+    "за изпълнение. Очаква се това да се случи през следващите седмици."
+)
+
+
+def build_g3_article_fixture(*, newsroom: Path, editorial: Path) -> dict:
+    """Seed the Article states the G3 review is about.
+
+    A. a **Preparation** Article on an assessed Story — confirmed facts, no
+       blocking gap, a useful Focus and the backend's own alternatives, so the
+       §38 fast path (open, touch nothing, «Направи чернова») is real;
+    B. a **Preparation** Article whose Story is still unassessed, for the §40
+       research-from-Article proof;
+    C. a **Draft** carrying the realistic Bulgarian body, for §41;
+    D. a **Ready** Article, for §42.
+
+    Written through the canonical stores only, exactly as the pipeline would
+    have written it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from editor_assistant.workflow import editor_article_store as articles
+    from editor_assistant.workflow import (
+        inbox_store,
+        newsroom_refresh,
+        sources_registry,
+        story_operations,
+        story_research_store,
+        story_store,
+    )
+
+    newsroom.mkdir(parents=True, exist_ok=True)
+    editorial.mkdir(parents=True, exist_ok=True)
+    stories_path = newsroom / "stories.json"
+    inbox_path = newsroom / "inbox.jsonl"
+    _release_refresh_lock(newsroom_refresh)
+
+    now = datetime.now(timezone.utc)
+
+    def stamp(**delta) -> str:
+        return (now - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def add_story(story_id: str, title: str, summary: str, status: str) -> None:
+        item = {
+            "item_id": f"{story_id}-p0",
+            "source_id": f"g3-src-{story_id}",
+            "source_item_id": f"{story_id}-p0",
+            "title": title,
+            "url": f"https://vestnik.example.test/{story_id}",
+            "published_at": stamp(minutes=90),
+            "discovered_at": stamp(minutes=90),
+            "summary": summary,
+            "source_kind": "media",
+            "publisher_domain": f"g3-pub-{story_id}.example.test",
+            "status": "NEW",
+        }
+        story = story_store.new_story(item, now=stamp(minutes=90))
+        story["story_id"] = story_id
+        story["status"] = status
+        store = story_store.read_store(stories_path)
+        rows = inbox_store.read_items(inbox_path)
+        inbox_store.save_items([*rows, item], inbox_path)
+        story_store.write_store({"stories": [*store["stories"], story]}, stories_path)
+        sources_registry.add_source(
+            path=newsroom / "sources.json",
+            source_id=f"g3-src-{story_id}",
+            name=f"Г3 емисия {story_id}",
+            kind="media",
+            collector="rss",
+            url=f"https://vestnik.example.test/{story_id}/rss.xml",
+            priority="normal",
+        )
+
+    add_story(
+        "s-g3-prep",
+        "Общинският съвет одобри 1,2 милиона лева за булевард „Свобода“",
+        "Ремонтът на булеварда в центъра на града започва през октомври.",
+        "SEEN",
+    )
+    add_story(
+        "s-g3-unassessed",
+        "Промяна в маршрута на градския транспорт по линия 12",
+        "Промяната очаква потвърждение от превозвача.",
+        "SEEN",
+    )
+    add_story(
+        "s-g3-draft",
+        "Ремонтът на булевард „Свобода“ ще започне през октомври",
+        "Общината обяви срок и обем на предстоящите работи.",
+        "SEEN",
+    )
+    add_story(
+        "s-g3-warning",
+        "Още един ремонт по булеварда очаква решение",
+        "Средствата за втория етап още не са уточнени.",
+        "SEEN",
+    )
+    add_story(
+        "s-g3-ready",
+        "Нова програма на Опера Бургас за следващия сезон",
+        "Операта обяви абонаменти и дати на премиерата.",
+        "SEEN",
+    )
+    story_operations.clear()
+
+    # A. an ASSESSED Story: confirmed facts on opened sources, no gap, so the
+    #    Article is genuinely Draft-eligible without any research.
+    story_research_store.merge_research(
+        "s-g3-prep",
+        sources=[G3_SOURCES["obshchina"], G3_SOURCES["grad"]],
+        facts=[
+            {
+                "id": "fact_g3_money",
+                "text": "Община Бургас одобри 1,2 милиона лева за ремонта на булевард „Свобода“ в централната част на града.",
+                "sourceId": "obshchina",
+                "locator": "Решение № 41, т. 2",
+            },
+            {
+                "id": "fact_g3_month",
+                "text": "Срокът за изпълнение на ремонта е краят на октомври тази година.",
+                "sourceId": "obshchina",
+                "locator": "Решение № 41, т. 5",
+            },
+            # A reader-value fact. The generation pipeline classifies a bare
+            # announcement as RESEARCH_MORE and refuses to draft on it, so the
+            # fixture carries the same depth a real assessed Story has: who is
+            # affected, and what changes for them.
+            {
+                "id": "fact_g3_who",
+                "text": "Жителите от централния квартал ще получат нов детски кът, осветление и скамейки по булеварда.",
+                "sourceId": "grad",
+                "locator": "Репортаж, т. 3",
+            },
+            {
+                "id": "fact_g3_traffic",
+                "text": "Движението по булеварда няма да бъде спирано изцяло по време на строителните работи.",
+                "sourceId": "grad",
+                "locator": "Репортаж, т. 5",
+            },
+        ],
+        gaps=[],
+        assessed_at=stamp(minutes=40),
+        canonical_story={"story_id": "s-g3-prep"},
+        operation_id="g3-fixture-prep",
+        count_round=True,
+    )
+    # C. the same kind of basis, for the Draft and Ready Articles.
+    for story_id, operation in (
+        ("s-g3-draft", "g3-fixture-draft"),
+        ("s-g3-ready", "g3-fixture-ready"),
+        ("s-g3-warning", "g3-fixture-warning"),
+    ):
+        story_research_store.merge_research(
+            story_id,
+            sources=[G3_SOURCES["obshchina"]],
+            facts=[
+                {
+                    "id": f"fact_{story_id}_a",
+                    "text": "Официалното съобщение на администрацията определя обема и срока на работите.",
+                    "sourceId": "obshchina",
+                    "locator": "Съобщение, втори абзац",
+                }
+            ],
+            gaps=[],
+            assessed_at=stamp(minutes=35),
+            canonical_story={"story_id": story_id},
+            operation_id=operation,
+            count_round=True,
+        )
+
+    def make(story_id: str, key: str, title: str, focus: str) -> str:
+        article = articles.create_editor_article(
+            story_id=story_id,
+            stories_path=stories_path,
+            working_title=title,
+            now=stamp(minutes=20),
+            root=editorial,
+            idempotency_key=key,
+        )
+        articles.update_editor_focus(article["article_id"], focus, now=stamp(minutes=19), root=editorial)
+        return article["article_id"]
+
+    prep_article = make(
+        "s-g3-prep",
+        "g3-key-prep",
+        "Ремонтът на булевард „Свобода“ ще започне през октомври",
+        "Показваме какво е готово по ремонта и какво още община Бургас не е уточнила.",
+    )
+    research_article = make(
+        "s-g3-unassessed",
+        "g3-key-research",
+        "Промяна в маршрута на градския транспорт по линия 12",
+        "Изясняваме какво точно се променя по линия 12 и от кога.",
+    )
+    draft_article = make(
+        "s-g3-draft",
+        "g3-key-draft",
+        "Ремонтът на булевард „Свобода“ ще започне през октомври",
+        "Описваме ремонта и напомняме какво остава неуточнено за жителите.",
+    )
+    warning_article = make(
+        "s-g3-warning",
+        "g3-key-warning",
+        "Вторият етап на ремонта на булеварда очаква решение",
+        "Изясняваме какво е известно за втория етап и какво още не е уточнено.",
+    )
+    ready_article = make(
+        "s-g3-ready",
+        "g3-key-ready",
+        "Опера Бургас обяви нова програма за следващия сезон",
+        "Представяме новата сезонна програма и датите на премиерата.",
+    )
+    for article_id, title, body in (
+        (draft_article, "Ремонтът на булевард „Свобода“ ще започне през октомври", G3_DRAFT_BODY),
+        (
+            warning_article,
+            "Вторият етап на ремонта на булеварда очаква решение",
+            G3_WARNING_DRAFT_BODY,
+        ),
+        (
+            ready_article,
+            "Опера Бургас обяви нова програма за следващия сезон",
+            "Опера Бургас обяви абонаментна програма за следващия сезон, която включва "
+            "четири нови постановки и премиера на 15 октомври. Абонаментите започват да се "
+            "продават на 1 септември, а билетите за премиерата вече са налични в касата.",
+        ),
+    ):
+        articles.save_article_content(article_id, 0, title, body, now=stamp(minutes=10), root=editorial)
+
+    # §42: a Ready Article is a REAL readiness checkpoint, produced by the
+    # canonical application command — the same C4 validation engine the product
+    # uses. Nothing here fabricates a `Готова` label.
+    from editor_assistant.workflow import editor_application as app
+
+    app.mark_article_ready(ready_article, 1)
+
+    return {
+        "newsroom": newsroom,
+        "editorial": editorial,
+        "stories_path": stories_path,
+        "prep_article_id": prep_article,
+        "research_article_id": research_article,
+        "draft_article_id": draft_article,
+        "warning_article_id": warning_article,
+        "ready_article_id": ready_article,
+    }

@@ -1,3 +1,18 @@
+/* V1.2-G3 — the Article / Draft workspace.
+   A professional writing desk, not a form around a backend workflow.
+
+   The composition is fixed by the product decision:
+     left rail (shell) | main writing column ~820-900px | evidence rail ~260-300px
+
+   The evidence rail is NEVER reserved empty (§6): `.deskGridSolo` is the same
+   page with the rail removed, so the writing measure expands instead of leaving
+   a blank slab. The writing column always owns the visual attention.
+
+   The visual language is the approved G1/G2 one: warm light canvas, generous
+   whitespace, Noto Serif for editorial hierarchy, Noto Sans for UI and meta, a
+   restrained petrol accent, thin dividers, minimal card chrome, almost no
+   shadows, no gradients and no sparkle aesthetics. */
+
 .listPage {
   min-width: 0;
 }
@@ -23,28 +38,44 @@
   min-width: 0;
 }
 
-.workspaceHeader {
-  margin-bottom: var(--space-10);
+/* ---------------------------------------------------------------- header --
+   §7: compact. Back link, what this is, the title, the state. The Article
+   state is a quiet marker, never a large badge, and the Story title is not
+   repeated as a second heading. */
+.deskHeader {
+  margin-bottom: var(--space-8);
 }
 
-.workspaceHeader h1 {
-  max-width: 940px;
+.deskHeaderTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
-.workspaceHeader .kicker {
-  display: none;
+.backLink {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.backLink:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
 }
 
 .headingLine {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin-bottom: var(--space-3);
 }
 
 .linkedStory {
-  max-width: 940px;
-  margin: var(--space-3) 0 0;
+  max-width: 900px;
+  margin: var(--space-2) 0 0;
   color: var(--color-text-secondary);
   font-size: 13px;
   line-height: 20px;
@@ -55,25 +86,104 @@
   text-underline-offset: 3px;
 }
 
-.workspaceGrid {
+/* §7/§8: the title IS the page heading, and it is directly editable. The input
+   is borderless until focused, so an editable headline does not read as a form
+   field; on focus it takes the full measure and a hairline underline. */
+.titleBlock {
+  max-width: 900px;
+}
+
+.deskTitle {
+  margin: 0;
+  font-family: var(--font-editorial);
+}
+
+/* §26: the read-only title is the page heading in its own right — the same
+   editorial type, not a disabled-looking form field. */
+.deskTitleStatic {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 40px;
+  letter-spacing: -.01em;
+}
+
+.deskTitleInput {
+  width: 100%;
+  padding: 2px 0 6px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-editorial);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 40px;
+  letter-spacing: -.01em;
+}
+
+.deskTitleInput:hover {
+  border-bottom-color: var(--color-border-light);
+}
+
+.deskTitleInputFocused {
+  border-bottom-color: var(--color-accent);
+}
+
+/* §8: passive save state. Three words, quiet, beside the title. */
+.saveStatus {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* ------------------------------------------------------------------ grid --
+   §5/§6: the writing column owns the screen; the rail is supporting material
+   only, and it is absent — not empty — when there is nothing to put in it. */
+.deskGrid {
   display: grid;
-  grid-template-columns: minmax(0, 940px) 300px;
+  grid-template-columns: minmax(0, 900px) minmax(260px, 300px);
   align-items: start;
-  gap: 32px;
+  gap: var(--space-10);
   min-width: 0;
 }
 
-.editorialColumn {
+.deskGridSolo {
+  display: grid;
+  grid-template-columns: minmax(0, 940px);
+  align-items: start;
   min-width: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius);
-  padding: var(--space-10);
+}
+
+.writingColumn {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------------- focus --
+   §12: on a Draft or Ready Article the Focus is a quiet, collapsible block. A
+   large textarea above every Draft would compete with the text the editor is
+   here to write. */
+.draftFocus {
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.draftFocusBar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
 .contextLabel,
 .contentHeading,
-.evidenceHeading {
+.evidenceHeading,
+.evidenceSubheading {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
@@ -83,8 +193,12 @@
   text-transform: uppercase;
 }
 
-.focus {
-  padding-bottom: var(--space-8);
+.focusSummary {
+  max-width: 760px;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 24px;
 }
 
 .focusText {
@@ -101,64 +215,202 @@
   font-size: 14px;
 }
 
+/* --------------------------------------------------------------- content --
+   §5: the Draft is the centre of the screen. */
 .content {
-  padding: var(--space-8) 0 var(--space-10);
-  border-top: 3px solid var(--color-accent);
+  min-width: 0;
 }
 
 .contentHeader {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.contentControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .contentTitle {
   max-width: 780px;
-  margin: 0 0 var(--space-6);
+  margin: 0 0 var(--space-4);
   font-family: var(--font-editorial);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 600;
-  line-height: 33px;
+  line-height: 32px;
 }
 
 .contentBody {
   max-width: 780px;
   margin: 0;
   white-space: pre-wrap;
-  font-size: 17px;
-  line-height: 27px;
+  font-family: var(--font-editorial);
+  font-size: 18px;
+  line-height: 29px;
 }
 
-.readiness {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
+.contentEmpty {
   margin: 0;
-  padding: var(--space-4) 0 0;
-  border-top: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  font-style: italic;
 }
 
-.readiness div {
+/* --------------------------------------------------------------- actions --
+   §29: at any moment at most ONE primary forward action is emphasised. The
+   secondary state control is quiet and outlined; the forward action is filled
+   petrol. Nothing here is a big coloured badge. */
+.primaryAction {
+  padding: 9px 18px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.primaryAction:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.primaryAction:disabled {
+  opacity: .6;
+  cursor: progress;
+}
+
+.secondaryAction,
+.quietAction {
+  padding: 9px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.secondaryAction:hover,
+.quietAction:hover {
+  border-color: var(--color-text-secondary);
+}
+
+/* The support-rail disclosure and the Focus toggle are quieter still: they are
+   not decisions, they are reading controls. */
+.quietAction {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.secondaryAction:disabled,
+.quietAction:disabled {
+  opacity: .6;
+  cursor: progress;
+}
+
+/* ---------------------------------------------------------------- editor --
+   §13: exactly ONE body control, one label, comfortable line length and
+   generous vertical writing space. The border is a hairline, not a box. */
+.editorShell {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.readiness dt {
+.editorLabel {
   color: var(--color-text-secondary);
   font-size: 12px;
+  font-weight: 600;
   line-height: 17px;
+  letter-spacing: .055em;
+  text-transform: uppercase;
 }
 
-.readiness dd {
-  margin: 0;
+.editorBody {
+  width: 100%;
+  min-height: 560px;
+  padding: var(--space-4) 0;
+  border: 0;
+  border-top: 2px solid var(--color-accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-editorial);
+  font-size: 18px;
+  line-height: 29px;
+  resize: vertical;
+}
+
+.editorBody:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 52%, transparent);
+  outline-offset: 4px;
+}
+
+.navigationWarning {
+  margin: var(--space-2) 0 0;
+  color: var(--color-warning);
   font-size: 13px;
   line-height: 20px;
 }
 
-.warnings {
-  margin-top: var(--space-10);
+/* A genuine concurrent edit stays truthful and actionable. It is the one place
+   on this page that speaks about two sessions, because it is a real conflict. */
+.conflict {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-warning-surface);
+}
+
+.conflict h3,
+.conflict p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.conflictActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.conflictActions button {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------- readiness --
+   §20: warnings are attached to the decision they affect, not collected into
+   one large panel above the page. */
+.readinessBlock {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .warningList,
@@ -170,101 +422,48 @@
 }
 
 .warningList {
+  display: grid;
+  gap: var(--space-3);
   margin-top: var(--space-3);
 }
 
 .warning {
-  padding: var(--space-4) 0 var(--space-4) var(--space-4);
-  border-left: 3px solid var(--color-warning);
+  padding: 0 0 0 var(--space-4);
+  border-left: 3px solid var(--color-border);
 }
 
-/* The frozen three-level visual hierarchy. Informational is a quiet
-   annotation, review is a visible editorial note, blocking is a strong rule. */
+/* The frozen three-level visual hierarchy. Informational is a quiet annotation,
+   review is a visible editorial note, blocking is a strong stop. */
 .warningInfo {
   border-left-width: 1px;
-  border-color: var(--color-border);
   color: var(--color-text-secondary);
 }
 
 .warningReview {
-  border-color: var(--color-warning);
+  border-left-color: var(--color-warning);
 }
 
 .warningBlocking {
-  border-color: var(--color-error);
   border-left-width: 4px;
-  background: var(--color-warning-surface);
-}
-
-.warningStale {
-  margin: var(--space-3) 0 0;
-  color: var(--color-error);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.readyAction {
-  padding: var(--space-2) var(--space-5);
-  border: 1px solid var(--color-text);
-  border-radius: var(--radius);
-  background: var(--color-text);
-  color: var(--color-surface);
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  cursor: pointer;
-}
-
-.readyAction:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-/* «Финализирай» is the primary Ready action: the same strong shape as
-   «Отбележи като готова», because it is the last editorial step. It never
-   implies publication - that is a separate, not-yet-existing surface. */
-.finalizeAction {
-  padding: var(--space-2) var(--space-5);
-  border: 1px solid var(--color-text);
-  border-radius: var(--radius);
-  background: var(--color-text);
-  color: var(--color-surface);
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.finalizeAction:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.readyFeedback,
-.readyError {
-  margin: var(--space-3) 0 0;
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.readyError {
-  color: var(--color-error);
-}
-
-.warningMessage,
-.affectedText {
-  margin: 0;
+  border-left-color: var(--color-error);
 }
 
 .warningMessage {
+  margin: 0;
   font-size: 14px;
   line-height: 21px;
 }
 
 .affectedText {
-  margin-top: var(--space-2);
+  margin: var(--space-1) 0 0;
   color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.warningStale {
+  margin: var(--space-3) 0 0;
+  color: var(--color-error);
   font-size: 13px;
   line-height: 20px;
 }
@@ -276,101 +475,140 @@
   line-height: 21px;
 }
 
-.evidenceColumn {
-  min-width: 0;
-  padding: var(--space-4);
-  background: var(--color-evidence);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.evidenceSection + .evidenceSection {
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--color-border);
-}
-
-.evidenceHeading {
-  margin-bottom: var(--space-3);
-}
-
-.evidenceMeta,
-.evidenceEmpty {
-  margin: var(--space-2) 0 0;
+.readyFeedback {
+  margin: var(--space-3) 0 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.fact,
-.missingItem {
-  padding: var(--space-3) 0 var(--space-3) var(--space-3);
-  border-left: 1px solid var(--color-border);
-}
-
-.factText,
-.missingQuestion,
-.missingReason {
-  margin: 0;
-}
-
-.factText,
-.missingQuestion {
   font-size: 13px;
   line-height: 20px;
 }
 
-.source,
-.missingReason,
-.sourceLink {
+.readyError {
+  margin: var(--space-3) 0 0;
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* ---------------------------------------------------------- evidence rail --
+   §17/§19: this is the Article's factual support, not generic publications.
+   Compact, collapsible, and it never competes with the writing. */
+.evidenceColumn {
+  position: sticky;
+  top: var(--space-8);
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-evidence);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius);
+}
+
+.evidenceHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.evidenceToggle {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
   font-size: 12px;
-  line-height: 18px;
+  font-weight: 600;
+  line-height: 17px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.factList {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.fact {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border);
+}
+
+.factText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .source {
   margin: var(--space-1) 0 0;
-  color: var(--color-text-secondary);
-}
-
-.source strong {
-  color: var(--color-text);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .sourceLink {
-  display: inline-block;
-  margin-top: var(--space-1);
+  color: var(--color-accent);
+  text-underline-offset: 3px;
+}
+
+.gapBlock {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.evidenceSubheading {
+  margin-bottom: var(--space-2);
+}
+
+.missingList {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .missingItem {
-  border-left-color: var(--color-warning);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-warning);
+}
+
+.missingQuestion {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .missingReason {
-  margin-top: var(--space-1);
+  margin: var(--space-1) 0 0;
   color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
-
+/* ------------------------------------------------------------ preparation --
+   §10/§11: Preparation is a short launchpad, not a wizard. Focus first, the
+   alternatives under it, the factual basis, then the one next action. */
 .preparationGrid {
   display: grid;
-  grid-template-columns: minmax(0, 940px) 300px;
+  grid-template-columns: minmax(0, 900px) minmax(260px, 300px);
   align-items: start;
-  gap: 32px;
+  gap: var(--space-10);
+  min-width: 0;
 }
 
 .preparationMain {
   display: grid;
-  gap: 24px;
+  gap: var(--space-6);
   min-width: 0;
 }
 
 .preparationSection,
 .preparationEvidence {
   min-width: 0;
-  padding: 24px;
+  padding: var(--space-6);
+  background: var(--color-surface);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius);
-  background: var(--color-surface);
 }
 
 .preparationSection + .preparationSection {
@@ -392,7 +630,7 @@
 .titleInput,
 .focusInput {
   width: 100%;
-  margin-top: 12px;
+  margin-top: var(--space-3);
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -404,31 +642,31 @@
 .titleInput {
   font-family: var(--font-editorial);
   font-size: 22px;
+  line-height: 30px;
 }
 
 .focusInput {
-  min-height: 128px;
-  line-height: 1.5;
+  min-height: 120px;
+  font-size: 16px;
+  line-height: 25px;
   resize: vertical;
 }
 
-/* §D2: the quiet alternatives. Deliberately quiet — they read as suggestions
-   under the field, never as a wizard step with its own confirm button. */
+/* §D2: the quiet alternatives. They read as suggestions under the field, never
+   as a wizard step with a confirm button of its own. */
 .focusAlternatives {
-  margin-top: 12px;
+  margin-top: var(--space-4);
 }
 
 .focusAlternatives .preparationList {
-  list-style: none;
-  margin: 6px 0 0;
-  padding: 0;
+  margin: var(--space-2) 0 0;
 }
 
 .focusAlternative {
   display: block;
   width: 100%;
   margin-bottom: 4px;
-  padding: 6px 8px;
+  padding: 7px 10px;
   border: 0;
   border-left: 2px solid var(--color-border);
   background: transparent;
@@ -440,14 +678,12 @@
   cursor: pointer;
 }
 
-.focusAlternative:hover,
-.focusAlternative:focus-visible {
-  border-left-color: var(--color-accent, currentColor);
+.focusAlternative:hover {
+  border-left-color: var(--color-accent);
   color: var(--color-text);
 }
 
 .preparationHint,
-.confirmationNote,
 .pending,
 .eligible,
 .notEligible,
@@ -457,32 +693,13 @@
   line-height: 21px;
 }
 
-.preparationHint,
-.confirmationNote {
-  margin: 8px 0 0;
-}
-
-.confirmationNote {
-  color: var(--color-warning);
-}
-
-.preparationActions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.fieldError {
-  margin: 8px 0 0;
-  color: var(--color-error);
-  font-size: 13px;
+.preparationHint {
+  margin: var(--space-2) 0 0;
 }
 
 .eligible,
 .notEligible {
-  margin: 12px 0 0;
+  margin: var(--space-3) 0 0;
 }
 
 .eligible {
@@ -494,16 +711,31 @@
   color: var(--color-warning);
 }
 
+.preparationActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.fieldError {
+  margin: var(--space-2) 0 0;
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 20px;
+}
+
 .preparationList {
   display: grid;
-  gap: 12px;
-  margin: 16px 0 0;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
   padding: 0;
   list-style: none;
 }
 
 .preparationList li {
-  padding-left: 12px;
+  padding-left: var(--space-3);
   border-left: 3px solid var(--color-border);
   font-size: 14px;
   line-height: 21px;
@@ -522,7 +754,7 @@
 }
 
 .preparationList .blockingGap {
-  border-color: var(--color-error);
+  border-left-color: var(--color-error);
 }
 
 .preparationEvidence {
@@ -530,103 +762,8 @@
 }
 
 .noDraftNotice {
-  margin: 20px 0 0;
-  padding: 12px 16px;
+  margin: var(--space-6) 0 0;
+  padding: var(--space-3) var(--space-4);
   border-left: 3px solid var(--color-border);
   background: var(--color-evidence);
-}
-
-
-.navigationWarning {
-  margin: 8px 0 0;
-  color: var(--color-warning);
-  font-size: 13px;
-}
-
-
-.contentControls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.editorShell {
-  display: grid;
-  gap: 10px;
-}
-
-.editorToolbar,
-.conflictActions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.editorFeedback {
-  min-height: 20px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-
-.editorLabel {
-  margin-top: 8px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.editorTitle,
-.editorBody {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text);
-  background: var(--color-surface);
-  font: inherit;
-}
-
-.editorTitle {
-  font-family: var(--font-editorial);
-  font-size: 24px;
-}
-
-.editorBody {
-  min-height: 420px;
-  font-size: 17px;
-  line-height: 27px;
-  resize: vertical;
-}
-
-.autosaveRetry,
-.conflictActions button {
-  justify-self: start;
-  padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--color-text);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.conflict {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 16px;
-  border-left: 3px solid var(--color-warning);
-  background: var(--color-warning-surface);
-}
-
-.conflict h3,
-.conflict p {
-  margin: 0;
-}
-
-.conflictActions {
-  justify-content: flex-start;
-  margin-top: 8px;
 }

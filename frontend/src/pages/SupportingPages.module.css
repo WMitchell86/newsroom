@@ -116,6 +116,14 @@
   max-width: 1080px;
 }
 
+/* V1.2-G3 §28: finalized is not published. One quiet sentence, no controls. */
+.finalizedNote {
+  margin: calc(-1 * var(--space-6)) 0 var(--space-8);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 21px;
+}
+
 .finalizedMeta {
   display: flex;
   flex-wrap: wrap;

@@ -6,21 +6,30 @@ import { invalidateArticleProjections, queryKeys } from "../api/queries";
 import type { ArticleProjection } from "../api/dto";
 import { getErrorMessage } from "../shared/errorMessage";
 import { ArticleContentEditor } from "./ArticleContentEditor";
+import type { ArticleAutosave } from "./useArticleAutosave";
+import { saveLabel } from "./articleSaveLabel";
 
 import ui from "../shared/ui.module.css";
-import { Context, EmptyState, PageHeader, StatusMarker } from "../shared/EditorPrimitives";
+import { Context, EmptyState, StatusMarker } from "../shared/EditorPrimitives";
 import styles from "./ArticleWorkspace.module.css";
 
 export function PreparationWorkspace({
   article,
+  autosave,
   editing,
   onEditingChange,
-  onProjection,
 }: {
   article: ArticleProjection;
+  /**
+   * §13/§14: the ONE autosave for this Article, created by the page above.
+   * Preparation does not own a second one. Two writers would be two
+   * optimistic-concurrency writers racing the same content version, and the
+   * second would also hold a stale body across the Preparation -> Draft
+   * transition that a manual continuation causes.
+   */
+  autosave: ArticleAutosave;
   editing: boolean;
   onEditingChange: (value: boolean) => void;
-  onProjection: (projection: ArticleProjection) => void;
 }) {
   const queryClient = useQueryClient();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -180,15 +189,58 @@ export function PreparationWorkspace({
   }
 
   return <div className={`${ui.page} ${ui.articles} ${styles.workspace}`}>
-    <header className={styles.workspaceHeader}>
-      <div className={styles.headingLine}>
-        <Context>Статия</Context>
-        <StatusMarker state="preparation" />
+    {/* §7/§10: a short launchpad, not a form. Back link, what this is, the
+        title, the state — then straight into the Focus. */}
+    <header className={styles.deskHeader}>
+      <div className={styles.deskHeaderTop}>
+        <Link className={styles.backLink} to="/articles">← Статии</Link>
+        <div className={styles.headingLine}>
+          <Context>Статия</Context>
+          <StatusMarker state="preparation" />
+        </div>
       </div>
-      <PageHeader kicker="Активна редакционна работа" title={article.title} article headingRef={headingRef} />
-      <p className={styles.linkedStory}>Свързана история:{" "}
+      {/* §7: the title lives in the header and nowhere else. It was previously
+          printed as a heading AND edited in a «Работно заглавие» card below it,
+          which showed the same sentence twice on one screen. While the editor
+          is writing, the same header slot is fed by the ONE content autosave, so
+          there is never a second writer for the title. */}
+      <h1 className={styles.deskTitle}>
+        {editing ? (
+          <input
+            className={styles.deskTitleInput}
+            id="article-working-title"
+            value={autosave.title}
+            aria-label="Заглавие"
+            onChange={(event) => autosave.change({ title: event.target.value })}
+            onBlur={() => void autosave.flush()}
+          />
+        ) : (
+          <input
+            className={styles.deskTitleInput}
+            id="article-working-title"
+            value={title}
+            maxLength={500}
+            aria-label="Работно заглавие"
+            aria-invalid={Boolean(titleError)}
+            aria-describedby={titleError ? "article-working-title-error" : undefined}
+            onChange={(event) => { setTitle(event.target.value); setTitleError(""); }}
+            onBlur={commitTitle}
+          />
+        )}
+      </h1>
+      {/* §8/§14: the quiet, passive save state. While the editor is writing it
+          reports the ONE content autosave; before that it reports the working
+          title save. Neither is a Save button, and neither names a version. */}
+      {editing ? (
+        saveLabel(autosave.status) ? <p className={styles.saveStatus} role="status" aria-live="polite">{saveLabel(autosave.status)}</p> : null
+      ) : titleSave.isPending ? <p className={styles.saveStatus} role="status">Запазва се…</p> : null}
+      {titleError ? <p className={styles.fieldError} id="article-working-title-error" role="alert">{titleError}</p> : null}
+      {editing && autosave.navigationWarning ? (
+        <p className={styles.navigationWarning} role="alert">{autosave.navigationWarning}</p>
+      ) : null}
+      <p className={styles.linkedStory}>История:{" "}
         <Link to={`/stories/${encodeURIComponent(article.story.id)}`}>
-          {article.story.title || "Отвори историята"}
+          {article.story.title || "Свързана история"}
         </Link>
       </p>
     </header>
@@ -196,25 +248,10 @@ export function PreparationWorkspace({
       <div className={styles.preparationMain}>
         {editing ? <section className={styles.preparationSection} aria-labelledby="manual-continuation-heading">
           <h2 className={styles.contextLabel} id="manual-continuation-heading">Ръчно продължение</h2>
-          <ArticleContentEditor article={article} onSaved={onProjection} />
+          {/* §15: manual continuation is a normal writing session, not an error
+              mode. Its title is the one in the header, on the same autosave. */}
+          <ArticleContentEditor autosave={autosave} />
         </section> : null}
-        {!editing ? <section className={styles.preparationSection} aria-labelledby="working-title-heading">
-          <h2 className={styles.contextLabel} id="working-title-heading">Работно заглавие</h2>
-          <label className={styles.visuallyHidden} htmlFor="article-working-title">Работно заглавие</label>
-          <input
-            className={styles.titleInput}
-            id="article-working-title"
-            value={title}
-            maxLength={500}
-            aria-invalid={Boolean(titleError)}
-            aria-describedby={titleError ? "article-working-title-error" : undefined}
-            onChange={(event) => { setTitle(event.target.value); setTitleError(""); }}
-            onBlur={commitTitle}
-          />
-          {titleSave.isPending ? <span className={styles.pending} role="status">Заглавието се запазва.</span> : null}
-          {titleError ? <p className={styles.fieldError} id="article-working-title-error" role="alert">{titleError}</p> : null}
-        </section> : null}
-
         {canChangeFocus ? <section className={styles.preparationSection} aria-labelledby="article-focus-preparation">
           <h2 className={styles.contextLabel} id="article-focus-preparation">Редакционен фокус</h2>
           <p className={styles.preparationHint}>Какво конкретно искаме да разкажем с тази статия?</p>
@@ -248,6 +285,10 @@ export function PreparationWorkspace({
                     <button
                       type="button"
                       className={styles.focusAlternative}
+                      // §34: a stable hook for the browser proof. The CSS-module
+                      // class is hashed in a production build, so a class-based
+                      // locator cannot be used outside the dev server.
+                      data-focus-alternative={option}
                       onClick={() => adoptFocus(option)}
                     >
                       {option}
@@ -258,6 +299,7 @@ export function PreparationWorkspace({
                   <button
                     type="button"
                     className={styles.focusAlternative}
+                    data-focus-own="true"
                     onClick={() => { setFocusError(""); focusFieldRef.current?.focus(); }}
                   >
                     Напиши свой
@@ -305,13 +347,21 @@ export function PreparationWorkspace({
                 never both be on screen. */}
             {article.availableActions.includes("MAKE_DRAFT") ? (
               <div className={styles.preparationActions}>
+                 {/* §23: ONE filled petrol primary action, and one calm pending
+                     word while it runs. The internal stages are never shown.
+                     §15: after a genuine retryable generation failure this same
+                     control says so, beside the manual `Редактирай`. */}
                  <button
-                   className={ui.retry}
+                   className={styles.primaryAction}
                    type="button"
                    disabled={draft.isPending || (draftError !== "" && !draftRetryable)}
                    onClick={() => draft.mutate()}
                  >
-                   {draft.isPending ? "Черновата се създава…" : draftError && draftRetryable ? "Опитай отново" : "Направи чернова"}
+                   {draft.isPending
+                     ? "Подготвя се чернова…"
+                     : draftError && draftRetryable
+                       ? "Опитай отново"
+                       : "Направи чернова"}
                  </button>
                  {draft.isPending ? <span role="status" aria-live="polite">Черновата се създава.</span> : null}
                  {draftError ? <span className={styles.fieldError} role="alert">

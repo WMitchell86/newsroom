@@ -10,29 +10,25 @@ import {
 import { createIdempotencyKey, finalizeArticle, markArticleReady, reopenArticle } from "../api/client";
 import {
   Context,
-  Disclosure,
-  EmptyState,
   ErrorState,
   LoadingState,
-  PageHeader,
-  Section,
   StatusMarker,
 } from "../shared/EditorPrimitives";
 import { getErrorMessage } from "../shared/errorMessage";
-import { formatDate } from "../shared/editorLabels";
 import { safeExternalUrl } from "../shared/safeNavigation";
 import { ArticleContentEditor } from "./ArticleContentEditor";
+import { ArticleDeskTitle, DraftFocusBlock } from "./ArticleDeskParts";
 import { PreparationWorkspace } from "./PreparationWorkspace";
+import { useArticleAutosave } from "./useArticleAutosave";
 import ui from "../shared/ui.module.css";
 import styles from "./ArticleWorkspace.module.css";
 import type { ArticleDetail, Warning } from "../api/dto";
 
-function contentHeading(state: "preparation" | "draft" | "ready") {
+function contentHeading(state: "draft" | "ready") {
   if (state === "draft") return "Чернова";
   // The state itself is announced once, by the status marker. The section
   // heading names what the editor is looking at, not the state a second time.
-  if (state === "ready") return "Финален преглед";
-  return "Текущо съдържание";
+  return "Финален преглед";
 }
 
 /** The frozen three-level visual hierarchy: quiet note, editorial note, strong stop. */
@@ -45,15 +41,40 @@ function warningClass(warning: Warning) {
 
 
 
+/**
+ * V1.2-G3: the query shell.
+ *
+ * Everything that must run before the canonical Article exists lives here, and
+ * everything that owns an autosave lives BELOW it. Splitting the component at
+ * the loading boundary is what lets the writing desk call its hooks
+ * unconditionally instead of after an early return.
+ */
 export function ArticleWorkspace() {
   const { articleId = "" } = useParams();
   const query = useQuery({ ...articleOptions(articleId), enabled: Boolean(articleId) });
+
+  if (!articleId) {
+    return <ErrorState title="Статията не е намерена" error={new Error("Липсва идентификатор на статия.")} />;
+  }
+  if (query.isPending) return <LoadingState label="Зареждане на статия…" />;
+  if (query.isError) {
+    return <ErrorState title="Статията не можа да се зареди" error={query.error} onRetry={() => void query.refetch()} />;
+  }
+  return <ArticleDesk article={query.data} />;
+}
+
+/** The writing desk. Hooks run unconditionally here; the Article always exists. */
+function ArticleDesk({ article }: { article: ArticleDetail }) {
+  const articleId = article.id;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [savedVersion, setSavedVersion] = useState<number | null>(null);
   const [readyError, setReadyError] = useState("");
   const [transitionError, setTransitionError] = useState("");
+  // §19: the support rail is open by default while there is something in it, and
+  // collapsing it gives the writing column the full width. No draggable pane.
+  const [evidenceOpen, setEvidenceOpen] = useState(true);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
     flushRef.current = flush;
@@ -136,20 +157,24 @@ export function ArticleWorkspace() {
     },
   });
 
-  if (!articleId) {
-    return <ErrorState title="Статията не е намерена" error={new Error("Липсва идентификатор на статия.")} />;
-  }
-  if (query.isPending) return <LoadingState label="Зареждане на статия…" />;
-  if (query.isError) {
-    return <ErrorState title="Статията не можа да се зареди" error={query.error} onRetry={() => void query.refetch()} />;
-  }
-  const article = query.data;
   const canMarkReady = article.availableActions.includes("MARK_READY");
   // Only the server decides which of the two Ready actions exist. A stale
   // checkpoint already projects `Чернова`, so the Ready surface is not shown.
   const isReady = article.state === "ready";
   const canFinalize = isReady && article.availableActions.includes("FINALIZE");
   const transitionPending = reopen.isPending || finalize.isPending;
+  // §13/§14: ONE autosave for the whole Article, created once here and shared by
+  // the title in the header and the body in the writing column. Two writers
+  // would be two optimistic-concurrency writers racing for the same version.
+  const autosave = useArticleAutosave({
+    article,
+    savedVersion,
+    registerFlush,
+    onSaved: (projection) => {
+      queryClient.setQueryData(queryKeys.article(projection.id), projection);
+      setSavedVersion(projection.content.version);
+    },
+  });
 
   if (article.isFinalized || article.state === null) {
     return <Navigate replace to={`/archive/${encodeURIComponent(article.id)}`} />;
@@ -157,73 +182,71 @@ export function ArticleWorkspace() {
   if (article.state === "preparation") {
     return <PreparationWorkspace
       article={article}
+      autosave={autosave}
       editing={editing}
       onEditingChange={setEditing}
-      onProjection={(projection) => {
-        queryClient.setQueryData(queryKeys.article(article.id), projection);
-        setSavedVersion(projection.content.version);
-      }}
     />;
   }
   const facts = article.factsAndSources;
   const missing = article.missingInformation;
-  const currentTitle = article.content.title || article.title;
+
+  // §6: the evidence rail is never reserved empty. An Article with nothing to
+  // support it gets the full width for writing, because a blank 300px slab
+  // beside a textarea is the most wasteful thing this page could do.
+  const hasEvidence = facts.length > 0 || Boolean(missing && missing.items.length > 0);
 
   return <div className={`${ui.page} ${ui.articles} ${styles.workspace}`}>
-    <header className={styles.workspaceHeader}>
-      <div className={styles.headingLine}>
-        <Context>Статия</Context>
-        <StatusMarker state={article.state} />
+    {/* §7/§16: a compact header — back link, what this is, the title, the state.
+        The Story stays one quiet line away, not a second workspace. */}
+    <header className={styles.deskHeader}>
+      <div className={styles.deskHeaderTop}>
+        <Link className={styles.backLink} to="/articles">← Статии</Link>
+        <div className={styles.headingLine}>
+          <Context>Статия</Context>
+          <StatusMarker state={article.state} />
+        </div>
       </div>
-      <PageHeader kicker="Активна редакционна работа" title={currentTitle} article />
+      {/* §7/§8: the title is the page's own heading and stays directly editable,
+          with passive save status and no version or concurrency detail. */}
+      <ArticleDeskTitle autosave={autosave} editable={editing} />
       <p className={styles.linkedStory}>
-        Свързана история:{" "}
+        История:{" "}
         <Link to={`/stories/${encodeURIComponent(article.story.id)}`}>
-          {article.story.title || "Отвори историята"}
+          {article.story.title || "Свързана история"}
         </Link>
       </p>
     </header>
 
-    <div className={styles.workspaceGrid}>
-      <div className={styles.editorialColumn}>
-        <section className={styles.focus} aria-labelledby="article-focus">
-          <h2 className={styles.contextLabel} id="article-focus">Редакционен фокус</h2>
-          {article.editorialFocus.text
-            ? <p className={styles.focusText}>{article.editorialFocus.text}</p>
-            : <p className={styles.focusEmpty}>Още не е зададен фокус.</p>}
-        </section>
+    {/* §5/§6: the writing column owns the screen; the rail is supporting only. */}
+    <div className={evidenceOpen && hasEvidence ? styles.deskGrid : styles.deskGridSolo}>
+      {/* §34: the application shell already owns the single `main` landmark, so the
+          writing column is a labelled region inside it. A nested `main` would give
+          the page two landmarks and break the structure a screen reader relies on. */}
+      <section className={styles.writingColumn} aria-label="Текст на статията">
+
+        {/* §12: once a Draft exists the Focus is a quiet, collapsible block. A
+            large textarea above every Draft would compete with the text. */}
+        <DraftFocusBlock article={article} />
 
         <section className={styles.content} aria-labelledby="article-content-heading">
           <div className={styles.contentHeader}>
             <h2 className={styles.contentHeading} id="article-content-heading">
               {contentHeading(article.state)}
             </h2>
+            {/* §29: at most ONE emphasised forward action at any moment. */}
             <div className={styles.contentControls}>
-              <Context>Версия {article.content.version}</Context>
               {isReady ? (
-                <>
-                  <button
-                    className={ui.retry}
-                    type="button"
-                    disabled={transitionPending}
-                    onClick={() => reopen.mutate()}
-                  >
-                    {reopen.isPending ? "Връща се…" : "Редактирай"}
-                  </button>
-                  {canFinalize ? (
-                    <button
-                      className={styles.finalizeAction}
-                      type="button"
-                      disabled={transitionPending}
-                      onClick={() => finalize.mutate()}
-                    >
-                      {finalize.isPending ? "Финализира се…" : "Финализирай"}
-                    </button>
-                  ) : null}
-                </>
+                <button
+                  className={styles.secondaryAction}
+                  type="button"
+                  disabled={transitionPending}
+                  onClick={() => reopen.mutate()}
+                >
+                  {reopen.isPending ? "Връща се…" : "Редактирай"}
+                </button>
               ) : article.availableActions.includes("EDIT") ? (
                 <button
-                  className={ui.retry}
+                  className={styles.secondaryAction}
                   type="button"
                   onClick={() => setEditing((current) => !current)}
                 >
@@ -232,7 +255,7 @@ export function ArticleWorkspace() {
               ) : null}
               {canMarkReady ? (
                 <button
-                  className={styles.readyAction}
+                  className={styles.primaryAction}
                   type="button"
                   disabled={ready.isPending}
                   onClick={() => ready.mutate()}
@@ -240,17 +263,25 @@ export function ArticleWorkspace() {
                   {ready.isPending ? "Проверява се…" : "Отбележи като готова"}
                 </button>
               ) : null}
+              {canFinalize ? (
+                <button
+                  className={styles.primaryAction}
+                  type="button"
+                  disabled={transitionPending}
+                  onClick={() => finalize.mutate()}
+                >
+                  {finalize.isPending ? "Финализира се…" : "Финализирай"}
+                </button>
+              ) : null}
             </div>
           </div>
-          {editing ? <ArticleContentEditor
-            article={article}
-            savedVersion={savedVersion}
-            registerFlush={registerFlush}
-          /> : <>
-            {currentTitle ? <h3 className={styles.contentTitle}>{currentTitle}</h3> : null}
+          {editing ? <ArticleContentEditor autosave={autosave} /> : <>
+            {/* The title is already the page heading in the header. Repeating it
+                above the body printed the same sentence twice on one screen, so
+                the read-only view starts at the text itself. */}
             {article.content.body.trim()
               ? <p className={styles.contentBody}>{article.content.body}</p>
-              : <EmptyState>Още няма текст на статията.</EmptyState>}
+              : <p className={styles.contentEmpty}>Още няма текст на статията.</p>}
           </>}
           {ready.isPending ? <p className={styles.readyFeedback} role="status" aria-live="polite">
             Проверява се текущата версия.
@@ -262,83 +293,75 @@ export function ArticleWorkspace() {
           {transitionError ? <p className={styles.readyError} role="alert">{transitionError}</p> : null}
         </section>
 
-        <Section title="Готовност" meta={article.readiness.isCurrent ? "Актуална" : "Не е актуална"}>
-          <dl className={styles.readiness}>
-            <div>
-              <dt>Версия на проверката</dt>
-              <dd>{article.readiness.readyVersion ?? "Няма"}</dd>
-            </div>
-            <div>
-              <dt>Проверена на</dt>
-              <dd>{formatDate(article.readiness.readyAt)}</dd>
-            </div>
-            <div>
-              <dt>Текуща версия</dt>
-              <dd>{article.validation.current ? article.validation.contentVersion : "Не е проверена"}</dd>
-            </div>
-          </dl>
-        </Section>
-
-        <section className={styles.warnings} aria-labelledby="article-warnings-heading">
-          <h2 className={ui.sectionTitle} id="article-warnings-heading">Предупреждения</h2>
+        {/* §20: warnings are attached to the decision they affect, not collected
+            into one large panel. §31: the heading names WHAT TO LOOK AT, never a
+            workflow state like «Проверка» — this is not a state, it is a note
+            beside the decision. */}
+        <section className={styles.readinessBlock} aria-labelledby="article-readiness-heading">
+          <h2 className={styles.contentHeading} id="article-readiness-heading">Какво да прегледаш</h2>
           {!article.validation.current ? <p className={styles.warningStale}>
             Проверката на текущия текст не е налична. Прегледайте черновата, преди да я отбележите.
           </p> : null}
-          {article.validation.current && article.warnings.length === 0
-            ? <p className={styles.noWarnings}>Няма предупреждения.</p>
-            : <ul className={styles.warningList}>
-              {article.warnings.map((warning) => <li
-                className={warningClass(warning)}
-                key={warning.id}
-              >
-                <p className={styles.warningMessage}>{warning.message}</p>
-                {warning.affectedText ? <p className={styles.affectedText}>{warning.affectedText}</p> : null}
-              </li>)}
-            </ul>}
+          {article.validation.current && article.warnings.length > 0 ? <ul className={styles.warningList}>
+            {article.warnings.map((warning) => <li
+              className={warningClass(warning)}
+              key={warning.id}
+            >
+              <p className={styles.warningMessage}>{warning.message}</p>
+              {warning.affectedText ? <p className={styles.affectedText}>{warning.affectedText}</p> : null}
+            </li>)}
+          </ul> : null}
+          {article.validation.current && article.warnings.length === 0 ? (
+            <p className={styles.noWarnings}>Няма твърдения, които изискват проверка.</p>
+          ) : null}
         </section>
-      </div>
+      </section>
 
-      <aside className={styles.evidenceColumn} aria-label="Факти, източници и липсваща информация">
-        <Disclosure label="Факти, източници и липсваща информация">
-          {facts.length > 0 ? <section className={styles.evidenceSection}>
-            <h2 className={styles.evidenceHeading}>Факти и източници</h2>
-            <ul className={styles.factList}>
-              {facts.map((fact) => <li className={styles.fact} key={fact.id}>
+      {/* §17/§19: the factual support rail — collapsible, and rendered only when
+          the Article has something to support it with. */}
+      {hasEvidence ? <aside className={styles.evidenceColumn} aria-labelledby="article-evidence-heading">
+        <div className={styles.evidenceHeader}>
+          <h2 className={styles.evidenceHeading} id="article-evidence-heading">Факти и източници</h2>
+          <button
+            className={styles.evidenceToggle}
+            type="button"
+            aria-expanded={evidenceOpen}
+            aria-controls="article-evidence-body"
+            onClick={() => setEvidenceOpen((open) => !open)}
+          >
+            {evidenceOpen ? "Скрий източниците" : "Покажи източниците"}
+          </button>
+        </div>
+        <div id="article-evidence-body" hidden={!evidenceOpen}>
+          {facts.length > 0 ? <ul className={styles.factList}>
+            {facts.map((fact) => {
+              const sourceUrl = safeExternalUrl(fact.source.url);
+              return <li className={styles.fact} key={fact.id}>
                 <p className={styles.factText}>{fact.text}</p>
                 <p className={styles.source}>
-                  <strong>{fact.source.name}</strong>
-                  {fact.source.domain ? <span> · {fact.source.domain}</span> : null}
-                  {fact.locator ? <span> · {fact.locator}</span> : null}
+                  {sourceUrl ? <a
+                    className={styles.sourceLink}
+                    href={sourceUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    {fact.source.name} <span aria-hidden="true">↗</span>
+                  </a> : <strong>{fact.source.name}</strong>}
                 </p>
-                {(() => {
-                  const sourceUrl = safeExternalUrl(fact.source.url);
-                  return sourceUrl ? <a className={styles.sourceLink} href={sourceUrl} target="_blank" rel="noreferrer">
-                    Отвори източника
-                  </a> : null;
-                })()}
-              </li>)}
-            </ul>
-          </section> : null}
-
-          {missing ? <section className={styles.evidenceSection}>
-            <h2 className={styles.evidenceHeading}>Какво липсва</h2>
-            {missing.assessedAt && missing.evidenceStatus !== "unassessed" ? (
-              <p className={styles.evidenceMeta}>Оценено на {formatDate(missing.assessedAt)}</p>
-            ) : null}
-            {missing.items.length === 0 && missing.evidenceStatus === "unassessed" ? (
-              <p className={styles.evidenceEmpty}>Историята още не е проучена.</p>
-            ) : null}
-            {missing.items.length === 0 && missing.evidenceStatus !== "unassessed" ? <p className={styles.evidenceEmpty}>Няма липсваща информация.</p> : null}
-            {missing.items.length > 0 ? <ul className={styles.missingList}>
+              </li>;
+            })}
+          </ul> : null}
+          {missing && missing.items.length > 0 ? <section className={styles.gapBlock}>
+            <h3 className={styles.evidenceSubheading}>Остава непотвърдена информация</h3>
+            <ul className={styles.missingList}>
               {missing.items.map((item) => <li className={styles.missingItem} key={item.id}>
                 <p className={styles.missingQuestion}>{item.question}</p>
                 {item.reason ? <p className={styles.missingReason}>{item.reason}</p> : null}
               </li>)}
-            </ul> : null}
+            </ul>
           </section> : null}
-          {facts.length === 0 && !missing ? <p className={styles.evidenceEmpty}>Няма налични факти и източници.</p> : null}
-        </Disclosure>
-      </aside>
+        </div>
+      </aside> : null}
     </div>
   </div>;
 }

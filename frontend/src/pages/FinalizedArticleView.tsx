@@ -25,6 +25,10 @@ export function FinalizedArticleView() {
   return <div className={`${styles.page} ${styles.finalizedPage}`}>
     <PageHeader kicker="Финализирана статия" title={currentTitle} lede="Завършено в системата · без редакционни действия" article />
 
+    {/* §28: finalized is NOT published. One plain sentence keeps the invariant
+        visible without adding any CMS or publication control. */}
+    <p className={styles.finalizedNote}>Статията е финализирана в редакционната система.</p>
+
     <div className={styles.finalizedMeta}>
       <p>
         История:{" "}

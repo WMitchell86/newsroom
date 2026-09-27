@@ -139,13 +139,13 @@ def _operation_rows(probe, article_id: str) -> list[dict]:
 
 
 def test_make_draft_produces_a_read_only_draft_body(page, spa_runtime):
-    """Направи чернова -> Черновата се създава… -> Чернова, rendered read-only."""
+    """Направи чернова -> Подготвя се чернова… -> Чернова, rendered read-only."""
     probe = page
     article_id = spa_runtime["preparation_article_id"]
     open_article(probe, article_id)
 
     probe.page.get_by_role("button", name="Направи чернова").click()
-    probe.page.get_by_text("Черновата се създава…").wait_for(state="visible", timeout=10000)
+    probe.page.get_by_text("Подготвя се чернова…").wait_for(state="visible", timeout=10000)
     # The real operation runs; the canonical state becomes Чернова.
     try:
         wait_for_state(probe.page, "чернова", timeout=60000)
@@ -189,7 +189,7 @@ def test_a_slow_draft_operation_still_succeeds_in_the_ui(page, spa_runtime):
 
     started = time.monotonic()
     probe.page.get_by_role("button", name="Направи чернова").click()
-    probe.page.get_by_text("Черновата се създава…").wait_for(state="visible", timeout=10000)
+    probe.page.get_by_text("Подготвя се чернова…").wait_for(state="visible", timeout=10000)
     try:
         wait_for_state(probe.page, "чернова", timeout=60000)
     except PlaywrightTimeoutError:

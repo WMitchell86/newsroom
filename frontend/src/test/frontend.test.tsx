@@ -1041,8 +1041,8 @@ describe("Articles", () => {
 
     const button = await screen.findByRole("button", { name: "Направи чернова" });
     await user.click(button);
-    expect(await screen.findByRole("button", { name: "Черновата се създава…" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Черновата се създава…" }));
+    expect(await screen.findByRole("button", { name: "Подготвя се чернова…" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Подготвя се чернова…" }));
     expect(fetchMock.mock.calls.filter(([url, init]) => url.endsWith("/draft") && init?.method === "POST")).toHaveLength(1);
     canonical = generated;
     resolveDraft(dataResponse(generated));
@@ -1193,7 +1193,7 @@ describe("Articles", () => {
     await user.type(editor, "Първи");
     await user.tab();
     await new Promise((resolve) => setTimeout(resolve, 900));
-    expect(screen.getByText("Запазване…")).toBeInTheDocument();
+    expect(screen.getByText("Запазва се…")).toBeInTheDocument();
     await user.clear(editor);
     await user.type(editor, "Най-нов текст");
     await user.tab();
@@ -1295,7 +1295,10 @@ describe("Articles", () => {
 
 
 
-  it("keeps draft content before evidence and opens the evidence disclosure on demand", async () => {
+  it("keeps draft content before evidence and collapses the support rail on demand", async () => {
+    // G3 §4/§5/§17: the reading order is title, focus, draft, then the
+    // supporting rail. The rail is a COLLAPSIBLE SUPPORT PANEL now, not a
+    // closed disclosure that hides the evidence by default.
     fetchMock.mockResolvedValue(dataResponse(activeDraftArticle));
     const user = userEvent.setup();
     renderWithProviders(
@@ -1304,18 +1307,49 @@ describe("Articles", () => {
       </Routes>,
       { initialEntries: [`/articles/${activeDraftArticle.id}`] },
     );
-    const title = await screen.findByRole("heading", { level: 1, name: activeDraftArticle.content.title });
-    const focus = screen.getByRole("heading", { name: "Редакционен фокус" });
+    const title = await screen.findByRole("heading", { level: 1 });
+    const focus = screen.getByRole("heading", { name: "Фокус" });
     const draft = screen.getByRole("heading", { name: "Чернова" });
-    const disclosure = screen.getByRole("button", { name: "Факти, източници и липсваща информация" });
+    const rail = screen.getByRole("button", { name: "Скрий източниците" });
     expect(title.compareDocumentPosition(focus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(focus.compareDocumentPosition(draft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(draft.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText(activeDraftArticle.factsAndSources[0]!.text)).not.toBeVisible();
-    await user.click(disclosure);
-    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    // The evidence is available without a click, and stays out of the way.
     expect(screen.getByText(activeDraftArticle.factsAndSources[0]!.text)).toBeVisible();
+    expect(rail).toHaveAttribute("aria-expanded", "true");
+    await user.click(rail);
+    expect(screen.getByRole("button", { name: "Покажи източниците" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText(activeDraftArticle.factsAndSources[0]!.text)).not.toBeVisible();
+  });
+
+  it("keeps the title as the page heading and the only editable title field", async () => {
+    // G3 §7/§8: while the editor is writing, the title IS the h1 and stays
+    // directly editable, with no second copy of it anywhere on the page.
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(dataResponse(activeDraftArticle));
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activeDraftArticle.id}`] },
+    );
+    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+
+    const heading = await screen.findByRole("heading", { level: 1 });
+    const title = screen.getByRole("textbox", { name: "Заглавие" });
+    expect(heading).toContainElement(title);
+    expect(title).toHaveValue(activeDraftArticle.content.title);
+    // §8: no version number and no concurrency detail reach the editor.
+    expect(document.body.textContent).not.toMatch(/Версия\s*\d/);
+  });
+
+  it("keeps a Ready Article free of editable fields until it is reopened", async () => {
+    // G3 §26: calm and nearly finished. Nothing is an input on a Ready Article.
+    fetchMock.mockResolvedValue(dataResponse(activeReadyArticle));
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activeReadyArticle.id}`] },
+    );
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent(activeReadyArticle.content.title);
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("keeps focus read-only when backend actions do not authorize editing", async () => {
@@ -1333,7 +1367,6 @@ describe("Articles", () => {
 
   it("renders Article facts and gaps from the read-only detail response", async () => {
     fetchMock.mockResolvedValue(dataResponse(activeDraftArticle));
-    const user = userEvent.setup();
     renderWithProviders(
       <Routes>
         <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
@@ -1341,8 +1374,8 @@ describe("Articles", () => {
       { initialEntries: [`/articles/${activeDraftArticle.id}`] },
     );
 
-    const disclosure = await screen.findByRole("button", { name: "Факти, източници и липсваща информация" });
-    await user.click(disclosure);
+    // G3 §17: the support rail is this Article's factual support.
+    expect(await screen.findByRole("heading", { name: "Факти и източници" })).toBeInTheDocument();
     expect(screen.getByText(activeDraftArticle.factsAndSources![0]!.text)).toBeVisible();
     expect(screen.getByText(activeDraftArticle.missingInformation!.items[0]!.question)).toBeVisible();
     expect(screen.getByText(activeDraftArticle.missingInformation!.items[0]!.reason!)).toBeVisible();
@@ -1578,7 +1611,7 @@ describe("C4 Отбележи като готова", () => {
     fetchMock.mockResolvedValue(dataResponse(draft));
     renderWithProviders(articleRoute(), { initialEntries: [`/articles/${draft.id}`] });
 
-    await screen.findByRole("heading", { name: "Предупреждения" });
+    await screen.findByRole("heading", { name: "Какво да прегледаш" });
     const review = screen.getByText(reviewWarning.message).closest("li")!;
     expect(review).toHaveTextContent(reviewWarning.affectedText);
     // The blocking note is visually stronger than the informational one.
@@ -1733,10 +1766,10 @@ describe("C4 Отбележи като готова", () => {
     expect(screen.getByRole("heading", { name: "Финален преглед" })).toBeInTheDocument();
     expect(screen.getByText(activeReadyArticle.content.body)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: activeReadyArticle.story.title! })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Редакционен фокус" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Факти, източници и липсваща информация" }),
-    ).toBeInTheDocument();
+    // G3 §12: on a Ready Article the Focus is a quiet block, and §17 gives the
+    // Article its own support rail rather than a generic evidence disclosure.
+    expect(screen.getByRole("heading", { name: "Фокус" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Факти и източници" })).toBeInTheDocument();
     // C5 activates exactly these two, and nothing resembling publication.
     expect(screen.getByRole("button", { name: "Финализирай" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Редактирай" })).toBeInTheDocument();
