@@ -1505,14 +1505,6 @@ def _draft_snapshot(article_id: str) -> dict:
                     read = publication_material.read_publication(resolved, topic=headline)
                     if read:
                         break
-                    # A publisher ROOT (from the keyless news feed) names who
-                    # carries the story but not where. One bounded site search
-                    # finds the article on that same publisher.
-                    found = publication_material.find_on_publisher(resolved, headline)
-                    if found:
-                        read = publication_material.read_publication(found, topic=headline)
-                        if read:
-                            break
                 if read:
                     break
         if read:

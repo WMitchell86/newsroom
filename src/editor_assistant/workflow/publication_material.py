@@ -33,14 +33,17 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from editor_assistant.sources import html_desc, web_fetch
 from editor_assistant.workflow import blocked_domains, claim_quality
 from editor_assistant.workflow import search as search_mod
+
+#: Every network call in this module is bounded. A Draft command runs inside a
+#: worker the editor is waiting on, so a slow provider must degrade to "no
+#: material" rather than hang the button.
+NETWORK_TIMEOUT = 12
 
 #: The identifying words of a title, for matching a discovery record to it.
 _TITLE_NOISE = re.compile(r"[^\w]+", re.UNICODE)
@@ -240,7 +243,6 @@ def _news_lookup(title: str, *, limit: int = 8) -> list[str]:
     The returned entries are publisher roots, not articles, so a caller that
     cannot open them must simply move on — which is what the reader loop does.
     """
-    import urllib.parse
     import urllib.request
     import xml.etree.ElementTree as ET
 
@@ -250,7 +252,7 @@ def _news_lookup(title: str, *, limit: int = 8) -> list[str]:
     )
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "chernomorie-editor/1.0"})
-        feed = urllib.request.urlopen(request, timeout=30).read()
+        feed = urllib.request.urlopen(request, timeout=NETWORK_TIMEOUT).read()
         root = ET.fromstring(feed)
     except (OSError, ValueError, ET.ParseError):
         return []
@@ -315,39 +317,6 @@ def page_is_about(text: str, topic: str) -> bool:
     if not have:
         return False
     return len(wanted & have) / len(wanted) >= MIN_TOPIC_OVERLAP
-
-
-def find_on_publisher(root: str, title: str, *, limit: int = 4) -> str:
-    """Find this article on a publisher we already know carries it.
-
-    V1.2-G4.2 §3C. The keyless news feed tells us the publisher but not the
-    article path, so this asks that one publisher — via its own on-site search,
-    the same endpoint collection already uses for a configured monitoring query
-    — and returns the first article URL whose title is about this Story.
-
-    Bounded to ONE publisher and ONE query. It is a step towards the Story's own
-    publication, not a search campaign, and it never leaves the publisher that
-    the newsroom's own collector already named.
-    """
-    host = (urlsplit(str(root or "")).hostname or "").lower()
-    if not host or not is_readable_publication(root):
-        return ""
-    query = urllib.parse.quote_plus(f'site:{host} "{title}"')
-    url = f"https://duckduckgo.com/html/?q={query}"
-    try:
-        request = urllib.request.Request(url, headers={"User-Agent": "chernomorie-editor/1.0"})
-        html = urllib.request.urlopen(request, timeout=25).read().decode("utf-8", "replace")
-    except (OSError, ValueError, UnicodeDecodeError):
-        return ""
-    for candidate in re.findall(r'https?://[a-zA-Z0-9._~:/?#\[\]@!$&()*+,;=%-]+', html):
-        candidate = candidate.split('"')[0].rstrip("'.,)")
-        if not is_readable_publication(candidate):
-            continue
-        if (urlsplit(candidate).hostname or "").lower().endswith(host) or (
-            urlsplit(candidate).hostname or ""
-        ).lower() == host:
-            return candidate
-    return ""
 
 
 def read_publication(url: str, *, topic: str = "", opener=None) -> dict | None:
