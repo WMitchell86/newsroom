@@ -6,9 +6,16 @@ import styles from "./Story.module.css";
 export interface StoryResearchControl {
   available: boolean;
   pending: boolean;
+  /**
+   * §2: the bounded client wait ended while the backend operation was still
+   * running. The editor is told that, and offered one way back to the SAME
+   * operation — never a "try again" that would start a second round.
+   */
+  continuingToken: string | null;
   /** The backend's own sentence for a failed round, or `null`. */
   error: string | null;
   onResearch(): void;
+  onCheckStatus(): void;
 }
 
 export interface StoryGapListProps {
@@ -64,6 +71,22 @@ export function StoryGapList({ story, research }: StoryGapListProps) {
       {research.pending ? (
         <span className={styles.researchStatus} role="status" aria-live="polite">
           Проучването е в ход.
+        </span>
+      ) : null}
+      {/* §2: still running after the bounded wait. This is a statement about
+          the wait, never a failure, and it is re-attachable to the same
+          operation. */}
+      {research.continuingToken ? (
+        <span className={styles.researchContinuing} role="status" aria-live="polite">
+          Проучването продължава.
+          <button
+            className={styles.researchReattach}
+            type="button"
+            onClick={research.onCheckStatus}
+            data-research-status="check"
+          >
+            Провери статуса
+          </button>
         </span>
       ) : null}
     </div>

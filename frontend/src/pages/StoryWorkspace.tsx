@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  checkResearchStatus,
   createIdempotencyKey,
   followStory,
   ignoreStory,
@@ -9,6 +10,7 @@ import {
   reviewStory,
   startArticle,
   unfollowStory,
+  type ResearchOutcome,
 } from "../api/client";
 import { getErrorMessage } from "../shared/errorMessage";
 import {
@@ -82,9 +84,27 @@ export function StoryWorkspace() {
     mutationFn: () => ignoreStory(storyId),
     onSuccess: refreshProjections,
   });
+  // §1/§2: one operation, followed for as long as it really runs. A bounded
+  // client wait that expires is a statement about the WAIT, so the token is kept
+  // and the editor can reattach to the same operation instead of being told the
+  // research failed.
+  const [continuingToken, setContinuingToken] = useState<string | null>(null);
+  const applyResearch = async (outcome: ResearchOutcome) => {
+    if (outcome.status === "continuing") {
+      setContinuingToken(outcome.operationToken);
+      return;
+    }
+    setContinuingToken(null);
+    await refreshProjections();
+  };
   const research = useMutation({
     mutationFn: () => researchMoreStory(storyId),
-    onSuccess: refreshProjections,
+    onSuccess: applyResearch,
+    onError: () => setContinuingToken(null),
+  });
+  const researchStatus = useMutation({
+    mutationFn: () => checkResearchStatus(continuingToken ?? ""),
+    onSuccess: applyResearch,
   });
   const start = useMutation({
     mutationFn: () => {
@@ -153,6 +173,10 @@ export function StoryWorkspace() {
         research={{
           available: value.availableActions.includes("RESEARCH_MORE"),
           pending: researchPending,
+          continuingToken,
+          onCheckStatus: () => {
+            if (continuingToken) researchStatus.mutate();
+          },
           // §17: the backend's own sentence. The frontend never invents
           // «ненадежден източник» — a failed round says what actually failed.
           error: research.error

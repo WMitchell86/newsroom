@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { RefObject } from "react";
 import type { StoryDetail } from "../../api/dto";
 import { formatRelativeTime, publisherCountLabel } from "../../shared/editorLabels";
+import { safeExternalUrl } from "../../shared/safeNavigation";
 import styles from "./Story.module.css";
 
 export interface StoryHeaderProps {
@@ -26,6 +27,11 @@ export interface StoryHeaderProps {
 export function StoryHeader({ story, now, headingRef }: StoryHeaderProps) {
   const publishers = publisherCountLabel(story.publisherCount);
   const changed = story.latestChangeAt ? formatRelativeTime(story.latestChangeAt, now) : null;
+  // §9: the original publication, named by the backend. The URL is read from
+  // the projected publication and validated as http(s); nothing is reconstructed
+  // in React, and no action is rendered when there is no valid URL.
+  const origin = story.publications.find((row) => row.id === story.originPublicationId);
+  const originUrl = safeExternalUrl(origin?.url);
 
   return (
     <header className={styles.header ?? ""}>
@@ -36,6 +42,17 @@ export function StoryHeader({ story, now, headingRef }: StoryHeaderProps) {
       <h1 ref={headingRef} tabIndex={-1} className={styles.title}>
         {story.title}
       </h1>
+      {originUrl ? (
+        <a
+          className={styles.originalLink}
+          href={originUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          data-story-original
+        >
+          Отвори оригинала <span aria-hidden="true">↗</span>
+        </a>
+      ) : null}
       <p className={styles.meta}>
         {changed ? <span>Последна промяна: {changed}</span> : null}
         {publishers ? <span>{publishers}</span> : null}

@@ -24,16 +24,21 @@ _MESSAGES = {
     "BLOCKING_GAP": "Има непопълнена информация, която пречи да продължите.",
     # V1.1-B: the four evidence-remedy reasons stay distinct at the API boundary
     # too. They share a remedy (research the owning Story), never a message.
-    "STORY_UNASSESSED": "Историята трябва първо да бъде проучена.",
+    "STORY_UNASSESSED": "За чернова първо е нужно проучване на историята.",
     "NO_CONFIRMED_FACTS": "Няма потвърдени факти, върху които да се изгради черновата.",
     "NO_OPEN_SOURCE": "Няма отворен източник, върху който да се изгради черновата.",
-    "FOCUS_NOT_CONFIRMED": "Потвърдете фокуса, преди да правите чернова.",
+    "FOCUS_NOT_CONFIRMED": "Добавете редакционен фокус, за да създадете чернова.",
     "NOT_IN_PREPARATION": "Черновата не е налична в текущото състояние на статията.",
     "STORY_UNAVAILABLE": "Историята на статията вече не е достъпна.",
     "ARTICLE_HAS_TEXT": "Статията вече има текст.",
     "WORKING_TITLE_REQUIRED": "Работното заглавие не може да е празно.",
     "SAFETY_BLOCKED": "Проверката за безопасност спря операцията.",
     "SOURCE_UNAVAILABLE": "Източникът временно не е наличен.",
+    # V1.2-G2.2 §3: an operational refusal to research is NOT an evidence
+    # statement. The editor is told the capability is unavailable, never that a
+    # source is missing and never that a quota of evidence was reached.
+    "RESEARCH_UNAVAILABLE": "Автоматичното проучване временно не е налично.",
+    "RESEARCH_QUOTA_EXHAUSTED": "Лимитът за автоматично проучване е изчерпан за момента.",
     "INTERNAL_ERROR": "Вътрешна грешка. Опитайте отново.",
 }
 

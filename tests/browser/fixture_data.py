@@ -1028,13 +1028,27 @@ def install_boundary_substitutes(monkeypatch) -> None:
                 ],
             }
 
-    monkeypatch.setattr(
-        search,
-        "provider_chain",
-        lambda capability=search.CAP_WEB, env=None: ([_DeterministicProvider()], []),
-    )
+    def fake_provider_chain(capability=search.CAP_WEB, env=None):
+        # §15: an outage is a distinct, substitutable boundary condition. It
+        # presents the product with exactly what a real provider outage looks
+        # like - no usable search route at all - and nothing else is faked.
+        if _research_boundary()["outage"] == "unavailable":
+            return ([], [])
+        delay = _research_boundary()["latency"]
+        if delay:
+            time.sleep(delay)
+        return ([_DeterministicProvider()], [])
+
+    monkeypatch.setattr(search, "provider_chain", fake_provider_chain)
 
     def fake_fetch_page(url, **_kw):
+        # §14: the substituted page opener can be made deliberately slower than
+        # the old ~2 second client budget, which is the real-world condition the
+        # stale Research budget mishandled. Zero by default, so every other
+        # test in the suite keeps its current runtime.
+        delay = _research_boundary()["latency"]
+        if delay:
+            time.sleep(delay)
         text = (
             "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата. "
             "Жителите на квартала ще пътуват с 10 минути повече до работата. "
@@ -1066,6 +1080,30 @@ def install_boundary_substitutes(monkeypatch) -> None:
     # The collector clock is pinned so a refresh is reproducible and its
     # recency window never depends on the wall clock.
     monkeypatch.setattr(newsroom_run, "_now", _fixed_now)
+
+
+#: §14/§15: the substitutable research boundary, set per test by the G2.2
+#: proof and reset after it. Nothing else in the harness reads it.
+_RESEARCH_BOUNDARY = {"latency": 0.0, "outage": None}
+
+
+def _research_boundary() -> dict:
+    return _RESEARCH_BOUNDARY
+
+
+def set_research_boundary(*, latency: float = 0.0, outage: str | None = None) -> None:
+    """Shape the substituted research edge for one test.
+
+    ``latency`` makes a research round take materially longer than the old
+    ~2 second client budget. ``outage="unavailable"`` removes the search
+    provider chain entirely, which is a real operational refusal and NOT a
+    statement about evidence.
+    """
+    _RESEARCH_BOUNDARY.update({"latency": float(latency), "outage": outage})
+
+
+def reset_research_boundary() -> None:
+    _RESEARCH_BOUNDARY.update({"latency": 0.0, "outage": None})
 
 
 def _fixed_now():

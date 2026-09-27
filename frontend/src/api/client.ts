@@ -47,6 +47,10 @@ const apiErrorCodes: ReadonlySet<string> = new Set([
   "BLOCKING_GAP",
   "SAFETY_BLOCKED",
   "SOURCE_UNAVAILABLE",
+  // V1.2-G2.2 §3: operational research refusals, kept distinct from every
+  // evidence reason so the UI can never render them as missing evidence.
+  "RESEARCH_UNAVAILABLE",
+  "RESEARCH_QUOTA_EXHAUSTED",
   "INTERNAL_ERROR",
 ]);
 
@@ -245,7 +249,20 @@ export async function makeArticleDraft(articleId: string, idempotencyKey: string
  * ("still preparing"), never a claim that generation failed, and the backend
  * work is never cancelled because the browser stopped looking.
  */
-export const QUICK_DRAFT_POLL_BUDGET: OperationPollBudget = { attempts: 180, delayMs: 1000 };
+/**
+ * V1.2-G2.2 §1: the ONE long-operation policy.
+ *
+ * Story Research used to keep its own ~2s budget (8 x 250ms) from before the D2B
+ * work, while Quick Draft waited 180s. A real research round performs a web
+ * search and opens pages, so it routinely outran 2 seconds: the backend was
+ * still correctly working while the UI told the editor the research had failed
+ * and asked for a manual retry. Research now follows the SAME long policy as
+ * every other long operation, and there is no second operation registry and no
+ * second polling loop.
+ */
+export const LONG_OPERATION_POLL_BUDGET: OperationPollBudget = { attempts: 180, delayMs: 1000 };
+
+export const QUICK_DRAFT_POLL_BUDGET: OperationPollBudget = LONG_OPERATION_POLL_BUDGET;
 
 function operationQuickDraft(value: ResearchOperation): QuickDraftResult | null {
   const candidate = value.result;
@@ -321,10 +338,6 @@ export interface OperationPollBudget {
  * round, so all long operations now share one policy.
  */
 export const DRAFT_POLL_BUDGET: OperationPollBudget = { attempts: 60, delayMs: 1000 };
-
-// A Story research round keeps its existing budget. Only Draft's budget changed,
-// and every operation here is still bounded.
-const RESEARCH_POLL_BUDGET: OperationPollBudget = { attempts: 8, delayMs: 250 };
 
 interface OperationPollOptions<T> {
   budget: OperationPollBudget;
@@ -402,28 +415,73 @@ function operationFailure(value: ResearchOperation): ApiError {
   );
 }
 
-async function pollResearchOperation(operationToken: string): Promise<StoryDetail> {
-  const story = await pollOperationFor<StoryDetail>(operationToken, {
-    budget: RESEARCH_POLL_BUDGET,
-    malformed: "Проучването не можа да се изпълни. Опитайте отново.",
-    succeededWithoutResult: "Проучването не върна актуализирана история.",
-    exhausted: "Проучването все още не е готово. Опитайте отново.",
-    extract: operationStory,
-  });
-  // A successful research operation always carries its Story, so the helper
-  // throws before it could resolve `null` here.
-  return story as StoryDetail;
+/**
+ * V1.2-G2.2 §1/§2 — the outcome of `Проучи още`, as the editor experiences it.
+ *
+ * `completed` means the backend finished and the Story is the fresh canonical
+ * projection. `continuing` means the bounded client wait ended while the real
+ * operation was still running: a transport timeout is NOT a research failure,
+ * so it is never reported as one. The token travels with it so the editor can
+ * reattach to the same operation with `Провери статуса` instead of starting a
+ * second one.
+ */
+export type ResearchOutcome =
+  | { status: "completed"; story: StoryDetail }
+  | { status: "continuing"; operationToken: string };
+
+const RESEARCH_POLL_MESSAGES = {
+  malformed: "Проучването не можа да се изпълни. Опитайте отново.",
+  succeededWithoutResult: "Проучването не върна актуализирана история.",
+} as const;
+
+async function followResearchOperation(operationToken: string): Promise<ResearchOutcome> {
+  for (let attempt = 0; attempt < LONG_OPERATION_POLL_BUDGET.attempts; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, LONG_OPERATION_POLL_BUDGET.delayMs));
+    }
+    let value: unknown;
+    try {
+      value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
+    } catch (error) {
+      // A single unreachable poll is a transport hiccup, not a failed round.
+      // Keep following the operation the backend is still running.
+      if (error instanceof ApiError && error.code === "NETWORK_ERROR") continue;
+      throw error;
+    }
+    if (!isResearchOperation(value)) {
+      throw new ApiError(0, "INTERNAL_ERROR", RESEARCH_POLL_MESSAGES.malformed, true);
+    }
+    const story = operationStory(value);
+    if (story) return { status: "completed", story };
+    const status = value.status.toUpperCase();
+    if (status === "FAILED" || status === "ERROR") throw operationFailure(value);
+    if (status === "SUCCEEDED" || status === "COMPLETED") {
+      throw new ApiError(0, "INTERNAL_ERROR", RESEARCH_POLL_MESSAGES.succeededWithoutResult, true);
+    }
+  }
+  // The bounded wait ended with real work still in flight. Say exactly that,
+  // and hand back the token so the editor can reattach to the SAME operation.
+  return { status: "continuing", operationToken };
 }
 
-export async function researchMoreStory(storyId: string): Promise<StoryDetail> {
+/** `Провери статуса`: reattach to the running operation, never start another. */
+export function checkResearchStatus(operationToken: string): Promise<ResearchOutcome> {
+  return followResearchOperation(operationToken);
+}
+
+export async function researchMoreStory(storyId: string): Promise<ResearchOutcome> {
   const value = await sendStoryCommand<unknown>(
     `/stories/${encodeURIComponent(storyId)}/research`,
     "POST",
     undefined,
     { "Idempotency-Key": createIdempotencyKey() },
   );
-  if (isRecord(value) && typeof value.operationToken === "string") return pollResearchOperation(value.operationToken);
-  if (isRecord(value) && "missingInformation" in value) return value as unknown as StoryDetail;
+  if (isRecord(value) && typeof value.operationToken === "string") {
+    return followResearchOperation(value.operationToken);
+  }
+  if (isRecord(value) && "missingInformation" in value) {
+    return { status: "completed", story: value as unknown as StoryDetail };
+  }
   throw new ApiError(200, "INTERNAL_ERROR", "Проучването не върна актуализирана история.", true);
 }
 

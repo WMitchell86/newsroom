@@ -138,6 +138,13 @@ export interface StoryDetail extends StorySummary {
    * zero — and the UI must not print the zero.
    */
   publisherCount?: number | null;
+  /**
+   * V1.2-G2.2 §9: the id of the grouped publication that IS the original
+   * (the Story's canonical representative). It is what makes `Отвори
+   * оригинала` possible without React reconstructing a URL or guessing which
+   * member came first. `null` when the Story has no representative publication.
+   */
+  originPublicationId?: string | null;
   correction: {
     available: boolean;
     actions: Array<"DETACH_PUBLICATION" | "MERGE_STORY">;
@@ -179,6 +186,11 @@ export type DraftReadinessCode =
   | "BLOCKING_GAP"
   | "NOT_IN_PREPARATION"
   | "STORY_UNAVAILABLE"
+  // V1.2-G2.2 §3: research was refused for an OPERATIONAL reason. These are
+  // deliberately not evidence reasons: the editor is told the capability is
+  // unavailable or its bounded budget is spent, never that a source is missing.
+  | "RESEARCH_UNAVAILABLE"
+  | "RESEARCH_QUOTA_EXHAUSTED"
   | "ARTICLE_HAS_TEXT"
   | "SAFETY_BLOCKED"
   | "ARTICLE_VERSION_CONFLICT"
@@ -428,6 +440,11 @@ export type ApiErrorCode =
   | "FOCUS_NOT_CONFIRMED"
   | "NOT_IN_PREPARATION"
   | "STORY_UNAVAILABLE"
+  // V1.2-G2.2 §3: research was refused for an OPERATIONAL reason. These are
+  // deliberately not evidence reasons: the editor is told the capability is
+  // unavailable or its bounded budget is spent, never that a source is missing.
+  | "RESEARCH_UNAVAILABLE"
+  | "RESEARCH_QUOTA_EXHAUSTED"
   | "ARTICLE_HAS_TEXT"
   | "WORKING_TITLE_REQUIRED"
   | "SAFETY_BLOCKED"

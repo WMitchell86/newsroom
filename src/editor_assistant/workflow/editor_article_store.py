@@ -598,18 +598,26 @@ def update_editor_focus(
     now=None,
     root=None,
 ) -> dict:
-    """Editor edit/acceptance atomically replaces focus and confirmation time."""
+    """Editor edit atomically replaces the Focus and its confirmation time.
+
+    V1.2-G2.2 §5/§6: there is no separate confirmation action any more. A
+    non-empty saved Focus IS the confirmed Focus, and this is the only place
+    that decides it, so the editor simply edits the field. Clearing the field
+    therefore removes the confirmation, and `focus_is_confirmed` answers false
+    again - which is exactly the state `Направи чернова` must refuse.
+    """
     focus = _text(editorial_focus, "editorial_focus")
-    if not focus:
-        raise ArticleStoreError("editorial_focus is required")
     with _MUTATION_LOCK, _cross_process_article_lock(root=root):
         record = deepcopy(get_editor_article(article_id, root=root))
         if record["finalized_at"]:
             raise ArticleStoreError("finalized Article focus is immutable")
-        confirmed_at = _timestamp(now or _now(), "focus_confirmed_at")
+        stamp = _timestamp(now or _now(), "updated_at")
         record["editorial_focus"] = focus
-        record["focus_confirmed_at"] = confirmed_at
-        record["updated_at"] = confirmed_at
+        # A non-empty Focus confirms itself; an empty one withdraws the
+        # confirmation, so readiness and the Draft action follow the text the
+        # editor actually left on the page.
+        record["focus_confirmed_at"] = stamp if focus else None
+        record["updated_at"] = stamp
         record["ready_version"] = None
         record["ready_validation_digest"] = None
         record["ready_at"] = None

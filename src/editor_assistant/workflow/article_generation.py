@@ -73,9 +73,12 @@ _OPERATION_ERRORS = {
         "Има непопълнена информация, която пречи да продължите.",
         False,
     ),
+    # V1.2-G2.2 §4: identical wording to `article_readiness` and the API
+    # boundary. The Draft path and the preparation path must never disagree
+    # about what the editor is told for the same reason.
     "STORY_UNASSESSED": (
         "STORY_UNASSESSED",
-        "Историята трябва първо да бъде проучена.",
+        "За чернова първо е нужно проучване на историята.",
         False,
     ),
     "NO_CONFIRMED_FACTS": (
@@ -88,9 +91,10 @@ _OPERATION_ERRORS = {
         "Няма отворен източник, върху който да се изгради черновата.",
         False,
     ),
+    # §5: there is no confirmation step left to ask for anywhere.
     "FOCUS_NOT_CONFIRMED": (
         "FOCUS_NOT_CONFIRMED",
-        "Потвърдете фокуса, преди да правите чернова.",
+        "Добавете редакционен фокус, за да създадете чернова.",
         False,
     ),
     "NOT_IN_PREPARATION": (

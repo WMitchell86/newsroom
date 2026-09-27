@@ -25,6 +25,21 @@ class StoryResearchError(ValueError):
     """Research could not safely update the Story basis."""
 
 
+#: V1.2-G2.2 §12 — the editor-visible reason a first round produced no usable
+#: fact. These were three different outcomes behind ONE sentence, and the
+#: sentence that was persisted claimed no source had been opened. G2.1 measured
+#: 23 of 23 real failures carrying that false text while the page *had* opened.
+#:
+#: Only the wording changes here. Which cases count as evidence, what a PRIMARY
+#: source is, and the corroboration gate are exactly as V1.1-A left them; this
+#: slice only stops the product from misreporting which branch it took.
+GAP_NOTHING_OPENED = "Не успяхме да отворим подходящ източник."
+GAP_NOTHING_PROMOTED = (
+    "Намерени са източници, но информацията още не е достатъчно потвърдена."
+)
+GAP_NEEDS_CORROBORATION = "Нужен е още независим източник за потвърждение."
+
+
 def _fact_id(story_id, source_id, text):
     return "fact_" + hashlib.sha256(f"{story_id}\0{source_id}\0{text}".encode()).hexdigest()[:20]
 
@@ -304,7 +319,8 @@ def execute_story_research(
             # round itself completed — persist ASSESSED with an explicit gap
             # (never facts=0 AND gaps=0). Only an infrastructure failure
             # (exception) before any assessment keeps the Story UNASSESSED.
-            gap_text = "Не е намерен отворен източник, който потвърждава основното твърдение."
+            # §12: this branch really did open nothing, and now says so.
+            gap_text = GAP_NOTHING_OPENED
             return story_research_store.merge_research(
                 story_id,
                 facts=[],
@@ -422,13 +438,22 @@ def execute_story_research(
         for item in items
         if item["authority"] == "PRIMARY" or len({x["domain"] for x in items}) >= 2
     }
+    # §12: how many claims actually existed before the promotion gate, so the
+    # two "nothing was promoted" reasons can be told apart truthfully.
+    claims_found = len(source_records)
     facts = [fact for fact in facts if fact["source_refs"][0]["source_id"] in allowed]
     if not facts:
         # V1.1-A §10/§16: a completed first round with no usable opened
         # source is ASSESSED with an explicit gap — never an empty assessed
         # basis and never silent UNASSESSED. Later gap-driven rounds keep the
         # historical refusal (nothing to merge, nothing to persist).
-        gap_text = "Не е намерен отворен източник, който потвърждава основното твърдение."
+        # §12: the pages DID open. Which of the two honest sentences applies
+        # depends on whether a claim existed at all before the promotion gate:
+        # a claim that never passed the gate is a corroboration problem, and
+        # saying so is the point of this slice.
+        gap_text = (
+            GAP_NEEDS_CORROBORATION if claims_found else GAP_NOTHING_PROMOTED
+        )
         if bootstrap:
             return story_research_store.merge_research(
                 story_id,
@@ -538,7 +563,7 @@ def execute_story_research(
         # Defensive: the store refuses facts=0 AND gaps=0 for any completed
         # assessment. If sufficiency produced no question (unlikely), persist
         # one explicit gap instead of a false clean state.
-        fallback = "Не е намерен отворен източник, който потвърждава основното твърдение."
+        fallback = GAP_NOTHING_PROMOTED
         gaps = [
             {
                 "id": _gap_id(story_id, fallback),

@@ -69,8 +69,11 @@ WORKING_TITLE_REQUIRED = "WORKING_TITLE_REQUIRED"
 #: never render a second, contradictory sentence for the same decision.
 REASON_MESSAGES = {
     DRAFT_ELIGIBLE: "Има достатъчно потвърдена информация за чернова.",
-    FOCUS_NOT_CONFIRMED: "Потвърдете фокуса, преди да правите чернова.",
-    STORY_UNASSESSED: "Историята трябва първо да бъде проучена.",
+    # V1.2-G2.2 §5/§7: there is no confirmation step left to name, and a Draft
+    # simply needs a Focus. §4: an unassessed Story is a normal preparation
+    # state with a next action, not an error the editor has caused.
+    FOCUS_NOT_CONFIRMED: "Добавете редакционен фокус, за да създадете чернова.",
+    STORY_UNASSESSED: "За чернова първо е нужно проучване на историята.",
     NO_CONFIRMED_FACTS: "Няма потвърдени факти, върху които да се изгради черновата.",
     NO_OPEN_SOURCE: "Няма отворен източник, върху който да се изгради черновата.",
     BLOCKING_GAP: "Има непопълнена информация, която пречи да продължите.",

@@ -68,6 +68,16 @@ export function StoryPublications({ story }: StoryPublicationsProps) {
                   // identifiable and nothing more. No new Story state.
                   <span className={styles.developmentTag}>Ново развитие</span>
                 ) : null}
+                {/* §10: access to the collected source material. It is NOT a
+                    verification badge: a linked publication says nothing about
+                    whether it was opened, promoted or confirmed. The §18
+                    distinction between «Публикации» and «Факти и източници»
+                    is untouched. */}
+                {url ? (
+                  <a href={url} target="_blank" rel="noreferrer noopener">
+                    Отвори <span aria-hidden="true">↗</span>
+                  </a>
+                ) : null}
               </p>
             </li>
           );

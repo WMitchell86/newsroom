@@ -106,8 +106,10 @@ def test_preparation_title_and_focus_updates_are_persisted(page, spa_runtime):
     title.press("Enter")
     new_focus = "Да обясним решението и последиците за жителите."
     focus.fill(new_focus)
-    # The focus is a real form: it is confirmed by submitting it, not by blurring.
-    probe.page.get_by_role("button", name="Промени фокуса").click()
+    # V1.2-G2.2 §5/§6: there is no confirmation control any more. Leaving the
+    # field IS the save, and a non-empty saved Focus IS the confirmed Focus, so
+    # the same canonical assertion below still has to hold.
+    focus.blur()
     probe.page.wait_for_timeout(800)
 
     detail = probe.page.request.get(f"{probe.base_url}/api/v1/articles/{article_id}").json()["data"]

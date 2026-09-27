@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArticleDetail } from "../api/dto";
-import { ApiError, DRAFT_POLL_BUDGET, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, markArticleReady, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
+import { ApiError, DRAFT_POLL_BUDGET, LONG_OPERATION_POLL_BUDGET, checkResearchStatus, followStory, getArticles, getToday, ignoreStory, makeArticleDraft, markArticleReady, refreshNewsroom, researchMoreStory, reviewStory, startArticle, unfollowStory, updateArticleFocus, updateArticleTitle } from "../api/client";
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -157,7 +157,7 @@ describe("read-only API client", () => {
     const detail = { id: "s-one", missingInformation: { items: [] } };
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: detail }) } as Response);
 
-    await expect(researchMoreStory("s-one")).resolves.toEqual(detail);
+    await expect(researchMoreStory("s-one")).resolves.toEqual({ status: "completed", story: detail });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/stories/s-one/research",
       expect.objectContaining({
@@ -175,7 +175,7 @@ describe("read-only API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "running" } }) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: "succeeded", result: detail } }) } as Response);
 
-    await expect(researchMoreStory("s-one")).resolves.toEqual(detail);
+    await expect(researchMoreStory("s-one")).resolves.toEqual({ status: "completed", story: detail });
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/operations/op-1");
   });
 
@@ -243,6 +243,98 @@ describe("read-only API client", () => {
       retryable: false,
     }));
   });
+});
+
+/**
+ * V1.2-G2.2 §1/§2 — the Story research operation policy, kept in its own block
+ * because it installs and removes the fake clock itself.
+ */
+describe("the Story research operation policy", () => {
+  beforeEach(() => {
+    // The budget is wall-clock, so the clock is driven instead of really
+    // waiting three minutes for a real research round.
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("follows a long research round instead of declaring failure after ~2s", async () => {
+    // V1.2-G2.2 §1: the old 8x250ms budget ended while the backend was still
+    // correctly working. A real round is followed far beyond two seconds now,
+    // and thirty "still running" answers are more than the old budget could
+    // ever have survived.
+    const detail = { id: "s-one", missingInformation: { items: [] } };
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ data: { operationToken: "op-long" } }),
+      } as Response);
+      for (let index = 0; index < 30; index += 1) {
+        fetchMock.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: { status: "running" } }),
+        } as Response);
+      }
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { status: "succeeded", result: detail } }),
+      } as Response);
+
+      const pending = researchMoreStory("s-one");
+      await vi.advanceTimersByTimeAsync(40_000);
+      await expect(pending).resolves.toEqual({ status: "completed", story: detail });
+      // 30 seconds of a real operation: the old ~2s budget died at attempt 8.
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(20);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the Story and a reattach token when the bounded wait ends mid-round", async () => {
+    // §2: a transport timeout is not a research failure, and it must not cost
+    // the editor the operation. The caller reattaches to the SAME token.
+    const detail = { id: "s-one", missingInformation: { items: [] } };
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ data: { operationToken: "op-still" } }),
+      } as Response);
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { status: "running" } }),
+      } as Response);
+
+      const pending = researchMoreStory("s-one");
+      await vi.advanceTimersByTimeAsync(LONG_OPERATION_POLL_BUDGET.delayMs * LONG_OPERATION_POLL_BUDGET.attempts + 5_000);
+      await expect(pending).resolves.toEqual({ status: "continuing", operationToken: "op-still" });
+      // Exactly one research POST: reattaching must never start a second round.
+      const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit)?.method === "POST");
+      expect(posts).toHaveLength(1);
+
+      // `Провери статуса` reattaches to the same token.
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { status: "succeeded", result: detail } }),
+      } as Response);
+      const outcome = checkResearchStatus("op-still");
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(outcome).resolves.toEqual({ status: "completed", story: detail });
+      expect(posts).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
 
 describe("the one newsroom refresh action", () => {

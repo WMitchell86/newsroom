@@ -928,7 +928,11 @@ describe("Articles", () => {
 
     expect(await screen.findByText("Подготовка", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Редакционен фокус" })).toHaveValue(activePreparationArticle.editorialFocus.text);
-    expect(screen.getByText("Фокусът е предложение и очаква редакторско решение.")).toBeInTheDocument();
+    // V1.2-G2.2 §5: the Focus needs content, not a confirmation click. The
+    // proposal/decision note and the `Избери фокус` control are both gone, and
+    // the field is the whole interaction.
+    expect(screen.queryByText(/Фокусът е предложение/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Избери фокус|Потвърди фокуса/ })).toBeNull();
     expect(screen.getByText(activePreparationArticle.factsAndSources[0]!.text)).toBeInTheDocument();
     expect(screen.getByText(activePreparationArticle.preparation!.nonBlockingGaps[0]!.question)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Чернова" })).toBeNull();
@@ -980,15 +984,16 @@ describe("Articles", () => {
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ expectedVersion: 0, title: "Ново работно заглавие" }) }),
     ));
 
+    // §6: editing the Focus and leaving the field IS the save, and the
+    // confirmation is the text the editor left behind.
     const focus = screen.getByRole("textbox", { name: "Редакционен фокус" });
     await user.clear(focus);
     await user.type(focus, "Обясняваме промяната и последиците.");
-    await user.click(screen.getByRole("button", { name: "Избери фокус" }));
+    await user.tab();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       `/api/v1/articles/${activePreparationArticle.id}/focus`,
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ focus: "Обясняваме промяната и последиците." }) }),
     ));
-    expect(await screen.findByRole("button", { name: "Промени фокуса" })).toBeInTheDocument();
     // V1.1-B: the readiness sentence is the backend's, rendered verbatim —
     // no longer a React-authored claim about focus and gaps.
     expect(screen.getByText("Има достатъчно потвърдена информация за чернова.")).toBeInTheDocument();
@@ -1102,11 +1107,12 @@ describe("Articles", () => {
     const focus = await screen.findByRole("textbox", { name: "Редакционен фокус" });
     await user.clear(focus);
     await user.type(focus, "Локален текст, който не трябва да изчезне.");
-    await user.click(screen.getByRole("button", { name: "Избери фокус" }));
+    await user.tab();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Записът не е завършен.");
     expect(focus).toHaveValue("Локален текст, който не трябва да изчезне.");
-    expect(screen.getByText("Фокусът е предложение и очаква редакторско решение.")).toBeInTheDocument();
+    // A failed save must not claim a confirmation the server never granted.
+    expect(screen.queryByText(/Фокусът е предложение/)).toBeNull();
   });
 
   it("refetches canonical version after a title conflict while preserving local text", async () => {
@@ -1396,17 +1402,19 @@ describe("V1.1-B shared Draft readiness", () => {
       </Routes>,
       { initialEntries: [`/articles/${article.id}`] },
     );
-    return screen.findByRole("heading", { name: "Подготовка за чернова" });
+    // §13: the block the editor reads is the factual basis, not the workflow
+    // stage it feeds.
+    return screen.findByRole("heading", { name: "Фактическа основа" });
   }
 
   it("shows the backend reason for an unassessed Story and no enabled Draft", async () => {
     await renderPreparation(
       preparationWith({
         code: "STORY_UNASSESSED",
-        message: "Историята трябва първо да бъде проучена.",
+        message: "За чернова първо е нужно проучване на историята.",
       }),
     );
-    expect(screen.getByText("Историята трябва първо да бъде проучена.")).toBeVisible();
+    expect(screen.getByText("За чернова първо е нужно проучване на историята.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Направи чернова" })).toBeNull();
     // No contradictory green sentence anywhere on the page.
     expect(screen.queryByText(/Фокусът е потвърден и няма блокиращи липси/)).toBeNull();
@@ -1487,15 +1495,50 @@ describe("V1.1-B shared Draft readiness", () => {
     expect(document.querySelectorAll("[data-readiness-code]")).toHaveLength(1);
   });
 
-  it("routes the editor to the owning Story when research is the remedy", async () => {
+  it("runs the canonical Story research command from the unassessed preparation", async () => {
+    // V1.2-G2.2 §4: `STORY_UNASSESSED` is an actionable preparation step. The
+    // control issues the SAME canonical `POST /stories/:id/research` the Story
+    // workspace issues — the Story still owns the orchestration — and the
+    // Article + Story are refetched when it completes.
+    const unassessed = preparationWith({
+      code: "STORY_UNASSESSED",
+      message: "За чернова първо е нужно проучване на историята.",
+    });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/research")) {
+        return { ok: true, status: 200, json: async () => ({ data: storyDetail }) } as Response;
+      }
+      return dataResponse(unassessed);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
+      { initialEntries: [`/articles/${activePreparationArticle.id}`] },
+    );
+    await screen.findByRole("heading", { name: "Фактическа основа" });
+
+    // The readiness sentence is the backend's, and it reads as a next step.
+    expect(screen.getByText("За чернова първо е нужно проучване на историята.")).toBeInTheDocument();
+    const action = screen.getByRole("button", { name: "Проучи историята" });
+    await user.click(action);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      `/api/v1/stories/${activePreparationArticle.story.id}/research`,
+      expect.objectContaining({ method: "POST" }),
+    ));
+    // No enabled Draft while the basis is still unassessed.
+    expect(screen.queryByRole("button", { name: "Направи чернова" })).toBeNull();
+  });
+
+  it("keeps a route to the owning Story next to the research action", async () => {
     await renderPreparation(
       preparationWith({
         code: "STORY_UNASSESSED",
-        message: "Историята трябва първо да бъде проучена.",
+        message: "За чернова първо е нужно проучване на историята.",
       }),
     );
-    const research = screen.getByRole("link", { name: "Проучи още" });
-    expect(research).toHaveAttribute("href", `/stories/${activePreparationArticle.story.id}`);
+    const link = screen.getByRole("link", { name: "Отвори историята" });
+    expect(link).toHaveAttribute("href", `/stories/${activePreparationArticle.story.id}`);
   });
 });
 

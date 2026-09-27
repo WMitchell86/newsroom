@@ -454,7 +454,7 @@ def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
     preparation = projection["preparation"]
     assert preparation["draftEligible"] is False
     assert preparation["draftReadiness"]["code"] == "STORY_UNASSESSED"
-    assert preparation["draftReadiness"]["message"] == "Историята трябва първо да бъде проучена."
+    assert preparation["draftReadiness"]["message"] == "За чернова първо е нужно проучване на историята."
     # No Article-level fake gap is displayed, and MAKE_DRAFT is absent.
     assert preparation["blockingGaps"] == []
     assert "MAKE_DRAFT" not in projection["availableActions"]

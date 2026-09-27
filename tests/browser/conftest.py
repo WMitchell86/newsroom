@@ -444,6 +444,24 @@ class PageProbe:
         failed = [item for item in self.failed_requests if "ERR_ABORTED" not in item]
         assert not failed, f"{context}: failed requests: {failed}"
 
+    def assert_refusal_clean(self, *, context: str, status: str) -> None:
+        """For the operational-refusal proofs: the error status IS the answer.
+
+        A provider outage (503) and a spent research budget (429) are refusals
+        the editor is meant to see, and Chromium logs each one. Only that exact
+        status line is excused - an uncaught exception, a script error or any
+        other console error still fails the proof.
+        """
+        assert not self.page_errors, f"{context}: uncaught page errors: {self.page_errors}"
+        unexpected = [
+            text
+            for text in self.console_errors
+            if not (f"status of {status}" in text and "Failed to load resource" in text)
+        ]
+        assert not unexpected, f"{context}: unexpected console errors: {unexpected}"
+        failed = [item for item in self.failed_requests if "ERR_ABORTED" not in item]
+        assert not failed, f"{context}: failed requests: {failed}"
+
     def assert_only_conflict_noise(self, *, context: str) -> None:
         """For the conflict proof: the 409 *is* the product working correctly.
 

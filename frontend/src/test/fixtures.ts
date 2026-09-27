@@ -101,6 +101,8 @@ export const storyDetail: StoryDetail = {
     latestStoryDevelopment,
   ],
   relatedArticles: [{ id: "article-budget-draft", title: "Ремонтът на булевард „Свобода“ ще започне през октомври" }],
+  // V1.2-G2.2 §9: the backend names which grouped publication IS the original.
+  originPublicationId: "publication-budget-1",
   factsAndSources,
   missingInformation: {
     assessedAt: "2026-09-25T09:32:00Z",
@@ -154,7 +156,7 @@ export const activePreparationArticle: ArticleDetail = {
     // V1.1-B: the readiness reason comes from the backend, never from React.
     draftReadiness: {
       code: "FOCUS_NOT_CONFIRMED",
-      message: "Потвърдете фокуса, преди да правите чернова.",
+      message: "Добавете редакционен фокус, за да създадете чернова.",
     },
     blockingGaps: [],
     nonBlockingGaps: [storyDetail.missingInformation!.items[0]!],

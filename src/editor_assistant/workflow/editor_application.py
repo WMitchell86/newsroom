@@ -58,6 +58,13 @@ class EditorApplicationError(ValueError):
 
     code = "VALIDATION_ERROR"
     status = 400
+    #: The editor-safe sentence for a refusal that is raised by class rather
+    #: than by instance. The API boundary sends `str(exc)`, so a class with no
+    #: message of its own must still say something true.
+    default_message = ""
+
+    def __str__(self) -> str:
+        return super().__str__() or self.default_message
 
 
 class EditorNotFound(EditorApplicationError):
@@ -71,8 +78,31 @@ class EditorInvalidTransition(EditorApplicationError):
 
 
 class EditorResearchUnavailable(EditorApplicationError):
-    code = "SOURCE_UNAVAILABLE"
+    """Research cannot run at all right now: no search provider or route.
+
+    V1.2-G2.2 §3. This is an OPERATIONAL refusal, and it is deliberately not one
+    of the evidence reasons. Telling the editor that "no opened source was
+    found" when nothing was ever searched for is the conflation this class
+    exists to end. No route id, model name, HTTP status or provider detail ever
+    crosses this boundary.
+    """
+
+    code = "RESEARCH_UNAVAILABLE"
     status = 503
+    default_message = "Автоматичното проучване временно не е налично."
+
+
+class EditorResearchQuotaExhausted(EditorApplicationError):
+    """The bounded research-round budget for this Story is spent.
+
+    V1.2-G2.2 §3. Quota wording is used only when the backend really knows the
+    limit is the cause — here, the canonical round counter against
+    `MAX_RESEARCH_ROUNDS` — never as a guess about a provider.
+    """
+
+    code = "RESEARCH_QUOTA_EXHAUSTED"
+    status = 429
+    default_message = "Лимитът за автоматично проучване е изчерпан за момента."
 
 
 class EditorVersionConflict(EditorApplicationError):
@@ -848,6 +878,16 @@ def _story_detail(story_id: str) -> dict:
             # never count a source itself, and the count is corroboration
             # context, never evidence authority.
             "publisherCount": story_store.metrics(story, items_by_id)["publisher_count"],
+            # V1.2-G2.2 §9: which grouped publication IS the original. The
+            # Story already stores it as `representative_item_id` (the ORIGIN
+            # member), so this only names it — already-existing domain data, and
+            # it is what lets the workspace offer `Отвори оригинала` without
+            # React ever guessing which member came first.
+            "originPublicationId": editor_projections.publication_id_for(
+                "", str(story.get("representative_item_id") or "")
+            )
+            if story.get("representative_item_id")
+            else None,
             "correction": {"available": False, "actions": []},
         }
     )
@@ -963,10 +1003,13 @@ def research_story(story_id: str, *, provider=None, page_opener=None, now=None) 
     basis = story_research_store.get_story_research(story_id)
     if story.get("status") == "IGNORED":
         raise EditorInvalidTransition("Игнорирана Story не може да се проучва.")
+    # §3: the round budget and the provider chain are two different operational
+    # problems and must never reach the editor as one "cannot research" wall —
+    # and neither may ever be dressed up as missing evidence.
     if basis["research_rounds"] >= readiness_mod.MAX_RESEARCH_ROUNDS:
-        raise EditorInvalidTransition("Лимитът на проучванията е изчерпан.")
+        raise EditorResearchQuotaExhausted
     if not search_mod.provider_chain(capability=search_mod.CAP_WEB)[0]:
-        raise EditorInvalidTransition("Няма наличен източник за проучване.")
+        raise EditorResearchUnavailable
     basis = story_research_store.get_story_research(story_id)
     _, legacy_gaps, _ = _legacy_story_evidence(
         story_id, editor_article_store.read_editor_articles()
@@ -1052,13 +1095,16 @@ def start_story_research(story_id: str, *, idempotency_key: str = "") -> dict:
         accepted = story_operations.get(operation_token)
         if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
             return {"operationToken": operation_token, "status": accepted["status"]}
-    if (
-        story.get("status") == "IGNORED"
-        or (not gaps and not unassessed)
-        or basis["research_rounds"] >= readiness_mod.MAX_RESEARCH_ROUNDS
-        or not search_mod.provider_chain(capability=search_mod.CAP_WEB)[0]
-    ):
+    # §3: an unassessed Story and a real gap are the two states research answers.
+    # Everything else is a refusal, and the three refusals are three different
+    # things: this Story is not in a researchable state, the bounded round budget
+    # is spent, or no search provider is available at all.
+    if story.get("status") == "IGNORED" or (not gaps and not unassessed):
         raise EditorInvalidTransition("Проучването не е налично за тази Story.")
+    if basis["research_rounds"] >= readiness_mod.MAX_RESEARCH_ROUNDS:
+        raise EditorResearchQuotaExhausted
+    if not search_mod.provider_chain(capability=search_mod.CAP_WEB)[0]:
+        raise EditorResearchUnavailable
 
     def work():
         return research_story(story_id)
@@ -2258,7 +2304,7 @@ def mark_article_ready(article_id: str, expected_version: int) -> dict:
             )
         if not editor_projections.can_mark_article_ready(article, content):
             raise EditorInvalidTransition(
-                "Потвърдете фокуса, преди да отбележите черновата като готова."
+                "Добавете редакционен фокус, преди да отбележите черновата като готова."
             )
         facts, missing = _story_evidence_projection(article["story_id"])
         story = _maybe_story(article["story_id"])
@@ -2476,7 +2522,9 @@ def finalize_article(article_id: str, expected_version: int, *, idempotency_key:
         ):
             raise EditorApplicationError("Статията няма текст, който може да бъде финализиран.")
         if not editor_projections.can_mark_article_ready(article, content):
-            raise EditorInvalidTransition("Потвърдете фокуса, преди да финализирате статията.")
+            raise EditorInvalidTransition(
+                "Добавете редакционен фокус, преди да финализирате статията."
+            )
         if article.get("ready_version") != content.get("content_version") or not article.get(
             "ready_validation_digest"
         ):

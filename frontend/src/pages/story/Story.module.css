@@ -550,3 +550,48 @@
 .header {
   display: block;
 }
+
+/* §9: the original publication, one quiet external link in the header. It is
+   publication navigation, never an evidence badge: a linked original says
+   nothing about whether it was opened, promoted or confirmed. */
+.originalLink {
+  display: inline-block;
+  margin: var(--space-3) 0 0;
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.originalLink:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* §2: the operation is still running after the bounded client wait. */
+.researchContinuing {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.researchReattach {
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}

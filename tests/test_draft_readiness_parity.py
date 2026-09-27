@@ -397,11 +397,11 @@ def test_the_dto_exposes_a_code_and_a_message_and_nothing_internal():
     readiness = article_readiness.DraftReadiness(
         eligible=False,
         reason_code="STORY_UNASSESSED",
-        reason_message="Историята трябва първо да бъде проучена.",
+        reason_message="За чернова първо е нужно проучване на историята.",
         fact_count=3,
         has_open_source=True,
     )
     assert readiness.as_dto() == {
         "code": "STORY_UNASSESSED",
-        "message": "Историята трябва първо да бъде проучена.",
+        "message": "За чернова първо е нужно проучване на историята.",
     }

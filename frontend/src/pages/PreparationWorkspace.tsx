@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ApiError, createIdempotencyKey, makeArticleDraft, updateArticleFocus, updateArticleTitle } from "../api/client";
+import { ApiError, checkResearchStatus, createIdempotencyKey, makeArticleDraft, researchMoreStory, updateArticleFocus, updateArticleTitle } from "../api/client";
 import { invalidateArticleProjections, queryKeys } from "../api/queries";
 import type { ArticleProjection } from "../api/dto";
 import { getErrorMessage } from "../shared/errorMessage";
@@ -31,6 +31,8 @@ export function PreparationWorkspace({
   const [draftError, setDraftError] = useState("");
   const [draftRetryable, setDraftRetryable] = useState(false);
   const draftKey = useRef("");
+  const [researchToken, setResearchToken] = useState<string | null>(null);
+  const [researchError, setResearchError] = useState("");
 
   const acceptProjection = async (projection: ArticleProjection) => {
     queryClient.setQueryData(queryKeys.article(projection.id), projection);
@@ -80,11 +82,52 @@ export function PreparationWorkspace({
       setDraftRetryable(error instanceof ApiError ? error.retryable : false);
     },
   });
+  /**
+   * §4: an unassessed Story is a normal preparation step with a next action, not
+   * a mysterious error.
+   *
+   * This is a convenience adapter and nothing more: it issues the SAME
+   * canonical `POST /stories/:id/research` the Story workspace issues, the
+   * Story stays the sole owner of research orchestration, and there is no second
+   * Article research workflow. When it finishes, the Article and its Story are
+   * refetched so readiness is re-read from the server.
+   */
+  const research = useMutation({
+    mutationFn: () => researchMoreStory(article.story.id),
+    onSuccess: async (outcome) => {
+      setResearchError("");
+      if (outcome.status === "completed") {
+        await acceptProjection(article);
+      } else {
+        // §2: still running after the bounded wait. The token lets the editor
+        // reattach to the same operation rather than start another round.
+        setResearchToken(outcome.operationToken);
+      }
+    },
+    onError: (error) => setResearchError(
+      getErrorMessage(
+        error,
+        "Автоматичното проучване временно не е налично. Отворете историята, за да опитате отново.",
+      ),
+    ),
+  });
+  const checkResearch = useMutation({
+    // The control is only reachable while a token exists; the guard keeps the
+    // type honest rather than passing an empty operation id to the API.
+    mutationFn: () => checkResearchStatus(researchToken ?? ""),
+    onSuccess: async (outcome) => {
+      setResearchError("");
+      if (outcome.status === "completed") setResearchToken(null);
+      else setResearchToken(outcome.operationToken);
+      await acceptProjection(article);
+    },
+    onError: (error) => setResearchError(getErrorMessage(error)),
+  });
+
   const preparation = article.preparation;
   const canChangeFocus =
     article.availableActions.includes("SELECT_FOCUS") ||
     article.availableActions.includes("CHANGE_FOCUS");
-  const confirmed = article.availableActions.includes("CHANGE_FOCUS");
 
   function commitTitle() {
     if (!title.trim()) {
@@ -93,12 +136,16 @@ export function PreparationWorkspace({
     }
     if (title.trim() !== article.title && !titleSave.isPending) titleSave.mutate();
   }
-  function commitFocus(event: React.FormEvent) {
-    event.preventDefault();
-    if (!focus.trim()) {
-      setFocusError("Изберете фокус за статията.");
-      return;
-    }
+  /**
+   * §5/§6/§7: the Focus saves itself. There is no confirmation step — a
+   * non-empty saved Focus IS the confirmed Focus, and clearing the field
+   * withdraws the confirmation so `Направи чернова` refuses with one clear
+   * sentence. The editor types and moves on; the backend keeps the
+   * confirmation marker in step with the text.
+   */
+  function commitFocus() {
+    const next = focus.trim();
+    if (next === (article.editorialFocus.text || "").trim()) return;
     if (!focusSave.isPending) focusSave.mutate();
   }
 
@@ -138,10 +185,9 @@ export function PreparationWorkspace({
           {titleError ? <p className={styles.fieldError} id="article-working-title-error" role="alert">{titleError}</p> : null}
         </section> : null}
 
-        {canChangeFocus ? <form className={styles.preparationSection} onSubmit={commitFocus} aria-labelledby="article-focus-preparation">
+        {canChangeFocus ? <section className={styles.preparationSection} aria-labelledby="article-focus-preparation">
           <h2 className={styles.contextLabel} id="article-focus-preparation">Редакционен фокус</h2>
           <p className={styles.preparationHint}>Какво конкретно искаме да разкажем с тази статия?</p>
-          {!confirmed ? <p className={styles.confirmationNote}>Фокусът е предложение и очаква редакторско решение.</p> : null}
           <label className={styles.visuallyHidden} htmlFor="article-editorial-focus">Редакционен фокус</label>
           <textarea
             className={styles.focusInput}
@@ -152,21 +198,21 @@ export function PreparationWorkspace({
             aria-invalid={Boolean(focusError)}
             aria-describedby={focusError ? "article-editorial-focus-error" : undefined}
             onChange={(event) => { setFocus(event.target.value); setFocusError(""); }}
+            onBlur={commitFocus}
           />
-          <div className={styles.preparationActions}>
-            <button className={ui.retry} type="submit" disabled={focusSave.isPending}>
-              {focusSave.isPending ? "Запазва се…" : confirmed ? "Промени фокуса" : "Избери фокус"}
-            </button>
-            {focusSave.isPending ? <span role="status" aria-live="polite">Фокусът се потвърждава.</span> : null}
-          </div>
+          {focusSave.isPending ? (
+            <span className={styles.pending} role="status" aria-live="polite">Фокусът се запазва.</span>
+          ) : null}
           {focusError ? <p className={styles.fieldError} id="article-editorial-focus-error" role="alert">{focusError}</p> : null}
-        </form> : <section className={styles.preparationSection} aria-labelledby="article-focus-readonly">
+        </section> : <section className={styles.preparationSection} aria-labelledby="article-focus-readonly">
           <h2 className={styles.contextLabel} id="article-focus-readonly">Редакционен фокус</h2>
           <p className={styles.focusText}>{focus}</p>
         </section>}
 
         <section className={styles.preparationSection} aria-labelledby="preparation-readiness-heading">
-          <h2 className={styles.contextLabel} id="preparation-readiness-heading">Подготовка за чернова</h2>
+          {/* §13: one block, one readiness sentence, one next action. The
+              heading names what the editor is looking at, not the workflow. */}
+          <h2 className={styles.contextLabel} id="preparation-readiness-heading">Фактическа основа</h2>
           {preparation ? <>
             {/* V1.1-B: exactly ONE readiness sentence, taken verbatim from the
                 backend decision. There is no second, competing explanation, so
@@ -227,15 +273,38 @@ export function PreparationWorkspace({
                 <button className={ui.retry} type="button" onClick={() => onEditingChange(true)}>Редактирай</button>
               </div>
             ) : null}
-            {/* Research stays owned by the Story. When the backend says research
-                is the remedy, the editor gets a direct path to it — even with no
-                gap to show, which is the unassessed case. */}
+            {/* §4/§13: when the backend says research is the remedy — including
+                the unassessed case with no gap to show — the next action runs the
+                canonical Story research command from here. The Story still owns
+                the orchestration; this is only the way to reach it, and the
+                Article + Story are refetched when it finishes. */}
             {article.availableActions.includes("RESEARCH_MORE") ? (
-              <p className={styles.pending}>
+              <div className={styles.preparationActions}>
+                <button
+                  className={ui.retry}
+                  type="button"
+                  disabled={research.isPending || checkResearch.isPending}
+                  onClick={() => (researchToken ? checkResearch.mutate() : research.mutate())}
+                  data-article-research="story"
+                >
+                  {research.isPending || checkResearch.isPending
+                    ? "Проучва се…"
+                    : researchToken
+                      ? "Провери статуса"
+                      : "Проучи историята"}
+                </button>
+                {researchToken ? (
+                  <span className={styles.pending} role="status" aria-live="polite">
+                    Проучването продължава.
+                  </span>
+                ) : null}
+                {researchError ? (
+                  <span className={styles.fieldError} role="alert">{researchError}</span>
+                ) : null}
                 <Link to={`/stories/${encodeURIComponent(article.story.id)}`}>
-                  Проучи още
+                  Отвори историята
                 </Link>
-              </p>
+              </div>
             ) : null}
 
           </> : <EmptyState>Няма проекция за подготовката.</EmptyState>}

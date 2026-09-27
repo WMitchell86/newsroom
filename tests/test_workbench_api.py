@@ -355,7 +355,7 @@ def test_start_article_creates_canonical_preparation_article_and_retry_is_idempo
         # leaving React to guess. The reason comes from the one shared decision.
         "draftReadiness": {
             "code": "FOCUS_NOT_CONFIRMED",
-            "message": "Потвърдете фокуса, преди да правите чернова.",
+            "message": "Добавете редакционен фокус, за да създадете чернова.",
         },
         "blockingGaps": [],
         "nonBlockingGaps": [],
@@ -566,7 +566,10 @@ def test_draft_endpoint_requires_an_idempotency_key_and_accepts_no_fields(api_se
     )
     assert unconfirmed[0] == 409
     assert unconfirmed[1]["error"]["code"] == "FOCUS_NOT_CONFIRMED"
-    assert unconfirmed[1]["error"]["message"] == "Потвърдете фокуса, преди да правите чернова."
+    assert (
+        unconfirmed[1]["error"]["message"]
+        == "Добавете редакционен фокус, за да създадете чернова."
+    )
     assert (
         request(
             api_server,
