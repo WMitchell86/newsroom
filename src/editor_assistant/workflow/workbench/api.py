@@ -20,6 +20,9 @@ _MESSAGES = {
     "VALIDATION_ERROR": "Проверете подадените данни.",
     "NOT_FOUND": "Заявеният ресурс не е намерен.",
     "INVALID_TRANSITION": "Това действие не е налично в текущото състояние.",
+    # §R4: research owns its own codes so each branch can carry a truthful
+    # sentence. `INVALID_TRANSITION` above belongs to Article lifecycle refusals.
+    "RESEARCH_NOT_APPLICABLE": "Проучването не е налично за тази Story.",
     "ARTICLE_VERSION_CONFLICT": "Черновата е променена в друга сесия. Няма загубени локални промени.",
     "BLOCKING_GAP": "Има непопълнена информация, която пречи да продължите.",
     # V1.1-B: the four evidence-remedy reasons stay distinct at the API boundary
@@ -39,6 +42,14 @@ _MESSAGES = {
     # source is missing and never that a quota of evidence was reached.
     "RESEARCH_UNAVAILABLE": "Автоматичното проучване временно не е налично.",
     "RESEARCH_QUOTA_EXHAUSTED": "Достигнат е лимитът за автоматично проучване на тази история.",
+    # §R4: the branches that used to collapse into one generic sentence. Each
+    # names a different real outcome, so the editor can tell "no page opened"
+    # from "pages opened but nothing is confirmed" from "try again".
+    "RESEARCH_NO_SOURCE": "Не успяхме да отворим подходящ източник.",
+    "RESEARCH_NOT_CONFIRMED": (
+        "Намерени са източници, но информацията още не е достатъчно потвърдена."
+    ),
+    "RESEARCH_INTERRUPTED": "Проучването прекъсна поради технически проблем. Опитайте отново.",
     "INTERNAL_ERROR": "Вътрешна грешка. Опитайте отново.",
 }
 

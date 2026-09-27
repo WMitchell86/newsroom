@@ -28,6 +28,10 @@ export function PreparationWorkspace({
   const [titleError, setTitleError] = useState("");
   const [focus, setFocus] = useState(article.editorialFocus.text);
   const [focusError, setFocusError] = useState("");
+  // §D2: the backend's deterministic alternatives, served with the projection.
+  // The page never derives them and never invents one.
+  const focusAlternatives = article.preparation?.focusAlternatives ?? [];
+  const focusFieldRef = useRef<HTMLTextAreaElement>(null);
   const [draftError, setDraftError] = useState("");
   const [draftRetryable, setDraftRetryable] = useState(false);
   const draftKey = useRef("");
@@ -75,6 +79,18 @@ export function PreparationWorkspace({
       getErrorMessage(error, "Фокусът не може да бъде запазен. Текстът е запазен тук.")
     ),
   });
+  /**
+   * §D2: one click adopts an alternative. It replaces the text and saves through
+   * the SAME canonical Focus save a typed edit uses, so the adopted value is
+   * immediately the active, confirmed Focus. There is no Apply, no Confirm and
+   * no modal, and nothing here makes the Draft action depend on the choice.
+   */
+  const adoptFocus = (option: string) => {
+    setFocus(option);
+    setFocusError("");
+    if (!focusSave.isPending) focusSave.mutate();
+  };
+
   const draft = useMutation({
     mutationFn: () => {
       if (!draftKey.current) draftKey.current = createIdempotencyKey();
@@ -206,6 +222,7 @@ export function PreparationWorkspace({
           <textarea
             className={styles.focusInput}
             id="article-editorial-focus"
+            ref={focusFieldRef}
             value={focus}
             rows={5}
             maxLength={4000}
@@ -218,6 +235,37 @@ export function PreparationWorkspace({
             <span className={styles.pending} role="status" aria-live="polite">Фокусът се запазва.</span>
           ) : null}
           {focusError ? <p className={styles.fieldError} id="article-editorial-focus-error" role="alert">{focusError}</p> : null}
+          {/* §D2: quiet alternatives. Clicking one REPLACES the text and saves it
+              through the same canonical Focus save an edit uses — no Apply, no
+              Confirm, no modal, and no state of its own. §D3: the textarea above
+              stays editable at all times, and «Напиши свой» only focuses it. */}
+          {focusAlternatives.length ? (
+            <div className={styles.focusAlternatives}>
+              <p className={styles.contextLabel} id="article-focus-alternatives-label">Друг подход:</p>
+              <ul aria-labelledby="article-focus-alternatives-label" className={styles.preparationList}>
+                {focusAlternatives.map((option: string) => (
+                  <li key={option}>
+                    <button
+                      type="button"
+                      className={styles.focusAlternative}
+                      onClick={() => adoptFocus(option)}
+                    >
+                      {option}
+                    </button>
+                  </li>
+                ))}
+                <li>
+                  <button
+                    type="button"
+                    className={styles.focusAlternative}
+                    onClick={() => { setFocusError(""); focusFieldRef.current?.focus(); }}
+                  >
+                    Напиши свой
+                  </button>
+                </li>
+              </ul>
+            </div>
+          ) : null}
         </section> : <section className={styles.preparationSection} aria-labelledby="article-focus-readonly">
           <h2 className={styles.contextLabel} id="article-focus-readonly">Редакционен фокус</h2>
           <p className={styles.focusText}>{focus}</p>

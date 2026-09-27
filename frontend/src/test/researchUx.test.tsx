@@ -265,6 +265,8 @@ describe("V1.2-G2.2 — the Focus needs content, not a confirmation click", () =
     const ready = preparation(
       {
         focusConfirmed: true,
+        // §D2: deterministic alternatives; empty is a normal outcome.
+        focusAlternatives: [],
         draftReadiness: { code: "DRAFT_ELIGIBLE", message: "Има достатъчно потвърдена информация за чернова." },
         blockingGaps: [],
         nonBlockingGaps: [],
@@ -303,6 +305,8 @@ describe("V1.2-G2.2 — the Focus needs content, not a confirmation click", () =
     const empty = preparation(
       {
         focusConfirmed: false,
+        // §D2: deterministic alternatives; empty is a normal outcome.
+        focusAlternatives: [],
         draftReadiness: {
           code: "FOCUS_NOT_CONFIRMED",
           message: "Добавете редакционен фокус, за да създадете чернова.",
@@ -334,6 +338,8 @@ describe("V1.2-G2.2 — the Focus needs content, not a confirmation click", () =
     const unassessed = preparation(
       {
         focusConfirmed: true,
+        // §D2: deterministic alternatives; empty is a normal outcome.
+        focusAlternatives: [],
         draftReadiness: {
           code: "STORY_UNASSESSED",
           message: "За чернова първо е нужно проучване на историята.",

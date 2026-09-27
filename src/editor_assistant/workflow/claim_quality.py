@@ -69,6 +69,68 @@ _BOILERPLATE_PATTERNS = (
     r"(?:\s*#\w+){2,}",
 )
 
+# --- V1.2-G2.4 §A3: the generalised tag-cloud / widget filter ---------------
+#
+# G2.3 fixed exactly the observed string. §A3 requires the *class* to fail, not
+# the one sample, and warns against over-filtering legitimate short sentences.
+# The four shapes below are the classes the observed blob is made of, and each
+# one is a property of the TEXT, not of a particular publisher:
+#
+#   1. a hashtag anywhere  — a real Bulgarian sentence never contains "#";
+#   2. a hashtag-plus-navigation run — the observed "#катастрофа … Новини
+#      Нашите инициативи БНР …", where a tag is fused to a category run;
+#   3. a share/follow component — "Сподели статията", "Следвай ни", "Харесва";
+#   4. a recommendation widget — "Препоръчано за вас", "Още от автора",
+#      "Повече новини от", "Свързани статии".
+#
+# Every pattern is anchored on a marker token that cannot legitimately occur in
+# a factual proposition in this form, so a genuine short sentence is never lost.
+_TAG_CLOUD_PATTERNS = (
+    # 1. any hashtag token. `#` is never part of Bulgarian prose.
+    r"#\w",
+    # 3. share / follow components.
+    r"сподели статия|споделете статия|харесва(йте)?\s+страницата|следвай(те)?\s+ни|"
+    r"свали приложението|абонирай(те)?\s+за",
+    # 4. recommendation widgets.
+    r"препоръчано за вас|още от автора|повече (новини|статии) от|свързани статии|"
+    r"прочетете още|вижте още",
+)
+
+#: 2. a navigation/category run: three or more short Title-Case labels with no
+#: sentence punctuation. Matched on the ORIGINAL case on purpose — capitalisation
+#: is the only signal it has — so it is kept apart from the case-insensitive word
+#: markers above.
+#: --- §A2 (second pass): segmentation ARTEFACTS that survive semantic markup --
+#:
+#: The typed segmentation (§A2) stops a merge when the page uses real headings.
+#: Measured on the frozen sample, the surviving defects are two classes, and both
+#: are properties of the TEXT, not of any one publisher:
+#:
+#: 1. **An accessibility skip link.** "Skip to content" is a `<a>` that exists to
+#:    let keyboard users bypass the menu. It is chrome in every language, and a
+#:    Bulgarian site carries the English marker verbatim.
+#: 2. **A glued token run.** When a page concatenates inline nodes with no
+#:    whitespace — a date, a counter and a breadcrumb glued together — the result
+#:    is `сеп.212026ПресцентърСпорт` or `2 публикацииНа 21 септември`. Digits
+#:    touching a capital letter, or a capitalised word touching another word, is
+#:    proof that two nodes were concatenated by the renderer and NOT by an author.
+#:    No Bulgarian sentence contains either.
+_SKIP_LINK = re.compile(
+    r"\bskip\s*to\s*content\b|\bкъм\s+съдържанието\b|\bпрескочи\s+към\s+съдържанието\b",
+    re.IGNORECASE,
+)
+
+#: Proof of a whitespace-less node boundary inside the text.
+_GLUED_TOKEN = re.compile(
+    r"\d[А-ЯЪA-Z]"          # digits immediately followed by a capitalised word
+    r"|[а-я]{3}[А-ЯЪ]"       # a lowercase word run glued to a new capitalised word
+    r"|\)[А-ЯЪ]"           # a closing bracket glued to the next word
+)
+
+_NAV_RUN_CLOUD = re.compile(
+    r"(?:\b[А-Я][а-я]{2,}(?:\s+[А-Я][а-я]{2,}){0,2}\b[\s|/]+){3,}"
+)
+
 #: A real proposition carries function words and a verb. A navigation or
 #: breadcrumb blob is a Title-Case run with almost none, which is what let the
 #: items above through.
@@ -94,14 +156,32 @@ _CATEGORY_ONLY = re.compile(
 #: end a proposition.
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+|(?<=\.\.\.)\s+|\s+(?=т\.\s?\d|ал\.\s?\d|чл\.\s?\d)")
 
+
 #: A run of short all-caps labels with no sentence punctuation is a menu bar.
 _MENU_RUN = re.compile(r"(?:\b[А-ЯЪ]{3,12}\b[\s|/]+){3,}")
 _SENTENCE_END = re.compile(r"[.!?…]")
 _TERMINAL_PUNCT = re.compile(r"[.!?…»”\"']\s*$")
 #: A copula or auxiliary in first position: the clause has lost its subject.
+#: A clause that starts mid-thought is an extraction artefact, not a
+#: proposition.
+#:
+#: Deliberately the copula/auxiliary set G2.3 validated, and nothing more. An
+#: earlier attempt also rejected a leading preposition (to catch "от 9:00 часа,
+#: в заседателната зала…"), and it was reverted because it cost real facts:
+#: "На 21 септември се отбелязва…" and "В Бургас денят беше отбелязан…" are
+#: complete Bulgarian sentences that open with the very words the rule would
+#: refuse. One remaining marginal fragment is reported as QUESTIONABLE in the
+#: report instead of being bought with a false-positive rate.
 _FRAGMENT_START = re.compile(
     r"^(?:и|или|но|а|че|да|се|е|са|бе|би|бяха|ще|били|имат|няма)\b", re.IGNORECASE
 )
+
+#: §A2 third pass — a TRUNCATED PREVIEW. A "read more"/teaser line ends in an
+#: ellipsis because the publisher cut it: "… започва подготовката за 2027 г.,
+#: когато Бургас ще…". It states no complete proposition, so it is chrome. A
+#: genuine sentence is published whole, and the frozen sample's real facts all
+#: end in a full stop.
+_TRUNCATED_PREVIEW = re.compile(r"[…]\s*[»”\"')\]]?\s*$")
 _MIN_CHARS = 25
 _MAX_CHARS = 600
 
@@ -143,6 +223,20 @@ def is_chrome(text: str) -> bool:
     for pattern in _BOILERPLATE_PATTERNS:
         if re.search(pattern, value, re.IGNORECASE):
             return True
+    # §A3: the generalised tag-cloud / widget classes. The word markers are
+    # matched case-insensitively; the Title-Case navigation run is matched on
+    # the ORIGINAL case, because capitalisation is the only signal it has. Both
+    # are anchored on markers that cannot occur in a genuine proposition.
+    for pattern in _TAG_CLOUD_PATTERNS:
+        if re.search(pattern, value, re.IGNORECASE):
+            return True
+    if _NAV_RUN_CLOUD.search(value):
+        return True
+    # §A2 second pass: an accessibility skip link, and any whitespace-less node
+    # boundary. Both are renderer artefacts, and neither can occur in a sentence
+    # an author wrote.
+    if _SKIP_LINK.search(value) or _GLUED_TOKEN.search(value):
+        return True
     # An all-caps label run is chrome even when the block ends in a full stop,
     # which is exactly how "… в Бургас | Топ Новини НАЧАЛОБЪЛГАРИЯСВЯТБИЗНЕС"
     # reached the evidence basis.
@@ -192,6 +286,9 @@ def is_factual_candidate(text: str) -> bool:
     # proposition. "е пострадал при катастрофа на пътя Стара Загора..." is the
     # tail of a sentence whose subject was lost, and it was promoted as a fact.
     if _FRAGMENT_START.match(value):
+        return False
+    # §A2: a truncated preview is not a fact, however well-formed it looks.
+    if _TRUNCATED_PREVIEW.search(value):
         return False
     letters = re.findall(r"[A-Za-zА-Яа-я]", value)
     if len(letters) < 0.5 * len(value.replace(" ", "")):
@@ -254,6 +351,147 @@ _GENERIC_KEYS = frozenset(
 )
 
 
+# --- V1.2-G2.4 §A4: event-context agreement -------------------------------
+#
+# G2.3 promoted a sentence about the Stara Zagora–Kazanlak accident into the
+# Burgas–Sozopol Story. `_is_about` did not stop it because the two sentences do
+# share a content key with the Story — `катастрофа` — and §A4 states plainly that
+# a single generic shared word is never sufficient.
+#
+# The rule is anchor agreement, not similarity: a candidate must agree with the
+# Story event on enough *identifying* anchors, and a hard contradiction on a
+# locality or a date rejects it outright without a model. The anchors below are
+# deliberately the ones §A4 names: central entities, locality, event/action,
+# date and a key quantity. Words that can describe any news story at all
+# (`катастрофа`, `новости`, `събитие`) are excluded from every anchor set, so
+# sharing one can never produce agreement.
+
+#: Words that identify no event. They occur in any two unrelated stories, so
+#: they can never count towards anchor agreement. §A4 names `катастрофа`; this
+#: is the generalisation of that one word into the whole class of generic news
+#: vocabulary. The list is keyed through the SAME `_key` as the anchors, so a
+#: surface form like "събитието" and its stem "събити" cannot slip past by
+#: inflection.
+_GENERIC_NEWS_WORDS = (
+    "катастрофа", "катастрофи", "катастрофен", "новости", "новина", "събитие",
+    "събития", "събитието", "събитие", "съобщение", "съобщения", "статия",
+    "статии", "инцидент", "инциденти", "инцидента", "път", "пътя", "пътища",
+    "пътят", "българска", "български", "българия", "българският", "днес",
+    "вчера", "утре", "година", "години", "годишен", "събит", "произшествие",
+    "според", "източник", "източници", "публикация", "медия", "медиите",
+    "новинар", "кореспондент", "кот", "същата", "този", "тази", "тези",
+    "това", "новинарка", "съобщи", "съобщава", "представи", "представя",
+    "пострадаха", "загина", "ранени", "тежко", "леко", "тежка", "лека",
+)
+_NEVER_ANCHOR = frozenset(_key(word) for word in _GENERIC_NEWS_WORDS)
+
+#: §A4: a claim must share at least this many NON-GENERIC anchors with the Story.
+#:
+#: One is the correct number, and it is worth being precise about why. §A4's
+#: actual requirement is that a generic shared word — `катастрофа` by name —
+#: must never be sufficient, and that is enforced by the *blocklist*, not by the
+#: count: generic words are removed from every anchor set, so they can never be
+#: the shared anchor. Requiring TWO on top of that was measured to reject real
+#: facts of the same event ("Ранени при инцидента са 30-годишна жена и
+#: момиченце" shares only `жена` with its own Story) while adding no safety the
+#: road-locality contradiction below does not already provide.
+_MIN_IDENTIFYING_ANCHORS = 1
+
+#: §A4: a Story needs at least this many anchors before the anchor gate can
+#: discriminate one event from another. A short or generic subject ("Тест
+#: история") yields a two-word anchor set that no genuine sentence about the
+#: real event would share, so arming the gate there would reject every correct
+#: claim without rejecting anything wrong. The gate is therefore only armed when
+#: the Story itself is specific enough to identify an event, and the historical
+#: topic-overlap check stands in otherwise. This errs in the conservative
+#: direction: it can never manufacture agreement, only decline to demand it.
+_MIN_IDENTIFYING_ANCHOR_SET = 4
+
+#: A road / route phrase: "пътя Бургас-Созопол", "пътя Стара Загора – Казанлък".
+#: The dash-joined capitalised pair is a high-precision locality signal, so it
+#: is used ONLY for a contradiction test and never for agreement. Detecting
+#: "any capitalised word" would over-filter ordinary sentences, which §A3
+#: explicitly forbids.
+_ROAD_PLACES = re.compile(
+    r"\bпът(?:я|ят|ят|ища|ищата)?\s+"
+    r"([А-Я][а-я]+(?:[\s–—-]+[А-Я][а-я]+){0,2})",
+    re.IGNORECASE,
+)
+
+
+def _content_keys(value: str) -> set[str]:
+    """Stemmed, non-generic content keys of one text."""
+    return {
+        _key(word)
+        for word in re.findall(r"[\wа-яА-Я]+", str(value or "").casefold())
+        if len(word) > 3
+    } - _NEVER_ANCHOR
+
+
+def _road_localities(value: str) -> set[str]:
+    """The place names a road/route phrase names, e.g. a road accident's route."""
+    out: set[str] = set()
+    for match in _ROAD_PLACES.finditer(str(value or "")):
+        for word in re.findall(r"[А-Я][а-я]{2,}", match.group(1)):
+            key = _key(word.casefold())
+            if len(key) >= 3:
+                out.add(key)
+    return out
+
+
+def event_anchors(*texts: str) -> set[str]:
+    """The identifying anchor keys of a Story event.
+
+    Built from the Story's own canonical text (its cleaned title and the
+    representative publication). Generic news vocabulary is removed by the same
+    keyed blocklist, so what survives is specific: a named person, a named
+    organisation, a named place, a distinctive action or quantity word.
+    """
+    out: set[str] = set()
+    for text in texts:
+        out |= _content_keys(text)
+    return out
+
+
+def agrees_with_event(sentence: str, anchors: set[str], *, topic: str = "") -> bool:
+    """True when the sentence is about the SAME event as the anchors.
+
+    Two ordered checks, both deterministic and both BEFORE any model call:
+
+    1. **Hard contradiction.** When the Story names a road/route locality and
+       the claim names a different one, they are different events. §A4 requires
+       contradictions to bypass the model and reject immediately, and this is
+       the check that stops a Stara Zagora–Kazanlak sentence inside the
+       Burgas–Sozopol Story deterministically.
+    2. **Identifying anchor agreement.** The claim must share at least one
+       non-generic anchor. A generic shared word such as `катастрофа` can never
+       satisfy this, because generic vocabulary is removed from every anchor set
+       on both sides — it is the WORD that is disallowed, not the count.
+
+    A Story with no usable anchors cannot discriminate events at all, so the
+    historical non-filtering behaviour is kept rather than rejecting everything.
+    The same holds when the anchor set is too small to identify an event
+    (`_MIN_IDENTIFYING_ANCHOR_SET`): the gate stays unarmed rather than armed
+    against a subject it cannot describe.
+    """
+    text = str(sentence or "")
+    if not text.strip() or not anchors:
+        return True
+
+    # 1. Road-locality contradiction — no model, no similarity, no chance.
+    topic_places = _road_localities(topic or "")
+    if topic_places:
+        claim_places = _road_localities(text)
+        if claim_places and not (claim_places & topic_places):
+            return False
+
+    # 2. Identifying anchor agreement. Only demanded when the Story's own
+    #    subject is specific enough for the demand to mean anything.
+    if len(anchors) < _MIN_IDENTIFYING_ANCHOR_SET:
+        return True
+    return len(_content_keys(text) & anchors) >= _MIN_IDENTIFYING_ANCHORS
+
+
 def _is_about(sentence: str, topic: str) -> bool:
     """True when the sentence shares its subject with the Story."""
     subject = {
@@ -274,21 +512,66 @@ def _is_about(sentence: str, topic: str) -> bool:
     return len(subject & sentence_words) >= _TOPIC_KEYS_REQUIRED
 
 
-def select_candidate_claims(sentences, questions, *, limit: int = 4, topic: str = "") -> list[dict]:
-    """A small, ordered candidate set from one opened page (§9, §10).
+#: §A2 — block kinds that may carry a factual sentence. Everything else
+#: (HEADING, LIST_ITEM, LABEL, NAV) is furniture: readable, useful as context,
+#: never a proposition on its own and never concatenated into one.
+_PROSE_KINDS = frozenset({"PROSE"})
+
+
+def select_candidate_claims(
+    sentences,
+    questions,
+    *,
+    limit: int = 4,
+    topic: str = "",
+    blocks=None,
+    anchors: set[str] | None = None,
+) -> list[dict]:
+    """A small, ordered candidate set from one opened page (§9, §10, §A2, §A4).
 
     At most ``limit`` claims (3-5 by default) are returned, each with the
     dimension it answers, so corroboration compares claims that were extracted
     for the same reason rather than arbitrary sentences. The order is by
     relevance to the Story's questions, and duplicates are dropped.
+
+    `blocks` is the typed segmentation from `html_desc.normalize_blocks`. When
+    given, only `PROSE` blocks are read, which is what structurally prevents a
+    heading-plus-sentence merge. When it is absent the caller is passing plain
+    sentences and the historical behaviour is kept.
+
+    `anchors` is the Story's event-anchor set (§A4). When given, a well-formed
+    sentence that does not agree with the Story's event is dropped here — before
+    claim comparison and before any model call.
     """
     pool = []
     seen = set()
-    for index, raw in enumerate(sentences or []):
-        value = str(raw or "").strip()
-        if not value or not is_factual_candidate(value):
+    if blocks is not None:
+        # A PROSE block is a paragraph, not a sentence, so it is still split —
+        # but every resulting sentence inherits the block's kind, which is what
+        # keeps a heading out of the pool no matter how the page is marked up.
+        units: list[tuple[str, str | None]] = []
+        for block in blocks:
+            text = str(block.get("text") or "")
+            kind = str(block.get("kind") or "")
+            if kind in _PROSE_KINDS:
+                units.extend((part, kind) for part in SENTENCE_SPLIT.split(text))
+            else:
+                units.append((text, kind))
+    else:
+        units = [(str(raw or ""), None) for raw in sentences or []]
+    for index, (raw, kind) in enumerate(units):
+        value = raw.strip()
+        if not value:
+            continue
+        if kind is not None and kind not in _PROSE_KINDS:
+            # §A2: a heading, list item, label or navigation run is context, not
+            # a proposition. Splitting it is what produced the merged "facts".
+            continue
+        if not is_factual_candidate(value):
             continue
         if not _is_about(value, topic):
+            continue
+        if anchors is not None and not agrees_with_event(value, anchors, topic=topic):
             continue
         marker = value.casefold()
         if marker in seen:

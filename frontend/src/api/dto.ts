@@ -191,6 +191,13 @@ export type DraftReadinessCode =
   // unavailable or its bounded budget is spent, never that a source is missing.
   | "RESEARCH_UNAVAILABLE"
   | "RESEARCH_QUOTA_EXHAUSTED"
+  // §R4: these branches used to collapse into one generic sentence. Each names a
+  // real, distinguishable outcome: no page opened / opened but not confirmed /
+  // a genuine technical interruption.
+  | "RESEARCH_NO_SOURCE"
+  | "RESEARCH_NOT_CONFIRMED"
+  | "RESEARCH_NOT_APPLICABLE"
+  | "RESEARCH_INTERRUPTED"
   | "ARTICLE_HAS_TEXT"
   | "SAFETY_BLOCKED"
   | "ARTICLE_VERSION_CONFLICT"
@@ -215,6 +222,13 @@ export interface DraftFailure {
 
 export interface PreparationProjection {
   focusConfirmed: boolean;
+  /**
+   * §D2: two or three quiet Focus alternatives, derived deterministically by the
+   * backend. Clicking one replaces the field text and saves it; there is no
+   * Apply, Confirm or modal. An empty list is a normal outcome and never blocks
+   * a Draft.
+   */
+  focusAlternatives: string[];
   blockingGaps: MissingInformationItem[];
   nonBlockingGaps: MissingInformationItem[];
   draftEligible: boolean;
@@ -445,6 +459,12 @@ export type ApiErrorCode =
   // unavailable or its bounded budget is spent, never that a source is missing.
   | "RESEARCH_UNAVAILABLE"
   | "RESEARCH_QUOTA_EXHAUSTED"
+  // §R4: these branches used to collapse into one generic sentence. Each names a
+  // real, distinguishable outcome for the editor.
+  | "RESEARCH_NO_SOURCE"
+  | "RESEARCH_NOT_CONFIRMED"
+  | "RESEARCH_NOT_APPLICABLE"
+  | "RESEARCH_INTERRUPTED"
   | "ARTICLE_HAS_TEXT"
   | "WORKING_TITLE_REQUIRED"
   | "SAFETY_BLOCKED"

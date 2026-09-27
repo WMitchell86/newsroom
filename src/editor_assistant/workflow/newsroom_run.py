@@ -365,6 +365,99 @@ def authority_by_domain(path=None, *, today=None):
     return out
 
 
+def rows_by_publisher_domain(path=None, *, today=None) -> dict:
+    """V1.2-G2.4 §R1 — publisher domain -> EVERY registry row claiming it.
+
+    `authority_by_domain` collapses a domain to one row, which is only safe
+    while it is used for a *policy* lookup where all rows agree. The owner's
+    real regression case needs more: `burgas.bg` is claimed by
+    `burgas-municipality`, `burgas-cultural-program` and `burgas-sport-program`,
+    and §R1 requires that the resolution be explained rather than silently
+    decided by whichever row happens to sort first.
+
+    This function therefore keeps all rows, ordered by `source_id` for
+    determinism, and fails closed on the same disagreement `authority_by_domain`
+    does. The *policy* is still unanimous whenever this returns successfully, so
+    a caller can never use it to grant an authority the registry disputes.
+    """
+    grouped: dict[str, list[dict]] = {}
+    for row in sources_registry.describe_all(path, today=today):
+        for domain in (row.get("domain") or "", blocked_domains.host_of(row.get("url")) or ""):
+            if domain:
+                grouped.setdefault(domain, []).append(row)
+    for domain, rows in grouped.items():
+        first = rows[0]
+        for other in rows[1:]:
+            if first["kind"] != other["kind"] or bool(first["factual_authority"]) != bool(
+                other["factual_authority"]
+            ):
+                raise sources_registry.RegistryError(
+                    f"conflicting publisher policy for {domain}: "
+                    f"{first['source_id']} vs {other['source_id']} — fix the registry"
+                )
+        grouped[domain] = sorted(rows, key=lambda r: str(r.get("source_id") or ""))
+    return grouped
+
+
+def resolve_publisher_policy(host, rows_by_domain, *, publisher_identity=None) -> dict:
+    """V1.2-G2.4 §R1 — the authority of an OPENED publisher host, and why.
+
+    §R1 is explicit that the answer must not depend on which registry row
+    appears first. This resolver therefore:
+
+    * matches the host against a registry domain, tolerating a `www.`/`m.`/`amp.`
+      prefix exactly as the independence rule already does (§B8 — the same
+      publisher identity, so the same publisher in both places);
+    * returns the **unanimous** policy plus EVERY row that claimed the domain,
+      so a report can show that `burgas.bg` is held by three source ids;
+    * returns a human-readable publisher name that is never the accidental
+      alphabetically-first row: the general institution name wins over a
+      programme-specific one, and the fallback is the domain itself.
+
+    An unknown publisher still resolves to "no authority" — the M4A.1 rule that
+    authority is never inherited is untouched.
+    """
+    identity = publisher_identity(host) if publisher_identity else str(host or "").lower()
+    rows: list[dict] = []
+    if identity:
+        rows = list(rows_by_domain.get(identity) or [])
+    if not rows and identity:
+        for known, candidates in (rows_by_domain or {}).items():
+            if identity.endswith("." + known):
+                rows = list(candidates)
+                break
+    if not rows:
+        return {
+            "publisher_domain": identity,
+            "publisher_identity": identity,
+            "kind": "",
+            "factual_authority": False,
+            "source_ids": [],
+            "name": identity,
+            "matched_by": "none",
+        }
+    # A programme name ("Културна програма — Бургас") is not the name of the
+    # institution that published the page; the general name is, so prefer it.
+    by_id = sorted(rows, key=lambda r: str(r.get("source_id") or ""))
+    name = next(
+        (
+            str(r.get("name") or "")
+            for r in by_id
+            if "програм" not in str(r.get("name") or "").casefold()
+        ),
+        "",
+    ) or str(rows[0].get("name") or "") or identity
+    return {
+        "publisher_domain": identity,
+        "publisher_identity": identity,
+        "kind": rows[0]["kind"],
+        "factual_authority": bool(rows[0]["factual_authority"]),
+        "source_ids": [str(r.get("source_id") or "") for r in by_id],
+        "name": name,
+        "matched_by": "domain" if identity in (rows_by_domain or {}) else "suffix",
+    }
+
+
 def publisher_domain(candidate):
     """The real publisher of one candidate (never the discovery definition).
 

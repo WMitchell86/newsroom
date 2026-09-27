@@ -572,12 +572,55 @@ def desired_item_statuses(story):
     return {}
 
 
+#: Subdomain labels that never identify a publisher of their own.
+#:
+#: V1.2-G2.4 §F/§B8: this is now the SINGLE definition of publisher identity for
+#: the whole product. `story_store.metrics` (the `Най-много източници` signal)
+#: and `story_research` (the corroboration independence rule) both call it, so
+#: the count the editor sees and the count the evidence gate computes can never
+#: disagree about what a publisher is.
+#:
+#: Stripping them is the conservative direction: it collapses the overwhelmingly
+#: common `example.com` / `www.example.com` pair, which is one publisher reached
+#: twice, without guessing at eTLD+1 boundaries and so risking the opposite
+#: error of merging two genuinely different outlets that share a suffix.
+PUBLISHER_NEUTRAL_LABELS = frozenset({"www", "m", "amp", "en", "bg"})
+
+
+def publisher_identity(host):
+    """The publisher identity of a host: `www.m.example.bg` -> `example.bg`.
+
+    A single-label host (`site-a`) is returned unchanged: it is still ONE
+    publisher, and collapsing every such host to `""` would make two genuinely
+    different publishers look like the same one. Only genuinely unusable input
+    (empty/whitespace) returns `""`, so a member with no real publisher domain
+    can never inflate a publisher count.
+    """
+    text = str(host or "").casefold().strip(".").strip()
+    if not text:
+        return ""
+    labels = text.split(".")
+    while len(labels) > 2 and labels[0] in PUBLISHER_NEUTRAL_LABELS:
+        labels = labels[1:]
+    return ".".join(labels)
+
+
 def metrics(story, items_by_id):
     """`discovery_count` / `publication_count` / `publisher_count` (M4C §2.4).
 
     Five discovery rows that are two unique publications from two publishers must
     never read as "5 sources". A member without a usable publication key counts as
     its own publication (we cannot honestly collapse it).
+
+    **V1.2-G2.4 §F — `publisher_count` is the independent-publisher signal.**
+    §F requires the count to be per *publisher identity*, and to prove the
+    semantics rather than assert them. The previous version keyed the set on the
+    raw `publisher_domain` string, so `www.burgas.bg` and `burgas.bg` counted as
+    TWO publishers, and a subdomain, an AMP host or an alternate news domain
+    could each manufacture an extra "source" for the future `Най-много източници`
+    sort. It now uses exactly the `publisher_identity` rule defined above, which
+    the corroboration gate also calls, so the number the editor sees and the
+    number the evidence gate computes cannot disagree about what a publisher is.
     """
     keys = []
     publishers = set()
@@ -587,7 +630,9 @@ def metrics(story, items_by_id):
         keys.append(key)
         domain = str(item.get("publisher_domain") or "")
         if domain:
-            publishers.add(domain)
+            identity = publisher_identity(domain)
+            if identity:
+                publishers.add(identity)
     return {
         "discovery_count": len(story["members"]),
         "publication_count": len(set(keys)),

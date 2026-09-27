@@ -348,14 +348,17 @@ def test_start_article_creates_canonical_preparation_article_and_retry_is_idempo
     assert article["title"] == "Развитие Б"
     assert article["content"]["body"] == ""
     assert article["editorialFocus"]["text"]
-    assert article["editorialFocus"]["confirmedAt"] is None
+    assert article["editorialFocus"]["confirmedAt"] is not None
     assert article["preparation"] == {
-        "focusConfirmed": False,
+        "focusConfirmed": True,
+        # §D2: the quiet alternatives travel with the projection, so the page
+        # never derives them. They are suggestions, not a wizard step.
+        "focusAlternatives": article["preparation"]["focusAlternatives"],
         # V1.1-B: the backend now reports WHY a Draft is unavailable, instead of
         # leaving React to guess. The reason comes from the one shared decision.
         "draftReadiness": {
-            "code": "FOCUS_NOT_CONFIRMED",
-            "message": "Добавете редакционен фокус, за да създадете чернова.",
+            "code": "STORY_UNASSESSED",
+            "message": "За чернова първо е нужно проучване на историята.",
         },
         "blockingGaps": [],
         "nonBlockingGaps": [],
@@ -363,8 +366,12 @@ def test_start_article_creates_canonical_preparation_article_and_retry_is_idempo
         # V1.1-C: no generation has been attempted, so there is no recovery
         # context and the manual editor is not offered.
         "draftFailure": None,
-        "availableActions": ["SELECT_FOCUS"],
+        "availableActions": ["CHANGE_FOCUS", "RESEARCH_MORE"],
     }
+    # §D2: the alternatives are real, Story-specific sentences — never the old
+    # generic placeholder, and never empty here.
+    assert len(article["preparation"]["focusAlternatives"]) >= 2
+    assert all("Развитие Б" in option for option in article["preparation"]["focusAlternatives"])
     serialized = json.dumps(article, ensure_ascii=False)
     assert not any(
         value in serialized for value in ("Case", "Idea", "idea_id", "case_id", "draft_id")

@@ -153,6 +153,8 @@ export const activePreparationArticle: ArticleDetail = {
   content: { title: "Ремонтът на булевард „Свобода“ — какво предстои", body: "", version: 0 },
   preparation: {
     focusConfirmed: false,
+    // §D2: deterministic alternatives; empty is a normal outcome.
+    focusAlternatives: [],
     // V1.1-B: the readiness reason comes from the backend, never from React.
     draftReadiness: {
       code: "FOCUS_NOT_CONFIRMED",
@@ -186,6 +188,8 @@ export const failedPreparationArticle: ArticleDetail = {
   preparation: {
     ...activePreparationArticle.preparation!,
     focusConfirmed: true,
+    // §D2: deterministic alternatives; empty is a normal outcome.
+    focusAlternatives: [],
     draftEligible: true,
     draftReadiness: {
       code: "DRAFT_ELIGIBLE",

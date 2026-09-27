@@ -1,0 +1,135 @@
+"""V1.2-G2.4 §D — the fast Editorial Focus: one good default, zero friction.
+
+**The contract this module implements.** D1 asks for one thing: when an Article
+enters Preparation, the Focus field must ALREADY hold one usable, Story-specific
+proposal, so `open -> accept everything by doing nothing -> Направи чернова`
+works. D2 adds two or three quiet alternatives below it. D3 keeps the field
+editable at all times and adds no state of its own.
+
+**Why the suggestions are deterministic.** D4 is explicit that a strong Draft
+model must never be spent on Focus choices, and it asks for a determination
+first: can three useful variants be produced from the Story title, its facts,
+its gaps and ordinary editorial templates? For local Bulgarian news the answer
+is yes, so this module does that and spends no model call at all. The primary
+Focus therefore has no failure mode: it is a pure function of canonical Story
+state, which is what makes "never make Draft eligibility depend on successful
+alternative generation" true by construction rather than by promise.
+
+**What this is not.** Not a proposal state, not an approval step, not a wizard.
+The caller persists a suggestion through the ONE canonical Focus save
+(`editor_article_store.update_editor_focus`), so clicking an alternative and
+typing your own text reach exactly the same place.
+"""
+
+from __future__ import annotations
+
+import re
+
+#: The quiet alternatives are labelled, never "Apply". §D2: clicking one simply
+#: replaces the text.
+WRITE_YOUR_OWN = "Напиши свой"
+
+#: The compact alternatives offered under the field. Their CONTENT is built per
+#: Story; only these labels are shared, and none of them is a button that
+#: confirms anything.
+ALTERNATIVE_LABELS = (
+    "Какво се случи и какво следва",
+    "Практична информация за читателите",
+    "Последствията за региона",
+)
+
+_TRAILING_PUBLISHER = re.compile(r"\s+[-–—]\s+[^-–—|]{2,40}$")
+_QUOTES = re.compile(r"[„“”\"«»]")
+
+
+def _clean_title(title: str) -> str:
+    """The Story subject, without the publisher suffix and stray quotes."""
+    text = " ".join(str(title or "").split())
+    text = _TRAILING_PUBLISHER.sub("", text)
+    text = _QUOTES.sub("", text).strip(" -–—,.")
+    return text
+
+
+def primary_focus(title: str, *, facts=(), gaps=()) -> str:
+    """D1 — the one usable Focus an editor can accept without doing anything.
+
+    Deterministic, Story-specific, one sentence, and free of any model call. It
+    names the Story's own subject and the editorial job, and invents no angle,
+    no quote, no source and no consequence.
+
+    `facts` and `gaps` shape only *where the emphasis goes*, never *what is
+    claimed*: a Story that still has confirmed facts is framed around them, and
+    one that does not is framed around what is established so far. A Story with
+    no usable subject yields `""`, exactly like the Quick-Draft default, and the
+    canonical readiness decision then reports `WORKING_TITLE_REQUIRED`.
+    """
+    subject = _clean_title(title)
+    if not subject:
+        return ""
+    has_facts = bool(list(facts or ()))
+    if has_facts:
+        return (
+            f"Кратка новина за „{subject}“ с акцент върху потвърдените факти, "
+            "кога и къде се е случило и какво следва за хората, за които новината "
+            "има значение."
+        )
+    return (
+        f"Кратка новина за „{subject}“ с акцент върху това, което вече е установено, "
+        "и изрично отбелязване на това, което все още не е потвърдено."
+    )
+
+
+def alternatives(title: str, *, facts=(), gaps=()) -> tuple[str, ...]:
+    """D2/D4 — two or three quiet alternatives, derived deterministically.
+
+    The ordering is stable and the content is built from this Story's own
+    subject and its gaps, so a council agenda Story and a road-accident Story do
+    not get the same three lines. An empty tuple is a legitimate outcome (a
+    Story with no usable subject has no alternatives either), and the caller
+    must treat that as normal rather than as a failure: D4 forbids making Draft
+    eligibility depend on alternatives existing.
+    """
+    subject = _clean_title(title)
+    if not subject:
+        return ()
+
+    # D4: prefer variants the Story's own state makes relevant. A Story that
+    # already has confirmed facts can be read for consequence and next steps; a
+    # Story whose basis is thin can be read for what is known and what follows.
+    confirmed = list(facts or ())
+    open_gaps = [str(gap) for gap in (gaps or ()) if str(gap or "").strip()]
+    out: list[str] = []
+
+    def push(value: str) -> None:
+        text = " ".join(str(value or "").split())
+        if text and text not in out:
+            out.append(text)
+
+    if confirmed:
+        push(
+            f"Какво точно се е случило по „{subject}“, кой е засегнат и какво следва "
+            "оттам — без да се повтаря целият текст на източника."
+        )
+        push(
+            f"Практическото значение за читателите: какво трябва да знаят и какво "
+            f"да направят по отношение на „{subject}“."
+        )
+        push(f"Последствията за Бургас и региона от случилото се с „{subject}“.")
+    else:
+        push(
+            f"Какво вече е известно за „{subject}“ и какво остава неуточнено."
+        )
+        push(
+            f"Какво следва предвид случилото се с „{subject}“ и какво се очаква."
+        )
+        push(f"Последствията за Бургас и региона от „{subject}“.")
+
+    # D2/D4: the number of GAPS is a real editorial signal. A Story with a named
+    # open question gets an alternative aimed squarely at it.
+    if open_gaps and len(out) >= 3:
+        question = open_gaps[0].strip()
+        if len(question) > 120:
+            question = question[:117].rstrip() + "…"
+        push(f"Първото, което трябва да стане ясно: „{question}“")
+
+    return tuple(out[:3])

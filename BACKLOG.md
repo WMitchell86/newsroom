@@ -429,3 +429,56 @@ Decided by the repo owner after the M3B.1 code review; all are implemented.
   state).
 - **Q10 no origin-string migration.** Historical `var/` records keep the old
   origin string; the newer origin is more informative, not a correction.
+
+---
+
+## V1.2-G2.4 Part G — future structured EVENT sources (RECORD ONLY, 2026-09-27)
+
+**Status: recorded, not integrated, not scraped.** The owner explicitly placed
+these after the G2.4 repair. Nothing below was fetched, parsed or scheduled by
+this slice, and no source in this list is enabled in any store.
+
+**Why they belong to the Event layer and not to the news scraper.** An Event is
+a planning object with a date and provenance, not a Story and not an Article.
+The roadmap already has `Днес / Утре / Уикенда / Следващата седмица`, and
+structured event sources must land BEFORE that calendar is useful. The expected
+value here is higher than another generic news scraper precisely because these
+publish machine-readable dates for a fixed venue.
+
+| source | classification | provenance strength | notes |
+|---|---|---|---|
+| Държавна опера Бургас | official, structured/feed if offered, else HTML | **strong** — the organiser | first choice for opera/ballet dates |
+| Летен театър Бургас | official, structured/feed if offered, else HTML | **strong** — the organiser | seasonal; needs a year-aware source |
+| ДТ „Адриана Будевска“ | official, HTML | **strong** — the organiser | repertory listings |
+| tickets.bg | ticket aggregator | weak — a reseller | discovery only; never the provenance for a date |
+| eventim.bg | ticket aggregator | weak — a reseller | discovery only; never the provenance for a date |
+| grabo.bg | offers/discounts | none | editorially useful only where an offer is itself the story |
+| social (Facebook/Instagram of the above) | social discovery | weak | **later work**, not this slice |
+
+**Rules recorded with the entries.**
+
+- Prefer **official / organiser** provenance over a ticket aggregator. If the
+  organiser does not publish, the event may be carried with the aggregator named
+  as its source, or not at all — decided at the Event-layer design, not here.
+- A ticket aggregator may be a *discovery* source. It is **never** a *fact*
+  source for a date, price or performer: the existing rule that an aggregator
+  and a social wrapper are not publishers applies unchanged.
+- No blind scraping. Each entry needs its own acquisition decision — official
+  feed, verified HTML page, search monitoring, or social discovery — recorded
+  before any code.
+- Social integration remains explicitly later work and is not blocked by
+  anything in this table.
+
+**Sequencing.** This table is a prerequisite for the Event layer, and the Event
+layer is a prerequisite for the horizon filter. It is not on the critical path of
+`G2.4` and deliberately does not delay it.
+
+## V1.2-G2.4 Part F follow-up — `Най-много източници` sorting
+
+`story_store.publisher_count` now carries the correct independent-publisher
+semantics and is proven by test (`www.burgas.bg` and `burgas.bg` are ONE
+publisher). **The sort itself is NOT built** — §F forbids new ranking
+infrastructure and forbids waiting for JEV ranking. When the owner wants the
+order `Най-нови | Най-много източници | Следени`, the existing deterministic
+`publisherCount` is the ready-made key; only the Today ordering needs to consume
+it.

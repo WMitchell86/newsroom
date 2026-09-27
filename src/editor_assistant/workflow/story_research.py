@@ -19,12 +19,60 @@ from editor_assistant.workflow import (
     research,
     search,
     story_research_store,
+    story_store,
 )
 from editor_assistant.workflow import readiness as readiness_mod
 
 
 class StoryResearchError(ValueError):
-    """Research could not safely update the Story basis."""
+    """Research could not safely update the Story basis.
+
+    V1.2-G2.4 §R4/§R5: the owner saw this reach the editor as one generic
+    sentence ("Проучването не можа да завърши.") for a Story whose research had
+    actually *completed* and simply found no second publisher. Every raise
+    therefore carries an explicit `reason` from the closed set below, and the
+    application layer maps that reason to a precise editor-facing outcome. An
+    unclassified raise is the only thing allowed to remain a technical failure,
+    and even that has its own honest sentence.
+    """
+
+    def __init__(self, message: str, *, reason: str = ""):
+        super().__init__(message)
+        self.reason = reason or ""
+
+
+# --- §R4: the closed set of real research outcomes -------------------------
+#
+# Each of these is a *true* statement about what happened, and each tells the
+# editor whether to wait, retry, or accept a gap. "Research failed" is not in
+# this set, because it is never a useful thing to tell an editor.
+
+#: The bounded per-Story round budget for this basis is spent.
+ROUNDS_EXHAUSTED = "ROUNDS_EXHAUSTED"
+#: No search provider is available at all, so nothing was searched for.
+PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+#: The Story is not in a researchable state (no gaps and never assessed).
+NOT_RESEARCHABLE = "NOT_RESEARCHABLE"
+#: Nothing was found to open, and therefore nothing was assessed.
+NOTHING_OPENED = "NOTHING_OPENED"
+#: Sources opened and claims were extracted, but none could be corroborated.
+#: This is an EVIDENCE outcome, not a failure — and it is the branch the
+#: owner's real case actually took.
+INSUFFICIENT_CORROBORATION = "INSUFFICIENT_CORROBORATION"
+#: A genuine technical fault: transport, an unexpected exception, a store
+#: invariant. The only branch allowed to be reported as "try again".
+TECHNICAL_FAILURE = "TECHNICAL_FAILURE"
+
+RESEARCH_REASONS = frozenset(
+    {
+        ROUNDS_EXHAUSTED,
+        PROVIDER_UNAVAILABLE,
+        NOT_RESEARCHABLE,
+        NOTHING_OPENED,
+        INSUFFICIENT_CORROBORATION,
+        TECHNICAL_FAILURE,
+    }
+)
 
 
 #: V1.2-G2.2 §12 — the editor-visible reason a first round produced no usable
@@ -200,15 +248,15 @@ _NON_PUBLISHER_HOSTS = frozenset(
 #: `example.com` / `www.example.com` pair, which is one publisher reached twice,
 #: without guessing at eTLD+1 boundaries and risking the opposite error of
 #: merging two genuinely different outlets that share a suffix.
-_PUBLISHER_NEUTRAL_LABELS = frozenset({"www", "m", "amp", "en", "bg"})
+#: V1.2-G2.4 §F: the definition now lives in `story_store.publisher_identity`,
+#: so the publisher COUNT the editor sees and the independence rule used here
+#: are provably the same rule rather than two similar ones.
+_PUBLISHER_NEUTRAL_LABELS = story_store.PUBLISHER_NEUTRAL_LABELS
 
 
 def _publisher_identity(host: str) -> str:
     """The host used to decide whether two opened pages are one publisher."""
-    labels = str(host or "").casefold().split(".")
-    while len(labels) > 2 and labels[0] in _PUBLISHER_NEUTRAL_LABELS:
-        labels = labels[1:]
-    return ".".join(labels)
+    return story_store.publisher_identity(host)
 
 
 def _needs_official_record(claim: str) -> bool:
@@ -332,6 +380,7 @@ def execute_story_research(
     story_title="",
     story_items=(),
     seed_urls=(),
+    serper_budget=None,
 ):
     """Run one bounded Story research round and persist its canonical outcome.
 
@@ -368,10 +417,14 @@ def execute_story_research(
             ),
         }
         if not plan["research_questions"] or plan["max_rounds_remaining"] <= 0:
-            raise StoryResearchError("няма разрешен нов кръг проучване")
+            raise StoryResearchError(
+                "няма разрешен нов кръг проучване", reason=ROUNDS_EXHAUSTED
+            )
     else:
         if readiness_result is None:
-            raise StoryResearchError("няма блокираща липсваща информация за проучване")
+            raise StoryResearchError(
+                "няма блокираща липсваща информация за проучване", reason=NOT_RESEARCHABLE
+            )
         plan = readiness_mod.expansion_plan(
             readiness_result, rounds_used=current["research_rounds"]
         )
@@ -434,20 +487,32 @@ def execute_story_research(
             },
         }
 
-    operation = search.run_search_operation(
+    operation = search.run_event_discovery(
         topic=topic,
         constraints=search.make_constraints(description="Story gap research", location="Бургас"),
         missing_dimensions=plan["missing_dimensions"],
-        research_questions=plan["research_questions"],
         provider=provider,
         page_opener=capture,
         max_open=max_open,
         audit_path=audit_path,
+        serper_budget=serper_budget,
     )
+    # §B2/§18: the bounded opening budget must be spent on REAL publisher pages.
+    # An unresolved Google News redirect is fetched successfully but is not a
+    # publisher — §18 refuses it as evidence — so counting it against `max_open`
+    # meant the first three slots were always wrappers and no publisher page was
+    # ever read. Wrappers are still opened and recorded for the audit trail; they
+    # simply do not consume the budget that exists to read publishers.
     opened = [
         c
         for c in operation.get("candidates", [])
         if (c.get("opened") or {}).get("status") == "FETCH_OK"
+    ]
+    publisher_opened = [
+        c
+        for c in opened
+        if (urlsplit(str((c.get("opened") or {}).get("final_url") or c["url"])).hostname or "").lower()
+        not in _NON_PUBLISHER_HOSTS
     ]
     seed_opened = []
     if bootstrap and seed_urls:
@@ -469,8 +534,11 @@ def execute_story_research(
             if seed_host:
                 seed_hosts.add(seed_host)
             seed_opened.append(candidate)
-        opened = [*seed_opened, *opened][: max(1, int(max_open))]
-    if not opened:
+        publisher_opened = [
+            *seed_opened,
+            *publisher_opened,
+        ][: max(1, int(max_open))]
+    if not publisher_opened:
         if bootstrap:
             # V1.1-A §10/§16: search/fetch found nothing usable, but the
             # round itself completed — persist ASSESSED with an explicit gap
@@ -502,7 +570,9 @@ def execute_story_research(
                 count_round=True,
                 replace_gaps=True,
             )
-        raise StoryResearchError(operation.get("reason") or "няма отворени източници")
+        raise StoryResearchError(
+            operation.get("reason") or "няма отворени източници", reason=NOTHING_OPENED
+        )
     research_id = (
         "story-"
         + hashlib.sha256(
@@ -517,8 +587,19 @@ def execute_story_research(
         started_at=now,
     )
     sources, facts, source_records, seen_keys = [], [], [], set()
-    policy = (authority_resolver or newsroom_run.authority_by_domain)()
-    for index, candidate in enumerate(opened[:max_open]):
+    # §R1: the default resolver is the full publisher->rows view, so several
+    # registry identities sharing one domain (burgas.bg) resolve unanimously and
+    # explainably instead of by row order. An injected resolver (tests, the
+    # replay harness) is used exactly as before.
+    policy = (
+        authority_resolver()
+        if authority_resolver is not None
+        else newsroom_run.rows_by_publisher_domain()
+    )
+    # §A4: one anchor set per round, derived from the Story's own canonical
+    # subject. Computed once, before any page is read.
+    anchors = claim_quality.event_anchors(story_title or topic)
+    for index, candidate in enumerate(publisher_opened[:max_open]):
         page = opened_pages.get(candidate["url"], {})
         final_url = str((candidate.get("opened") or {}).get("final_url") or candidate["url"])
         normalized_url = publication_identity.normalize_publication_url(final_url)
@@ -536,34 +617,62 @@ def execute_story_research(
         if publication_key in seen_keys or publication_key in set(existing_publication_keys):
             continue
         seen_keys.add(publication_key)
-        text = (
-            html_desc.normalize_description(str(page.get("text") or ""), base_url=normalized_url)[0]
-            or ""
-        )
+        text = str(page.get("text") or "")
+        # §A2: segment the page into TYPED blocks instead of one flattened run.
+        # Only PROSE can become a proposition, which is what structurally
+        # prevents a heading from being concatenated into a factual sentence.
+        # A plain-text page (no markup) segments as a single PROSE block, so the
+        # historical behaviour is preserved for it.
+        blocks = html_desc.normalize_blocks(text)
+        if not blocks and text.strip():
+            blocks = ({"kind": html_desc.PROSE, "text": text},)
         # §9/§10/§11/§12: a small, ordered candidate set instead of the first
         # matching sentence. Navigation chrome and non-propositional text are
         # rejected here, before anything can be promoted, and each surviving
         # candidate remembers which research question it answers.
+        # §A4: `anchors` drops a sentence about a different event before claim
+        # comparison and before any model call.
         candidates = claim_quality.select_candidate_claims(
             claim_quality.SENTENCE_SPLIT.split(text),
             plan["research_questions"],
             limit=CLAIMS_PER_PAGE,
             topic=story_title or topic,
+            blocks=blocks,
+            anchors=anchors,
         )
         if not candidates:
             continue
-        row = policy.get(host) if isinstance(policy, dict) else None
-        factual = bool(row and row.get("factual_authority"))
+        # §R1/§R2: resolve authority from the PUBLISHER IDENTITY of the page that
+        # actually opened, not from the bare host. `www.burgas.bg` is the same
+        # publisher as the registry's `burgas.bg`, and looking up the raw host
+        # missed it entirely — which is precisely why the owner's real case was
+        # refused a corroboration gap its own official source could fill. When
+        # the caller injects a resolver (tests, the replay harness) the historical
+        # plain-dict lookup is used unchanged.
+        if isinstance(policy, dict) and not isinstance(
+            next(iter(policy.values()), None), list
+        ):
+            row = policy.get(host)
+            authority_name = row.get("name") if isinstance(row, dict) else ""
+            factual = bool(row and row.get("factual_authority"))
+            kind = row.get("kind") if isinstance(row, dict) else ""
+        else:
+            resolved = newsroom_run.resolve_publisher_policy(
+                host, policy, publisher_identity=_publisher_identity
+            )
+            factual = bool(resolved["factual_authority"])
+            kind = resolved["kind"]
+            authority_name = resolved["name"]
         source_type = (
             "official_document"
-            if factual and row.get("kind") in {"official", "official_document"}
+            if factual and kind in {"official", "official_document"}
             else "media"
         )
         authority = "PRIMARY" if factual else "CORROBORATING"
         source_id = "src_" + hashlib.sha256(normalized_url.encode()).hexdigest()[:16]
         source = {
             "id": source_id,
-            "name": row.get("name") if isinstance(row, dict) and row.get("name") else host,
+            "name": authority_name or host,
             "url": normalized_url,
         }
         sources.append(source)
@@ -673,7 +782,48 @@ def execute_story_research(
                 count_round=True,
                 replace_gaps=True,
             )
-        raise StoryResearchError("non-authoritative claims require two independent opened sources")
+        # §R4/§R5: this branch splits on a distinction that matters and that the
+        # owner hit directly.
+        #
+        #  * NO claim was extracted from ANY opened page. The round learned
+        #    nothing, so there is no assessment to persist and the basis must be
+        #    left exactly as it was — the V1.1-A "failed open" contract.
+        #  * Claims WERE extracted and the gate declined them. The round
+        #    completed and DID assess: pages opened, claims read, gate refused
+        #    them for want of an independent second publisher. That is an
+        #    evidence outcome and is persisted as exactly the gap it is.
+        #    Refusing here is what produced the owner's "Проучването не можа да
+        #    завърши." for a round that had actually worked.
+        if not source_records:
+            raise StoryResearchError(
+                "отворените източници не съдържат извлечими твърдения",
+                reason=NOTHING_OPENED,
+            )
+        return story_research_store.merge_research(
+            story_id,
+            facts=[],
+            sources=[],
+            gaps=[
+                {
+                    "id": _gap_id(story_id, gap_text),
+                    "question": gap_text,
+                    "kind": "unresolved",
+                    "blocking": True,
+                }
+            ]
+            + list(new_conflicts),
+            assessed_at=now,
+            root=root,
+            canonical_story=canonical_story,
+            operation_id=(
+                "story-"
+                + hashlib.sha256(
+                    (stable_seed + "\0insufficient-evidence").encode()
+                ).hexdigest()[:16]
+            ),
+            count_round=True,
+            replace_gaps=True,
+        )
     allowed_ids = {fact["source_refs"][0]["source_id"] for fact in facts}
     sources = [source for source in sources if source["id"] in allowed_ids]
     research.set_duplicate_check(
@@ -737,7 +887,9 @@ def execute_story_research(
     try:
         assessment = readiness_mod.assess_sufficiency(merged_packet, mode=readiness_mod.MODES[0])
     except (readiness_mod.ReadinessError, ValueError) as exc:
-        raise StoryResearchError("готовността на Story не можа да се оцени") from exc
+        raise StoryResearchError(
+            "готовността на Story не можа да се оцени", reason=TECHNICAL_FAILURE
+        ) from exc
     current_gaps = list(current.get("gaps") or [])
     conflicts = [gap for gap in current_gaps if gap.get("kind") == "conflict"]
     # §21/§23: a detected contradiction is shown as the plain-language question

@@ -75,6 +75,7 @@ def main() -> int:
     from editor_assistant.sources import web_fetch
     from editor_assistant.workflow import (
         claim_quality,
+        single_source_policy,
         story_research,
         story_research_store,
     )
@@ -84,10 +85,22 @@ def main() -> int:
 
     # Observation only: the extractor and the page opener are WRAPPED, never
     # replaced, so the measured run is the real one.
-    stats = {"pages_opened": 0, "candidates": 0, "usable": 0, "chrome_rejected": 0}
+    #
+    # V1.2-G2.4: the wrapper signature follows the new keyword arguments
+    # (`blocks`, `anchors`) so the measurement keeps observing the real
+    # extraction rather than silently measuring a different call shape.
+    stats = {
+        "pages_opened": 0,
+        "candidates": 0,
+        "usable": 0,
+        "chrome_rejected": 0,
+        "wrong_event_rejected": 0,
+        "heading_blocks_skipped": 0,
+    }
     real_fetch = web_fetch.fetch_page
     real_select = claim_quality.select_candidate_claims
     real_compare = story_research.claim_equivalence.compare_claims
+    real_agrees = claim_quality.agrees_with_event
     verdicts = {"SAME_FACT": 0, "DIFFERENT_FACT": 0, "CONFLICT": 0, "UNCERTAIN": 0}
     model_calls = [0]
 
@@ -97,13 +110,25 @@ def main() -> int:
             stats["pages_opened"] += 1
         return page
 
-    def _select(sentences, questions, *, limit=4, topic=""):
-        rows = real_select(sentences, questions, limit=limit, topic=topic)
+    def _select(sentences, questions, *, limit=4, topic="", blocks=None, anchors=None):
+        rows = real_select(
+            sentences, questions, limit=limit, topic=topic, blocks=blocks, anchors=anchors
+        )
         stats["candidates"] += len(rows)
-        for sentence in sentences or []:
-            value = str(sentence or "").strip()
-            if value and not claim_quality.is_factual_candidate(value):
+        units = blocks if blocks is not None else sentences
+        for block in units or []:
+            if isinstance(block, dict):
+                if block.get("kind") != "PROSE":
+                    stats["heading_blocks_skipped"] += 1
+                value = str(block.get("text") or "").strip()
+            else:
+                value = str(block or "").strip()
+            if not value:
+                continue
+            if not claim_quality.is_factual_candidate(value):
                 stats["chrome_rejected"] += 1
+            elif anchors is not None and not real_agrees(value, anchors, topic=topic):
+                stats["wrong_event_rejected"] += 1
         stats["usable"] += len(rows)
         return rows
 
@@ -204,6 +229,14 @@ def main() -> int:
         row["gap"] = blocking[0] if blocking else ""
         row["all_gaps"] = [gap["question"] for gap in basis["gaps"]]
         row["fact_texts"] = [fact["text"] for fact in basis["facts"]]
+        # §E: what the experimental single-source gate would add, evaluated
+        # READ-ONLY against the persisted basis. Nothing is written by it.
+        row["single_source_experiment"] = single_source_policy.evaluate(
+            evidence_status=basis["evidence_status"],
+            facts=basis["facts"],
+            sources=basis["sources"],
+            gaps=basis["gaps"],
+        )
         report["stories"].append(row)
         print(
             f"{story_id}  opens={row['opens']} candidates={row['candidates']} "
@@ -218,6 +251,10 @@ def main() -> int:
         "candidate_claims": sum(r["candidates"] for r in rows),
         "usable_claims": sum(r["usable"] for r in rows),
         "chrome_rejected": stats["chrome_rejected"],
+        # §A2/§A4: how much page furniture and how much wrong-event text the new
+        # gates removed BEFORE anything could be promoted.
+        "heading_or_furniture_blocks_skipped": stats["heading_blocks_skipped"],
+        "wrong_event_sentences_rejected": stats["wrong_event_rejected"],
         "facts": sum(r["facts"] for r in rows),
         "primary_facts": sum(r["primary_facts"] for r in rows),
         "corroborated_facts": sum(r["corroborated_facts"] for r in rows),
@@ -226,6 +263,13 @@ def main() -> int:
         "stories_with_blocking_gap": sum(1 for r in rows if r["gap"]),
         "research_errors": sum(1 for r in rows if r["error"]),
         "semantic_decisions": model_calls[0],
+        # §E: measured, never imposed.
+        "stories_draft_eligible_now": sum(
+            1 for r in rows if r["single_source_experiment"]["eligible_now"]
+        ),
+        "stories_draft_capable_single_source": sum(
+            1 for r in rows if r["single_source_experiment"]["draft_capable_single"]
+        ),
     }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(

@@ -25,6 +25,7 @@ from editor_assistant.workflow import (
     editor_projections,
     editor_queries,
     editorial_title,
+    focus_suggestions,
     grouping_health,
     inbox_store,
     live_store,
@@ -114,6 +115,87 @@ class EditorResearchQuotaExhausted(EditorApplicationError):
 class EditorVersionConflict(EditorApplicationError):
     code = "ARTICLE_VERSION_CONFLICT"
     status = 409
+
+
+# --- V1.2-G2.4 §R4: every research terminal outcome has its own sentence ----
+#
+# The owner's regression showed one generic sentence standing in for at least
+# five different real branches. These classes are that branch made explicit.
+
+
+class EditorResearchNoSource(EditorApplicationError):
+    """Research completed but opened no usable page at all."""
+
+    code = "RESEARCH_NO_SOURCE"
+    status = 409
+    default_message = "Не успяхме да отворим подходящ източник."
+
+
+class EditorResearchNotConfirmed(EditorApplicationError):
+    """Sources were opened and read; the information is simply not confirmed.
+
+    This is the branch the owner's real case took. It is emphatically NOT a
+    failure: the round completed, pages opened, claims were extracted, and the
+    gate declined them for want of an independent second publisher.
+    """
+
+    code = "RESEARCH_NOT_CONFIRMED"
+    status = 409
+    default_message = "Намерени са източници, но информацията още не е достатъчно потвърдена."
+
+
+class EditorResearchInterrupted(EditorApplicationError):
+    """A genuine technical interruption. The only "try again" branch."""
+
+    code = "RESEARCH_INTERRUPTED"
+    status = 503
+    default_message = "Проучването прекъсна поради технически проблем. Опитайте отново."
+
+
+class EditorResearchNotApplicable(EditorApplicationError):
+    """This Story is not in a researchable state at all.
+
+    A distinct class AND a distinct code rather than reusing the generic
+    `EditorInvalidTransition`, because §R4 requires the editor-facing sentence to
+    name the real branch, and `INVALID_TRANSITION` is shared with unrelated
+    lifecycle refusals whose sentence is about the Article, not about research.
+    The wording is the one the async start path has always used, so nothing
+    editor-visible changes for this branch.
+    """
+
+    code = "RESEARCH_NOT_APPLICABLE"
+    status = 409
+    default_message = "Проучването не е налично за тази Story."
+
+
+#: §R4 — reason -> the refusal class that describes it truthfully. Every entry is
+#: a real, distinguishable branch; a reason outside this map can only ever be
+#: reported as a technical interruption, never as an evidence statement.
+_RESEARCH_REFUSALS = {
+    story_research.ROUNDS_EXHAUSTED: EditorResearchQuotaExhausted,
+    story_research.PROVIDER_UNAVAILABLE: EditorResearchUnavailable,
+    story_research.NOT_RESEARCHABLE: EditorResearchNotApplicable,
+    story_research.NOTHING_OPENED: EditorResearchNoSource,
+    story_research.INSUFFICIENT_CORROBORATION: EditorResearchNotConfirmed,
+    story_research.TECHNICAL_FAILURE: EditorResearchInterrupted,
+}
+
+#: §R4 — the one sentence allowed to mean "something broke". It exists only for
+#: a genuine technical interruption, and a test asserts that no other terminal
+#: research outcome can produce it.
+RESEARCH_TECHNICAL_MESSAGE = EditorResearchInterrupted.default_message
+
+
+def _research_refusal(exc) -> EditorApplicationError:
+    """Map a research failure onto the editor-facing class for its real branch."""
+    reason = str(getattr(exc, "reason", "") or "")
+    cls = _RESEARCH_REFUSALS.get(reason, EditorResearchInterrupted)
+    message = str(exc or "").strip()
+    if cls is EditorResearchInterrupted or not message:
+        # A transport or programming detail never reaches the editor; the
+        # honest "try again" sentence does.
+        message = cls.default_message
+    return cls(message)
 
 
 class EditorDraftNotReady(EditorApplicationError):
@@ -667,8 +749,13 @@ def _article_projection(
     )
     preparation = None
     if state == "preparation":
+        # §D2: the quiet alternatives, derived deterministically and served with
+        # the projection so the page never recomputes them. `[]` is a normal
+        # outcome, never an error, and it never blocks a Draft.
+        _focus_text, alternatives = _suggested_focus(article["story_id"], story)
         preparation = {
             "focusConfirmed": focus_confirmed,
+            "focusAlternatives": list(alternatives),
             # The editor-facing reason comes from the backend decision. React
             # never derives it, and never renders a second, competing message.
             "draftReadiness": readiness.as_dto(),
@@ -1073,9 +1160,13 @@ def research_story(story_id: str, *, provider=None, page_opener=None, now=None) 
             story_research.StoryResearchError,
             story_research_store.StoryResearchStoreError,
         ) as exc:
-            raise EditorResearchUnavailable(
-                "Проучването не можа да завърши. Липсващата информация остава непроменена."
-            ) from exc
+            # §R4: the editor must be told which of the real branches produced
+            # this. The owner's real case read "Проучването не можа да завърши."
+            # for a round that had actually completed and simply found no
+            # second publisher, which told the editor nothing about whether to
+            # wait, retry, or look for another source. Every branch now maps to
+            # its own truthful sentence.
+            raise _research_refusal(exc) from exc
     return _story_detail(story_id)
 
 
@@ -2142,6 +2233,29 @@ def _validate_story_action(story_id: str, action: str) -> dict:
     return story
 
 
+def _suggested_focus(
+    story_id: str, story: dict | None = None, title: str = ""
+) -> tuple[str, tuple[str, ...]]:
+    """§D1/§D2 — the prepared Focus text and its quiet alternatives.
+
+    Both come from `focus_suggestions`, which is deterministic and spends no
+    model call (§D4). The Story's own confirmed facts and open gaps shape the
+    wording; a Story with no usable subject gets an empty Focus and no
+    alternatives, and the canonical readiness decision then reports
+    `WORKING_TITLE_REQUIRED` on its own terms.
+    """
+    if story is None:
+        story = _story(story_id)
+    subject = title or _story_title(story, _story_items())
+    facts, missing = _story_evidence_projection(story_id)
+    return (
+        focus_suggestions.primary_focus(subject, facts=facts),
+        focus_suggestions.alternatives(
+            subject, facts=facts, gaps=[item.get("question", "") for item in missing["items"]]
+        ),
+    )
+
+
 def start_article(story_id: str, *, idempotency_key: str) -> dict:
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         raise EditorApplicationError("Idempotency key is required.")
@@ -2149,7 +2263,12 @@ def start_article(story_id: str, *, idempotency_key: str) -> dict:
         story = _validate_story_action(story_id, "START_ARTICLE")
         items_by_id = _story_items()
         title = _story_title(story, items_by_id) or "Работа за статия"
-        focus = "Да разкажем какво се е променило в тази история и защо е важно за хората."
+        # §D1/§D5: the Article enters Preparation with a usable Focus ALREADY in
+        # the field. The editor may accept everything by doing nothing and press
+        # `Направи чернова`; there is no confirmation step, because a saved
+        # non-empty Focus has always been its own confirmation (V1.2-G2.2 §5).
+        # The old generic placeholder sentence is gone: it named no Story.
+        focus, _ = _suggested_focus(story_id, story, title)
         try:
             record = editor_article_store.create_editor_article(
                 story_id=story_id,
@@ -2162,6 +2281,22 @@ def start_article(story_id: str, *, idempotency_key: str) -> dict:
             if "unknown canonical story_id" in str(exc):
                 raise EditorNotFound("Story не е намерена.") from exc
             raise EditorApplicationError("Статията не може да бъде създадена.") from exc
+        # §D1: the pre-filled Focus is saved through the ONE canonical Focus
+        # command, which is also where confirmation is decided (a non-empty saved
+        # Focus is its own confirmation — V1.2-G2.2 §5). Going through the command
+        # rather than setting a field keeps `Направи чернова` genuinely
+        # zero-friction: open the Article, do nothing, press the button. An
+        # existing Article returned by the idempotency key is never re-focused.
+        if focus and not editor_projections.focus_is_confirmed(record):
+            try:
+                record = editor_article_store.update_editor_focus(
+                    record["article_id"], focus
+                )
+            except editor_article_store.ArticleStoreError:
+                # The Article exists; the editor can still set the Focus. Readiness
+                # then reports FOCUS_NOT_CONFIRMED on its own terms, which is the
+                # honest state rather than a failure of this command.
+                record = editor_article_store.get_editor_article(record["article_id"])
     return _article_dto_by_id(record["article_id"])
 
 

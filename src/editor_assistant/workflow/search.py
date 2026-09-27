@@ -392,6 +392,226 @@ def run_search_operation(
     return operation
 
 
+# ---------------------------------------------------------------------------
+# V1.2-G2.4 §B5 — the bounded, auditable Research discovery round
+# ---------------------------------------------------------------------------
+
+
+def run_event_discovery(
+    *,
+    topic: str,
+    constraints: dict,
+    missing_dimensions=(),
+    provider=None,
+    page_opener=None,
+    max_open: int = 3,
+    audit_path=None,
+    env=None,
+    serper_budget: int | None = None,
+    stop_after_publishers: int = 2,
+) -> dict:
+    """One bounded event-level discovery round (§B1–§B7).
+
+    The generic `run_search_operation` planner builds one `topic + location`
+    query and takes the first provider that answers. §B1–§B2 replace that with
+    a deterministic ladder built from the Story's own anchors, and §B5 bounds
+    how much of the owner's Serper allocation the round may spend.
+
+    **The one invariant this function exists to enforce** (§B3):
+
+        Serper result -> discovery URL -> safe opener -> final canonical URL
+        -> evidence candidate
+
+    A Serper snippet NEVER becomes a fact. Every returned candidate carries
+    `snippet_authority: DISCOVERY_ONLY`, and `story_research` only ever reads
+    claims out of the page the opener actually fetched. That is asserted by
+    test, not by this comment.
+
+    Ordering and stopping:
+
+    * `serper_budget` (default `event_search.MAX_SERPER_QUERIES_PER_ROUND`)
+      bounds Serper queries per round. It is a cap, never a target.
+    * The ladder stops as soon as `stop_after_publishers` **independent
+      publishers** have been successfully opened, so a Story that is already
+      well covered costs one query rather than three.
+    * §B6: the existing keyless chain (Google News RSS and friends) still runs
+      first as a complement and is never removed. Serper is an addition, not a
+      replacement — the round measures both rather than assuming either wins.
+    """
+    from editor_assistant.workflow import event_search
+
+    if serper_budget is None:
+        serper_budget = event_search.MAX_SERPER_QUERIES_PER_ROUND
+
+    anchors = event_search.event_anchors(topic)
+    ladder = event_search.event_queries(anchors, missing_dimensions=missing_dimensions)
+
+    operation = {
+        "topic": topic,
+        "capability": CAP_NEWS,
+        "started_at": _utcnow(),
+        "anchors": {key: anchors[key] for key in ("subject", "entities", "road", "terms")},
+        "query_ladder": ladder,
+        "serper_budget": int(serper_budget),
+        "serper_queries": 0,
+        "queries": [],
+        "candidates": [],
+        "provider_chain": [],
+        "status": SEARCH_INCOMPLETE,
+    }
+
+    if not ladder:
+        operation["failure"] = NO_RESULTS
+        operation["reason"] = "няма стабилни котвори за търсене по това събитие"
+        _audit(audit_path, operation)
+        return operation
+
+    seen_urls: set[str] = set()
+    opened_pages: list[dict] = []
+    opener = page_opener or web_fetch.fetch_page
+
+    from editor_assistant.workflow.story_research import _NON_PUBLISHER_HOSTS
+
+    def _is_real_publisher(url: str) -> bool:
+        """True unless the opened page is an unresolved wrapper (§18)."""
+        host = (urllib.parse.urlparse(url).hostname or "").lower()
+        return bool(host) and host not in _NON_PUBLISHER_HOSTS
+
+    #: Unresolved wrappers are still recorded for the audit trail, but they must
+    #: not consume the bounded opening budget: a Google News redirect page is not
+    #: a publisher, and letting four of them fill the budget is exactly how the
+    #: whole Serper pass was silently disabled. A separate, larger cap keeps the
+    #: wrapper opens bounded so the round still terminates.
+    max_records = max(1, int(max_open)) * 3
+
+    def _record(row: dict, *, provider_name: str) -> bool:
+        """Record one discovery candidate and open it. Never evidence."""
+        url = str(row.get("url") or "")
+        if not url or url in seen_urls or not constraints_satisfied(constraints, url):
+            return False
+        if len(operation["candidates"]) >= max_records:
+            return False
+        seen_urls.add(url)
+        candidate = {
+            "title": str(row.get("title") or ""),
+            "url": url,
+            # §B3 invariant, set in ONE place for every provider.
+            "snippet_authority": "DISCOVERY_ONLY",
+            "discovered_by": provider_name,
+            "event_score": int(row.get("_event_score") or 0),
+            "opened": None,
+        }
+        try:
+            page = opener(url)
+            candidate["opened"] = {
+                "status": web_fetch.FETCH_OK,
+                "final_url": page.get("final_url", url),
+                "content_type": page.get("content_type", "text/plain"),
+                "bytes": page.get("bytes", len(str(page.get("text") or ""))),
+            }
+        except web_fetch.WebFetchError as exc:
+            candidate["opened"] = {
+                "status": exc.category,
+                "detail": exc.detail,
+                "http_status": exc.status,
+                "retry_after": exc.retry_after,
+            }
+        operation["candidates"].append(candidate)
+        final_url = str(candidate["opened"].get("final_url") or url)
+        if candidate["opened"]["status"] != web_fetch.FETCH_OK:
+            return False
+        if not _is_real_publisher(final_url):
+            return False
+        if len(opened_pages) >= max(1, int(max_open)):
+            return False
+        opened_pages.append(candidate)
+        return True
+
+    def publishers_opened() -> int:
+        """Distinct REAL publisher identities among the opened pages (§B8).
+
+        `opened_pages` already excludes unresolved wrappers, so this is simply
+        the number of independent publishers the round actually reached — the
+        number §B2's stop condition and the §B5 record both mean.
+        """
+        from editor_assistant.workflow.story_research import _publisher_identity
+
+        return len({
+            _publisher_identity(urllib.parse.urlparse(c["url"]).hostname or "")
+            for c in opened_pages
+            if _publisher_identity(urllib.parse.urlparse(c["url"]).hostname or "")
+        })
+
+    # --- Source 1: the existing keyless chain (kept, §B6) ------------------
+    existing = run_search_operation(
+        topic=topic,
+        constraints=constraints,
+        missing_dimensions=missing_dimensions,
+        provider=provider,
+        page_opener=page_opener,
+        max_open=max_open,
+        audit_path=None,
+        env=env,
+        capability=CAP_NEWS,
+    )
+    operation["provider_chain"] = list(existing.get("provider_chain") or [])
+    operation["existing_queries"] = [
+        {"query": q.get("query"), "provider": q.get("provider"), "status": q.get("status")}
+        for q in (existing.get("queries") or [])
+    ]
+    for candidate in existing.get("candidates") or []:
+        if len(opened_pages) >= max(1, int(max_open)):
+            break
+        _record(candidate, provider_name="existing_chain")
+
+    # --- Source 2: Serper, bounded (§B5), only while publishers are missing -
+    serper_chain, serper_missing = provider_chain(capability=CAP_NEWS, env=env)
+    serper_chain = [p for p in serper_chain if p.name in ("serper", "serper_news")]
+    operation["serper_unavailable"] = serper_missing if not serper_chain else []
+    target = max(1, int(stop_after_publishers))
+    budget = max(0, int(serper_budget))
+    for provider_candidate in serper_chain:
+        for query in ladder:
+            if operation["serper_queries"] >= budget or publishers_opened() >= target:
+                break
+            operation["serper_queries"] += 1
+            try:
+                attempt = provider_candidate.search(query)
+            except SearchError as exc:
+                operation["queries"].append(
+                    {"query": query, "provider": provider_candidate.name, "status": str(exc)}
+                )
+                continue
+            operation["queries"].append(
+                {
+                    "query": query,
+                    "provider": provider_candidate.name,
+                    "status": attempt.get("status"),
+                    "results": len(attempt.get("results") or []),
+                }
+            )
+            if attempt.get("status") == SEARCH_OK and attempt.get("results"):
+                for row in event_search.event_filter(anchors, attempt["results"]):
+                    if len(opened_pages) >= max(1, int(max_open)):
+                        break
+                    _record(row, provider_name=provider_candidate.name)
+        if operation["serper_queries"] >= budget or publishers_opened() >= target:
+            break
+
+    # §B5 record: the four numbers the owner asked to be able to read.
+    operation["results_returned"] = sum(int(q.get("results") or 0) for q in operation["queries"])
+    operation["distinct_publishers_opened"] = publishers_opened()
+    operation["usable_same_event_publishers"] = operation["distinct_publishers_opened"]
+    operation["status"] = SEARCH_OK if opened_pages else SEARCH_INCOMPLETE
+    if not opened_pages:
+        operation["failure"] = NO_RESULTS
+        operation["reason"] = (
+            "не беше отворен нито един източник за това събитие след ограничените заявки"
+        )
+    _audit(audit_path, operation)
+    return operation
+
+
 def _audit(path, operation):
     """Append-only search audit; never stores credentials (harness A10)."""
     target = Path(path) if path else SEARCH_RUNS_DIR / f"run-{_utcnow().replace(':', '')}.json"
@@ -411,6 +631,9 @@ CAP_KNOWN_OFFICIAL = "KNOWN_OFFICIAL"  # direct fetch of a known institution sou
 PROVIDER_CAPABILITIES = {
     "google_news_rss": [CAP_NEWS],
     "serper": [CAP_WEB, CAP_NEWS],
+    # §B4: the Serper News vertical is its own adapter, benchmarked separately
+    # from the general web index on the frozen sample.
+    "serper_news": [CAP_WEB, CAP_NEWS],
     "ddgs": [CAP_WEB, CAP_NEWS],
     "brave": [CAP_WEB, CAP_NEWS],
     "wikipedia": [CAP_BACKGROUND],
@@ -434,8 +657,13 @@ PROVIDER_CAPABILITIES = {
 # (benchmark: no added value on the two live fallback cases); the adapter
 # remains available via fetch_with_fallback's narrow failure-category trigger.
 PROVIDER_ORDER = {
-    CAP_NEWS: ["google_news_rss", "tinyfish", "serper", "ddgs", "brave"],
-    CAP_WEB: ["tinyfish", "serper", "ddgs", "brave"],
+    # §B4: `serper_news` sits next to `serper` so the benchmark can compare the
+    # two Serper backends directly. `run_event_discovery` runs the existing
+    # keyless chain first and then a bounded Serper pass, so this ordering
+    # affects only WHICH Serper backend is reached first, never whether Serper
+    # is used at all.
+    CAP_NEWS: ["google_news_rss", "tinyfish", "serper", "serper_news", "ddgs", "brave"],
+    CAP_WEB: ["tinyfish", "serper", "serper_news", "ddgs", "brave"],
     CAP_BACKGROUND: ["wikipedia", "tinyfish", "serper", "ddgs"],
     CAP_KNOWN_OFFICIAL: ["direct_fetch", "serper", "ddgs"],
 }
@@ -725,6 +953,86 @@ class SerperProvider(SearchProvider):
         return record
 
 
+class SerperNewsProvider(SerperProvider):
+    """V1.2-G2.4 §B4 — Serper's **News** vertical, as a separate adapter.
+
+    Serper exposes two different backends over the same key: the general Google
+    web index (`/search`, the inherited `SerperProvider`) and the Google News
+    index (`/news`). They have genuinely different recall for *local news*, so
+    §B4 requires measuring both on the frozen sample before choosing a default
+    rather than assuming. They are therefore two adapters on one key, and the
+    benchmark script decides which the Research path uses first.
+
+    Everything else is inherited unchanged, including the single most important
+    property: `snippet_authority` is decided by the caller, and the research
+    path always sets it to `DISCOVERY_ONLY`. A Serper result is a discovery URL
+    and nothing else.
+    """
+
+    name = "serper_news"
+    ENDPOINT = "https://google.serper.dev/news"
+
+    def search(self, query, *, count=10, country="bg", search_language="bg", freshness=None):
+        record = self._empty(query, count)
+        body = json.dumps(
+            {"q": query, "num": min(int(count), 20), "gl": country, "hl": search_language}
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.ENDPOINT,
+            data=body,
+            method="POST",
+            headers={
+                "X-API-KEY": self._api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        started = time.monotonic()
+        for attempt in range(1, MAX_PROVIDER_ATTEMPTS + 1):
+            record["attempt"] = attempt
+            try:
+                with urllib.request.urlopen(request, timeout=self._timeout) as resp:
+                    status = resp.status
+                    payload = json.loads(resp.read(2_000_000).decode("utf-8", "replace"))
+                break
+            except urllib.error.HTTPError as exc:
+                retry_after = (exc.headers or {}).get("Retry-After")
+                record["http_status"] = exc.code
+                record["retry_after"] = retry_after
+                if exc.code == 429 and attempt < MAX_PROVIDER_ATTEMPTS:
+                    time.sleep(min(float(retry_after or 0), 5.0) or 1.0)
+                    continue
+                record["status"] = RATE_LIMITED if exc.code == 429 else SEARCH_PROVIDER_ERROR
+                record["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+                return record
+            except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as exc:
+                record["status"] = SEARCH_PROVIDER_ERROR
+                record["error"] = type(exc).__name__
+                record["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+                return record
+        else:
+            record["status"] = SEARCH_PROVIDER_ERROR
+            return record
+        record["http_status"] = status
+        record["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+        results = []
+        for item in (payload.get("news") or [])[:count]:
+            url = item.get("link", "")
+            results.append(
+                {
+                    "rank": len(results) + 1,
+                    "title": item.get("title", ""),
+                    "url": url,
+                    "snippet": item.get("snippet", ""),
+                    "published_at": item.get("date", "") or "",
+                    "source_name": item.get("source") or urllib.parse.urlparse(url).hostname or "",
+                }
+            )
+        record["results"] = results
+        record["status"] = SEARCH_OK if results else NO_RESULTS
+        return record
+
+
 def provider_chain(capability=CAP_WEB, env=None):
     """Ordered available providers for a capability; unavailable ones named.
 
@@ -763,6 +1071,12 @@ def provider_chain(capability=CAP_WEB, env=None):
                 chain.append(SerperProvider(key))
             else:
                 unavailable.append("serper:no-key")
+        elif name == "serper_news":
+            key = environment.get("SERPER_API_KEY") or ""
+            if key.strip():
+                chain.append(SerperNewsProvider(key))
+            else:
+                unavailable.append("serper_news:no-key")
         elif name == "ddgs":
             if _load_ddgs() is None:
                 unavailable.append("ddgs:package-missing")
@@ -1263,6 +1577,11 @@ def resolve_provider(env=None):
         if not key.strip():
             return None, SEARCH_CAPABILITY_UNAVAILABLE
         return BraveSearchProvider(key), SEARCH_OK
+    if name == "serper_news":
+        key = environment.get("SERPER_API_KEY") or ""
+        if not key.strip():
+            return None, SEARCH_CAPABILITY_UNAVAILABLE
+        return SerperNewsProvider(key), SEARCH_OK
     if name == "serper":
         key = environment.get("SERPER_API_KEY") or ""
         if not key.strip():

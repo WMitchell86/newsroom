@@ -412,6 +412,40 @@
   resize: vertical;
 }
 
+/* §D2: the quiet alternatives. Deliberately quiet — they read as suggestions
+   under the field, never as a wizard step with its own confirm button. */
+.focusAlternatives {
+  margin-top: 12px;
+}
+
+.focusAlternatives .preparationList {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.focusAlternative {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-left: 2px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 21px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.focusAlternative:hover,
+.focusAlternative:focus-visible {
+  border-left-color: var(--color-accent, currentColor);
+  color: var(--color-text);
+}
+
 .preparationHint,
 .confirmationNote,
 .pending,

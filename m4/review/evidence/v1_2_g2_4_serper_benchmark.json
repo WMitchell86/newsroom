@@ -1,0 +1,671 @@
+{
+  "sample": [
+    "sd79db6071f5b17d",
+    "s5a4608e991ecea6",
+    "s5bd17a3de24ad7d",
+    "sea922303899ba1f",
+    "s8a37bd28ab963e0",
+    "s5ef31f8245eadc2",
+    "sefe90cb2f7bdeda",
+    "sffd9303a1a71992",
+    "sd417b914eb8f8f4",
+    "sc47b12de6446c7f",
+    "s6792591ccd82d76",
+    "s57b27b51563970d",
+    "s986d357afd5ffed",
+    "s8f0712d3faaeade",
+    "sf827c3aea1076f5",
+    "s8c6e139ccae2f4f",
+    "s15cb3bde7ca3775",
+    "s2b6aa99c8114257",
+    "se3fa89b6bf474d2",
+    "s29a3dfc4dfcc787",
+    "sc3b21bc1a29839a",
+    "sb7871edafdd5b27",
+    "sff6fa8460da5b18",
+    "s8eda5c22ebfb492"
+  ],
+  "serper_budget_per_round": 3,
+  "totals": {
+    "serper": {
+      "queries": 26,
+      "results": 131,
+      "same_event_publishers": 49,
+      "stories_with_hit": 16
+    },
+    "serper_news": {
+      "queries": 26,
+      "results": 110,
+      "same_event_publishers": 34,
+      "stories_with_hit": 20
+    }
+  },
+  "stories": [
+    {
+      "story_id": "sd79db6071f5b17d",
+      "topic": "Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол",
+      "ladder": [
+        "\"Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол\"",
+        "\"Бургас-Созопол\" пострадаха катастрофа"
+      ],
+      "runs": {
+        "serper": {
+          "queries": 2,
+          "results": 20,
+          "same_event_publishers": 10,
+          "publishers": [
+            "bnrnews.bg",
+            "btvnovinite.bg",
+            "eranova.bg",
+            "facebook.com",
+            "faragency.bg",
+            "iskra.bg",
+            "news.bg",
+            "novini.bg",
+            "novini247.com",
+            "sozopol.org"
+          ]
+        },
+        "serper_news": {
+          "queries": 2,
+          "results": 17,
+          "same_event_publishers": 10,
+          "publishers": [
+            "bnrnews.bg",
+            "burgasmedia.com",
+            "eranova.bg",
+            "faragency.bg",
+            "filternews.bg",
+            "focus-news.net",
+            "iskra.bg",
+            "novini.bg",
+            "novini247.com",
+            "vburgas.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s5a4608e991ecea6",
+      "topic": "Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Новини",
+      "ladder": [
+        "\"Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Новини\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s5bd17a3de24ad7d",
+      "topic": "Царево с две отличия в конкурса „Строителен обект на Черноморието“",
+      "ladder": [
+        "\"Царево с две отличия в конкурса „Строителен обект на Черноморието“\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 4,
+          "same_event_publishers": 1,
+          "publishers": [
+            "faragency.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 3,
+          "same_event_publishers": 1,
+          "publishers": [
+            "faragency.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sea922303899ba1f",
+      "topic": "„Застинало време“ събира светлина, архитектура и спомени в галерия „Неси“",
+      "ladder": [
+        "\"„Застинало време“ събира светлина, архитектура и спомени в галерия „Неси“\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 2,
+          "same_event_publishers": 2,
+          "publishers": [
+            "burgas.bg",
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 1,
+          "same_event_publishers": 1,
+          "publishers": [
+            "burgas.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s8a37bd28ab963e0",
+      "topic": "Логистични решения с поглед към бъдещето",
+      "ladder": [
+        "\"Логистични решения с поглед към бъдещето\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 1,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s5ef31f8245eadc2",
+      "topic": "ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА",
+      "ladder": [
+        "\"ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА\"",
+        "дневен заседание дата"
+      ],
+      "runs": {
+        "serper": {
+          "queries": 2,
+          "results": 15,
+          "same_event_publishers": 10,
+          "publishers": [
+            "bia-bg.com",
+            "bta.bg",
+            "burgascouncil.org",
+            "cem.bg",
+            "cik.bg",
+            "europarl.europa.eu",
+            "facebook.com",
+            "gov.bg",
+            "nag.sofia.bg",
+            "obs.kyustendil.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 2,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        }
+      }
+    },
+    {
+      "story_id": "sefe90cb2f7bdeda",
+      "topic": "Black Sea Open събира най-добрите тенис любители през уикенда в Бургас",
+      "ladder": [
+        "\"Black Sea Open събира най-добрите тенис любители през уикенда в Бургас\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 3,
+          "publishers": [
+            "bgderby.com",
+            "bravo.msk.ru",
+            "sportal.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 1,
+          "same_event_publishers": 1,
+          "publishers": [
+            "sportal.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sffd9303a1a71992",
+      "topic": "Булевард Демокрация на 21-ви септември",
+      "ladder": [
+        "\"Булевард Демокрация на 21-ви септември\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 3,
+          "publishers": [
+            "bnr.bg",
+            "bnrnews.bg",
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 9,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sd417b914eb8f8f4",
+      "topic": "Кметът на Поморие представя стратегия за развитие на общинската болница на 24 септември",
+      "ladder": [
+        "\"Кметът на Поморие представя стратегия за развитие на общинската болница на 24 септември\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 2,
+          "same_event_publishers": 1,
+          "publishers": [
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 1,
+          "publishers": [
+            "burgasmedia.com"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sc47b12de6446c7f",
+      "topic": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Новини",
+      "ladder": [
+        "\"Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Новини\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        }
+      }
+    },
+    {
+      "story_id": "s6792591ccd82d76",
+      "topic": "Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Новини",
+      "ladder": [
+        "\"Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Новини\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 6,
+          "same_event_publishers": 2,
+          "publishers": [
+            "bnr.bg",
+            "dnes.dir.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s57b27b51563970d",
+      "topic": "Млади творци могат да се включат в „Бургас вдъхновява“",
+      "ladder": [
+        "\"Млади творци могат да се включат в „Бургас вдъхновява“\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 2,
+          "publishers": [
+            "bnrnews.bg",
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 7,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s986d357afd5ffed",
+      "topic": "С победа за ОФК „Поморие“ започна първенството на „А“ Областна група за мъже",
+      "ladder": [
+        "\"С победа за ОФК „Поморие“ започна първенството на „А“ Областна група за мъже\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 2,
+          "same_event_publishers": 2,
+          "publishers": [
+            "facebook.com",
+            "pomorie.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        }
+      }
+    },
+    {
+      "story_id": "s8f0712d3faaeade",
+      "topic": "Флашмоб в Бургас за Световния ден за информираност за Алцхаймер",
+      "ladder": [
+        "\"Флашмоб в Бургас за Световния ден за информираност за Алцхаймер\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 3,
+          "publishers": [
+            "academyworksheets.com",
+            "nova.bg",
+            "topnovini.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 1,
+          "publishers": [
+            "nova.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sf827c3aea1076f5",
+      "topic": "Общинският съвет одобри дигитализацията на Гробищния парк в Бургас",
+      "ladder": [
+        "\"Общинският съвет одобри дигитализацията на Гробищния парк в Бургас\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 2,
+          "publishers": [
+            "bnrnews.bg",
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 2,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s8c6e139ccae2f4f",
+      "topic": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие",
+      "ladder": [
+        "\"Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 3,
+          "publishers": [
+            "bnr.bg",
+            "bnrnews.bg",
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 5,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s15cb3bde7ca3775",
+      "topic": "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 септември",
+      "ladder": [
+        "\"Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 септември\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 3,
+          "same_event_publishers": 1,
+          "publishers": [
+            "pomorie.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s2b6aa99c8114257",
+      "topic": "Приеха важни решения за Гробищния парк в Бургас - ФОКУС",
+      "ladder": [
+        "\"Приеха важни решения за Гробищния парк в Бургас - ФОКУС\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 2,
+          "publishers": [
+            "burgas24.bg",
+            "focus-news.net"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "se3fa89b6bf474d2",
+      "topic": "Очаквайте в \"Акценти\" на 21 септември!",
+      "ladder": [
+        "\"Очаквайте в \"Акценти\" на 21 септември!\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 3,
+          "same_event_publishers": 2,
+          "publishers": [
+            "bnrnews.bg",
+            "facebook.com"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 1,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s29a3dfc4dfcc787",
+      "topic": "Осем метъл банди с фронт дами срещу домашното насилие - БНР Новини",
+      "ladder": [
+        "\"Осем метъл банди с фронт дами срещу домашното насилие - БНР Новини\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        }
+      }
+    },
+    {
+      "story_id": "sc3b21bc1a29839a",
+      "topic": "Вокална група „Таланти“ подготвя благотворителен концерт в помощ на „слънчевите деца“",
+      "ladder": [
+        "\"Вокална група „Таланти“ подготвя благотворителен концерт в помощ на „слънчевите деца“\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 1,
+          "same_event_publishers": 1,
+          "publishers": [
+            "pomorie.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sb7871edafdd5b27",
+      "topic": "Официално: Бургас прие бюджет от над 350 млн. евро за 2026 г. - ФОКУС",
+      "ladder": [
+        "\"Официално: Бургас прие бюджет от над 350 млн. евро за 2026 г. - ФОКУС\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 0,
+          "same_event_publishers": 0,
+          "publishers": []
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 3,
+          "publishers": [
+            "burgas24.bg",
+            "focus-news.net",
+            "novini247.com"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "sff6fa8460da5b18",
+      "topic": "Скритите течове у дома: сигналите, които не бива да пренебрегваме",
+      "ladder": [
+        "\"Скритите течове у дома: сигналите, които не бива да пренебрегваме\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 10,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 1,
+          "same_event_publishers": 1,
+          "publishers": [
+            "bnrnews.bg"
+          ]
+        }
+      }
+    },
+    {
+      "story_id": "s8eda5c22ebfb492",
+      "topic": "Община Поморие и Общинският съвет ще търсят стратегически партньор, който да инвестира и модернизира общинската болница в града",
+      "ladder": [
+        "\"Община Поморие и Общинският съвет ще търсят стратегически партньор, който да инвестира и модернизира общинската болница в града\""
+      ],
+      "runs": {
+        "serper": {
+          "queries": 1,
+          "results": 3,
+          "same_event_publishers": 3,
+          "publishers": [
+            "bta.bg",
+            "info.czpz.org",
+            "radar.bg"
+          ]
+        },
+        "serper_news": {
+          "queries": 1,
+          "results": 2,
+          "same_event_publishers": 2,
+          "publishers": [
+            "bta.bg",
+            "novini247.com"
+          ]
+        }
+      }
+    }
+  ],
+  "note": "Discovery measurement only. No fact is produced here: a Serper result is a discovery URL, and only an opened page on a real publisher can later back a claim."
+}
