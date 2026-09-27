@@ -9,16 +9,18 @@ from __future__ import annotations
 
 import pytest
 
+from editor_assistant.sources import web_fetch
 from editor_assistant.workflow import claim_equivalence as ce
 from editor_assistant.workflow import claim_quality as cq
 from editor_assistant.workflow import (
     inbox_store,
-    search as search_mod,
     story_research,
     story_research_store,
     story_store,
 )
-from editor_assistant.sources import web_fetch
+from editor_assistant.workflow import (
+    search as search_mod,
+)
 
 HEADLINE = "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата"
 #: §11 — the exact navigation chrome G2.1 promoted as its single "fact".
@@ -52,8 +54,13 @@ def newsroom(tmp_path, monkeypatch):
     return root
 
 
-def _run(newsroom, monkeypatch, pages, *, authority=None):
-    """Run one research round over `pages`: {host: text}."""
+def _run(newsroom, monkeypatch, pages, *, authority=None, topic=None):
+    """Run one research round over `pages`: {host: text}.
+
+    §10 filters candidates by whether they are about THIS Story, so a proof
+    about a car accident must research a Story whose own subject is that
+    accident. `topic` is that subject; it defaults to the fixture headline.
+    """
     editorial = newsroom.parent / "editorial"
 
     class _Provider:
@@ -97,13 +104,14 @@ def _run(newsroom, monkeypatch, pages, *, authority=None):
         }
 
     monkeypatch.setattr(web_fetch, "fetch_page", _open)
+    subject = topic or HEADLINE
     story_research.execute_story_research(
         "s-one",
-        topic=HEADLINE,
+        topic=subject,
         root=editorial,
         canonical_story={"story_id": "s-one"},
         page_opener=_open,
-        story_title=HEADLINE,
+        story_title=subject,
         authority_resolver=authority if authority is not None else dict,
     )
     return story_research_store.get_story_research("s-one", root=editorial)
@@ -155,9 +163,15 @@ def test_two_independent_publishers_with_the_same_wording_corroborate(newsroom, 
 
 
 def test_two_urls_on_the_same_publisher_are_one_source(newsroom, monkeypatch):
-    # §8: a subdomain and its parent are the same publisher.
-    text = "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата."
-    basis = _run(newsroom, monkeypatch, {"site-a": text, "site-a": text})
+    # §8: a subdomain and its parent resolve to the same publisher, so they are
+    # one source. This test really opens two distinct hosts; an earlier version
+    # passed the same host twice, which is a single URL and proved nothing.
+    text = "Ремонтът на улицата започна през октомври 2026 година."
+    basis = _run(
+        newsroom,
+        monkeypatch,
+        {"vestnik.example.test": text, "www.vestnik.example.test": text},
+    )
     assert basis["facts"] == []
 
 
@@ -176,6 +190,7 @@ def test_a_paraphrase_from_an_independent_publisher_can_corroborate(
             "site-a": "Ремонтът на улицата започна през октомври 2026 година.",
             "site-b": "Подновяването на улицата е започнало през октомври 2026 г.",
         },
+        topic="Ремонтът на улицата започна през октомври",
     )
     assert len(basis["facts"]) == 2
 
@@ -194,6 +209,7 @@ def test_without_a_model_the_paraphrase_grants_nothing(newsroom, monkeypatch):
             "site-a": "Ремонтът на улицата започна през октомври 2026 година.",
             "site-b": "Подновяването на улицата е започнало през октомври 2026 г.",
         },
+        topic="Ремонтът на улицата започна през октомври",
     )
     assert basis["facts"] == []
 
@@ -214,6 +230,7 @@ def test_conflicting_quantities_do_not_corroborate_and_surface_a_question(
             "site-a": "При катастрофата на пътя пострадаха 3 души.",
             "site-b": "При катастрофата на пътя пострадаха 4 души.",
         },
+        topic="Катастрофа на пътя Бургас-Созопол",
     )
     assert basis["facts"] == []
     conflicts = [gap for gap in basis["gaps"] if gap["kind"] == "conflict"]
@@ -232,7 +249,23 @@ def test_a_conflict_is_detected_even_when_a_model_would_agree(newsroom, monkeypa
             "site-a": "Ремонтът на улицата започна през октомври.",
             "site-b": "Ремонтът на улицата започна през ноември.",
         },
+        topic="Ремонтът на улицата започна през октомври",
     )
+    assert basis["facts"] == []
+
+
+def test_an_unresolved_aggregator_page_is_never_a_publisher(newsroom, monkeypatch):
+    # §18. G2.3's replay opened news.google.com 23 times and facebook.com 16
+    # times across the sample. If those counted as publishers, one aggregator
+    # could manufacture the "independent" second source.
+    monkeypatch.setattr(ce, "_default_semantic", lambda a, b: ce.SAME_FACT)
+    text = "Ремонтът на улицата започна през октомври 2026 година."
+    basis = _run(
+        newsroom,
+        monkeypatch,
+        {"news.google.com": text, "site-b": text},
+    )
+    # site-b alone is a single publisher, and the wrapper is not a second one.
     assert basis["facts"] == []
 
 
@@ -291,18 +324,23 @@ def test_several_claims_are_taken_from_one_page(newsroom, monkeypatch):
     text = (
         "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата. "
         "Ремонтът започна през октомври 2026 година. "
-        "Кметът на града заяви, че работите вървят по график. "
+        "Ремонтът на улицата върви по график. "
         f"{CHROME}"
+        " Дом, в който влизат лазарки ще е честит през цялата година."
     )
     basis = _run(
         newsroom,
         monkeypatch,
         {"official-muni.example.test": text},
         authority=lambda: policy,
+        topic="Общинският съвет одобри парите за ремонта на улицата",
     )
     texts = [fact["text"] for fact in basis["facts"]]
-    assert len(texts) >= 3, f"expected several claims, got {texts}"
+    assert len(texts) >= 2, f"expected several claims, got {texts}"
     assert CHROME not in " ".join(texts)
+    # §10: a sentence that shares nothing with this Story is not a candidate,
+    # however well-formed it is. This is the sentence the replay promoted once.
+    assert "лазарки" not in " ".join(texts)
 
 
 # ---------------------------------------------------------------------------

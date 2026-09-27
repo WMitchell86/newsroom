@@ -1,0 +1,507 @@
+{
+  "sample": [
+    "sd79db6071f5b17d",
+    "s5a4608e991ecea6",
+    "s5bd17a3de24ad7d",
+    "sea922303899ba1f",
+    "s8a37bd28ab963e0",
+    "s5ef31f8245eadc2",
+    "sefe90cb2f7bdeda",
+    "sffd9303a1a71992",
+    "sd417b914eb8f8f4",
+    "sc47b12de6446c7f",
+    "s6792591ccd82d76",
+    "s57b27b51563970d",
+    "s986d357afd5ffed",
+    "s8f0712d3faaeade",
+    "sf827c3aea1076f5",
+    "s8c6e139ccae2f4f",
+    "s15cb3bde7ca3775",
+    "s2b6aa99c8114257",
+    "se3fa89b6bf474d2",
+    "s29a3dfc4dfcc787",
+    "sc3b21bc1a29839a",
+    "sb7871edafdd5b27",
+    "sff6fa8460da5b18",
+    "s8eda5c22ebfb492"
+  ],
+  "stories": [
+    {
+      "story_id": "sd79db6071f5b17d",
+      "title": "Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол",
+      "item_url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxNenlLcWU4YU1HdFpfR2dlc0tlajVhS0JTSTFMX2xESkJSYlNVVkVtZENTejVkb0F1cU1oMFdlamI4bnJRQlAwR2p4NTJXcmQ3dC03clRUWXdTVDluOUNORzJSWWdPRTN0RFRvaFFtaTIzMlZRcFBCSUVhbkswem1CQTZodzdfek51SzhpM2tVZE1CUXdDdHNjdVhDQTFQQW9jb0oyWTk2Qkhkdw?oc=5",
+      "opens": 5,
+      "candidates": 11,
+      "usable": 11,
+      "facts": 7,
+      "primary_facts": 0,
+      "corroborated_facts": 7,
+      "conflicts": 0,
+      "gap": "Кои хора са засегнати и как?",
+      "error": "",
+      "all_gaps": [
+        "Кои хора са засегнати и как?",
+        "Защо това има значение за читателя тук и сега?",
+        "Каква е практическата последица за читателя?",
+        "Какъв е обхватът (числа, брой участници/ползватели)?",
+        "Кой орган/отговорник е източникът на информацията?",
+        "Кога и къде?",
+        "Каква е сумата/финансирането и за какво точно?"
+      ],
+      "fact_texts": [
+        "Ранени при инцидента са 30-годишна жена и момиченце на 3 години.",
+        "Жената е с контузия на корема, а детето с травма на главата.",
+        "Пътят от Враца към село Мраморен е затворен заради катастрофа 19 септември 2026 г.",
+        "Верижна катастрофа на пътя между Пазарджик и с.",
+        "#катастрофа Бургас-Созопол ранени жени 3-годишно дете Новини Нашите инициативи БНР БНР Новини Детското.БНР Архивен фонд на БНР Нагоре Българско национално радио София, бул.",
+        "Жената е с контузия на корема, а детето с травма на главата.",
+        "Ранени при инцидента са 30-годишна жена и момиченце на 3 години."
+      ]
+    },
+    {
+      "story_id": "s5a4608e991ecea6",
+      "title": "Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Новини",
+      "item_url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxOSDE4R0M2Q194THpDM2ttV2RQdjF5S0pjWktqd09uRDVlM3pnd29RQm1FY0g4SFJMcU5WclZ0MzNpNF9EU09XVmx3LWFZbnVHUFdjSU45c0p0WW03ZkdxUTQ4WUcwbmh5bERmSk9ZT2ZaZUJOcUlKYW9HZlJYbXVqM2lWM0pmNjFTekpQeWZ0anM5N3ZIQmtpYWs1cnY1QkYwWENSNng5NllIQQ?oc=5",
+      "opens": 5,
+      "candidates": 9,
+      "usable": 9,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s5bd17a3de24ad7d",
+      "title": "Царево с две отличия в конкурса „Строителен обект на Черноморието“",
+      "item_url": "https://news.google.com/rss/articles/CBMiswFBVV95cUxORG5XeFFvOGNKdGRmU0NocS0yejB2X2xZSlVhUjJBNVRyVWpfMTJ3MG1IN29QUnVibklxLURGNGRJeUhEMzQ4ZVVOSHpqQkhZM3BZQTgtTUFOd2tvUlYzYktURHhZRTNhZ3RhRDBJcmdJUUJhZldGM3BVaGRyRThESThiVkxYRE1YeHZWU0RqemRvbUVjV2NRUGtfSDdhdGJwai04Q29wY3QzUXR6bzE5MXlNNA?oc=5",
+      "opens": 7,
+      "candidates": 12,
+      "usable": 12,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sea922303899ba1f",
+      "title": "„Застинало време“ събира светлина, архитектура и спомени в галерия „Неси“",
+      "item_url": "https://news.google.com/rss/articles/CBMiowFBVV95cUxOVXhOb01xQ0xUMVkwVWZxVmdCMnJrUUhuVk5keXdWSlhTRW5iMmZYdUxuR0tBYW00aDVlcE12eDZTYUlRUkdLMUtua0Q1QUtBUVBKNVBseWdDd1NpeXNITXYtWVRrODFzNWhWaFNTUzZvU29vN0poNVo4czZhbk9SR3RuMHBEaG5RNllwMEd6RzhVcDctQlBrWnZ0eWxWU2IybXI0?oc=5",
+      "opens": 7,
+      "candidates": 4,
+      "usable": 4,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s8a37bd28ab963e0",
+      "title": "Логистични решения с поглед към бъдещето",
+      "item_url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxQcHhFa1F4Z2RZSjVCYlhpSjNTU3hMa0c5TU84eTNfQ3AtNUVHVzg0cHZScnlLWnBfYUVqWkxHOXNRbGFMRmlGc3NGU1ViejFVazBhUXFMWG5Dc2wzN05VSFRpQjA0djRqUWhBcmtRQkowb3hKaVJTUklQMi1KMkdjOWpFcFA?oc=5",
+      "opens": 5,
+      "candidates": 8,
+      "usable": 8,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s5ef31f8245eadc2",
+      "title": "ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА",
+      "item_url": "https://burgascouncil.org/node/3662",
+      "opens": 2,
+      "candidates": 6,
+      "usable": 6,
+      "facts": 6,
+      "primary_facts": 0,
+      "corroborated_facts": 6,
+      "conflicts": 0,
+      "gap": "",
+      "error": "",
+      "all_gaps": [],
+      "fact_texts": [
+        "ОбС 08-00-18831 Доклад от Димитър Николов – кмет на Община Бургас, относно: Информация за отчета за касовото изпълнение на приходите и разходите по бюджета и сметките за средства от Европейския съюз на Община Бургас към 30.06.2026 г.",
+        "Общо събрание на акционерите на „Индустриален и логистичен парк – Бургас“ АД ОбС 08-00-18814 Докладна записка от Станимир Апостолов – зам.-кмет „Финанси, бюджет, икономика и морско дело“, относно: Провеждане на процедури за избор на проверители – регистрирани одитори за извършване на независим финансов одит на годишните и консолидирани финансови отчети на общинските еднолични търговски дружества ОбС 08-00-18832 Докладна записка от инж.",
+        "2 от Закона за общинската собственост ОбС 08-00-18804 Докладна записка от Димитър Николов – кмет на Община Бургас, относно: Определяне представител и начин на гласуване на предложените на въпроси в дневния ред на насроченото на 23.09.2026 г.",
+        "Бургас ОбС 08-00-18838 Докладна записка от д-р Благомир Здравков – управител на МБАЛДБ „Света Анастасия“ ЕООД, относно: Даване на съгласие за учредяване на Диагностично-консултативен център „Света Анастасия“ ЕООД като дъщерно търговско дружество на Многопрофилна болница за активно лечение на детски болести (МБАЛДБ) „Света Анастасия“ ЕООД ОбС 08-00-18863 Докладна записка от Димитър Николов – кмет на Община Бургас, относно: Покана за свикване на редовно присъствено заседание на общото събрание на Асоциация по ВиК на обособената територия, обслужвана от „Водоснабдяване и канализация“ ЕАД, гр.",
+        "Председателят на Общински съвет – Бургас свиква съвместно заседание на всички постоянни комисии на тема: „Здравето на гражданите на Бургас – регионални тенденции, рискови фактори и възможности за…",
+        "Дом, в който влизат лазарки ще е честит през цялата година."
+      ]
+    },
+    {
+      "story_id": "sefe90cb2f7bdeda",
+      "title": "Black Sea Open събира най-добрите тенис любители през уикенда в Бургас",
+      "item_url": "https://news.google.com/rss/articles/CBMiVkFVX3lxTE56LVMwUHNDWDVUa3lPT3BfYURsT0pXNDR1UUFzMUZFRzJGQk4tSlRocW45U3o4QTlBS2c4bjBnWGNoS2h4azRINFp3bWxBRlQ4VkpZa0hn?oc=5",
+      "opens": 5,
+      "candidates": 10,
+      "usable": 10,
+      "facts": 6,
+      "primary_facts": 0,
+      "corroborated_facts": 6,
+      "conflicts": 0,
+      "gap": "",
+      "error": "",
+      "all_gaps": [],
+      "fact_texts": [
+        "кортовете в Морската градина на Бургас ще посрещнат участниците в Black Sea Open.",
+        "Мъжки сингъл – любители Към момента участниците са разпределени в 23 групи по трима.",
+        "Турнирът обещава оспорвани срещи, приятелска атмосфера и истински тенис празник с 3000 евро награден фонд, предметни награди и барбекю за участниците и гостите през двата дни.",
+        "кортовете в Морската градина на Бургас ще посрещнат участниците в Black Sea Open.",
+        "Турнирът обещава оспорвани срещи, приятелска атмосфера и истински тенис празник с 3000 евро награден фонд, предметни награди и барбекю за участниците и гостите през дват...",
+        "Барбекю и настроение през целия уикенд И през двата дни ще има осигурени скара на корем за участниците и гостите, добавки от „Фитлайн“, минерална вода и още изненади."
+      ]
+    },
+    {
+      "story_id": "sffd9303a1a71992",
+      "title": "Булевард Демокрация на 21-ви септември",
+      "item_url": "https://news.google.com/rss/articles/CBMifkFVX3lxTFBxbVM1TEVkNWhmWGFxTmh1RV85MG5Pb3pDNFFuV09NSFczMFNvTGpOWVNoTWpXb0t4ektDWDFWV0hjMGVEMzN4RDZrcG5iNlo0M281eXdlYjZIZmpFb1BhVkNYR0UtYkk3Znc0am5WRUZFaTM0dFctVXNhMGJJZw?oc=5",
+      "opens": 4,
+      "candidates": 2,
+      "usable": 2,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sd417b914eb8f8f4",
+      "title": "Кметът на Поморие представя стратегия за развитие на общинската болница на 24 септември",
+      "item_url": "https://news.google.com/rss/articles/CBMivAFBVV95cUxPUTk3Y2FsMVcwTFFXbFB2VHhTSjNFZ2JJTEY1T05RWl9qY2ZxZm9oRWxqemx5ZWM2cFh1RnBSRTZHUzFJVXViWElzSFVOaElTQldVQ1FTU1Zpb2RhTk52MUI0RmhodzhWY3MtdHZCS1FYbGdWb2wydUhwcmpMNGpETGNwal9UVzMzMU1iLWRVenQyRTAyZUxhMDRiQjl6RzJYal90cm5VRUlyZHR0T0pUMnlzLTJCVU10WVJsVtIBwgFBVV95cUxNQzNwc0cyRUk1b293RTZxX0pJbkZUdmVkczNOVkF6ZnpPdTdISDQxUU04WXY4U2ZKZW50MXh3VFVWMkw4dEN6MTFrOENPLXNlZkRweExTSTRpUGtVSXJNWXprV3U1M3hmM2ZKX2tMOTRXT1ZpbHR6RFdIVi14aEJrOEl2TXdpZGYwbi00T25BT01QNnY0S0FDRzBDbHpxMUpjYy1IUEJMN2J1U1R1UVFkQWVRa0FyOTBWMzcyOTlpekxWZw?oc=5",
+      "opens": 5,
+      "candidates": 8,
+      "usable": 8,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sc47b12de6446c7f",
+      "title": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Новини",
+      "item_url": "https://news.google.com/rss/articles/CBMiwAFBVV95cUxQRzIxWmdqVldRMnRsdTFlNEthMHBGeGszOWo2cEZFd2dMazRVWHp0REM3SEw1c2d6Q0J0aVpxMDJiTDlqNW80dG8tS3pfcUthU2lCX1BYb2dMWlpHMkVXV00yRk5kYmRvdDUxZzd0WUl0blVJb2U2bXk5MURwSUkxVlF0dkN6cXNwb0xPUjluUXl6b0J4bDhDUHZZUTUwSkR4bElIQkZZRllpTmczTlZrYkhNc2tPY3huMF8wY0NKdnQ?oc=5",
+      "opens": 6,
+      "candidates": 9,
+      "usable": 9,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s6792591ccd82d76",
+      "title": "Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Новини",
+      "item_url": "https://news.google.com/rss/articles/CBMinwFBVV95cUxNNEpyaUtJQ0pINVpwVGVjSlQ0ZllnOWNDR0xwdHRjZWVkSzB2aTRPd1ZHYlNRQlVsYzlwN2x1TEE5eG1YVVVIc0ZNWG9qUUtqeTBTM3R2R2daaUVZTkdNWW8wSVJfM2I0dGpNWVIzNEtIMDBvTTBoQzVWY2laVGp6ZV9NNDBsOUNwck8wSk50YkJsQUdYU0dRamRuQjVWaUU?oc=5",
+      "opens": 7,
+      "candidates": 12,
+      "usable": 12,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s57b27b51563970d",
+      "title": "Млади творци могат да се включат в „Бургас вдъхновява“",
+      "item_url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxPTkJKRlY1RG16OXJLYTRLX05OVF96OHdhdUY5WllZVld3dEt6YzZidDJwc1J1NWxzV0lWdTFnS1gxQXowWlh6d1ZvVnlhcENSeXRDenNxRzRFZ2dNa3pUdTNmNkNmTkhYRlctM2tnUF9yRWxQVVVJY2lvUXJrR3NXd013QmoySU1haFJkd29EYkc5TkE?oc=5",
+      "opens": 6,
+      "candidates": 6,
+      "usable": 6,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s986d357afd5ffed",
+      "title": "С победа за ОФК „Поморие“ започна първенството на „А“ Областна група за мъже",
+      "item_url": "https://news.google.com/rss/articles/CBMioAFBVV95cUxOX2tUV2xHNDNzNjZsOWF5TjZTNWdSeE5oNHRzcE9odVNHbF9JTGZ4YVY2eHhwRnhXdEN3ajNPWTF6Y3ROb05mN2E5ay1DSmNYTEZUQXFZenRHZjk3NFBIb2M2cG14X3A0bi00QnQ3blpHVlpvcFJ4U3dTRHRzWTBKcXIxbGRXYWdLWGJ4Y2VTdEZqN244d2RWWWpvRUdCUlJk?oc=5",
+      "opens": 4,
+      "candidates": 4,
+      "usable": 4,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s8f0712d3faaeade",
+      "title": "Флашмоб в Бургас за Световния ден за информираност за Алцхаймер",
+      "item_url": "https://news.google.com/rss/articles/CBMilARBVV95cUxOSTBTNV9iWWZvMnY2RDNJMFVzNUZLcVpXNUhFQ0Z0RVp6d3pRcHFIUnJWa1RrZEFSeGV0MWgwZ1M0dG11WnljVElYLWt5Yl9VT1hjTWRZOGhWOEU0cXFJWVhoUllTR0JIbXFNZlQ3V2NITHo0VlJJclMyelBXZDNBLUVXelRmTXpUUUhhektXejZXTW45Wm9QY0lLQXQtc3dwSXphUGVETVEzdDZlS1ZBd1hERUFrS3BuYVUyY3pkWlZkX3lsT09VUXQ5T1MyV2d1Y2psdnBWa2s2UWsyRnd4V2YtUkoxVW1wUXdGVzFGYUdGNnJOb0Iwd01QMnpVYnpUTXNBZDczLW45ckduU2NnM01NaEFoUlJQLXdnZnIzMzFnT2lsQzZrbVRXdHhwTmw0WnlTVEpST3Q1dGtKb3BkcnU3SS1aWTlhdlVDdG0xNm1pVVBCYUhTTkgzTHV4bFhDNVR4Mi1wMzNjN2JaTW1DQXg4aE9iM3RvZ3JSSnFSVlRQU0dlRWY4TllqbUtXcjhxWDY4dmIwOEQ3N0dXNnFJcnFldGpJbFllVTJ3N2lRUnNXYVU0VXJNRmF6ZDVWckZBRXVvak9UeW5hVUl1bTJtb0FaZXUyZDN6QjlIU3Z3WS0zcnJYNFExY2lZOE1OMUQzcEVqQlRjcDZEZl9WVFlsYzBaak5DUl93RXZLX053VXdZd2gt?oc=5",
+      "opens": 5,
+      "candidates": 7,
+      "usable": 7,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sf827c3aea1076f5",
+      "title": "Общинският съвет одобри дигитализацията на Гробищния парк в Бургас",
+      "item_url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxQRmFVNmt2d2xfTzdsb3JCaHBKamlnWU1OWFFoNU8tcFRkenV6eVRld2VzaFI2dVBCU2RmSWp3Z2JqZkV2NTRidHZWSlprWnNCTVhGd1NkdDhqZ1BlMGw2TzJ5azVxZG9HblNaNkc0RnVoZU9FV1JKLXBheHk4YmxMMl9wbFZMU2hMdXlzZ3ZMdGtXVTNWOVNGRl9FUmdWQTJCcGdwOGl0RWFONEE?oc=5",
+      "opens": 5,
+      "candidates": 8,
+      "usable": 8,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s8c6e139ccae2f4f",
+      "title": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие",
+      "item_url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxNNkZYZnZzenkzR2x1Y2xjclBVOGhzTmFLeFhzXzY4MnhRMC1FcGx4UWZQTGpta1ljTmViUXFWT1hKWnYySDVtWV81TlBsQzVtdlp6b181RHNEY2pQNU9teEpHdGlkdDVNdTRzTC1IZ3lKaU1xM0tOTE5odlNVc2xhQ0RGcjd3WjhXVUNkcGpGWkVTVVprT29adGNSMVdyWFR2eENkczdNT0NhZWNN?oc=5",
+      "opens": 7,
+      "candidates": 9,
+      "usable": 9,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s15cb3bde7ca3775",
+      "title": "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 септември",
+      "item_url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNMU9SampLMHcyMl9jTEZYTWlUN254aHlHOEVCRktTTnNacEk3NWJNVFlwS2ZSNGtfTWJYTFdrQnl1TFJTM3BNckVHczdfOV8yc0VlQXlCd2U3Q2F0ZnFJTEJKRTF2N2RiZDg2RFNkZEVpLTVuWURERW95TlRCbFZ4Q0ZlbmZaQkNRSnlxTXBEVkN5SnBZSHJLQTVYcG9IVFNPZkpHWGlyakJtYWk1aVM2b0hB?oc=5",
+      "opens": 5,
+      "candidates": 8,
+      "usable": 8,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s2b6aa99c8114257",
+      "title": "Приеха важни решения за Гробищния парк в Бургас - ФОКУС",
+      "item_url": "https://news.google.com/rss/articles/CBMipgFBVV95cUxOY09YZlZvSzlPbDV3VTBHbm93VlNOYndsOWMyOGRNR2pUYjd4ZFIzUXdFUkkzbnV4QnNtU1o0TERkci16VGo3N2JEWnZMbld5Y3Y1YVFhOHkwdUxtYVBnMnlTbTN0VFJOZHUybWN5aDU5d0xKMndBWFJPcEpKMmdaa0NsX2hLSHhoZWx0S2lCQTRTNWdFdVU3ZzBoNGpJMVNFNDJLMGhn?oc=5",
+      "opens": 5,
+      "candidates": 9,
+      "usable": 9,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "se3fa89b6bf474d2",
+      "title": "Очаквайте в \"Акценти\" на 21 септември!",
+      "item_url": "https://news.google.com/rss/articles/CBMie0FVX3lxTE9kZ0l1T1VlYTZodTBFdi1FZ0ZOem84V1lWWTkzMUhnUlhKT1E5dXpwcWdnT2VacDItWEJ6VFlERDMzbzJORTJSTVB4ZDdyakFaWkRIbWpRQmVoUXBFXzVRemtyd28yZ1J5dWFGR2tWUm9JYzFCQ2NhU280aw?oc=5",
+      "opens": 4,
+      "candidates": 2,
+      "usable": 2,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s29a3dfc4dfcc787",
+      "title": "Осем метъл банди с фронт дами срещу домашното насилие - БНР Новини",
+      "item_url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOUlZxZThUdzAxeEp0Ny1sblhWenN0OEhNSkxuMDlRd2FWZDJ2Mm9zSnkxUHBUZWM4VUdnVmI2dVhybnhPLUdEOGZWYU1FYlVaMzVwZHhCaFlhbkdZQXNaNkM4Vnl6ZWdaVkZvNlVLOVd5TnRNRm5fX1VSU2IyT0pVZi1TUjBsalEtbjJPb0dwclVqRVk4alV5cnJB?oc=5",
+      "opens": 7,
+      "candidates": 8,
+      "usable": 8,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sc3b21bc1a29839a",
+      "title": "Вокална група „Таланти“ подготвя благотворителен концерт в помощ на „слънчевите деца“",
+      "item_url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNd3plUDFBM25pRXEzOHc1aXdQcVdTS1ZDOF9hSUVqRU45Y1ZpQzhwaGNWRzZ6TlB1ZnJqYXBibXduMkZRYVdDZXdZYngxR29MWDMwd05nN3dKUmh4bXAwbC1rYy1LRVlzVUVTQ1pLYVdUSTE4NjNkVDlSdTYtZUgxS3NmRnp6TDdYLTQ3RUhyUGFNdFlaYnZxV1JMUGRDUUpNcmphRzVCVFZkZm9DSUFtR2lB?oc=5",
+      "opens": 5,
+      "candidates": 12,
+      "usable": 12,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sb7871edafdd5b27",
+      "title": "Официално: Бургас прие бюджет от над 350 млн. евро за 2026 г. - ФОКУС",
+      "item_url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxOZXNDdDJVMy1nSlRrekhJMVNJSEpkSmd5R2dfRU92dkFvaEY5YUQtVWUyWDFTN0ZNU3BpNjJmdTJXbF9LMTBUZk9SLW5DX1pybG9aaUFxbExiTUVPeWswcHZOSkZmbmVLdzRNRV9rUXZfVHJuTm43NWdvZDF2SVQwNmdOeEZOMHFUUnFFRUI3dVozM0tVbjNyRkQyaEhnZTZpLXJ4c19Od25oYl91MzlZ?oc=5",
+      "opens": 4,
+      "candidates": 8,
+      "usable": 8,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "sff6fa8460da5b18",
+      "title": "Скритите течове у дома: сигналите, които не бива да пренебрегваме",
+      "item_url": "https://news.google.com/rss/articles/CBMingFBVV95cUxOOXlRRTZmbGNZODBjSVo5UmdIUWlpSXZjX1AxNTZvbWxrcEFOanhqZjJrR0RoZUprVW5vdzllZmlFcWo2dHp0Uk1tLU0xMERVcVVlenFfVFdESjNWS2JjblJUd3dwcWI2b0l6WVZfQVl2S1IwLW0tR0pFQXpKX202X3lMQ0xxV29sdE4yLVVqLXF0ZFN4djlfRl9HZ3BDdw?oc=5",
+      "opens": 5,
+      "candidates": 12,
+      "usable": 12,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    },
+    {
+      "story_id": "s8eda5c22ebfb492",
+      "title": "Община Поморие и Общинският съвет ще търсят стратегически партньор, който да инвестира и модернизира общинската болница в града",
+      "item_url": "https://news.google.com/rss/articles/CBMi5gFBVV95cUxNUVhwTDk4cVRNNDUyS01sTHlSb01Md0N3SHRNLTU1M0ZYaVhCa1RIR1dsTEZMTUxnLVhZVy0zYWtTVHpxTWFvb0ozNnJSdmxJSUNELTduNVl4Y1hyeC00Y1UyN2dPR09SRGNFeFRzV0Jfd0d5QnBfU245WmhCRWcxVENzLThGOEsyeWEyQlZMUnlfWmlPZktSMnV0WVdRNEljdVVVSzJveldwaVFFZ0Y2aHI4U2dUakRsd2dpMUdMMWF1c3pHY0hDUUk4ZmVkVzRHcG0wQkFmMk83UlhMZDVKWmxBVVgwdw?oc=5",
+      "opens": 7,
+      "candidates": 9,
+      "usable": 9,
+      "facts": 0,
+      "primary_facts": 0,
+      "corroborated_facts": 0,
+      "conflicts": 0,
+      "gap": "Нужен е още независим източник за потвърждение.",
+      "error": "",
+      "all_gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": []
+    }
+  ],
+  "totals": {
+    "stories": 24,
+    "pages_opened": 127,
+    "candidate_claims": 193,
+    "usable_claims": 193,
+    "chrome_rejected": 870,
+    "facts": 19,
+    "primary_facts": 0,
+    "corroborated_facts": 19,
+    "conflicts": 0,
+    "stories_with_a_fact": 3,
+    "stories_with_blocking_gap": 22,
+    "research_errors": 0,
+    "semantic_decisions": 159
+  },
+  "verdicts": {
+    "SAME_FACT": 0,
+    "DIFFERENT_FACT": 145,
+    "CONFLICT": 0,
+    "UNCERTAIN": 14
+  }
+}

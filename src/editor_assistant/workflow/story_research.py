@@ -168,6 +168,49 @@ def _claim_for_questions(sentences, questions):
     return ""
 
 
+#: §18 - a page that is still a WRAPPER is not a publisher, and never evidence.
+#:
+#: G2.3's replay of the frozen 24-Story sample opened `news.google.com` 23 times
+#: and `facebook.com` 16 times: search results whose redirect did not resolve to
+#: the publisher. Counting those as publishers would let one aggregator invent
+#: the "independent" second source that corroboration requires, so they are
+#: refused here. Authority and independence always derive from the publisher
+#: actually reached (§18).
+_NON_PUBLISHER_HOSTS = frozenset(
+    {
+        "news.google.com",
+        "google.com",
+        "facebook.com",
+        "fb.com",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "tiktok.com",
+        "youtube.com",
+        "youtu.be",
+        "linkedin.com",
+        "t.me",
+        "telegram.me",
+        "reddit.com",
+    }
+)
+
+#: Subdomain labels that never identify a publisher of their own. Stripping
+#: them is the conservative part of §8: it collapses the overwhelmingly common
+#: `example.com` / `www.example.com` pair, which is one publisher reached twice,
+#: without guessing at eTLD+1 boundaries and risking the opposite error of
+#: merging two genuinely different outlets that share a suffix.
+_PUBLISHER_NEUTRAL_LABELS = frozenset({"www", "m", "amp", "en", "bg"})
+
+
+def _publisher_identity(host: str) -> str:
+    """The host used to decide whether two opened pages are one publisher."""
+    labels = str(host or "").casefold().split(".")
+    while len(labels) > 2 and labels[0] in _PUBLISHER_NEUTRAL_LABELS:
+        labels = labels[1:]
+    return ".".join(labels)
+
+
 def _needs_official_record(claim: str) -> bool:
     """True for a claim the existing council-decision guard reserves (§15).
 
@@ -232,8 +275,9 @@ def _promote_claims(records):
         for other in records[position + 1 :]:
             if not _comparable(record, other):
                 continue
-            # §8: independence is per publisher domain, never per URL.
-            if other["domain"] == record["domain"]:
+            # §8: independence is per PUBLISHER, never per URL or per host. A
+            # syndication mirror and a subdomain of the same outlet are one.
+            if other.get("publisher") == record.get("publisher"):
                 continue
             if _needs_official_record(other["claim"]):
                 continue
@@ -484,7 +528,9 @@ def execute_story_research(
             or host == "chernomorie-bg.com"
             or host.endswith(".chernomorie-bg.com")
             or blocked_mod.is_blocked(normalized_url)
+            or host in _NON_PUBLISHER_HOSTS
         ):
+            # §18: an unresolved aggregator or social page is not a source.
             continue
         publication_key = publication_identity.publication_key_for(normalized_url, host)
         if publication_key in seen_keys or publication_key in set(existing_publication_keys):
@@ -499,9 +545,10 @@ def execute_story_research(
         # rejected here, before anything can be promoted, and each surviving
         # candidate remembers which research question it answers.
         candidates = claim_quality.select_candidate_claims(
-            re.split(r"(?<=[.!?])\s+", text),
+            claim_quality.SENTENCE_SPLIT.split(text),
             plan["research_questions"],
             limit=CLAIMS_PER_PAGE,
+            topic=story_title or topic,
         )
         if not candidates:
             continue
@@ -545,6 +592,10 @@ def execute_story_research(
                     "source": source,
                     "claim": row["text"],
                     "domain": host,
+                    # §8: independence is decided by the PUBLISHER identity the
+                    # store already computes, so a subdomain and its parent -
+                    # or two paths on one site - are one source, not two.
+                    "publisher": _publisher_identity(host),
                     "authority": authority,
                     "dimensions": row["dimensions"],
                     "locator": f"claim:{slot}",
