@@ -2178,6 +2178,11 @@ def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
     return {
         "lastRefresh": _today_last_refresh(),
         "groupingHealth": _today_grouping_health(),
+        # V1.2-G4.1 §A4: the scope this projection was actually built with, echoed
+        # from the projection that decided it rather than re-derived. The editor
+        # (and any consumer of the DTO) can therefore see which desk they are
+        # reading without guessing from the rows.
+        "scope": result["scope"],
         "storyAttentionTotal": result["storyAttentionTotal"],
         "storyAttentionShown": len(new_developments) + len(new_stories),
         "newDevelopments": new_developments,

@@ -480,3 +480,29 @@ def test_the_regional_rule_is_a_plain_predicate_with_no_numeric_ranking(newsroom
     )
     # A real yes/no, not a graded value.
     assert decision is False
+
+
+def test_the_dto_echoes_the_scope_it_was_built_with(newsroom):
+    """§A4: the wire says which desk it is, so nothing has to guess from rows.
+
+    The projection echoes the decision the projection actually made. A DTO that
+    omitted it would leave the editor unable to tell a regional desk from an
+    unfiltered one except by counting rows, which is not a contract.
+    """
+    from editor_assistant.workflow import editor_application as app
+
+    stories = [_story("s-local", "i-local"), _story("s-national", "i-national")]
+    items = [
+        _item("i-local", title="Община Царево обяви нови правила", source_id="bta-burgas"),
+        _item(
+            "i-national",
+            title="Юношите на България и Естония завършиха наравно",
+            source_id="bta-burgas",
+        ),
+    ]
+    _desk(newsroom, stories, items)
+
+    assert app.read_today(scope="region")["scope"] == editor_queries.SCOPE_REGION
+    assert app.read_today(scope="all")["scope"] == editor_queries.SCOPE_ALL
+    # And an unrecognised scope is answered honestly, not silently widened.
+    assert app.read_today(scope="nonsense")["scope"] == editor_queries.SCOPE_REGION
