@@ -82,6 +82,9 @@ def main() -> int:
     from editor_assistant.workflow import (
         editor_application as app,
     )
+    from editor_assistant.workflow import (
+        search as search_mod,
+    )
 
     # Observation only: the extractor and the page opener are WRAPPED, never
     # replaced, so the measured run is the real one.
@@ -97,6 +100,18 @@ def main() -> int:
         "wrong_event_rejected": 0,
         "heading_blocks_skipped": 0,
     }
+    # Observation only: the discovery round is WRAPPED, never replaced, so the
+    # measured run is the real one and the operation it produced is captured for
+    # the G2.4B frozen replay.
+    real_discovery = search_mod.run_event_discovery
+    last_operation = {}
+
+    def _discovery(**kwargs):
+        op = real_discovery(**kwargs)
+        last_operation.clear()
+        last_operation.update(op)
+        return op
+
     real_fetch = web_fetch.fetch_page
     real_select = claim_quality.select_candidate_claims
     real_compare = story_research.claim_equivalence.compare_claims
@@ -139,6 +154,7 @@ def main() -> int:
             model_calls[0] += 1
         return verdict
 
+    search_mod.run_event_discovery = _discovery
     web_fetch.fetch_page = _fetch
     claim_quality.select_candidate_claims = _select
     story_research.claim_equivalence.compare_claims = _compare
@@ -211,6 +227,20 @@ def main() -> int:
             # hidden, because it is part of the measurement.
             row["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
         basis = story_research_store.get_story_research(story_id, root=editorial)
+        # §2 G2.4B: persist the DISCOVERED candidates. The earlier version kept
+        # only the Story's own `item_url`, which made the frozen downstream
+        # replay impossible: the URLs existed only in an audit log written into a
+        # temp directory the script deleted on exit. G2.4B replays opening ->
+        # extraction -> corroboration from these records, so they must survive.
+        row["discovered_urls"] = [
+            {
+                "url": c.get("url"),
+                "discovered_by": c.get("discovered_by"),
+                "status": (c.get("opened") or {}).get("status"),
+                "final_url": (c.get("opened") or {}).get("final_url"),
+            }
+            for c in (last_operation.get("candidates") or [])
+        ]
         row["opens"] = stats["pages_opened"] - before["pages_opened"]
         row["candidates"] = stats["candidates"] - before["candidates"]
         row["usable"] = stats["usable"] - before["usable"]

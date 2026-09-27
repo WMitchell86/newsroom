@@ -1,0 +1,47 @@
+{
+  "case_a_official_primary": {
+    "facts": 2,
+    "sources": 1,
+    "authorities": [
+      "Община Бургас"
+    ],
+    "blocking_gaps": [
+      "Кои хора са засегнати и как?",
+      "Защо това има значение за читателя тук и сега?",
+      "Каква е практическата последица за читателя?",
+      "Какъв е обхватът (числа, брой участници/ползватели)?",
+      "Кой орган/отговорник е източникът на информацията?",
+      "Кога и къде?",
+      "Каква е сумата/финансирането и за какво точно?"
+    ],
+    "draft_eligible": false,
+    "readiness_code": "BLOCKING_GAP",
+    "readiness_message": "Има непопълнена информация, която пречи да продължите.",
+    "error": ""
+  },
+  "case_b_two_media_paraphrased": {
+    "facts": 4,
+    "sources": 2,
+    "authorities": [
+      "bnr.example.bg",
+      "eranova.example.bg"
+    ],
+    "blocking_gaps": [],
+    "draft_eligible": true,
+    "readiness_code": "DRAFT_ELIGIBLE",
+    "readiness_message": "Има достатъчно потвърдена информация за чернова.",
+    "error": ""
+  },
+  "case_c_single_media": {
+    "facts": 0,
+    "sources": 0,
+    "authorities": [],
+    "blocking_gaps": [
+      "Нужен е още независим източник за потвърждение."
+    ],
+    "draft_eligible": false,
+    "readiness_code": "BLOCKING_GAP",
+    "readiness_message": "Има непопълнена информация, която пречи да продължите.",
+    "error": ""
+  }
+}

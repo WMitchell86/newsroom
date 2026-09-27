@@ -1,0 +1,179 @@
+{
+  "frozen_stories": 24,
+  "stories_with_frozen_discovery": 1,
+  "stories_replayed": 1,
+  "serper_calls": 0,
+  "semantic_funnel": {
+    "candidate_pairs": 12,
+    "deterministically_rejected": 0,
+    "model_required": 0,
+    "model_answered": 0,
+    "uncertain_unavailable": 0,
+    "same_fact": 0,
+    "different_fact": 12,
+    "conflict": 0
+  },
+  "stories_with_a_fact": 0,
+  "stories_draft_capable_single_source": 0,
+  "stories": [
+    {
+      "story_id": "sd79db6071f5b17d",
+      "title": "Жена и 3-годишно дете пострадаха при катастрофа на пътя Бургас-Созопол",
+      "frozen_discovery": true,
+      "frozen_publishers": 3,
+      "facts": 0,
+      "sources": 0,
+      "gaps": [
+        "Нужен е още независим източник за потвърждение."
+      ],
+      "fact_texts": [],
+      "single_source_experiment": {
+        "eligible_now": false,
+        "eligible_now_code": "BLOCKING_GAP",
+        "draft_capable_single": false,
+        "delta": false,
+        "warnings": [],
+        "attribution_required": false
+      },
+      "error": ""
+    },
+    {
+      "story_id": "s5a4608e991ecea6",
+      "title": "Местният парламент прие бюджета на Община Бургас за 2026 година - БНР Новини",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s5bd17a3de24ad7d",
+      "title": "Царево с две отличия в конкурса „Строителен обект на Черноморието“",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sea922303899ba1f",
+      "title": "„Застинало време“ събира светлина, архитектура и спомени в галерия „Неси“",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s8a37bd28ab963e0",
+      "title": "Логистични решения с поглед към бъдещето",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s5ef31f8245eadc2",
+      "title": "ДНЕВЕН РЕД НА ЗАСЕДАНИЕ №42 ОТ ДАТА 21.09.2026 ГОДИНА",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sefe90cb2f7bdeda",
+      "title": "Black Sea Open събира най-добрите тенис любители през уикенда в Бургас",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sffd9303a1a71992",
+      "title": "Булевард Демокрация на 21-ви септември",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sd417b914eb8f8f4",
+      "title": "Кметът на Поморие представя стратегия за развитие на общинската болница на 24 септември",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sc47b12de6446c7f",
+      "title": "Кметът на Поморие Иван Алексиев ще представи стратегия за развитие на МБАЛ - БНР Новини",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s6792591ccd82d76",
+      "title": "Спасиха бедстващ делфин в местността Кротиря край Поморие - БНР Новини",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s57b27b51563970d",
+      "title": "Млади творци могат да се включат в „Бургас вдъхновява“",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s986d357afd5ffed",
+      "title": "С победа за ОФК „Поморие“ започна първенството на „А“ Областна група за мъже",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s8f0712d3faaeade",
+      "title": "Флашмоб в Бургас за Световния ден за информираност за Алцхаймер",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sf827c3aea1076f5",
+      "title": "Общинският съвет одобри дигитализацията на Гробищния парк в Бургас",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s8c6e139ccae2f4f",
+      "title": "Търсят стратегически партньор за запазването и развитието на МБАЛ Поморие",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s15cb3bde7ca3775",
+      "title": "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 септември",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s2b6aa99c8114257",
+      "title": "Приеха важни решения за Гробищния парк в Бургас - ФОКУС",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "se3fa89b6bf474d2",
+      "title": "Очаквайте в \"Акценти\" на 21 септември!",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s29a3dfc4dfcc787",
+      "title": "Осем метъл банди с фронт дами срещу домашното насилие - БНР Новини",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sc3b21bc1a29839a",
+      "title": "Вокална група „Таланти“ подготвя благотворителен концерт в помощ на „слънчевите деца“",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sb7871edafdd5b27",
+      "title": "Официално: Бургас прие бюджет от над 350 млн. евро за 2026 г. - ФОКУС",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "sff6fa8460da5b18",
+      "title": "Скритите течове у дома: сигналите, които не бива да пренебрегваме",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    },
+    {
+      "story_id": "s8eda5c22ebfb492",
+      "title": "Община Поморие и Общинският съвет ще търсят стратегически партньор, който да инвестира и модернизира общинската болница в града",
+      "frozen_discovery": false,
+      "error": "no recorded discovery operation with usable publishers"
+    }
+  ]
+}

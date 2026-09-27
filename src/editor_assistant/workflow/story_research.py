@@ -381,6 +381,7 @@ def execute_story_research(
     story_items=(),
     seed_urls=(),
     serper_budget=None,
+    discovery=None,
 ):
     """Run one bounded Story research round and persist its canonical outcome.
 
@@ -393,6 +394,13 @@ def execute_story_research(
     bootstrap round can attempt the existing safe fetch path directly (V1.1-A
     §8: the Google News redirect itself is never promoted as evidence; only
     the final canonical URL of an opened page may become a source).
+
+    ``discovery`` replays a RECORDED `run_event_discovery` operation instead of
+    searching (V1.2-G2.4B §2). When given, no search provider is called at all,
+    so a downstream measurement can change one variable — for example the
+    semantic capacity available — without spending a single discovery credit.
+    The pages named by the recorded operation are still opened through the same
+    safe fetch path, so nothing about evidence handling is relaxed.
 
     Outcome honesty (V1.1-A §4/§10/§16): infrastructure failure before any
     assessment (no opened usable page AND no persisted result) raises
@@ -487,16 +495,53 @@ def execute_story_research(
             },
         }
 
-    operation = search.run_event_discovery(
-        topic=topic,
-        constraints=search.make_constraints(description="Story gap research", location="Бургас"),
-        missing_dimensions=plan["missing_dimensions"],
-        provider=provider,
-        page_opener=capture,
-        max_open=max_open,
-        audit_path=audit_path,
-        serper_budget=serper_budget,
-    )
+    # §2 G2.4B — a recorded discovery operation may be REPLAYED instead of
+    # re-searched. The frozen set is the input, so a downstream replay (opening →
+    # extraction → corroboration → readiness) can be re-measured while changing
+    # exactly one variable, and with no search provider called at all.
+    #
+    # It is deliberately a parameter rather than a hidden global: production
+    # never passes it, and a replay that supplies one is auditable because the
+    # operation record carries `frozen_discovery: true`.
+    if discovery is not None:
+        operation = dict(discovery)
+        operation["frozen_discovery"] = True
+        # The recorded operation supplies DISCOVERY only. OPENING is part of the
+        # downstream pipeline being replayed, so every recorded URL is re-opened
+        # here through the same safe fetch path — nothing is trusted from the
+        # record except that the URL was once discovered. A page that no longer
+        # opens simply records its failure, exactly as in a live round.
+        replayed = []
+        for entry in operation.get("candidates") or []:
+            url = str(entry.get("url") or "").strip()
+            if not url:
+                continue
+            opened = capture(url)
+            replayed.append({**entry, "opened": {
+                "status": web_fetch.FETCH_OK,
+                "final_url": opened.get("final_url", url),
+                "content_type": opened.get("content_type", "text/plain"),
+                "bytes": opened.get("bytes", 0),
+                "snippet_authority": "DISCOVERY_ONLY",
+            }})
+        operation["candidates"] = replayed
+        # The rest of the round reads `started_at` for the bundle's observation
+        # time; a recorded operation always has one, but a hand-built replay
+        # fixture may not, and an absent field must not crash the pipeline.
+        operation.setdefault("started_at", now or "")
+    else:
+        operation = search.run_event_discovery(
+            topic=topic,
+            constraints=search.make_constraints(
+                description="Story gap research", location="Бургас"
+            ),
+            missing_dimensions=plan["missing_dimensions"],
+            provider=provider,
+            page_opener=capture,
+            max_open=max_open,
+            audit_path=audit_path,
+            serper_budget=serper_budget,
+        )
     # §B2/§18: the bounded opening budget must be spent on REAL publisher pages.
     # An unresolved Google News redirect is fetched successfully but is not a
     # publisher — §18 refuses it as evidence — so counting it against `max_open`
@@ -652,7 +697,12 @@ def execute_story_research(
         if isinstance(policy, dict) and not isinstance(
             next(iter(policy.values()), None), list
         ):
-            row = policy.get(host)
+            # An INJECTED resolver is keyed by the registry's publisher domain, so
+            # it is consulted with the same publisher IDENTITY as the default
+            # resolver. Looking it up with the raw host would reintroduce exactly
+            # the §R1 bug this slice fixed: `www.burgas.bg` would miss `burgas.bg`
+            # and an official source would be demoted to ordinary media.
+            row = policy.get(host) or policy.get(_publisher_identity(host))
             authority_name = row.get("name") if isinstance(row, dict) else ""
             factual = bool(row and row.get("factual_authority"))
             kind = row.get("kind") if isinstance(row, dict) else ""
