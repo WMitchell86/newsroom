@@ -253,32 +253,9 @@ def _degrade_to(reason: str, article_id: str) -> None:
             payload["stories"] = [row for row in payload["stories"] if row["story_id"] != "s-one"]
             store.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return
-    if reason == "BLOCKING_GAP":
-        story_research_store.save_story_research(
-            {
-                "story_id": "s-one",
-                "sources": [
-                    {"id": "vestnik", "name": "Вестник", "url": "https://vestnik.example.test/b"}
-                ],
-                "facts": [
-                    {"id": "fact_money", "text": BODY, "sourceId": "vestnik", "locator": "т. 4"}
-                ],
-                "gaps": [
-                    {
-                        "id": "gap_date",
-                        "question": "Кога започва?",
-                        "kind": "unresolved",
-                        "blocking": True,
-                    }
-                ],
-                "assessed_at": "2026-09-25T10:00:00Z",
-                "research_rounds": 1,
-                "operation_ids": ["op-fixture"],
-            }
-        )
-        return
-    if reason == "NO_CONFIRMED_FACTS":
-        # Assessed, but nothing usable was confirmed: one non-blocking gap.
+    if reason == "NO_DRAFT_MATERIAL":
+        # V1.2-G4.1 §B6: assessed, but there is genuinely nothing to write from.
+        # One non-blocking gap so the store's false-clean-state rule holds.
         story_research_store.save_story_research(
             {
                 "story_id": "s-one",
@@ -293,11 +270,6 @@ def _degrade_to(reason: str, article_id: str) -> None:
             }
         )
         return
-    if reason == "NO_OPEN_SOURCE":
-        # Unreachable through the canonical store (it refuses a source without a
-        # URL) and covered by the dedicated test below through the same seam the
-        # C2 suite uses. Kept here so the state list stays closed.
-        return
     raise AssertionError(reason)  # pragma: no cover - the parametrization is closed
 
 
@@ -305,8 +277,7 @@ def _degrade_to(reason: str, article_id: str) -> None:
     "reason",
     [
         "STORY_UNASSESSED",
-        "BLOCKING_GAP",
-        "NO_CONFIRMED_FACTS",
+        "NO_DRAFT_MATERIAL",
         "FOCUS_NOT_CONFIRMED",
     ],
 )
@@ -336,14 +307,14 @@ def test_a_readiness_refusal_never_records_a_failure_marker(eligible, reason, wo
 def test_a_fact_without_an_opened_source_never_records_a_failure_marker(
     eligible, monkeypatch, working_model
 ):
-    """§23, the fifth readiness code: `NO_OPEN_SOURCE`.
+    """§23 — a confirmed fact that carries no opened source URL.
 
-    The canonical research store refuses to persist a source without a URL, so
-    this state cannot be produced by writing a research row — it is reachable
-    only through a basis whose confirmed fact carries no usable source URL. The
-    substitution is the *evidence basis* the command reads, the same seam the
-    C2 test uses; the command path itself, and therefore the ordering that
-    decides whether a marker is written, is entirely real.
+    V1.2-G4.1 §B4: a fact whose source was never opened licenses nothing, so
+    this is now the same `NO_DRAFT_MATERIAL` refusal as having no basis at all.
+    The canonical store refuses to persist a source without a URL, so the state
+    is reached by substituting the *evidence basis* the command reads, the same
+    seam the C2 test uses; the command path itself, and therefore the ordering
+    that decides whether a marker is written, is entirely real.
     """
     article_id = eligible["article_id"]
     real_snapshot = app._draft_snapshot
@@ -360,17 +331,21 @@ def test_a_fact_without_an_opened_source_never_records_a_failure_marker(
             }
         ]
         snapshot["source_url"] = ""
+        # The Story's opened publications must go too, or the §B3 single-source
+        # fallback legitimately finds real material on another page and the
+        # refusal this test is about cannot be reached.
+        snapshot["sources"] = []
         return snapshot
 
     monkeypatch.setattr(app, "_draft_snapshot", without_open_source)
     try:
         assert (
             article_readiness.evaluate(without_open_source(article_id)).reason_code
-            == "NO_OPEN_SOURCE"
+            == "NO_DRAFT_MATERIAL"
         )
         with pytest.raises(app.EditorApplicationError) as refusal:
             app.start_article_draft(article_id, idempotency_key="no-open-source")
-        assert refusal.value.code == "NO_OPEN_SOURCE"
+        assert refusal.value.code == "NO_DRAFT_MATERIAL"
     finally:
         # Restore the real reader directly: `monkeypatch.undo()` would also undo
         # the environment this fixture depends on.

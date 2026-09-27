@@ -282,14 +282,15 @@ def test_the_category_rail_changes_no_story_data(desk_page):
 # --------------------------------------------------------------------------
 
 
-def test_a_blocked_draft_shows_the_real_reason_not_a_trust_claim(desk_page, monkeypatch):
-    """§18-§21: the actual blocker, and `Прегледай` still offered.
+def test_an_open_gap_no_longer_blocks_the_quick_draft(desk_page, monkeypatch):
+    """V1.2-G4.1 §B1 — the owner's screen, in a real browser.
 
-    The fixture's Story carries a real assessed blocking gap, and the research
-    round cap is spent, so the automated path genuinely cannot take another
-    speculative round. The sentence the editor sees must be the backend's own
-    evidence wording — not a judgement about the publisher, and not a generic
-    "we need a reliable source".
+    The fixture's Story carries real opened material AND a real blocking gap, and
+    its research round cap is spent. Under V1.1-B that combination produced a
+    refusal — «Има непопълнена информация, която пречи да продължите.» — which is
+    exactly what the owner reported. Under the new contract the open question is a
+    warning that travels with the Draft, so the quick path now SUCCEEDS and no
+    error alert is shown.
     """
     from editor_assistant.workflow import story_research_store
 
@@ -306,21 +307,15 @@ def test_a_blocked_draft_shows_the_real_reason_not_a_trust_claim(desk_page, monk
     row.wait_for(state="visible")
     row.get_by_role("button", name="Чернова").click()
 
-    alert = probe.page.get_by_role("alert").first
-    alert.wait_for(state="visible", timeout=120000)
-    text = alert.inner_text()
-    # §19: the sentence is the backend's own. This Story's assessed basis still
-    # carries a blocking gap, so the honest stop is the blocking-gap wording — the
-    # editor is told the *information* is incomplete, not that a publisher is
-    # suspect.
-    assert "непопълнена информация" in text.casefold(), text
-    # §18: the frontend must not substitute a reputation judgement.
-    for forbidden in ("надежден", "Надежден", "Ненадежден", "Trusted", "Verified"):
-        assert forbidden not in text, text
-    # §19: the way out is still there, in the same action region.
-    row.get_by_role("link", name="Прегледай").wait_for(state="visible")
-    assert urlsplit(probe.page.url).path == "/", probe.page.url
-    probe.assert_clean(context="an evidence blocker")
+    # The Draft is created, and the desk carries the editor straight to it. The
+    # old blocker sentence is nowhere on the page any more: an open question no
+    # longer stops writing.
+    probe.page.wait_for_url("**/articles/**", timeout=180000)
+    probe.page.get_by_role("heading", level=1).wait_for(state="visible", timeout=60000)
+    assert probe.page.get_by_text("пречи да продължите").count() == 0
+    # §C2: the question is still on the record, beside the Draft.
+    assert probe.page.get_by_text("Остава информация за проверка").count() >= 1
+    probe.assert_clean(context="a draft that still carries an open question")
 
 
 # --------------------------------------------------------------------------
@@ -416,8 +411,11 @@ def test_capture_owner_review_screenshots(desk_page, monkeypatch):
     # Let the real operation finish so the fixture is left clean.
     probe.page.wait_for_url("**/articles/**", timeout=180000)
 
-    # C. the precise evidence blocker on its own row. The research cap is spent
-    #    first, so the honest stop is the evidence wording and not a retry.
+    # C. the Story that still carries an open question, on its own row.
+    #    V1.2-G4.1 §B1: the research cap is spent, but an open question no longer
+    #    refuses the Draft — the row reaches a real Draft instead, and the desk
+    #    carries the editor to it. This screen is the one the owner asked for: the
+    #    question is still on the record, and writing was not blocked by it.
     open_today(probe)
     basis = story_research_store.get_story_research(ids["blocking_story_id"])
     story_research_store.save_story_research({**basis, "research_rounds": 2})
@@ -425,8 +423,13 @@ def test_capture_owner_review_screenshots(desk_page, monkeypatch):
     probe.page.locator("[data-story-row]").first.wait_for(state="visible", timeout=20000)
     blocking = probe.page.locator(f"[data-story-row='{ids['blocking_story_id']}']")
     blocking.get_by_role("button", name="Чернова").click()
-    probe.page.get_by_role("alert").first.wait_for(state="visible", timeout=180000)
-    captured.append(_shoot(probe, "c-today-evidence-blocker-1440x1080"))
+    probe.page.wait_for_url("**/articles/**", timeout=180000)
+    probe.page.get_by_role("heading", level=1).wait_for(state="visible", timeout=60000)
+    # The Draft exists and the question is still shown on it — nothing was hidden.
+    assert probe.page.get_by_text("Остава информация за проверка").count() >= 1
+    assert probe.page.get_by_text("пречи да продължите").count() == 0
+    captured.append(_shoot(probe, "c-article-draft-with-open-question-1440x1080"))
+    open_today(probe)
 
     # D. a common laptop width, to judge density and wrapping.
     probe.page.set_viewport_size(LAPTOP_VIEWPORT)

@@ -10,6 +10,7 @@ import type {
   SourcesProjection,
   StoryDetail,
   TodayProjection,
+  TodayScope,
 } from "./dto";
 
 /** The canonical result of `Финализирай`: the frozen Article and where it lives. */
@@ -571,8 +572,13 @@ async function getData<T>(path: string, params?: URLSearchParams): Promise<T> {
   return value.data as T;
 }
 
-export function getToday(): Promise<TodayProjection> {
-  return getData("/today");
+/**
+ * V1.2-G4.1 §A4 — `region` is the default Burgas working desk. The scope is an
+ * explicit, allow-listed query parameter: the backend decides what the desk
+ * means, and the client never filters rows itself.
+ */
+export function getToday(scope: TodayScope = "region"): Promise<TodayProjection> {
+  return getData("/today", new URLSearchParams({ scope }));
 }
 
 export function getStories(filter: StoryFilter = "all", query = ""): Promise<{ stories: import("./dto").StorySummary[] }> {

@@ -160,7 +160,20 @@ def _hundred_stories(count: int):
     return stories
 
 
-def _today(paths, *, now=NOW, story_cap=editor_queries.TODAY_STORY_CAP):
+def _today(
+    paths,
+    *,
+    now=NOW,
+    story_cap=editor_queries.TODAY_STORY_CAP,
+    scope=editor_queries.SCOPE_ALL,
+):
+    """The desk read for the ordering/horizon/cap assertions in this module.
+
+    These tests pin one axis each (ordering, horizon, cap) and use deliberately
+    abstract fixtures whose titles name no real locality, so they read the `all`
+    scope explicitly. The regional default is asserted on its own, in
+    `tests/test_regional_today.py`, against real Burgas material.
+    """
     return editor_queries.read_today(
         stories_path=paths["stories"],
         inbox_path=paths["inbox"],
@@ -168,6 +181,7 @@ def _today(paths, *, now=NOW, story_cap=editor_queries.TODAY_STORY_CAP):
         article_root=paths["root"] / "editorial",
         now=now,
         story_cap=story_cap,
+        scope=scope,
     )
 
 
@@ -414,6 +428,7 @@ def test_cap_never_displaces_active_article_work(tmp_path):
         article_next_actions={paths["article"]["article_id"]: "SELECT_FOCUS"},
         now=NOW,
         story_cap=30,
+        scope=editor_queries.SCOPE_ALL,
     )
 
     assert len(result["stories"]) == 30

@@ -532,15 +532,21 @@ def test_preparation_focus_title_readiness_and_today_projection(api_server, api_
     )
     blocked = _data(request(api_server, f"/api/v1/articles/{article_id}"))
     assert blocked["preparation"]["draftEligible"] is False
-    # V1.1-B: a real blocking gap is explained BY the gap, with its own code.
-    assert blocked["preparation"]["draftReadiness"]["code"] == "BLOCKING_GAP"
+    # V1.2-G4.1 §B6: with no opened publication behind the title, the honest
+    # reason is the absence of material — not the open question, which no longer
+    # refuses a Draft at all. Both questions are still shown.
+    assert blocked["preparation"]["draftReadiness"]["code"] == "NO_DRAFT_MATERIAL"
+    assert (
+        blocked["preparation"]["draftReadiness"]["message"]
+        == "Няма достатъчно изходен материал за чернова."
+    )
     assert blocked["preparation"]["blockingGaps"][0]["question"] == "Кога започва изпълнението?"
     assert (
         blocked["preparation"]["nonBlockingGaps"][0]["question"] == "Кой е основният заинтересован?"
     )
     assert blocked["availableActions"] == ["CHANGE_FOCUS", "RESEARCH_MORE"]
     assert blocked["nextAction"]["action"] == "RESEARCH_MORE"
-    assert blocked["nextAction"]["reasonCode"] == "BLOCKING_GAP"
+    assert blocked["nextAction"]["reasonCode"] == "NO_DRAFT_MATERIAL"
     assert "MAKE_DRAFT" not in blocked["availableActions"]
     # V1.1-C: a readiness refusal is not a generation failure, so it never opens
     # the manual editor and never records a durable failure marker.
@@ -1162,10 +1168,13 @@ def test_draft_returns_202_and_polls_to_the_canonical_article(api_server, api_st
     assert current["warnings"] == article["warnings"]
 
 
-def test_draft_is_refused_for_a_blocked_basis_and_a_stale_action(
+def test_an_open_gap_no_longer_refuses_the_draft_command(
     api_server, api_store, monkeypatch
 ):
     article_id = _ready_article(api_store, monkeypatch)
+    # V1.2-G4.1 §B1: an open question on a Story that already has real promoted
+    # facts is NO LONGER a refusal — this is the owner's exact screen. The Draft
+    # command is accepted and the generation runs.
     story_research_store.merge_research(
         "s-one",
         sources=[],
@@ -1175,18 +1184,28 @@ def test_draft_is_refused_for_a_blocked_basis_and_a_stale_action(
         canonical_story={"story_id": "s-one"},
         operation_id="api-gap",
     )
-    blocked = request(
+    accepted = request(
         api_server,
         f"/api/v1/articles/{article_id}/draft",
         method="POST",
-        headers={"Idempotency-Key": "http-blocked"},
+        headers={"Idempotency-Key": "http-gap-open"},
     )
-    assert blocked[0] == 409
-    assert blocked[1]["error"]["code"] == "BLOCKING_GAP"
-    assert blocked[1]["error"]["retryable"] is False
+    assert accepted[0] == 202, accepted[1]
+    operation = _await(api_server, accepted[1]["data"]["operationToken"])
+    assert operation["status"] == "succeeded", operation
+    assert operation["result"]["state"] == "draft"
+    assert operation["result"]["content"]["body"].strip()
+    # §C2: an open question means `Готова` is not available. The Draft exists and
+    # is fully editable; what it cannot do yet is be marked Ready.
+    current = _data(request(api_server, f"/api/v1/articles/{article_id}"))
+    assert current["state"] == "draft"
+    assert "EDIT" in current["availableActions"]
+    assert "MARK_READY" not in current["availableActions"]
 
-    # A stale client action after a real edit is a version conflict, never a
-    # silent overwrite of the editor's text.
+
+def test_a_stale_draft_action_is_refused_as_a_version_conflict(api_server, api_store, monkeypatch):
+    """A stale client action after a real edit never silently overwrites text."""
+    article_id = _ready_article(api_store, monkeypatch)
     store = story_store.read_store(api_store["stories"])
     story_store.write_store(store, api_store["stories"])
     story_research_store.save_story_research(
@@ -1491,6 +1510,11 @@ def test_unassessed_story_dto_is_honest_and_offers_research(api_server, api_stor
         "items": [],
         "assessedAt": None,
         "evidenceStatus": "unassessed",
+        # V1.2-G4.1 §B3: the publications that really were opened, with the
+        # authority the editor configured for them. The editor can therefore see
+        # what a Draft would be written from, which is the whole point of showing
+        # a warning instead of refusing.
+        "openedSources": [],
     }
     # V1.1-A §11: the first round must not require a pre-existing gap.
     assert "RESEARCH_MORE" in detail["availableActions"]

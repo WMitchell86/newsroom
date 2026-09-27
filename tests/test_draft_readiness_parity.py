@@ -120,17 +120,24 @@ def model(monkeypatch):
 #   * `assessed + 0 facts + 0 gaps` — V1.1-A made this the forbidden false
 #     clean state; `story_research_store` refuses to persist it.
 #   * `assessed + 1 fact + no open source` — a fact must reference a persisted
-#     source, and that source must carry a non-empty URL. The `NO_OPEN_SOURCE`
-#     branch is still reachable through verified legacy Article lineage and is
+#     source, and that source must carry a non-empty URL. The equivalent
+#     condition is still reachable through verified legacy Article lineage and is
 #     covered there (see `test_article_draft_command.py`).
+#
+# V1.2-G4.1 §B: three rows changed meaning, and the table records the new one.
+# `assessed + gap` used to refuse with `BLOCKING_GAP` whether or not any fact
+# existed. A gap is now a warning that travels with the Draft, so the only
+# remaining material refusal is `NO_DRAFT_MATERIAL` — reached when the Story has
+# neither a promoted fact with an opened URL nor an opened publisher page.
+# `assessed + 1 fact + gap` is now the owner's real case: writable.
 MATRIX = [
     # focus, evidence,      facts, open_source, gap -> (eligible, reason code)
     (False, "assessed", 1, True, False, (False, "FOCUS_NOT_CONFIRMED")),
     (False, "unassessed", 0, False, False, (False, "FOCUS_NOT_CONFIRMED")),
     (True, "unassessed", 0, False, False, (False, "STORY_UNASSESSED")),
-    (True, "assessed", 0, False, True, (False, "BLOCKING_GAP")),
-    (True, "assessed", 0, False, False, (False, "NO_CONFIRMED_FACTS")),
-    (True, "assessed", 1, True, True, (False, "BLOCKING_GAP")),
+    (True, "assessed", 0, False, True, (False, "NO_DRAFT_MATERIAL")),
+    (True, "assessed", 0, False, False, (False, "NO_DRAFT_MATERIAL")),
+    (True, "assessed", 1, True, True, (True, "DRAFT_ELIGIBLE")),
     (True, "assessed", 1, True, False, (True, "DRAFT_ELIGIBLE")),
 ]
 
@@ -295,12 +302,17 @@ def test_projection_and_command_never_disagree(newsroom, model, row):
 # --- Stale frontend state (V1.1-B §17) --------------------------------------
 
 
-def test_a_stale_eligible_projection_is_refused_on_command(newsroom, model):
-    """UI loaded an eligible Article, then a gap appeared, then the click.
+def test_a_stale_eligible_projection_is_still_re_evaluated_on_command(newsroom, model):
+    """The command re-evaluates canonical state; it never trusts the rendered button.
 
-    The command re-evaluates canonical state and refuses with the exact current
-    reason. It never trusts the eligibility the client rendered, and it never
-    reaches the provider.
+    V1.2-G4.1 §B: the *direction* of this transition changed. A new research round
+    that introduces an open question no longer invalidates an already-eligible
+    Article, so the command correctly proceeds. The safety property under test is
+    unchanged and is the one that matters: the client's belief is irrelevant, and
+    the decision comes from the shared predicate alone.
+
+    The reverse direction is asserted in the next test — material genuinely
+    disappearing still refuses the command.
     """
     article = _article(newsroom)
     article_id = article["article_id"]
@@ -311,12 +323,33 @@ def test_a_stale_eligible_projection_is_refused_on_command(newsroom, model):
     assert "MAKE_DRAFT" in loaded["availableActions"]
 
     # The basis changes underneath the still-open page: a new research round
-    # introduces a real blocking gap.
+    # introduces a real open question.
     _apply_basis(evidence="assessed", facts=1, open_source=True, blocking_gap=True)
 
-    with pytest.raises(app.EditorBlockingGap) as refusal:
-        app.start_article_draft(article_id, idempotency_key="stale-eligible")
-    assert refusal.value.code == "BLOCKING_GAP"
+    started = app.start_article_draft(article_id, idempotency_key="stale-eligible")
+    assert started["status"] in {"succeeded", "pending", "running"}
+    assert article_readiness.evaluate(app._draft_snapshot(article_id)).eligible is True
+
+
+def test_a_stale_eligible_projection_is_refused_when_material_disappears(newsroom, model):
+    """The same race, the direction that must still refuse.
+
+    The editor's page says `Направи чернова`, but the material behind it is gone.
+    The command re-evaluates, refuses with the current reason, and never reaches
+    the provider — the exact guarantee V1.1-B §17 was written for.
+    """
+    article = _article(newsroom)
+    article_id = article["article_id"]
+    _apply_basis(evidence="assessed", facts=1, open_source=True, blocking_gap=False)
+    assert app.read_article(article_id)["preparation"]["draftEligible"] is True
+
+    # The opened page is no longer there: the Story has a question and no
+    # material at all.
+    _apply_basis(evidence="assessed", facts=0, open_source=False, blocking_gap=True)
+
+    with pytest.raises(app.EditorDraftNotReady) as refusal:
+        app.start_article_draft(article_id, idempotency_key="material-gone")
+    assert refusal.value.code == "NO_DRAFT_MATERIAL"
     assert model == []
     # Nothing was generated, and the Article is exactly as the editor left it.
     assert articles.get_article_content(article_id)["body"] == ""
@@ -361,23 +394,27 @@ def test_the_reason_taxonomy_is_narrow_and_non_contradictory():
     required = {
         "DRAFT_ELIGIBLE",
         "STORY_UNASSESSED",
-        "NO_CONFIRMED_FACTS",
-        "NO_OPEN_SOURCE",
-        "BLOCKING_GAP",
+        "NO_DRAFT_MATERIAL",
         "FOCUS_NOT_CONFIRMED",
     }
     assert required <= set(article_readiness.REASON_MESSAGES)
+    # V1.2-G4.1 §B: the three removed codes are gone, not merely unused. Leaving
+    # them in the table would keep "пречи да продължите" reachable as wording for
+    # a state that no longer refuses anything.
+    assert not {
+        "BLOCKING_GAP",
+        "NO_CONFIRMED_FACTS",
+        "NO_OPEN_SOURCE",
+    } & set(article_readiness.REASON_MESSAGES)
     # One message per code, and every message is distinct: the UI renders the
     # backend string, so two codes sharing wording would re-collapse the taxonomy.
     assert len(set(article_readiness.REASON_MESSAGES.values())) == len(
         article_readiness.REASON_MESSAGES
     )
-    # The four research-remedy codes are exactly the ones that route to the Story.
+    # The research-remedy codes are exactly the two that route to the Story.
     assert article_readiness.RESEARCH_REMEDY_CODES == {
         "STORY_UNASSESSED",
-        "NO_CONFIRMED_FACTS",
-        "NO_OPEN_SOURCE",
-        "BLOCKING_GAP",
+        "NO_DRAFT_MATERIAL",
     }
     for code in article_readiness.RESEARCH_REMEDY_CODES:
         decision = article_readiness._refusal(

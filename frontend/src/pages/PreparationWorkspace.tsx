@@ -334,12 +334,26 @@ export function PreparationWorkspace({
                 </Link>
               </p>
             ) : null}
+            {/*
+              V1.2-G4.1 §B5: the gap questions stay on screen exactly as before,
+              but the word that introduced them changed. They used to be headed
+              «Пречи:», which is precisely the claim the product no longer makes —
+              an open question no longer prevents writing, so it must not be
+              labelled as the thing that stops you. The refusal case, where there
+              genuinely is nothing to write from, is worded by the backend
+              decision above and needs no second label here.
+            */}
+            {preparation.blockingGaps.length ? (
+              <p className={styles.contextLabel} id="preparation-open-questions">
+                Остава информация за проверка:
+              </p>
+            ) : null}
             <ul className={styles.preparationList}>
               {preparation.blockingGaps.map((gap) => <li key={gap.id} className={styles.blockingGap}>
-                <strong>Пречи:</strong> {gap.question}
+                {gap.question}
               </li>)}
               {preparation.nonBlockingGaps.map((gap) => <li key={gap.id}>
-                <strong>Липсва, но не пречи:</strong> {gap.question}
+                {gap.question}
               </li>)}
             </ul>
             {/* `MAKE_DRAFT` comes from the SAME backend decision as the sentence

@@ -103,7 +103,36 @@ def _source(v):
         "name": _text(v.get("name"), "source.name"),
         "url": u,
         "domain": urlsplit(u).netloc,
+        # V1.2-G4.1 §B3: the verbatim claims read off THIS opened page, when the
+        # corroboration gate promoted none of them. They are deliberately NOT
+        # facts — `facts` remains the confirmed set — and exist so an ATTRIBUTED
+        # Draft can be grounded in the page's own words instead of a discovery
+        # snippet. Absent is normal and means "nothing extractable was read".
+        **_optional_claims(v.get("claims")),
     }
+
+
+def _optional_claims(raw) -> dict:
+    """Normalize an optional per-source claim list; absent is normal, not an error."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, list):
+        raise StoryResearchStoreError("source.claims must be a list")
+    out = []
+    seen = set()
+    for row in raw:
+        if not isinstance(row, dict):
+            raise StoryResearchStoreError("source.claims entry must be object")
+        text = _text(row.get("text"), "source.claims.text")
+        locator = str(row.get("locator") or "").strip()
+        if not locator:
+            raise StoryResearchStoreError("source.claims.locator is required")
+        key = (text, locator)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"text": text, "locator": locator})
+    return {"claims": out} if out else {}
 
 
 def _fact(v, ids):

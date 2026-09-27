@@ -169,15 +169,38 @@ def test_a_frozen_discovery_replay_never_searches(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_single_source_policy_is_not_imported_by_any_production_module():
-    """§12: measured, never wired. A future slice must opt in deliberately."""
+def test_the_single_source_experiment_is_now_wired_in_deliberately():
+    """V1.2-G4.1 §B3 — the experiment graduated from measured to adopted.
+
+    G2.4B §E4 kept the single-source policy as an isolated experiment and this
+    test pinned that it was never imported by production code. The owner has now
+    read that experiment and adopted it: §B3 permits one real opened publisher
+    page to start an ATTRIBUTED Draft.
+
+    The opt-in is recorded here rather than left implicit, because the whole
+    point of the original §12 pin was to make this import a deliberate, visible
+    act. The only production importer is `draft_material`, and the policy
+    vocabulary it reuses is still the measured one — no second publisher test and
+    no second trust system were introduced.
+    """
+    from editor_assistant.workflow import draft_material
+
     offenders = []
     for path in (ROOT / "src" / "editor_assistant").rglob("*.py"):
         if path.name == "single_source_policy.py":
             continue
         if "single_source_policy" in path.read_text(encoding="utf-8", errors="replace"):
             offenders.append(str(path.relative_to(ROOT)))
-    assert offenders == []
+    # Exactly one importer, and it is the module that owns the new rule.
+    assert offenders == [
+        "src/editor_assistant/workflow/draft_material.py"
+    ], offenders
+    # The adopted rule reuses the measured publisher test verbatim, so a wrapper
+    # or aggregator still cannot support even an attributed Draft.
+    assert (
+        draft_material.is_opened_publisher_source({"domain": "news.google.com"}) is False
+    )
+    assert draft_material.is_opened_publisher_source({"domain": "faragency.bg"}) is True
 
 
 # ---------------------------------------------------------------------------

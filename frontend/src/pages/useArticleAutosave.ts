@@ -104,7 +104,8 @@ export function useArticleAutosave({
           onSaved?.(projection);
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["articles"] }),
-            queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+            // Prefix match: a save invalidates the Today desk in EVERY scope.
+            queryClient.invalidateQueries({ queryKey: ["today"] }),
             queryClient.invalidateQueries({ queryKey: queryKeys.story(article.story.id), exact: true }),
           ]);
           if (sameContent(localRef.current, snapshot)) dirtyRef.current = false;

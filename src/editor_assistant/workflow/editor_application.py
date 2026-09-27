@@ -21,6 +21,7 @@ from editor_assistant.workflow import (
     article_generation,
     article_readiness,
     article_validation,
+    draft_material,
     editor_article_store,
     editor_projections,
     editor_queries,
@@ -30,6 +31,7 @@ from editor_assistant.workflow import (
     inbox_store,
     live_store,
     newsroom_refresh,
+    newsroom_run,
     quick_draft,
     source_health,
     story_editor_metadata,
@@ -201,12 +203,16 @@ def _research_refusal(exc) -> EditorApplicationError:
 class EditorDraftNotReady(EditorApplicationError):
     """V1.1-B — the refusal class for every evidence-remedy reason.
 
-    `STORY_UNASSESSED`, `NO_CONFIRMED_FACTS`, `NO_OPEN_SOURCE` and
-    `BLOCKING_GAP` are four distinct semantic reasons, not one generic
-    "something is missing". They share an HTTP status and a remedy (research the
-    owning Story), so they share a class — but the instance `code` is always the
-    exact readiness code, never a collapsed umbrella code. The editor and the
-    API therefore receive the same string the preparation projection reported.
+    V1.2-G4.1 §B: this family is now just two members — `STORY_UNASSESSED` (the
+    Story was never researched) and `NO_DRAFT_MATERIAL` (it was, and there is
+    genuinely nothing to write from). They share an HTTP status and a remedy
+    (research the owning Story), so they share a class — but the instance
+    `code` is always the exact readiness code, never a collapsed umbrella code.
+    The editor and the API therefore receive the same string the preparation
+    projection reported.
+
+    `BLOCKING_GAP` is no longer a member: an unresolved question is a warning on
+    the Draft, not a refusal to start it.
     """
 
     status = 409
@@ -219,9 +225,12 @@ class EditorDraftNotReady(EditorApplicationError):
 class EditorBlockingGap(EditorDraftNotReady):
     """The canonical Story basis still has a blocking gap. No generation.
 
-    A named subclass rather than a separate contract: `BLOCKING_GAP` is one
-    member of the `EditorDraftNotReady` family, kept as its own class so
-    existing callers that catch it specifically keep working unchanged.
+    V1.2-G4.1 §B: **this is no longer a Draft-gate refusal.** A Story-level
+    blocking gap by itself no longer prevents `MAKE_DRAFT`; the gap travels with
+    the Draft as a warning. The class is kept only because the generation
+    pipeline itself — the angle gate and its own sufficiency check — still raises
+    `BLOCKING_GAP` for material it cannot draft from at all, which is a
+    different condition with a different moment.
     """
 
     def __init__(self, message: str):
@@ -293,6 +302,61 @@ def _registry_title_identities() -> tuple:
     return editorial_title.load_registry_rows(
         newsroom_refresh.newsroom_paths(_newsroom_root())["sources"]
     )
+
+
+def _registry_rows_by_domain() -> dict[str, list[dict]]:
+    """Registry rows grouped by publisher domain, for authority resolution.
+
+    Same rows, same newsroom root and therefore same isolation as every other
+    registry read here; only the grouping differs, because authority is
+    resolved by publisher identity and not by source id.
+    """
+    rows = _registry_title_identities()
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        domain = str((row or {}).get("domain") or "").lower()
+        if domain:
+            grouped.setdefault(domain, []).append(row)
+    return grouped
+
+
+def _opened_source_projection(source: dict) -> dict:
+    """One opened publication, resolved to the authority the editor configured.
+
+    V1.2-G4.1 §B3/§G. Authority comes from the SAME registry the research path
+    already consults, matched by publisher identity so `www.burgas.bg` resolves
+    to the `burgas.bg` row. This introduces no new trust system: G4's
+    `Надежден за факти` remains the only authority in the product, and a source
+    the registry does not know is simply not a factual authority.
+
+    `claims` are the verbatim sentences this opened page yielded. They are NOT
+    confirmed facts and are never presented as such — they are what an attributed
+    Draft may be written from, and they travel with their own locator so the text
+    can always be traced back to this page.
+    """
+    url = str((source or {}).get("url") or "")
+    host = (urlsplit(url).hostname or "").lower()
+    resolved = newsroom_run.resolve_publisher_policy(
+        host,
+        _registry_rows_by_domain(),
+        publisher_identity=story_store.publisher_identity,
+    )
+    return {
+        "id": str((source or {}).get("id") or ""),
+        "name": str((source or {}).get("name") or ""),
+        "url": url,
+        "domain": str((source or {}).get("domain") or host),
+        "factualAuthority": bool(resolved["factual_authority"]),
+        "authority": "PRIMARY" if resolved["factual_authority"] else "CORROBORATING",
+        "claims": [
+            {
+                "text": str(claim.get("text") or ""),
+                "locator": str(claim.get("locator") or ""),
+            }
+            for claim in ((source or {}).get("claims") or [])
+            if str(claim.get("text") or "").strip()
+        ],
+    }
 
 
 def _story_title(story: dict, items_by_id: dict) -> str:
@@ -505,11 +569,20 @@ def _story_evidence_projection(
         if key not in seen_gaps:
             seen_gaps.add(key)
             unique_gaps.append(gap)
-    return unique_facts, {
+    # V1.2-G4.1 §B3: the opened publications, with the authority the editor's own
+    # source settings give them. A basis may now hold an opened page that
+    # promoted no fact, and that page is exactly the material the single-source
+    # Draft rule needs. Carried on the `missing` mapping rather than returned as
+    # a third value so every existing call site keeps its shape.
+    missing_projection = {
         "items": unique_gaps,
         "assessedAt": assessed_at,
         "evidenceStatus": evidence_status,
+        "openedSources": [
+            _opened_source_projection(item) for item in basis["sources"]
+        ],
     }
+    return unique_facts, missing_projection
 
 
 def _story(story_id: str) -> dict:
@@ -736,8 +809,30 @@ def _article_projection(
     # V1.1-B: the projection and the Draft command read the SAME decision. The
     # snapshot is assembled from state this projection already loaded, so no
     # second evidence read and no second predicate exist.
-    readiness_snapshot = article_readiness.build_snapshot(article, content, story, facts, missing)
+    readiness_snapshot = article_readiness.build_snapshot(
+        article, content, story, facts, missing, missing.get("openedSources") or ()
+    )
     readiness = article_readiness.evaluate(readiness_snapshot)
+    # V1.2-G4.1 §B3 — the material warnings a Draft inherits from its basis. They
+    # are recomputed from the SAME canonical basis, not stored on the Article, so
+    # they can never go stale: a second source arriving clears the single-source
+    # warning by itself, with no migration and no state to reconcile.
+    basis_decision = draft_material.assess(
+        facts=facts,
+        sources=missing.get("openedSources") or (),
+        blocking_gaps=missing["items"],
+        evidence_status=str(missing.get("evidenceStatus") or ""),
+    )
+    draft_warnings = list(basis_decision["warnings"])
+    if state != "preparation" and draft_material.WARNING_OPEN_GAPS in draft_warnings:
+        # Once a Draft exists the open questions are the reason Ready is withheld;
+        # the single-sentence "проверка преди готовност" framing belongs to the
+        # Preparation screen, where the editor is deciding whether to start.
+        draft_warnings = [
+            warning
+            for warning in draft_warnings
+            if warning != draft_material.WARNING_OPEN_GAPS
+        ] or [draft_material.WARNING_OPEN_DRAFT]
     # V1.1-C: manual continuation is a SEPARATE question from readiness, not a
     # second half of it. It is answered from one durable marker bound to this
     # exact basis, so it survives a reload and expires by itself when the
@@ -805,6 +900,11 @@ def _article_projection(
             "finalizedAt": article.get("finalized_at"),
             "factsAndSources": facts,
             "missingInformation": missing,
+            # V1.2-G4.1 §B3/§C2 — the material warnings this Draft carries,
+            # recomputed from the canonical basis on every read. A single-source
+            # Draft says so, and says so here rather than only in the audit of the
+            # generation that produced it.
+            "draftWarnings": draft_warnings,
         },
         digest,
     )
@@ -1352,7 +1452,9 @@ def _draft_snapshot(article_id: str) -> dict:
     story = _story(article["story_id"])
     facts, missing = _story_evidence_projection(article["story_id"])
     items_by_id = _story_items()
-    snapshot = article_readiness.build_snapshot(article, content, story, facts, missing)
+    snapshot = article_readiness.build_snapshot(
+        article, content, story, facts, missing, missing.get("openedSources") or ()
+    )
     snapshot.update(
         {
             "headline": _story_title(story, items_by_id) or article["working_title"],
@@ -1404,12 +1506,14 @@ def _raise_draft_refusal(exc: article_generation.DraftRefused) -> None:
         raise EditorSafetyBlocked(exc.message) from exc
     if code == article_readiness.ARTICLE_VERSION_CONFLICT:
         raise EditorVersionConflict(exc.message) from exc
-    if code == article_readiness.BLOCKING_GAP:
+    if code == "BLOCKING_GAP":
+        # V1.2-G4.1: this is now only the generation pipeline's own angle /
+        # sufficiency refusal. A Story-level blocking gap never reaches here,
+        # because it no longer refuses `MAKE_DRAFT`.
         raise EditorBlockingGap(exc.message) from exc
-    # Every evidence-readiness refusal — including the three that are not a
-    # blocking gap and used to be silently collapsed into one — is reported with
-    # its own exact code at 409. The editor can therefore act on the reason, and
-    # the wording is the one the projection already showed.
+    # Every remaining evidence-readiness refusal is reported with its own exact
+    # code at 409, so the editor can act on the reason and the wording is the
+    # one the projection already showed.
     raise EditorDraftNotReady(code, exc.message) from exc
 
 
@@ -1419,8 +1523,9 @@ def _record_draft_failure(article_id: str, snapshot: dict, basis: str, code: str
     **V1.1-C — the ordering contract.** This is called only from the worker, only
     after the deterministic preflight passed and generation was actually
     attempted, and only when no Draft was published. A preflight refusal
-    (`STORY_UNASSESSED`, `BLOCKING_GAP`, a stale version, an Article that already
-    has text) never reaches it, which is why those can never open the editor.
+    (`STORY_UNASSESSED`, `NO_DRAFT_MATERIAL`, a stale version, an Article that
+    already has text) never reaches it, which is why those can never open the
+    editor.
 
     A non-qualifying code, or a marker that cannot be written, is not an error:
     the operation still fails with its own stable code. The recovery path is a
@@ -1952,7 +2057,7 @@ def _today_grouping_health() -> dict | None:
     }
 
 
-def read_today() -> dict:
+def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
     result = editor_queries.read_today(
         stories_path=_paths()["stories"],
         inbox_path=_paths()["inbox"],
@@ -1960,6 +2065,10 @@ def read_today() -> dict:
         # V1.2-G2.1 §A5: a Today row shows the same editorial title the Story
         # it opens shows, from the same rule and the same registry.
         registry_rows=_registry_title_identities(),
+        # V1.2-G4.1 §A4: `region` is the default Burgas working desk; `all` is
+        # the quiet escape hatch. An unknown value falls back to the default
+        # inside `project_today` rather than failing the whole read.
+        scope=scope,
     )
     new_developments = []
     new_stories = []

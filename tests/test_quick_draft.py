@@ -602,24 +602,17 @@ def test_a_persisting_blocking_gap_reports_the_real_blocker(newsroom, monkeypatc
         raise AssertionError("an exhausted basis must not be researched again")
 
     monkeypatch.setattr(app, "research_story", explode)
-
-    def explode_generation(*_args, **_kwargs):
-        raise AssertionError("a blocking gap must stop before generation")
-
-    monkeypatch.setattr(app, "_run_draft_generation", explode_generation)
     row = run_quick(key="gap")
 
     assert row["status"] == "succeeded", row
-    assert row["result"]["status"] == quick_draft.NEEDS_ATTENTION
-    # The exact reason, not a generic excuse: the readiness code that names the
-    # blocking gap is the one the editor and the API both receive.
-    assert row["result"]["reasonCode"] == article_readiness.BLOCKING_GAP
-    assert (
-        row["result"]["message"]
-        == article_readiness.REASON_MESSAGES[article_readiness.BLOCKING_GAP]
-    )
-    assert articles_for() == []
-    assert not _rows("cases.jsonl")
+    # V1.2-G4.1 §B1 — the exhausted cap still stops RESEARCH, but an open
+    # question no longer stops WRITING. This fixture has real opened material
+    # and a real open question, which is precisely the state the owner could not
+    # get past, so the Draft is now created. What is gone is the refusal; what
+    # remains is the bound on speculative extra research rounds, asserted above.
+    assert row["result"]["status"] == quick_draft.DRAFT_CREATED
+    assert articles_for(), "an open question must not prevent a Draft"
+    assert _rows("cases.jsonl"), "the generation really ran"
 
 
 # ------------------------------------------------------------------ §38
@@ -799,9 +792,13 @@ def test_an_exhausted_research_cap_does_not_trigger_more_research(
     monkeypatch.setattr(app, "research_story", explode)
     row = run_quick(key="cap-exhausted")
 
-    assert row["result"]["status"] == quick_draft.NEEDS_ATTENTION
+    # V1.2-G4.1 §B1: the cap still bounds AUTOMATED RESEARCH — that is what this
+    # test is about, and it is unchanged. But an exhausted research budget is no
+    # longer a reason to refuse writing: the material already on hand is enough,
+    # so the Draft is produced and only further research is withheld.
+    assert row["result"]["status"] == quick_draft.DRAFT_CREATED
     assert story_research_store.get_story_research("s-one")["research_rounds"] == 2
-    assert articles_for() == []
+    assert articles_for(), "an open question must not prevent a Draft"
 
 
 # ------------------------------------------------------------------ §12/§39
@@ -911,7 +908,12 @@ def test_no_focus_is_written_without_a_clean_story_title(newsroom, monkeypatch, 
 
 
 def _today_rows(newsroom) -> list[dict]:
-    return [*app.read_today()["newDevelopments"], *app.read_today()["newStories"]]
+    # V1.2-G4.1 §A4: these tests assert the Today DTO contract (which actions the
+    # backend offers), not the regional scope, and this fixture's abstract Story
+    # names no Burgas locality. They therefore read the `all` scope explicitly;
+    # the regional default is asserted on its own in `test_regional_today.py`.
+    today = app.read_today(scope="all")
+    return [*today["newDevelopments"], *today["newStories"]]
 
 
 def _row_for(newsroom, story_id: str = "s-one") -> dict:

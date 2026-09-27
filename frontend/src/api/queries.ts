@@ -11,9 +11,12 @@ import {
   type ArticleFilter,
   type StoryFilter,
 } from "./client";
+import type { TodayScope } from "./dto";
 
 export const queryKeys = {
-  today: ["today"] as const,
+  // V1.2-G4.1 §A4: the scope is part of the key, so `region` and `all`
+  // can never be served from one another's cache entry.
+  today: (scope: TodayScope = "region") => ["today", scope] as const,
   stories: (filter: StoryFilter, query: string) => ["stories", { filter, query }] as const,
   story: (id: string) => ["story", id] as const,
   articles: (filter: ArticleFilter, query: string) => ["articles", { filter, query }] as const,
@@ -33,14 +36,14 @@ export async function invalidateArticleProjections(
     queryClient.invalidateQueries({ queryKey: queryKeys.article(articleId), exact: true }),
     queryClient.invalidateQueries({ queryKey: queryKeys.story(storyId), exact: true }),
     queryClient.invalidateQueries({ queryKey: ["articles"] }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+    queryClient.invalidateQueries({ queryKey: ["today"] }),
   ]);
 }
 
 export async function invalidateStoryProjections(queryClient: QueryClient, storyId: string): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.story(storyId), exact: true }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+    queryClient.invalidateQueries({ queryKey: ["today"] }),
     queryClient.invalidateQueries({ queryKey: ["stories"] }),
   ]);
 }
@@ -61,11 +64,12 @@ export async function invalidateFinalizedArticle(
     queryClient.invalidateQueries({ queryKey: queryKeys.story(storyId), exact: true }),
     queryClient.invalidateQueries({ queryKey: ["articles"] }),
     queryClient.invalidateQueries({ queryKey: ["archive"] }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+    queryClient.invalidateQueries({ queryKey: ["today"] }),
   ]);
 }
 
-export const todayOptions = () => queryOptions({ queryKey: queryKeys.today, queryFn: getToday });
+export const todayOptions = (scope: TodayScope = "region") =>
+  queryOptions({ queryKey: queryKeys.today(scope), queryFn: () => getToday(scope) });
 export const storiesOptions = (filter: StoryFilter, query: string) =>
   queryOptions({ queryKey: queryKeys.stories(filter, query), queryFn: () => getStories(filter, query) });
 export const storyOptions = (id: string) =>

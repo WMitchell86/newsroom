@@ -440,7 +440,7 @@ def execute_story_research(
             raise StoryResearchError("няма разрешен нов кръг проучване")
     stable_seed = "\0".join([story_id, *sorted(plan["research_questions"])])
     audit_path = (
-        Path(root or search.SEARCH_RUNS_DIR.parent)
+        Path(root or search.search_runs_dir().parent)
         / "search_runs"
         / (hashlib.sha256(stable_seed.encode()).hexdigest()[:24] + ".jsonl")
     )
@@ -724,6 +724,16 @@ def execute_story_research(
             "id": source_id,
             "name": authority_name or host,
             "url": normalized_url,
+            # V1.2-G4.1 §B3: the claims this page actually yielded, read verbatim.
+            # They are recorded per opened page from the moment they are extracted
+            # so that a later decision — promoted or not — never has to invent
+            # them. A promoted claim still becomes a `fact`; an unpromoted one
+            # stays here as source-backed material for an ATTRIBUTED Draft.
+            "claims": [
+                {"text": row["text"], "locator": f"claim:{slot}"}
+                for slot, row in enumerate(candidates)
+                if row.get("text")
+            ],
         }
         sources.append(source)
         research.add_candidate(
@@ -818,7 +828,14 @@ def execute_story_research(
             return story_research_store.merge_research(
                 story_id,
                 facts=[],
-                sources=[],
+                # V1.2-G4.1 §B3: the pages really were opened and really did
+                # yield claims, so the opened sources are persisted. The facts
+                # stay empty (the corroboration gate declined them) and the
+                # blocking gap stays blocking, but the basis can now express
+                # "an ordinary publisher page was opened here" — which is what
+                # lets the editor start an ATTRIBUTED Draft instead of being
+                # refused. It does not promote anything to a confirmed fact.
+                sources=list(sources),
                 gaps=insufficient_gaps,
                 assessed_at=now,
                 root=root,
@@ -852,7 +869,11 @@ def execute_story_research(
         return story_research_store.merge_research(
             story_id,
             facts=[],
-            sources=[],
+            # V1.2-G4.1 §B3: same reasoning as the bootstrap branch above — the
+            # page opened and produced claims, so the opened source is recorded
+            # as source-backed material for an attributed Draft. No fact is
+            # promoted, and the corroboration gap remains blocking.
+            sources=list(sources),
             gaps=[
                 {
                     "id": _gap_id(story_id, gap_text),
@@ -974,7 +995,7 @@ def execute_story_research(
             }
         ]
     bundle_path = (
-        Path(root or search.SEARCH_RUNS_DIR.parent) / "search_runs" / f"{research_id}.jsonl"
+        Path(root or search.search_runs_dir().parent) / "search_runs" / f"{research_id}.jsonl"
     )
     try:
         research.validate_bundle(bundle)

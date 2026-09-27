@@ -2,7 +2,12 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { createIdempotencyKey, ignoreStory, quickDraftStory, refreshNewsroom } from "../api/client";
-import type { GroupingHealth, TodayAttention, TodayProjection } from "../api/dto";
+import type {
+  GroupingHealth,
+  TodayAttention,
+  TodayProjection,
+  TodayScope,
+} from "../api/dto";
 import { queryKeys, todayOptions } from "../api/queries";
 import { getErrorMessage } from "../shared/errorMessage";
 import { safeInternalTarget } from "../shared/safeNavigation";
@@ -147,7 +152,9 @@ function StoryAttentionRow({
       // Canonical refetch, never an optimistic removal: if the command failed the
       // row must still be there, and if it succeeded the server decides (§24).
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+        // Prefix match: a refresh invalidates the Today desk in EVERY scope,
+        // so neither `region` nor `all` can keep serving rows a run just changed.
+        queryClient.invalidateQueries({ queryKey: ["today"] }),
         queryClient.invalidateQueries({ queryKey: ["stories"] }),
       ]);
     },
@@ -165,14 +172,14 @@ function StoryAttentionRow({
       // §21/§22: a new Draft and an existing Draft both take the editor straight
       // to the Article. Nothing intermediate is shown or visited.
       if (result.articleId && result.status !== "needs_attention") {
-        await queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true });
+        await queryClient.invalidateQueries({ queryKey: ["today"] });
         navigate(`/articles/${encodeURIComponent(result.articleId)}`);
         return;
       }
       // §23: stay on Today and say what actually stopped it. One concise line,
       // and `Прегледай` stays right there next to it.
       setBlocker(result.message || "Черновата не можа да бъде подготвена.");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true });
+      await queryClient.invalidateQueries({ queryKey: ["today"] });
     },
     onError: (error) => {
       setBlocker(getErrorMessage(error, "Черновата не можа да бъде подготвена."));
@@ -273,7 +280,9 @@ function useRefreshOperation() {
       // both today's attention and every Story list projection. Nothing else is
       // flushed — the refresh never touches Article attention.
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.today, exact: true }),
+        // Prefix match: a refresh invalidates the Today desk in EVERY scope,
+        // so neither `region` nor `all` can keep serving rows a run just changed.
+        queryClient.invalidateQueries({ queryKey: ["today"] }),
         queryClient.invalidateQueries({ queryKey: ["stories"] }),
       ]);
     },
@@ -296,7 +305,11 @@ function useRefreshOperation() {
  * Article/Problems tier below.
  */
 export function TodayPage() {
-  const today = useQuery(todayOptions());
+  // V1.2-G4.1 §A4: `region` is the default Burgas desk. The control is state
+  // here, but the rows are always the server's — the client never filters
+  // Stories by locality itself.
+  const [scope, setScope] = useState<TodayScope>("region");
+  const today = useQuery(todayOptions(scope));
   const queryClient = useQueryClient();
   const refresh = useRefreshOperation();
   // View preferences only (§11). They live in component state, are not
@@ -339,6 +352,8 @@ export function TodayPage() {
           sort={sort}
           onSortChange={setSort}
           shownCount={rows.length}
+          scope={scope}
+          onScopeChange={setScope}
         />
 
         {hasStories ? (

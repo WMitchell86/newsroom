@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from editor_assistant.workflow import blocked_domains, editor_projections
+from editor_assistant.workflow import blocked_domains, draft_material, editor_projections
 
 # --- The reason taxonomy. Every editor-facing refusal has exactly one code. ---
 
@@ -46,12 +46,10 @@ DRAFT_ELIGIBLE = "DRAFT_ELIGIBLE"
 FOCUS_NOT_CONFIRMED = "FOCUS_NOT_CONFIRMED"
 #: The Story has never been researched. There is no basis to draft from yet.
 STORY_UNASSESSED = "STORY_UNASSESSED"
-#: The Story was assessed and confirmed nothing usable. Research must find facts.
-NO_CONFIRMED_FACTS = "NO_CONFIRMED_FACTS"
-#: Facts exist, but none carries a usable opened source URL to build on.
-NO_OPEN_SOURCE = "NO_OPEN_SOURCE"
-#: The assessed basis still carries a real blocking gap. Not the same as NO_CONFIRMED_FACTS.
-BLOCKING_GAP = "BLOCKING_GAP"
+#: V1.2-G4.1 §B6: research ran, but there is genuinely nothing to write from —
+#: no opened publication, or only a snippet behind a title. This is the one
+#: honest Draft blocker left, and its remedy is research.
+NO_DRAFT_MATERIAL = "NO_DRAFT_MATERIAL"
 #: The Article is not in the `preparation` state, so it cannot start a Draft.
 NOT_IN_PREPARATION = "NOT_IN_PREPARATION"
 #: The Story lineage the Article points at is gone, or the Story is ignored.
@@ -74,9 +72,11 @@ REASON_MESSAGES = {
     # state with a next action, not an error the editor has caused.
     FOCUS_NOT_CONFIRMED: "Добавете редакционен фокус, за да създадете чернова.",
     STORY_UNASSESSED: "За чернова първо е нужно проучване на историята.",
-    NO_CONFIRMED_FACTS: "Няма потвърдени факти, върху които да се изгради черновата.",
-    NO_OPEN_SOURCE: "Няма отворен източник, върху който да се изгради черновата.",
-    BLOCKING_GAP: "Има непопълнена информация, която пречи да продължите.",
+    # V1.2-G4.1 §B6 — the one message for the one real Draft blocker. The old
+    # `BLOCKING_GAP` sentence ("пречи да продължите") is gone: an unresolved
+    # question no longer prevents writing, so it must not be worded as if it
+    # did. It is still shown, as a warning, on the Draft itself.
+    NO_DRAFT_MATERIAL: draft_material.NO_MATERIAL_MESSAGE,
     NOT_IN_PREPARATION: "Черновата не е налична в текущото състояние на статията.",
     STORY_UNAVAILABLE: "Историята на статията вече не е достъпна.",
     ARTICLE_HAS_TEXT: "Статията вече има текст.",
@@ -89,9 +89,11 @@ REASON_MESSAGES = {
 
 #: Reasons whose remedy is one and the same: research the owning Story. The
 #: Article itself never orchestrates research; it only routes the editor there.
-RESEARCH_REMEDY_CODES = frozenset(
-    {STORY_UNASSESSED, NO_CONFIRMED_FACTS, NO_OPEN_SOURCE, BLOCKING_GAP}
-)
+#:
+#: V1.2-G4.1: `BLOCKING_GAP` is deliberately absent. A Story with real
+#: source-backed material and open questions is now Draft-eligible, so "research
+#: the Story" is only the remedy when there is nothing at all to write from.
+RESEARCH_REMEDY_CODES = frozenset({STORY_UNASSESSED, NO_DRAFT_MATERIAL})
 
 #: Refusals about the Article's lifecycle and lineage rather than its evidence.
 #: These are transition problems, so the editor API keeps its historical
@@ -123,6 +125,17 @@ class DraftReadiness:
     has_open_source: bool = False
     blocking_gaps: list[dict] = field(default_factory=list)
     remedy: str = ""
+    #: V1.2-G4.1 §B: which material the Draft would be built from —
+    #: `PROMOTED`, `PRIMARY`, `SINGLE_SOURCE`, or `""` when there is none. The
+    #: basis travels with the decision so the editor and the command agree on
+    #: what a `SINGLE_SOURCE` Draft is, without re-deriving it.
+    draft_basis: str = ""
+    #: The warnings the resulting Draft must carry. These are NOT a reason and
+    #: NOT a state: they are what a Draft with open questions looks like.
+    draft_warnings: list[str] = field(default_factory=list)
+    #: True when the text must name its single source rather than present its
+    #: claims as independently confirmed (§B3).
+    attribution_required: bool = False
 
     @property
     def is_researchable(self) -> bool:
@@ -160,6 +173,7 @@ def build_snapshot(
     story: dict | None,
     facts: list[dict],
     missing: dict,
+    sources: list[dict] | None = None,
 ) -> dict:
     """Assemble the ONE canonical readiness input from already-loaded state.
 
@@ -167,6 +181,11 @@ def build_snapshot(
     its current content, its Story and its evidence basis, so the projection and
     the command cannot disagree about what they looked at. This is the existing
     C2 `_draft_snapshot` shape, extracted with no new evidence system.
+
+    V1.2-G4.1 §B3: `sources` carries the Story's opened publications, which now
+    include pages that were opened but promoted no fact. Without them the
+    single-source fallback would be invisible to the gate, because a basis with
+    zero facts used to also mean "nothing was ever opened".
     """
     return {
         "article": article,
@@ -177,6 +196,7 @@ def build_snapshot(
         "facts": list(facts),
         "gaps": list(missing.get("items") or []),
         "blocking_gaps": [item for item in missing.get("items") or [] if item.get("blocking")],
+        "sources": list(sources or []),
         "evidence_status": str(missing.get("evidenceStatus") or ""),
         "assessed_at": missing.get("assessedAt"),
         "source_url": _first_source_url(facts),
@@ -210,6 +230,7 @@ def evaluate_evidence(
     facts: list[dict],
     blocking_gaps: list[dict],
     source_url: str,
+    sources=(),
 ) -> DraftReadiness:
     """The evidence half of `evaluate`, answerable without an Article (§7 D2).
 
@@ -226,9 +247,12 @@ def evaluate_evidence(
     here once, and `evaluate` calls this function for them: one taxonomy, one
     message per code, one place a new evidence reason is added.
 
-    The order is the one `evaluate` already documents: unassessed is "no basis",
-    a real blocking gap is explained by the gap, and facts without a usable
-    opened source are not usable material.
+    **V1.2-G4.1 §B: the blocking-gap refusal is gone.** The rules themselves now
+    live in `draft_material.assess`, which is the single place that decides what
+    counts as enough to start writing. Unresolved gaps are carried as warnings on
+    the resulting Draft instead of refusing it, so a Story with real
+    source-backed material and open questions is writable. What remains is a real
+    blocker (`NO_DRAFT_MATERIAL`) and the unchanged deterministic safety guards.
     """
     blocking_gaps = list(blocking_gaps or [])
     fact_count = len(facts or [])
@@ -248,22 +272,38 @@ def evaluate_evidence(
     # than shown a fabricated Article-level gap.
     if evidence_status != "assessed":
         return refusal(STORY_UNASSESSED)
-    # A real blocking gap is explained by the gap itself, never by a generic
-    # "something is missing".
-    if blocking_gaps:
-        return refusal(BLOCKING_GAP)
-    # Facts and an opened source are separate failures with separate reasons.
-    if not fact_count:
-        return refusal(NO_CONFIRMED_FACTS)
-    if not has_open_source:
-        return refusal(NO_OPEN_SOURCE)
+
+    # V1.2-G4.1 §B3: the one material decision. Promoted facts, an appropriate
+    # PRIMARY, or one real opened publisher page all permit a start; only a
+    # genuine absence of material refuses.
+    decision = draft_material.assess(
+        facts=facts,
+        sources=sources,
+        blocking_gaps=blocking_gaps,
+        evidence_status=evidence_status,
+    )
+    if not decision["eligible"]:
+        return refusal(
+            STORY_UNASSESSED
+            if decision["reason_code"] == draft_material.NEVER_RESEARCHED
+            else NO_DRAFT_MATERIAL
+        )
+
     # The same deterministic guard the mature pipeline applies to any factual
     # input, re-checked before the Article exists rather than only before a
     # model call. Imported here to keep this module free of a cycle through
     # `live`.
     from editor_assistant.workflow.cases import is_chernomorie_source
 
-    if is_chernomorie_source(source_url) or blocked_domains.is_blocked(source_url):
+    guarded = source_url or next(
+        (
+            str((row or {}).get("url") or "")
+            for row in (sources or ())
+            if str((row or {}).get("url") or "")
+        ),
+        "",
+    )
+    if is_chernomorie_source(guarded) or blocked_domains.is_blocked(guarded):
         return refusal(SAFETY_BLOCKED)
     return DraftReadiness(
         eligible=True,
@@ -271,8 +311,11 @@ def evaluate_evidence(
         reason_message=REASON_MESSAGES[DRAFT_ELIGIBLE],
         evidence_status=evidence_status,
         fact_count=fact_count,
-        has_open_source=True,
+        has_open_source=bool(guarded),
         blocking_gaps=[],
+        draft_basis=decision["basis"],
+        draft_warnings=list(decision["warnings"]),
+        attribution_required=bool(decision["attribution"]),
     )
 
 
@@ -285,13 +328,16 @@ def evaluate(snapshot: dict) -> DraftReadiness:
     1. lifecycle / lineage — a Draft is a `preparation` transition;
     2. Editorial Focus — an independent editorial blocker;
     3. evidence status — `unassessed` is not an empty basis, it is no basis;
-    4. blocking gaps — the actual reason, with the actual questions;
-    5. facts, then a usable opened source — a distinct, honest explanation each;
-    6. the two deterministic safety guards, re-checked before any model call.
+    4. source-backed material — via `draft_material.assess`, which admits
+       promoted facts, an appropriate PRIMARY, or one real opened publisher
+       page, and refuses only a genuine absence of material;
+    5. the two deterministic safety guards, re-checked before any model call.
 
     No C2 requirement is weakened: every precondition the generation preflight
     enforced is evaluated here, and the projection rises to that level rather
-    than the command falling to the projection's.
+    than the command falling to the projection's. What changed in V1.2-G4.1 is
+    the one deliberate product decision: an unresolved question is a warning on
+    the Draft, not a refusal to start it.
     """
     article = snapshot.get("article") or {}
     content = snapshot.get("content") or {}
@@ -338,12 +384,18 @@ def evaluate(snapshot: dict) -> DraftReadiness:
     if not editor_projections.focus_is_confirmed(article):
         return refusal(FOCUS_NOT_CONFIRMED)
 
-    # 3-6. The evidence decision, in one place. V1.1-D2 must be able to ask the
+    # 3-5. The evidence decision, in one place. V1.1-D2 must be able to ask the
     # same question before an Article exists (§10), so the rules live in
     # `evaluate_evidence` and are applied here rather than restated.
+    # V1.2-G4.1 §C2: a detected `conflict` is assessed on EVERY gap, not only on
+    # the blocking ones. Conflicts are persisted as non-blocking by the research
+    # path, so filtering by the flag alone would have hidden exactly the
+    # contradiction this gate exists to stop. The two lists are reported
+    # separately and never conflated.
     return evaluate_evidence(
         evidence_status=evidence_status,
         facts=facts,
-        blocking_gaps=blocking_gaps,
+        blocking_gaps=snapshot.get("gaps") or blocking_gaps,
         source_url=source_url,
+        sources=snapshot.get("sources") or (),
     )

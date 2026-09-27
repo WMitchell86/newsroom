@@ -14,7 +14,7 @@
  *     never re-orders the underlying projection, and it never writes.
  */
 
-import type { TodayAttention, TodayProjection } from "../../api/dto";
+import type { TodayAttention, TodayProjection, TodayScope } from "../../api/dto";
 
 /** A Story attention row: the only kind that carries a publisher count. */
 export type TodayStoryRow = Extract<TodayAttention, { objectType: "story" }>;
@@ -35,6 +35,19 @@ export const todayTabs: ReadonlyArray<{ value: TodayTab; label: string }> = [
   { value: "all", label: "Всички" },
   { value: "new", label: "Нови" },
   { value: "developments", label: "В развитие" },
+];
+
+/**
+ * V1.2-G4.1 §A4 — the two desk scopes, mirroring the backend's allow-list.
+ *
+ * `region` is the default Burgas working desk. `all` is the quiet escape hatch,
+ * not a filter over the rows already sent: switching scope re-asks the server,
+ * because which Stories are regional is a backend decision and the client is not
+ * entitled to re-derive it.
+ */
+export const todayScopes: ReadonlyArray<{ value: TodayScope; label: string }> = [
+  { value: "region", label: "Само региона" },
+  { value: "all", label: "Целият обхват" },
 ];
 
 export const todaySorts: ReadonlyArray<{ value: TodaySort; label: string }> = [

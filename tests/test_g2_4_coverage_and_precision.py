@@ -13,6 +13,7 @@ import pytest
 from editor_assistant.sources import html_desc
 from editor_assistant.workflow import claim_quality as cq
 from editor_assistant.workflow import (
+    draft_material,
     event_search,
     focus_suggestions,
     newsroom_run,
@@ -632,12 +633,51 @@ def _single_source_basis():
 
 
 def test_the_experiment_unlocks_a_single_media_source_with_attribution():
+    """V1.2-G4.1 §B3 — this experiment is now the production rule.
+
+    G2.4B measured a single-source attributed Draft and the owner adopted it, so
+    the old production gate this experiment compares against is no longer the one
+    in force — for this basis the current gate already permits the Draft. The
+    experiment's own contribution is therefore no longer a *delta*; the rule that
+    actually decides is `draft_material.assess`, and both are asserted here so
+    the adoption is visible and cannot drift.
+    """
     result = single_source_policy.evaluate(**_single_source_basis())
-    assert result["eligible_now"] is False
-    assert result["draft_capable_single"] is True
-    assert result["delta"] is True
-    assert result["attribution_required"] is True
-    assert single_source_policy.WARNING_SINGLE_SOURCE in result["warnings"]
+    # §E4: the experiment speaks only where the gate it compares against refuses,
+    # and that gate has since been replaced — for this basis the CURRENT gate
+    # already permits the Draft, so the experiment has nothing left to unlock and
+    # reports no attribution requirement. That is the correct, honest reading of
+    # "the experiment is now redundant because the rule was adopted", and it is
+    # asserted here so the redundancy cannot be mistaken for a regression.
+    assert result["eligible_now"] is True
+    assert result["draft_capable_single"] is False
+    assert result["delta"] is False
+    assert result["attribution_required"] is False
+
+    # The genuinely single-source case: one opened page, but no promoted fact
+    # behind it. This is the prototype fallback §B3 C exists for, and it is the
+    # only basis that must carry the attribution requirement.
+    basis = _single_source_basis()
+    basis["facts"] = []
+    decision = draft_material.assess(
+        facts=basis["facts"],
+        sources=basis["sources"],
+        blocking_gaps=[g for g in basis["gaps"] if g.get("blocking")],
+    )
+    assert decision["eligible"] is True
+    assert decision["basis"] == draft_material.SINGLE_SOURCE
+    assert decision["attribution"] is True
+    assert draft_material.WARNING_SINGLE_SOURCE in decision["warnings"]
+    assert draft_material.WARNING_OPEN_GAPS in decision["warnings"]
+
+    # A basis WITH a promoted fact backed by an opened page is the stronger
+    # `PROMOTED` path, and must not be asked to carry the single-source caveat.
+    promoted = _single_source_basis()
+    assert draft_material.assess(
+        facts=promoted["facts"],
+        sources=promoted["sources"],
+        blocking_gaps=[],
+    )["attribution"] is False
 
 
 def test_the_experiment_refuses_an_aggregator_wrapper():

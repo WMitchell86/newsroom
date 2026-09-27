@@ -12,11 +12,30 @@ Per harness rule §3.3: ideas discovered mid-task go here, not into the current 
 - [ ] M1.7 — Scheduled polling (only after the alert format is confirmed worth automating)
 
 ## Deferred to later levels
-- [ ] L2 editorial triage (risk/priority/region/type rules)
+- [ ] L2 editorial triage — the deterministic **region** rule shipped in G4.1;
+      risk/priority/type rules are still deferred
 - [ ] L3 action suggestions; L4 safe drafts (allow-listed types only); L5 WordPress draft helper
 - [ ] L6 follow-up/deadline memory; L7 author style (retrieved examples first, no LoRA)
 - [ ] L8 routine ops (health-check, broken-link detection, parser canary)
 - [ ] Ideas for later: source diff assistant, promise/deadline memory, archive capsule, storm mode
+
+## Deferred by the V1.2-G4.1 decision (owner-confirmed, do NOT start without a new scope decision)
+
+The owner read the G2.4B evidence and chose editor momentum over perfect
+pre-writing completeness. These are deferred **on purpose**, not because they ran
+out of time:
+
+- [ ] Perfect corroboration recall — two independent publishers stay useful for
+      confirmation, and are no longer a prerequisite to begin drafting (§B7)
+- [ ] Proposition / claim-slot alignment (the 21/22 mismatched pairs measured in
+      G2.4B) — explicitly not built in G4.1; who/what/where/when alignment is a
+      separate decision
+- [ ] Serper work and search-provider benchmarking — no new provider spend
+- [ ] Relevance ranking / JEV scoring — the measured attempt collapsed onto two
+      levels; the regional rule is deliberately a plain yes/no
+- [ ] Categories and ranking infrastructure on the desk
+- [ ] G5 `+ Нова тема` (manual topic creation) — **not started**, pending the
+      owner's manual test of the simplified flow (2–3 real Drafts in a row)
 
 ## Explicitly NOT for V1 (spec §12)
 LoRA/fine-tuning, generic NER platform, large gazetteer, CRM, pgvector-by-default,

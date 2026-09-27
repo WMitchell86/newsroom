@@ -9,6 +9,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 from editor_assistant.workflow import editor_application as app
+from editor_assistant.workflow import draft_material
+from editor_assistant.workflow import editor_queries
 from editor_assistant.workflow import editor_source_settings as sources_settings
 from editor_assistant.workflow import story_editor_metadata
 
@@ -25,12 +27,12 @@ _MESSAGES = {
     # sentence. `INVALID_TRANSITION` above belongs to Article lifecycle refusals.
     "RESEARCH_NOT_APPLICABLE": "Проучването не е налично за тази Story.",
     "ARTICLE_VERSION_CONFLICT": "Черновата е променена в друга сесия. Няма загубени локални промени.",
-    "BLOCKING_GAP": "Има непопълнена информация, която пречи да продължите.",
-    # V1.1-B: the four evidence-remedy reasons stay distinct at the API boundary
-    # too. They share a remedy (research the owning Story), never a message.
+    # V1.2-G4.1 §B6: the ONE real Draft blocker. The old four-way split of
+    # BLOCKING_GAP / NO_CONFIRMED_FACTS / NO_OPEN_SOURCE is gone — an unresolved
+    # question is a warning on the Draft, not a refusal to start it. What is
+    # left is "there is genuinely nothing to write from", one honest sentence.
+    "NO_DRAFT_MATERIAL": draft_material.NO_MATERIAL_MESSAGE,
     "STORY_UNASSESSED": "За чернова първо е нужно проучване на историята.",
-    "NO_CONFIRMED_FACTS": "Няма потвърдени факти, върху които да се изгради черновата.",
-    "NO_OPEN_SOURCE": "Няма отворен източник, върху който да се изгради черновата.",
     "FOCUS_NOT_CONFIRMED": "Добавете редакционен фокус, за да създадете чернова.",
     "NOT_IN_PREPARATION": "Черновата не е налична в текущото състояние на статията.",
     "STORY_UNAVAILABLE": "Историята на статията вече не е достъпна.",
@@ -71,6 +73,20 @@ def owns_path(path: str) -> bool:
 def _path_parts(handler: BaseHTTPRequestHandler) -> list[str]:
     path = urllib.parse.urlparse(handler.path).path
     return [urllib.parse.unquote(part) for part in path.split("/") if part]
+
+
+def _query_scope(handler: BaseHTTPRequestHandler) -> str:
+    """V1.2-G4.1 §A4 — the desk scope, defaulting to the regional working view.
+
+    An unknown value is a client error, exactly as it is for every other filter
+    on this API: silently falling back would make the desk show something other
+    than what the editor asked for without saying so.
+    """
+    values = _query(handler, {"scope"})
+    scope = values.get("scope", editor_queries.SCOPE_REGION)
+    if scope not in editor_queries.TODAY_SCOPES:
+        raise ApiError(400, "VALIDATION_ERROR", "Нямате право да използвате този филтър.")
+    return scope
 
 
 def _query(handler: BaseHTTPRequestHandler, allowed: set[str]) -> dict[str, str]:
@@ -350,7 +366,7 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
     parts = _path_parts(handler)
     prefix = ["api", "v1"]
     if parts == [*prefix, "today"] and method == "GET":
-        return 200, app.read_today()
+        return 200, app.read_today(_query_scope(handler))
     if parts == [*prefix, "today", "refresh"] and method == "POST":
         key = handler.headers.get("Idempotency-Key", "").strip()
         if key and (len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key)):

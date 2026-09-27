@@ -433,6 +433,52 @@ var/newsroom/             + collect.lock, source_health.json, last_run.json,
   next `stories update` rebuilds stories from the inbox. Deleting `inbox.jsonl` does
   lose raw rows, so back it up if you are debugging.
 
+## 0f. The editor's two surfaces: `Днес` and `Чернова` (V1.2-G4.1)
+
+### The desk is regional by default
+
+`Днес` (`/`) is a **Burgas-region working desk**, not a national-news list. The
+scope is decided on the server by one deterministic rule (`workflow/regional_scope.py`)
+and the toolbar has a quiet two-position switch:
+
+| Position | Meaning |
+|---|---|
+| `Регионът` (default) | local sources, a named Burgas locality, or work in progress |
+| `Всички` | the whole horizon, unfiltered |
+
+Nothing is ever deleted. `Истории` (`/stories`) always reaches every collected
+Story, and `?scope=all` is the same unfiltered projection. The client never
+filters by locality itself — which Stories are regional is a backend decision.
+
+A source is regional when its registry `kind` is `official` or `regional`
+(`Надежен` is irrelevant to locality: BTA/BNR are national publishers, and a
+national item only qualifies when its own text names a Burgas locality).
+
+```bash
+curl -s 'http://127.0.0.1:8123/api/v1/today?scope=region' | head -c 400
+curl -s 'http://127.0.0.1:8123/api/v1/today?scope=all'   | head -c 400
+```
+
+### A Draft is not a finished article
+
+`Направи чернова` is offered whenever there is **some** source-backed material:
+
+- confirmed facts with an opened source (`PROMOTED`);
+- one opened official source the editor marked reliable (`PRIMARY`);
+- one real opened publisher page (`SINGLE_SOURCE`) — always attributed and
+  always warned: *«Информацията е от един източник и не е независимо
+  потвърдена.»*
+
+An open question is a **warning that travels with the Draft**, never a refusal.
+The single remaining blocker is `Няма достатъчно изходен материал за чернова.` —
+no opened page at all, or only a discovery snippet behind a title.
+
+`Отбележи като готова` is the real boundary. An open question, an unsupported
+claim or a known conflict still stops it, so a Draft can be written, edited and
+autosaved freely and only declared finished once the evidence holds it up.
+
+The Article states are unchanged: `Подготовка` → `Чернова` → `Готова`.
+
 ## 1. Normal manual cycle
 
 ```text

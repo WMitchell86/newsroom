@@ -1,4 +1,11 @@
-import { todaySorts, todayTabs, type TodaySort, type TodayTab } from "./todayView";
+import type { TodayScope } from "../../api/dto";
+import {
+  todayScopes,
+  todaySorts,
+  todayTabs,
+  type TodaySort,
+  type TodayTab,
+} from "./todayView";
 import styles from "./Today.module.css";
 
 export interface TodayToolbarProps {
@@ -8,6 +15,8 @@ export interface TodayToolbarProps {
   sort: TodaySort;
   onSortChange: (sort: TodaySort) => void;
   shownCount: number;
+  scope: TodayScope;
+  onScopeChange: (scope: TodayScope) => void;
 }
 
 /**
@@ -30,6 +39,8 @@ export function TodayToolbar({
   sort,
   onSortChange,
   shownCount,
+  scope,
+  onScopeChange,
 }: TodayToolbarProps) {
   return (
     <div className={styles.toolbar}>
@@ -44,6 +55,29 @@ export function TodayToolbar({
           >
             {option.label}
             <span className={styles.tabCount}> ({counts[option.value]})</span>
+          </button>
+        ))}
+      </div>
+      {/*
+        V1.2-G4.1 §A4: one quiet control, two positions, default `Регионът`.
+        It is a scope switch and not a filter: the server decides which Stories
+        are regional, and «Истории» always reaches every collected Story, so
+        nothing here hides work — it only changes which desk is being read.
+      */}
+      <div className={styles.tabs} role="group" aria-label="Обхват на днешния работен екран" data-today-scope-active={scope}>
+        {todayScopes.map((option) => (
+          <button
+            key={option.value}
+            className={`${styles.tab}${scope === option.value ? ` ${styles.tabActive}` : ""}`}
+            type="button"
+            /* The pressed state is the editor's OWN selection, never the
+               projection's echo: the control must show the choice that was made
+               even while the refetch for it is still in flight. */
+            aria-pressed={scope === option.value}
+            data-today-scope={option.value}
+            onClick={() => onScopeChange(option.value)}
+          >
+            {option.label}
           </button>
         ))}
       </div>

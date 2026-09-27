@@ -140,6 +140,10 @@ function articleBase(): Omit<ArticleDetail, "state" | "content" | "readiness" | 
     updatedAt: "2026-09-25T09:40:00Z",
     factsAndSources,
     missingInformation: storyDetail.missingInformation!,
+    // V1.2-G4.1 §B3/§C2: material warnings, recomputed by the backend from the
+    // canonical basis on every read. Empty here because the fixture's basis has
+    // confirmed facts from a real opened page.
+    draftWarnings: [],
     preparation: null,
   };
 }
@@ -255,6 +259,9 @@ export const activeReadyArticle: ArticleDetail = {
 };
 
 export const todayProjection: TodayProjection = {
+  // V1.2-G4.1 §A4: the fixture is the default Burgas working desk, matching what
+  // the backend returns when no scope is requested.
+  scope: "region",
   // D1: a run from earlier today, in Europe/Sofia terms. 04:32 UTC is 07:32 in
   // the newsroom, which is the time the page must show.
   lastRefresh: {

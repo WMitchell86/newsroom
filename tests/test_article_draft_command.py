@@ -411,7 +411,22 @@ def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, model):
     assert model == [], "a refused command must not reach the model"
 
 
-def test_a_blocking_gap_stops_generation_before_any_provider_work(newsroom, prepared, model):
+def test_a_blocking_gap_alone_no_longer_refuses_but_no_material_does(newsroom, model):
+    """V1.2-G4.1 §B6 — the one real Draft blocker is the absence of material.
+
+    A fresh Article on a Story that has no opened page at all is refused under
+    the single honest code, and the gap question is still shown. `merge_research`
+    is additive, so this uses a Story that was never given a source: the
+    distinction the owner cares about is "nothing to write from", not "some
+    question is unanswered".
+    """
+    article = articles.create_editor_article(
+        story_id="s-one",
+        stories_path=newsroom / "stories.json",
+        working_title="Само заглавие",
+        now="2026-09-25T09:00:00Z",
+    )
+    articles.update_editor_focus(article["article_id"], "Фокус")
     story_research_store.merge_research(
         "s-one",
         sources=[],
@@ -419,22 +434,75 @@ def test_a_blocking_gap_stops_generation_before_any_provider_work(newsroom, prep
         gaps=[{"id": "gap_when", "question": "Кога започва работата?", "blocking": True}],
         assessed_at="2026-09-25T11:00:00Z",
         canonical_story={"story_id": "s-one"},
-        operation_id="second-round",
+        operation_id="title-only",
     )
-    article = app.read_article(prepared["article_id"])
-    assert article["preparation"]["draftEligible"] is False
-    # V1.1-B: the blocking gap is explained BY the gap, with its own code.
-    assert article["preparation"]["draftReadiness"]["code"] == "BLOCKING_GAP"
-    assert article["nextAction"]["reasonCode"] == "BLOCKING_GAP"
-    assert article["nextAction"]["action"] == "RESEARCH_MORE"
-    with pytest.raises(app.EditorBlockingGap) as refusal:
-        app.start_article_draft(prepared["article_id"], idempotency_key="blocked")
-    assert refusal.value.code == "BLOCKING_GAP"
-    assert model == [], "a blocking gap must stop the command before the model"
+    projection = app.read_article(article["article_id"])
+    assert projection["preparation"]["draftEligible"] is False
+    assert projection["preparation"]["draftReadiness"]["code"] == "NO_DRAFT_MATERIAL"
+    assert projection["preparation"]["draftReadiness"]["message"] == (
+        "Няма достатъчно изходен материал за чернова."
+    )
+    # The real question is still visible, so the editor is never left guessing.
+    assert [gap["question"] for gap in projection["preparation"]["blockingGaps"]] == [
+        "Кога започва работата?"
+    ]
+    with pytest.raises(app.EditorDraftNotReady) as refusal:
+        app.start_article_draft(article["article_id"], idempotency_key="blocked")
+    assert refusal.value.code == "NO_DRAFT_MATERIAL"
+    assert model == [], "no material must stop the command before the model"
     assert not _drafts() and not _cases()
     # The Article is exactly as the editor left it.
-    stored = articles.get_editor_article(prepared["article_id"])
+    stored = articles.get_editor_article(article["article_id"])
     assert stored["content_version"] == 0 and stored["internal_refs"]["draft_id"] is None
+
+
+def test_a_blocking_gap_with_usable_facts_now_allows_the_draft(newsroom, prepared, model):
+    """V1.2-G4.1 §B1 — the owner's real case, as a test.
+
+    Open questions plus real promoted facts used to refuse `MAKE_DRAFT` with
+    "Има непопълнена информация, която пречи да продължите." Now the same state
+    is Draft-eligible, the gap is reported as a warning, and the Draft runs.
+    """
+    story_research_store.merge_research(
+        "s-one",
+        sources=[
+            {
+                "id": "src_one",
+                "name": "Регионален вестник",
+                "url": "https://vestnik.example.test/2026/01",
+            }
+        ],
+        facts=[
+            {
+                "id": "fact_when",
+                "text": "Ремонтът започна на 25 септември 2026 г.",
+                "sourceId": "src_one",
+                "locator": "claim:0",
+                "scope": "current",
+            }
+        ],
+        gaps=[
+            {"id": "gap_who", "question": "Кой е изпълнителят?", "blocking": True},
+            {"id": "gap_cost", "question": "Каква е стойността?", "blocking": True},
+        ],
+        assessed_at="2026-09-25T11:00:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="gap-and-facts",
+    )
+    article = app.read_article(prepared["article_id"])
+    assert article["preparation"]["draftEligible"] is True
+    assert article["preparation"]["draftReadiness"]["code"] == "DRAFT_ELIGIBLE"
+    assert "MAKE_DRAFT" in article["preparation"]["availableActions"]
+    assert article["nextAction"]["action"] == "MAKE_DRAFT"
+    # Both real questions are still on screen — visible, not blocking.
+    assert [gap["question"] for gap in article["preparation"]["blockingGaps"]] == [
+        "Кой е изпълнителят?",
+        "Каква е стойността?",
+    ]
+    _started, outcome = _run(prepared["article_id"], "gap-ok")
+    assert outcome["status"] == "succeeded", outcome
+    assert _drafts(), "an open question must not prevent generating the Draft"
+    assert model, "the generation actually ran"
 
 
 def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
@@ -467,16 +535,15 @@ def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
     assert model == []
 
 
-def test_facts_without_an_opened_source_is_its_own_reason(newsroom, prepared, model):
-    """V1.1-B §5: a fact with no usable source URL is `NO_OPEN_SOURCE`.
-
-    It is not the same condition as a missing factual detail, and it is never
-    collapsed into the generic blocking-gap message.
+def test_facts_without_an_opened_source_are_not_draft_material(newsroom, prepared, model):
+    """V1.2-G4.1 §B4: a fact whose source was never opened licenses nothing.
 
     The canonical research store refuses a source with an empty URL, so this
-    state is reached through verified legacy Article lineage — which is exactly
-    why the code exists rather than being dead: a fact can carry no usable URL
-    without the canonical store ever having allowed one.
+    state is reached through verified legacy Article lineage. A fact that cannot
+    name an opened page cannot be attributed, checked or re-read, so it is not
+    material a Draft may be built from — under the old taxonomy this was the
+    separate `NO_OPEN_SOURCE` code, and §B6 collapses it into the single honest
+    "nothing to write from" refusal.
     """
     snapshot = app._draft_snapshot(prepared["article_id"])
     # A fact whose source carries no URL: the fact exists, the source does not
@@ -493,23 +560,26 @@ def test_facts_without_an_opened_source_is_its_own_reason(newsroom, prepared, mo
     snapshot["blocking_gaps"] = []
     snapshot["evidence_status"] = "assessed"
     snapshot["source_url"] = ""
+    snapshot["sources"] = []
 
     readiness = article_readiness.evaluate(snapshot)
     assert readiness.eligible is False
-    assert readiness.reason_code == "NO_OPEN_SOURCE"
+    assert readiness.reason_code == "NO_DRAFT_MATERIAL"
     assert readiness.fact_count == 1 and readiness.has_open_source is False
     with pytest.raises(article_generation.DraftRefused) as refusal:
         article_generation.evaluate(snapshot)
-    assert refusal.value.code == "NO_OPEN_SOURCE"
+    assert refusal.value.code == "NO_DRAFT_MATERIAL"
     assert model == []
 
 
-def test_without_confirmed_evidence_the_command_names_the_missing_facts(newsroom, model):
-    """An assessed Story with no usable fact is `NO_CONFIRMED_FACTS`.
+def test_without_any_opened_material_the_command_names_that_one_reason(newsroom, model):
+    """An assessed Story with no opened page at all is `NO_DRAFT_MATERIAL`.
 
-    V1.1-B §4: a distinct, named condition — not the generic blocking gap, and
-    not the same as an unassessed Story. The store forbids the false clean state
-    `assessed + 0 facts + 0 gaps`, so the honest form carries a non-blocking gap.
+    V1.2-G4.1 §B6: one refusal, one sentence. The old four-way split
+    (`BLOCKING_GAP` / `NO_CONFIRMED_FACTS` / `NO_OPEN_SOURCE` / unassessed) told
+    the editor four different things about the same practical problem. The store
+    forbids the false clean state `assessed + 0 facts + 0 gaps`, so the honest
+    form here carries a non-blocking gap and still has no material.
     """
     article = articles.create_editor_article(
         story_id="s-one",
@@ -535,11 +605,11 @@ def test_without_confirmed_evidence_the_command_names_the_missing_facts(newsroom
     )
     projection = app.read_article(article["article_id"])
     assert projection["preparation"]["draftEligible"] is False
-    assert projection["preparation"]["draftReadiness"]["code"] == "NO_CONFIRMED_FACTS"
+    assert projection["preparation"]["draftReadiness"]["code"] == "NO_DRAFT_MATERIAL"
     assert projection["preparation"]["blockingGaps"] == []
     with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article["article_id"], idempotency_key="no-facts")
-    assert refusal.value.code == "NO_CONFIRMED_FACTS"
+    assert refusal.value.code == "NO_DRAFT_MATERIAL"
     assert model == []
 
 

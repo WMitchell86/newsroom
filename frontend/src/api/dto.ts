@@ -56,11 +56,28 @@ export interface MissingInformationItem {
   reason?: string;
 }
 
+/**
+ * V1.2-G4.1 §B3: a publication that was really opened, with the authority the
+ * editor configured for it. Present so the editor can see what a Draft would be
+ * written from — which is the whole point of warning instead of refusing.
+ */
+export interface OpenedSource {
+  id: string;
+  name: string;
+  url: string;
+  domain: string;
+  /** G4: `Надежден за факти` is the only authority in the product. */
+  factualAuthority: boolean;
+  authority: "PRIMARY" | "CORROBORATING";
+}
+
 export interface MissingInformation {
   items: MissingInformationItem[];
   assessedAt: string | null;
   /** V1.1-A: absent basis is UNASSESSED, never an empty assessed state. */
   evidenceStatus?: "unassessed" | "assessed";
+  /** V1.2-G4.1 §B3: always present; empty when nothing was ever opened. */
+  openedSources?: OpenedSource[];
 }
 
 export interface NewDevelopment {
@@ -181,9 +198,10 @@ export type DraftReadinessCode =
   | "DRAFT_ELIGIBLE"
   | "FOCUS_NOT_CONFIRMED"
   | "STORY_UNASSESSED"
-  | "NO_CONFIRMED_FACTS"
-  | "NO_OPEN_SOURCE"
-  | "BLOCKING_GAP"
+  // V1.2-G4.1 §B6: the ONE real Draft blocker — there is genuinely nothing to
+  // write from. `BLOCKING_GAP` / `NO_CONFIRMED_FACTS` / `NO_OPEN_SOURCE` are gone:
+  // an open question is a warning on the Draft, not a refusal to start it.
+  | "NO_DRAFT_MATERIAL"
   | "NOT_IN_PREPARATION"
   | "STORY_UNAVAILABLE"
   // V1.2-G2.2 §3: research was refused for an OPERATIONAL reason. These are
@@ -269,6 +287,13 @@ export interface ArticleProjection {
   finalizedAt: string | null;
   factsAndSources: FactAndSource[];
   missingInformation: MissingInformation;
+  /**
+   * V1.2-G4.1 §B3/§C2 — the warnings a Draft carries because of the material it
+   * was written from (e.g. one unconfirmed source). Recomputed by the backend
+   * from the canonical basis on every read, so they can never go stale. These
+   * are warnings, never a state: the Article is still `Чернова`.
+   */
+  draftWarnings: string[];
 }
 
 export interface ArticleSummary extends ArticleProjection {
@@ -426,9 +451,18 @@ export interface GroupingHealth {
   semanticDegraded: number;
 }
 
+/**
+ * V1.2-G4.1 §A4 — the desk scope. `region` is the Burgas working desk (the
+ * default); `all` shows the whole horizon. Nothing is ever deleted: «Истории»
+ * always reaches every collected Story.
+ */
+export type TodayScope = "region" | "all";
+
 export interface TodayProjection {
   /** `null` means no run has ever happened — not "ran with nothing to show". */
   lastRefresh: LastRefresh | null;
+  /** V1.2-G4.1 §A4: the scope this projection was actually built with. */
+  scope: TodayScope;
   /** `null` when the latest run predates grouping-health reporting. */
   groupingHealth: GroupingHealth | null;
   /** Every Story that qualifies as current, before the cap. */
@@ -449,8 +483,7 @@ export type ApiErrorCode =
   | "BLOCKING_GAP"
   // V1.1-B: the evidence-remedy reasons stay distinct end to end.
   | "STORY_UNASSESSED"
-  | "NO_CONFIRMED_FACTS"
-  | "NO_OPEN_SOURCE"
+  | "NO_DRAFT_MATERIAL"
   | "FOCUS_NOT_CONFIRMED"
   | "NOT_IN_PREPARATION"
   | "STORY_UNAVAILABLE"

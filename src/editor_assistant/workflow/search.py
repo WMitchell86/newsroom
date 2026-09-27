@@ -31,6 +31,7 @@ touch editorial judgments.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.error
@@ -65,6 +66,34 @@ SEARCH_INCOMPLETE = "SEARCH_INCOMPLETE"
 SEARCH_COMPLETE = "SEARCH_COMPLETE"
 
 MAX_PROVIDER_ATTEMPTS = 2  # harness A5: bounded, never a scheduler
+
+
+def search_runs_dir() -> Path:
+    """Where the search audit runs are written.
+
+    V1.2-G4.1: this used to be a module-level constant pinned to the repository's
+    own `var/`, which meant the audit always landed in the REAL runtime store
+    even when the caller had redirected `WB_EDITORIAL_WORKFLOW_DIR` at an
+    isolated root. Every other store in the product resolves through that
+    variable, so the audit was the one place a test could not contain itself —
+    and the browser suite's explicit "the real stores were not touched"
+    assertion is what finally caught it.
+
+    It now follows the same convention as `story_research_store` and the rest, so
+    an isolated newsroom keeps its audit inside itself.
+    """
+    return (
+        Path(
+            os.environ.get("WB_EDITORIAL_WORKFLOW_DIR")
+            or (Path(__file__).resolve().parents[3] / "var/editorial_workflow")
+        )
+        / "search_runs"
+    )
+
+
+#: Kept for callers that read the path as a constant. It is the DEFAULT location;
+#: anything that can run against a redirected root must call `search_runs_dir()`
+#: at the moment of use instead of capturing this at import time.
 SEARCH_RUNS_DIR = Path(__file__).resolve().parents[3] / "var" / "editorial_workflow" / "search_runs"
 
 
@@ -620,7 +649,11 @@ def run_event_discovery(
 
 def _audit(path, operation):
     """Append-only search audit; never stores credentials (harness A10)."""
-    target = Path(path) if path else SEARCH_RUNS_DIR / f"run-{_utcnow().replace(':', '')}.json"
+    # Resolved at the moment of use so a redirected editorial root keeps its own
+    # audit; see `search_runs_dir`.
+    target = (
+        Path(path) if path else search_runs_dir() / f"run-{_utcnow().replace(':', '')}.json"
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(operation, ensure_ascii=False, sort_keys=True) + "\n")

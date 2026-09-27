@@ -196,7 +196,7 @@ describe("Today", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/operations/op-refresh")).toBe(true);
     // Canonical refetch: Today and the Story list projections, nothing else.
     const urls = fetchMock.mock.calls.map(([url]) => url);
-    expect(urls.filter((url) => url === "/api/v1/today").length).toBeGreaterThan(1);
+    expect(urls.filter((url) => url.startsWith("/api/v1/today?")).length).toBeGreaterThan(1);
     expect(urls.some((url) => String(url).startsWith("/api/v1/stories"))).toBe(true);
   });
 
@@ -613,11 +613,11 @@ describe("B4A RESEARCH_MORE", () => {
     expect(await screen.findByRole("button", { name: "Проучва се…" })).toBeDisabled();
     expect(researchCalls).toBe(1);
     expect(screen.getByRole("heading", { level: 1, name: researchStory.title })).toBeInTheDocument();
-    queryClient.setQueryData(queryKeys.today, todayProjection);
+    queryClient.setQueryData(queryKeys.today(), todayProjection);
     queryClient.setQueryData(queryKeys.stories("all", ""), { stories: [researchStory] });
     resolveResearch(dataResponse(researchStory));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === `/api/v1/stories/${researchStory.id}` && !(init as RequestInit | undefined)?.method)).toBe(true));
-    expect(queryClient.getQueryState(queryKeys.today)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.today())?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(queryKeys.stories("all", ""))?.isInvalidated).toBe(true);
   });
 
@@ -699,13 +699,13 @@ describe("B3 Story actions", () => {
         return dataResponse(canonical);
       }
       if (url === `/api/v1/stories/${storyDetail.id}`) return dataResponse(canonical);
-      if (url === "/api/v1/today") return dataResponse({ ...todayProjection, newDevelopments: [{ objectId: storyDetail.id, objectType: "story", title: canonical.title, summary: canonical.summary, timestamp: "2026-09-25T10:00:00Z", reason: "UNREVIEWED_DEVELOPMENT", nextAction: "REVIEW", delta: { unreviewedDevelopmentCount: 1 } }] });
+      if (url.startsWith("/api/v1/today?")) return dataResponse({ ...todayProjection, newDevelopments: [{ objectId: storyDetail.id, objectType: "story", title: canonical.title, summary: canonical.summary, timestamp: "2026-09-25T10:00:00Z", reason: "UNREVIEWED_DEVELOPMENT", nextAction: "REVIEW", delta: { unreviewedDevelopmentCount: 1 } }] });
       if (url.startsWith("/api/v1/stories?")) return dataResponse({ stories: [canonical] });
       throw new Error(`Unexpected URL ${url}`);
     });
 
     const { user, queryClient } = renderStory(initialA);
-    queryClient.setQueryData(queryKeys.today, todayProjection);
+    queryClient.setQueryData(queryKeys.today(), todayProjection);
     queryClient.setQueryData(queryKeys.stories("all", ""), { stories: [initialA] });
     await screen.findByRole("heading", { name: "А" });
     canonical = { ...canonical, newDevelopments: [...canonical.newDevelopments, { id: "development-c", publicationId: "publication-c", title: "В", summary: "В", changedAt: "2026-09-25T10:00:00Z", unreviewed: true }] };
@@ -713,7 +713,7 @@ describe("B3 Story actions", () => {
     await user.click(screen.getByRole("button", { name: "Прегледай" }));
     await waitFor(() => expect(requestBody).toEqual({ observedDevelopmentIds: ["development-budget-1", "development-budget-2"] }));
     expect(await screen.findByRole("heading", { name: "В" })).toBeInTheDocument();
-    expect(queryClient.getQueryState(queryKeys.today)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.today())?.isInvalidated).toBe(true);
     const refreshedToday = await queryClient.fetchQuery(todayOptions());
     const refreshedStory = refreshedToday.newDevelopments.find((item) => item.objectType === "story");
     expect(refreshedStory?.objectType === "story" ? refreshedStory.delta.unreviewedDevelopmentCount : 0).toBe(1);
@@ -838,14 +838,14 @@ describe("C1 Start Article", () => {
       if (url === `/api/v1/stories/${storyDetail.id}`) return dataResponse(detail);
       if (url === `/api/v1/articles/${activePreparationArticle.id}`) return dataResponse(activePreparationArticle);
       if (url.startsWith("/api/v1/articles?")) return dataResponse({ articles: [activePreparationArticle] });
-      if (url === "/api/v1/today") return dataResponse(todayProjection);
+      if (url.startsWith("/api/v1/today?")) return dataResponse(todayProjection);
       throw new Error(`Unexpected URL ${url}`);
     });
     const user = userEvent.setup();
     const { queryClient } = renderWithProviders(storyRoute(), { initialEntries: [`/stories/${storyDetail.id}`] });
     queryClient.setQueryData(queryKeys.articles("all", ""), { articles: [] });
     queryClient.setQueryData(queryKeys.articles("preparation", ""), { articles: [] });
-    queryClient.setQueryData(queryKeys.today, todayProjection);
+    queryClient.setQueryData(queryKeys.today(), todayProjection);
 
     await user.click(await screen.findByRole("button", { name: "Започни статия" }));
     const pendingButton = await screen.findByRole("button", { name: "Започва се…" });
@@ -858,7 +858,7 @@ describe("C1 Start Article", () => {
     expect(screen.getByRole("textbox", { name: "Редакционен фокус" })).toBeInTheDocument();
     expect(queryClient.getQueryState(queryKeys.articles("all", ""))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(queryKeys.articles("preparation", ""))?.isInvalidated).toBe(true);
-    expect(queryClient.getQueryState(queryKeys.today)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(queryKeys.today())?.isInvalidated).toBe(true);
   });
 
   it("stays on a readable Story on failure and reuses the same retry key", async () => {
@@ -1852,6 +1852,9 @@ describe("C5 Финализирай", () => {
     const joined = invalidated.join(" ");
     expect(joined).toContain(JSON.stringify(["articles"]));
     expect(joined).toContain("archive");
+    // V1.2-G4.1 §A4: finalizing invalidates the Today desk in EVERY scope, so the
+    // prefix `["today"]` is used rather than one concrete `["today", scope]` key —
+    // the inactive scope's cache must not keep serving rows a write just changed.
     expect(joined).toContain(JSON.stringify(["today"]));
     expect(joined).toContain(JSON.stringify(["story", activeReadyArticle.story.id]));
   });
@@ -2340,7 +2343,7 @@ describe("Today — D2 fast triage", () => {
     // §24: the row is gone because the server said so and the page refetched,
     // never because the browser faked persistent state.
     await waitFor(() => {
-      expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/today").length).toBeGreaterThan(1);
+      expect(fetchMock.mock.calls.filter(([url]) => url.startsWith("/api/v1/today?")).length).toBeGreaterThan(1);
     });
     const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
     expect(posts.some(([url]) => String(url).endsWith("/ignore"))).toBe(true);
@@ -2517,6 +2520,6 @@ describe("Today grouping health", () => {
     });
     // Recovery came from canonical latest-run state via a refetch, not a reload.
     expect(screen.getByRole("heading", { name: "Днес" })).toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/today").length).toBeGreaterThan(1);
+    expect(fetchMock.mock.calls.filter(([url]) => url.startsWith("/api/v1/today?")).length).toBeGreaterThan(1);
   });
 });

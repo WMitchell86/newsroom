@@ -74,7 +74,15 @@ _MESSAGES = {
     "evidence_basis_empty": "Няма потвърдени факти, срещу които текстът да се провери.",
     "evidence_source_missing": "Факт от основата няма отворен източник и не може да се провери.",
     "evidence_basis_invalid": "Основата за проверка не отговаря на договора за доказателства.",
-    "blocking_gap_open": "Има непопълнена информация, която пречи да продължите.",
+    # V1.2-G4.1 §C2: this rule is unchanged in STRENGTH — an open question still
+    # stops `Отбележи като готова` — but the wording is corrected. The old
+    # sentence said it "пречи да продължите", which is exactly the claim the
+    # product no longer makes: an open question does not prevent writing. It
+    # prevents declaring the text finished, and it now says so.
+    "blocking_gap_open": (
+        "Остава информация за проверка. Страницата не може да бъде отбелязана като готова, "
+        "докато въпросите останат нерешени — но текстът може да се пише и редактира."
+    ),
     "unsupported_claims": "Част от твърденията в текста не са подкрепени от източниците.",
     "lexical_unsupported_sentence": "Изречение без директна опора в източниците.",
     "originality_copy": "Текстът повтаря дословно изречение от източника. Препишете със свои думи.",

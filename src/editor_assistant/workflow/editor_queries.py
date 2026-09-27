@@ -15,6 +15,7 @@ from editor_assistant.workflow import (
     editor_projections,
     editorial_title,
     inbox_store,
+    regional_scope,
     source_health,
     story_editor_metadata,
     story_store,
@@ -35,6 +36,13 @@ TODAY_HORIZON_PREVIOUS_DAYS = 1
 #: under «Истории», and the remainder is reported as a count, never silently
 #: dropped.
 TODAY_STORY_CAP = 30
+
+#: V1.2-G4.1 §A4 — the two scopes the desk can be read in. `REGION` is the
+#: default working desk; `ALL` is the quiet escape hatch that shows the whole
+#: horizon. Nothing is ever deleted: «Истории» remains the complete collection.
+SCOPE_REGION = "region"
+SCOPE_ALL = "all"
+TODAY_SCOPES = (SCOPE_REGION, SCOPE_ALL)
 
 
 class EditorQueryError(ValueError):
@@ -200,6 +208,7 @@ def project_today(
     now=None,
     story_cap=TODAY_STORY_CAP,
     registry_rows=(),
+    scope=SCOPE_REGION,
 ) -> dict:
     """Pure Today composition; callers provide current validation/action context.
 
@@ -215,6 +224,13 @@ def project_today(
     never merely because its status is still `NEW`, so an untouched backlog
     retires itself instead of living forever.
 
+    **Scope (V1.2-G4.1 §A).** `scope="region"` is the default and applies the
+    deterministic Burgas-region rule in `regional_scope`, so national wire copy
+    no longer occupies the regional working desk. `scope="all"` shows the whole
+    horizon, and `Истории` always reaches every collected Story regardless. The
+    counts are always reported, so a narrower scope never hides that more work
+    exists.
+
     **Cap.** After the horizon, at most `story_cap` Story rows are emitted, and
     the qualifying total is always reported, so a bounded first screen never
     hides the fact that more work exists.
@@ -223,6 +239,7 @@ def project_today(
     next_actions = dict(article_next_actions or {})
     canonical_ids = _story_ids(stories)
     horizon_start = today_horizon_start(now)
+    scope = scope if scope in TODAY_SCOPES else SCOPE_REGION
 
     candidates = []
     for story in stories:
@@ -236,11 +253,19 @@ def project_today(
         current = story_is_within_horizon(story, horizon_start=horizon_start)
         if not current and not editor_projections.has_unreviewed_development(story, story_metadata):
             continue
-        candidates.append(
-            _story_attention_row(
-                story, story_metadata, items_by_id, attention, registry_rows=registry_rows
-            )
+        row = _story_attention_row(
+            story, story_metadata, items_by_id, attention, registry_rows=registry_rows
         )
+        if scope == SCOPE_REGION and not regional_scope.story_is_regional(
+            story,
+            story_metadata,
+            items_by_id,
+            title=row["title"],
+            registry_rows=registry_rows,
+            article_records=article_records,
+        ):
+            continue
+        candidates.append(row)
 
     candidates = _chronological(
         candidates,
@@ -284,6 +309,7 @@ def project_today(
     return {
         "stories": shown,
         "storyAttentionTotal": total,
+        "scope": scope,
         "articles": article_entries,
     }
 
@@ -299,6 +325,7 @@ def read_today(
     now=None,
     story_cap=TODAY_STORY_CAP,
     registry_rows=(),
+    scope=SCOPE_REGION,
 ) -> dict:
     """Read and derive Today without writing an attention row or queue.
 
@@ -339,4 +366,5 @@ def read_today(
         now=now,
         story_cap=story_cap,
         registry_rows=registry_rows or _registry_rows(inbox_path),
+        scope=scope,
     )

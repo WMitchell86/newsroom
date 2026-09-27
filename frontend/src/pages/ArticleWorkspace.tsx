@@ -311,7 +311,20 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
               {warning.affectedText ? <p className={styles.affectedText}>{warning.affectedText}</p> : null}
             </li>)}
           </ul> : null}
-          {article.validation.current && article.warnings.length === 0 ? (
+          {/*
+            V1.2-G4.1 §B3/§C2 — the MATERIAL warnings, above the text audit and in
+            their own block. These say what the Draft was written *from* (one
+            unconfirmed source, questions still open) and are recomputed by the
+            backend from the canonical basis, so they can never go stale. They are
+            warnings and not a state: the Article is still `Чернова`, fully
+            editable, and the only thing they withhold is `Готова`.
+          */}
+          {article.draftWarnings.length > 0 ? <ul className={styles.warningList} data-draft-warnings="true">
+            {article.draftWarnings.map((warning) => <li className={styles.warningMessage} key={warning}>
+              {warning}
+            </li>)}
+          </ul> : null}
+          {article.validation.current && article.warnings.length === 0 && article.draftWarnings.length === 0 ? (
             <p className={styles.noWarnings}>Няма твърдения, които изискват проверка.</p>
           ) : null}
         </section>

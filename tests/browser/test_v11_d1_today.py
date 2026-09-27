@@ -106,6 +106,30 @@ def open_today(probe) -> None:
     probe.page.locator("main").wait_for(state="visible")
 
 
+def open_today_all(probe) -> None:
+    """The desk in the unfiltered `Всички` scope, via the real toolbar control.
+
+    V1.2-G4.1 §A4: `Днес` defaults to the Burgas-region working desk, and this
+    fixture's Stories are deliberately abstract — they name no locality and come
+    from no configured local source. These tests pin the **horizon** and the
+    **cap**, which are orthogonal to regionality, so they read the scope the
+    product itself offers for "show me everything". Using the real control also
+    proves that the toggle works in a browser.
+    """
+    open_today(probe)
+    # The scope is a view preference held in component state, not in the URL, so
+    # the control's pressed state is what the test waits on — the rows behind it
+    # are the backend's answer to the scope the client just asked for.
+    control = probe.page.locator("[data-today-scope='all']")
+    control.wait_for(state="visible", timeout=20000)
+    control.click()
+    probe.page.wait_for_function(
+        "() => document.querySelector(\"[data-today-scope='all']\")"
+        "?.getAttribute('aria-pressed') === 'true'",
+        timeout=20000,
+    )
+
+
 def today_text(probe) -> str:
     """The rendered Today text, in a comparable case.
 
@@ -119,7 +143,7 @@ def today_text(probe) -> str:
 def test_today_hides_the_stale_backlog_and_bounds_the_current_set(today_page):
     """120 stale Stories must not reach the first screen; 25 current ones must."""
     probe, ids = today_page
-    open_today(probe)
+    open_today_all(probe)
     body = probe.page.locator("main").inner_text()
 
     # The backlog is still in the database — it is just not this screen.
@@ -237,11 +261,11 @@ def _raise_current_count_above_the_cap(ids) -> None:
 def test_the_cap_is_disclosed_and_links_to_the_full_collection(today_page):
     """With more current Stories than the cap, the page says so and links out."""
     probe, ids = today_page
-    open_today(probe)
+    open_today_all(probe)
     assert "показани са" not in today_text(probe)
 
     _raise_current_count_above_the_cap(ids)
-    open_today(probe)
+    open_today_all(probe)
 
     body = today_text(probe)
     assert "показани са 30 от 45 текущи истории" in body

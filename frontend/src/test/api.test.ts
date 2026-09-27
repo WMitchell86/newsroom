@@ -22,7 +22,10 @@ describe("read-only API client", () => {
 
     await expect(getToday()).resolves.toEqual({ newDevelopments: [], newStories: [], articlesRequiringAction: [], problems: [] });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/today",
+      // V1.2-G4.1 §A4: the desk scope is an explicit, allow-listed query
+      // parameter and `region` is the default. The backend decides which Stories
+      // are regional; the client never filters rows itself.
+      "/api/v1/today?scope=region",
       expect.objectContaining({
         headers: { Accept: "application/json" },
         credentials: "same-origin",

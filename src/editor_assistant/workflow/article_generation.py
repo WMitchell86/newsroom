@@ -42,6 +42,7 @@ from editor_assistant.drafting import evidence as evidence_mod
 from editor_assistant.workflow import (
     angles,
     article_readiness,
+    draft_material,
     editor_article_store,
     live,
     live_store,
@@ -67,7 +68,22 @@ OP_INVALID_TRANSITION = "INVALID_TRANSITION"
 #: V1.1-B: the readiness codes are the SAME strings the preparation projection
 #: reports as `draftReadiness.code`, so a command-time refusal and the reason
 #: the editor was shown can never be different words for one state.
+#:
+#: V1.2-G4.1 §B: `BLOCKING_GAP`, `NO_CONFIRMED_FACTS` and `NO_OPEN_SOURCE` are
+#: gone. A blocking gap no longer refuses a Draft at all — it becomes a warning
+#: on the Draft — so the only remaining material refusal is the single honest
+#: "nothing to write from". The `BLOCKING_GAP` string survives below ONLY for
+#: the angle/insufficiency refusals raised by the generation pipeline itself,
+#: which are a different thing entirely and keep their own wording.
 _OPERATION_ERRORS = {
+    # V1.2-G4.1 §B6 — the one real Draft refusal left.
+    "NO_DRAFT_MATERIAL": (
+        "NO_DRAFT_MATERIAL",
+        draft_material.NO_MATERIAL_MESSAGE,
+        False,
+    ),
+    # The angle gate and the generation pipeline's own sufficiency check. These
+    # are material-quality refusals raised while DRAFTING, not the Draft gate.
     "BLOCKING_GAP": (
         "BLOCKING_GAP",
         "Има непопълнена информация, която пречи да продължите.",
@@ -79,16 +95,6 @@ _OPERATION_ERRORS = {
     "STORY_UNASSESSED": (
         "STORY_UNASSESSED",
         "За чернова първо е нужно проучване на историята.",
-        False,
-    ),
-    "NO_CONFIRMED_FACTS": (
-        "NO_CONFIRMED_FACTS",
-        "Няма потвърдени факти, върху които да се изгради черновата.",
-        False,
-    ),
-    "NO_OPEN_SOURCE": (
-        "NO_OPEN_SOURCE",
-        "Няма отворен източник, върху който да се изгради черновата.",
         False,
     ),
     # §5: there is no confirmation step left to ask for anywhere.
@@ -137,6 +143,17 @@ _DEFAULT_OPERATION_ERROR = (
 #: work but cannot know about a second command carrying a fresh key.
 _LOCK = threading.RLock()
 _ACTIVE: dict[str, str] = {}
+
+#: V1.2-G4.1 §B1 — the recorded reason for the pipeline's readiness override.
+#: The mature pipeline answers `RESEARCH_MORE` when the semantic coverage looks
+#: thin; under the new contract that is a warning on the Draft, not a refusal, so
+#: the generation proceeds through the pipeline's OWN recorded `force_draft` path
+#: rather than by bypassing it. The reason is stored on the readiness record, so
+#: the override is inspectable and never silent.
+_FORCE_REASON = (
+    "V1.2-G4.1 §B1: черновата е работа в процес — липсващото покритие е предупреждение, "
+    "не отказ. Материалът е отворен и с източник; готовността се проверява при финализиране."
+)
 
 
 class DraftRefused(RuntimeError):
@@ -235,6 +252,13 @@ def build_packet(snapshot: dict, evidence_id: str) -> dict:
     gate audits exactly the material the editor was shown. No fact is invented,
     reworded or dropped, and the remaining open questions travel with the packet
     as `unknowns` so the drafter cannot fill them in.
+
+    **V1.2-G4.1 §B3 C.** When no fact was promoted but a real publisher page was
+    opened, that page is the packet's `source_url` and its opened-source text is
+    the grounding. This is the prototype single-source fallback, and it is
+    strictly weaker than the fact path: `facts` stays empty, so every claim the
+    model writes is unpromoted and the Draft must attribute it. Without this the
+    single-source Draft would be permitted by the gate but impossible to build.
     """
     facts = []
     for index, fact in enumerate(snapshot["facts"], start=1):
@@ -251,9 +275,56 @@ def build_packet(snapshot: dict, evidence_id: str) -> dict:
         )
         made["source_refs"] = [research_mod.make_fact_ref(source_id, locator)]
         facts.append(made)
+    opened = [
+        row for row in (snapshot.get("sources") or ()) if str((row or {}).get("url") or "")
+    ]
+    source_url = str(snapshot["source_url"]) or next((str(row["url"]) for row in opened), "")
+    if not facts and opened:
+        # §B3 C — the single-source fallback needs real grounding text, and the
+        # M2.3B packet contract rightly refuses an empty `facts` list.
+        #
+        # The grounding is the opened page's OWN extracted claims — the sentences
+        # research read off that page, kept verbatim with their locators. A
+        # discovery snippet is deliberately NOT used: §B4 forbids drafting from a
+        # snippet, because a snippet was never opened. If the page yielded no
+        # extractable sentence there is genuinely nothing to write from, and the
+        # gate has already refused this Article.
+        #
+        # These are NOT promoted facts and must never be read as such: the
+        # canonical basis keeps `facts` empty, nothing is written to the research
+        # store, and the resulting Draft is attributed and warned.
+        claims = [
+            claim
+            for row in opened
+            for claim in (row.get("claims") or [])
+            if str(claim.get("text") or "").strip()
+        ]
+        if not claims:
+            raise DraftRefused(
+                "NO_DRAFT_MATERIAL", "Няма достатъчно изходен материал за чернова."
+            )
+        owner = next(
+            (
+                row
+                for row in opened
+                if any(str(claim.get("text") or "").strip() for claim in (row.get("claims") or []))
+            ),
+            opened[0],
+        )
+        source_id = str(owner.get("id") or "opened")
+        for index, claim in enumerate(claims, start=1):
+            locator = str(claim.get("locator") or f"claim:{index - 1}")
+            made = evidence_mod.make_fact(
+                f"{evidence_id}-f{index:02d}",
+                str(claim.get("text") or ""),
+                source_reference=f"{source_id}:{locator}",
+                scope="current_event",
+            )
+            made["source_refs"] = [research_mod.make_fact_ref(source_id, locator)]
+            facts.append(made)
     packet = {
         "evidence_id": evidence_id,
-        "source_url": str(snapshot["source_url"]),
+        "source_url": source_url,
         "source_type": "story_research_basis",
         "observed_at": _today(snapshot.get("assessed_at")),
         "source_headline": str(snapshot.get("headline") or ""),
@@ -268,7 +339,7 @@ def build_packet(snapshot: dict, evidence_id: str) -> dict:
         "numbers": [],
         "quotes": [],
         "unknowns": [str(item.get("question") or "") for item in snapshot["gaps"]],
-        "source_text": "\n".join(str(fact.get("text") or "") for fact in snapshot["facts"]),
+        "source_text": "\n".join(str(fact.get("text") or "") for fact in facts),
     }
     evidence_mod.annotate_headline_number_conflicts(packet)
     evidence_mod.validate_packet(packet)
@@ -345,7 +416,24 @@ def generate(snapshot: dict, *, root=None, now=None) -> dict:
             # change - the material stays exactly as the editor saw it.
             raise DraftRefused("BLOCKING_GAP", "За този материал няма публикуем ъгъл.")
         try:
-            outcome = pipeline_state.generate_draft(idea["idea_id"], evidence_id)
+            # V1.2-G4.1 §B1: the editor's own Draft gate already decided that this
+            # Article has source-backed material worth writing from. The mature
+            # pipeline then re-evaluates semantic depth and may answer
+            # `RESEARCH_MORE` — a coverage judgement, not a safety one. That is now
+            # a WARNING on the Draft, not a refusal, so the existing recorded
+            # override is used with an explicit reason.
+            #
+            # It is deliberately the pipeline's own `force_draft` path and not a
+            # bypass: the override is stored on the readiness record, and the
+            # angle gate, the factual gates, the originality guard and the safety
+            # guards all still run exactly as before. `NO_ANGLE` is still a hard
+            # refusal and is not forceable, by the pipeline's own rule.
+            outcome = pipeline_state.generate_draft(
+                idea["idea_id"],
+                evidence_id,
+                force=True,
+                force_reason=_FORCE_REASON,
+            )
         except angles.AngleError as exc:
             raise DraftRefused("BLOCKING_GAP", "Материалът още не е оценен за ъгъл.") from exc
         except pipeline_state.WorkbenchError as exc:
@@ -353,9 +441,12 @@ def generate(snapshot: dict, *, root=None, now=None) -> dict:
                 "DRAFT_UNAVAILABLE", "Материалът не може да бъде подготвен за чернова."
             ) from exc
         if outcome.get("status") != "DRAFTED":
-            # A readiness or angle refusal. The pipeline recorded its own
-            # refusal state; this command publishes no content.
-            raise DraftRefused("BLOCKING_GAP", "Доказателствата още не са достатъчни за чернова.")
+            # A readiness or angle refusal that survived the recorded override —
+            # in practice only `NO_ANGLE`, which is never forceable. The pipeline
+            # recorded its own refusal state; this command publishes no content.
+            raise DraftRefused(
+                "BLOCKING_GAP", "За този материал няма публикуем ъгъл."
+            )
         case = _find_case(editorial, str(outcome.get("case_id") or ""))
         draft_id = str((case.get("lineage") or {}).get("draft_id") or "")
         body = str(case.get("draft_text") or "")

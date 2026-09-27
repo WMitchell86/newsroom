@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodayProjection } from "../api/dto";
 import { AppShell } from "../app/AppShell";
 import { TodayPage } from "../pages/TodayPage";
+import { todayScopes, todayTabs } from "../pages/today/todayView";
 import { todayProjection } from "./fixtures";
 import { renderWithProviders } from "./render";
 import { isRedundantSummary, publisherCountLabel } from "../shared/editorLabels";
@@ -148,6 +149,43 @@ describe("V1.2-G1 — the left rail", () => {
     // Clicking around the prepared rail changes no data and issues no request.
     await user.click(sport);
     expect(screen.getByRole("heading", { name: "Категории" })).toBeInTheDocument();
+  });
+});
+
+describe("V1.2-G4.1 §A4 — the desk scope", () => {
+  it("defaults to the regional desk and asks the backend for the wider scope", async () => {
+    const seen: string[] = [];
+    fetchMock.mockImplementation(async (url: string) => {
+      seen.push(url);
+      return dataResponse(deskProjection());
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    // The default read is the regional working desk, never the whole horizon.
+    expect(seen[0]).toContain("scope=region");
+    // The control shows the editor's own selection, not the projection's echo.
+    expect(
+      document.querySelector("[data-today-scope='region']")?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    await user.click(document.querySelector("[data-today-scope='all']") as HTMLElement);
+
+    // Switching scope re-asks the SERVER. Which Stories are regional is a
+    // backend decision, and the client is not entitled to re-derive it.
+    await waitFor(() => expect(seen.some((url) => url.includes("scope=all"))).toBe(true));
+    expect(
+      document.querySelector("[data-today-scope='all']")?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("never reuses the attention tab's word for the scope control", () => {
+    // Two controls on one line reading «Всички» would be ambiguous, which is
+    // why the scope positions name WHAT they switch.
+    const scopeLabels = todayScopes.map((option) => option.label);
+    const tabLabels = todayTabs.map((option) => option.label);
+    expect(scopeLabels.some((label) => tabLabels.includes(label))).toBe(false);
   });
 });
 
