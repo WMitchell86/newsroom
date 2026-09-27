@@ -580,6 +580,7 @@ def run_event_discovery(
             if operation["serper_queries"] >= budget or publishers_opened() >= target:
                 break
             operation["serper_queries"] += 1
+            _record_serper_call()
             try:
                 attempt = provider_candidate.search(query)
             except SearchError as exc:
@@ -957,6 +958,54 @@ class SerperProvider(SearchProvider):
         record["status"] = SEARCH_OK if results else NO_RESULTS
         return record
 
+
+# --- V1.2-G2.4B: a process-wide Serper credit ceiling ---------------------
+#:
+#: The per-round budget bounds ONE round. This bounds the whole PROCESS, so no
+#: loop, no script and no future caller can spend more of the owner's allocation
+#: than the operator declares. It is a ceiling, never a target: reaching it makes
+#: Serper unavailable and Research simply continues without it, which is exactly
+#: the product decision that Serper is optional, not a required dependency.
+#:
+#: Unset means no ceiling, so a deployment that has genuinely paid for Serper is
+#: unaffected. The capture run declares 72 and the counter is written into every
+#: audit record, so the spend is provable after the fact and not merely intended.
+SERPER_GLOBAL_BUDGET_ENV = "SERPER_GLOBAL_QUERY_BUDGET"
+_serper_spend = {"n": 0}
+
+
+def serper_global_budget():
+    """The declared process-wide ceiling, or `None` when undeclared."""
+    import os
+
+    raw = os.environ.get(SERPER_GLOBAL_BUDGET_ENV)
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        return max(0, int(str(raw).strip()))
+    except ValueError:
+        return None
+
+
+def serper_spend():
+    """Serper queries actually spent in this process."""
+    return _serper_spend["n"]
+
+
+def serper_remaining():
+    """Queries still available under the declared ceiling, or `None`."""
+    budget = serper_global_budget()
+    return None if budget is None else max(0, budget - _serper_spend["n"])
+
+
+def _serper_call_allowed() -> bool:
+    """False once the declared ceiling is reached. Never raises, never retries."""
+    remaining = serper_remaining()
+    return remaining is None or remaining > 0
+
+
+def _record_serper_call() -> None:
+    _serper_spend["n"] += 1
 
 class SerperNewsProvider(SerperProvider):
     """V1.2-G2.4 §B4 — Serper's **News** vertical, as a separate adapter.

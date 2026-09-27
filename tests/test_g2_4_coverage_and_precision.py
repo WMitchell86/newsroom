@@ -296,6 +296,66 @@ def test_a_story_with_no_usable_anchors_is_not_filtered():
     assert cq.agrees_with_event("Някакво изречение.", cq.event_anchors("Тест")) is True
 
 
+#: Facts promoted by the G2.4B replay that were NOT facts. The higher recall
+#: exposed three classes the tighter G2.4 gate had masked: a sentence boundary
+#: whose space the source omitted, a related-article widget, and a digit glued
+#: to a unit word.
+G24B_RENDERER_ARTEFACTS = (
+    # A related-article widget naming ANOTHER story on the same publisher. This
+    # is the worst of the three: it carried a genuinely different event
+    # ("Достойни личности ... наградени") into a football Story.
+    "ПредишнаPrevious post:Достойни личности от Поморие бяха наградени за принос в културата.",
+    "Продължение: Предишна статия разглежда друг въпрос изцяло.",
+    # A digit glued to a unit word; Bulgarian always writes a space.
+    "Футбол 9се срещнаха с отбора на ФК „Бургас спорт“.",
+    # A subscription / channel call-to-action: a site promotion, not a
+    # statement about the event.
+    (
+        "За още новини и предстоящи събития се присъединете към Община Поморие – "
+        "актуални новини във Viber."
+    ),
+    "Абонирайте се за бюлетина на сайта, за да получавате всички новини първи.",
+)
+
+
+@pytest.mark.parametrize("text", G24B_RENDERER_ARTEFACTS)
+def test_a_related_article_widget_is_never_a_fact(text):
+    """§A2: a pager widget names another story, so it is never this event."""
+    assert cq.is_factual_candidate(text) is False
+
+
+def test_a_sentence_boundary_without_a_space_is_still_a_boundary():
+    """§A2: the source omitted the space; the split must not depend on it."""
+    merged = (
+        "Майка и дете пострадаха при катастрофа на пътя Бургас-Созопол вчера, "
+        "съобщават от полицията.Колата, в която пътували е била ударена."
+    )
+    parts = cq.SENTENCE_SPLIT.split(merged)
+    assert len(parts) == 2, parts
+    assert parts[0].endswith("полицията.")
+    assert parts[1].startswith("Колата")
+
+
+def test_related_article_widgets_never_reach_the_candidate_pool():
+    """End to end: a widget and the other story it links to are both refused."""
+    from editor_assistant.sources import html_desc as _html
+
+    html = (
+        "<article><p>Майка и дете пострадаха при катастрофа на пътя Бургас-Созопол "
+        "вчера, съобщават от полицията.<b>Колата</b>, в която пътували е била ударена.</p>"
+        "<p>Предишна<a>Previous post</a>:Достойни личности от Поморие бяха наградени "
+        "за принос в културата в рамките на фестивала.</p>"
+        "<p>Жената е с контузия на корема, а детето с травма на главата.</p></article>"
+    )
+    topic = "Майка и дете пострадаха при катастрофа на пътя Бургас-Созопол"
+    texts = [c["text"] for c in cq.select_candidate_claims(
+        None, [], blocks=_html.normalize_blocks(html), topic=topic
+    )]
+    assert texts, "the real claims must survive"
+    assert not any("Предишна" in t or "наградени" in t for t in texts)
+    assert not any("полицията.Колата" in t for t in texts)
+
+
 # ---------------------------------------------------------------------------
 # §B1/§B2 — the deterministic query ladder
 # ---------------------------------------------------------------------------

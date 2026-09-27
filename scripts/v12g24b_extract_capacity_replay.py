@@ -55,34 +55,42 @@ def story_titles() -> dict:
     return {row["story_id"]: row.get("title", "") for row in data["stories"]}
 
 
-def load_frozen_discovery() -> dict:
-    """topic -> the recorded discovery operation with REAL publisher candidates.
+#: The one-time capture produced by `v12g24b_capture_frozen_discovery.py`. It is
+#: the frozen discovery INPUT: after it exists, no replay searches again.
+FROZEN = ROOT / "m4" / "review" / "evidence" / "v1_2_g2_4b_frozen_discovery.json"
 
-    Built only from operations already on disk. A topic with no usable recorded
-    result is simply absent, and the report says how many Stories that covers —
-    the coverage gap is reported, never papered over.
+
+def load_frozen_discovery() -> dict:
+    """story_id -> the recorded discovery operation for that Story.
+
+    Read from the frozen capture artifact. A Story with no usable record is
+    simply absent, and the report states exactly how many Stories that covers —
+    the gap is reported, never papered over.
     """
     out: dict[str, dict] = {}
-    for path in sorted(SEARCH_RUNS.glob("*.json*")):
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            topic = str(rec.get("topic") or "").strip()
-            if not topic or "query_ladder" not in rec:
-                continue
-            keep = [
-                c for c in (rec.get("candidates") or [])
-                if (c.get("opened") or {}).get("status") == "FETCH_OK"
-                and not any(d in str(c.get("url") or "") for d in _NON_PUBLISHER)
-            ]
-            if not keep:
-                continue
-            merged = {**rec, "candidates": keep}
-            previous = out.get(topic)
-            if previous is None or len(keep) > len(previous["candidates"]):
-                out[topic] = merged
+    if not FROZEN.exists():
+        return out
+    data = json.loads(FROZEN.read_text(encoding="utf-8"))
+    for row in data.get("stories") or []:
+        keep = [
+            c for c in (row.get("discovered_urls") or [])
+            if not any(d in str(c.get("url") or "") for d in _NON_PUBLISHER)
+        ]
+        if not keep:
+            continue
+        out[row["story_id"]] = {
+            "status": "SEARCH_OK",
+            "query_ladder": row.get("query_ladder", []),
+            "queries": row.get("query_provenance", []),
+            "serper_queries": row.get("serper_queries_this_round", 0),
+            "candidates": [
+                {"title": row.get("title", ""), "url": c.get("url"),
+                 "snippet": "", "snippet_authority": "DISCOVERY_ONLY",
+                 "discovered_by": c.get("discovered_by") or "frozen",
+                 "opened": {"status": "FETCH_OK", "final_url": c.get("final_url") or c.get("url")}}
+                for c in keep
+            ],
+        }
     return out
 
 
@@ -204,7 +212,7 @@ def main() -> int:
         if story is None:
             continue
         title = app._story_title(story, items) or titles.get(story_id, "")
-        operation = frozen.get(title)
+        operation = frozen.get(story_id)
         representative = items.get(story.get("representative_item_id")) or {}
         if operation is None:
             rows.append({"story_id": story_id, "title": title, "frozen_discovery": False,

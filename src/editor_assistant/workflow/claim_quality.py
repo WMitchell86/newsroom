@@ -120,7 +120,25 @@ _TAG_CLOUD_PATTERNS = (
 #:    proof that two nodes were concatenated by the renderer and NOT by an author.
 #:    No Bulgarian sentence contains either.
 _SKIP_LINK = re.compile(
-    r"\bskip\s*to\s*content\b|\bкъм\s+съдържанието\b|\bпрескочи\s+към\s+съдържанието\b",
+    r"\bskip\s*to\s*content\b|\bкъм\s+съдържанието\b|\bпрескочи\s+към\s+съдържанието\b"
+    # A related-article / pager widget. It names ANOTHER story on the same
+    # publisher, so its text is not this event's evidence — and the wrong-event
+    # leak it caused ("Достойни личности ... наградени" inside a football Story)
+    # was the most serious precision defect G2.4B found.
+    #
+    # Deliberately NOT anchored on `\b`: a renderer glues the label to the link
+    # ("ПредишнаPrevious post:"), so a word boundary sits inside the marker and
+    # the widget would survive. These are distinctive multi-word phrases and
+    # cannot occur in a proposition.
+    r"|previous\s+post|next\s+post|следваща\s+статия|предишна\s+статия"
+    r"|свързани\s+статии|прочетете\s+също|вижте\s+също|продължение\s*:"
+    # A subscription / channel call-to-action. It is a site promotion, not a
+    # statement about the event, and it was the last chrome fact the G2.4B
+    # review found. Anchored on the VERB, so an ordinary sentence that merely
+    # mentions a platform is not caught.
+    r"|присъединете\s+към\s+община|присъедини\s+към\s+община|включете\s+известия"
+    r"|абонатирайте\s+се|абонирайте\s+се\s+за|абонирайте\s+се\s+за"
+    r"|следвайте\s+ни\s+във|бъдете\s+първите\s+да\s+научите",
     re.IGNORECASE,
 )
 
@@ -137,6 +155,9 @@ _GLUED_TOKEN = re.compile(
     r"\b\w*[0-9]\w*[А-ЯЪ]\w{3,}\b"
     # a lowercase word run glued to a new capitalised word: `публикацииНа`
     r"|[а-я]{3}[А-ЯЪ]"
+    # a digit glued to a lowercase word: `9се`, `2години`. A number and a unit
+    # word are always written with a space in Bulgarian.
+    r"|[0-9][а-я]{2,}"
     # a closing bracket glued to the next word
     r"|\)[А-ЯЪ]"
 )
@@ -168,7 +189,12 @@ _CATEGORY_ONLY = re.compile(
 #: на конкурса е да… Лесотехническият университет..."), which is how two
 #: different stories became one "fact". An ellipsis and a legal citation both
 #: end a proposition.
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+|(?<=\.\.\.)\s+|\s+(?=т\.\s?\d|ал\.\s?\d|чл\.\s?\d)")
+SENTENCE_SPLIT = re.compile(
+    r"(?<=[.!?…])\s+"
+    r"|(?<=[.!?])(?=[А-ЯЪ])"          # a boundary the source omitted its space on
+    r"|(?<=\.\.\.)\s+"
+    r"|\s+(?=т\.\s?\d|ал\.\s?\d|чл\.\s?\d)"
+)
 
 
 #: A run of short all-caps labels with no sentence punctuation is a menu bar.
