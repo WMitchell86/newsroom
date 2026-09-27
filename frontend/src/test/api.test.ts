@@ -343,7 +343,7 @@ describe("the Story research operation policy", () => {
             status: "failed",
             error: {
               code: "RESEARCH_QUOTA_EXHAUSTED",
-              message: "Лимитът за автоматично проучване е изчерпан за момента.",
+              message: "Достигнат е лимитът за автоматично проучване на тази история.",
               retryable: true,
             },
           },

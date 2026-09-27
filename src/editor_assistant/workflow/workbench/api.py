@@ -38,7 +38,7 @@ _MESSAGES = {
     # statement. The editor is told the capability is unavailable, never that a
     # source is missing and never that a quota of evidence was reached.
     "RESEARCH_UNAVAILABLE": "Автоматичното проучване временно не е налично.",
-    "RESEARCH_QUOTA_EXHAUSTED": "Лимитът за автоматично проучване е изчерпан за момента.",
+    "RESEARCH_QUOTA_EXHAUSTED": "Достигнат е лимитът за автоматично проучване на тази история.",
     "INTERNAL_ERROR": "Вътрешна грешка. Опитайте отново.",
 }
 

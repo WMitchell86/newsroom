@@ -170,7 +170,7 @@ describe("V1.2-G2.2 — the research operation is followed, not timed out", () =
 describe("V1.2-G2.2 — an operational refusal is never an evidence statement", () => {
   it.each([
     ["RESEARCH_UNAVAILABLE", "Автоматичното проучване временно не е налично."],
-    ["RESEARCH_QUOTA_EXHAUSTED", "Лимитът за автоматично проучване е изчерпан за момента."],
+    ["RESEARCH_QUOTA_EXHAUSTED", "Достигнат е лимитът за автоматично проучване на тази история."],
   ])("renders %s as operational wording", async (code, message) => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") return errorResponse(code, message);

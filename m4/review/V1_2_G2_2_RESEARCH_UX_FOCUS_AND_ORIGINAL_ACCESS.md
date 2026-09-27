@@ -61,7 +61,7 @@ now three distinct refusals:
 |---|---|---|---|
 | Story not in a researchable state | `INVALID_TRANSITION` | 409 | unchanged state refusal |
 | no search provider/route at all | `RESEARCH_UNAVAILABLE` | 503 | `Автоматичното проучване временно не е налично.` |
-| bounded research-round budget spent | `RESEARCH_QUOTA_EXHAUSTED` | 429 | `Лимитът за автоматично проучване е изчерпан за момента.` |
+| bounded research-round budget spent | `RESEARCH_QUOTA_EXHAUSTED` | 429 | `Достигнат е лимитът за автоматично проучване на тази история.` |
 
 Quota wording is used **only** where the backend really knows the cause: the
 canonical round counter against `readiness.MAX_RESEARCH_ROUNDS`. It is never a
@@ -214,7 +214,7 @@ substituted, and the research edge is shaped to the two real conditions.
 3. **§15 — no provider at all.** Research is not offered, and no false claim
    appears.
 4. **§15 — the round budget is spent after projection** (the real counter, not
-   a faked reason). `Лимитът за автоматично проучване е изчерпан за момента.`,
+   a faked reason). `Достигнат е лимитът за автоматично проучване на тази история.`,
    the stored gaps are byte-identical, the alert never mentions a source.
 5. **§9/§17 — the original publication** renders as one safe external link, and
    every publication is reachable without the section implying verification.

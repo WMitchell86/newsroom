@@ -250,7 +250,7 @@ def test_a_spent_round_budget_says_quota_precisely(research_page):
     probe.page.get_by_role("alert").wait_for(state="visible", timeout=20000)
 
     body = main_text(probe)
-    assert "лимитът за автоматично проучване е изчерпан за момента." in body
+    assert "достигнат е лимитът за автоматично проучване на тази история." in body
     # The refusal itself must not claim anything about evidence or expose the
     # transport status. `отворен източник` remains legitimate page vocabulary
     # for a genuinely confirmed source, so only the false claims are forbidden.

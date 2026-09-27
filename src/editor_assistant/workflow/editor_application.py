@@ -93,16 +93,22 @@ class EditorResearchUnavailable(EditorApplicationError):
 
 
 class EditorResearchQuotaExhausted(EditorApplicationError):
-    """The bounded research-round budget for this Story is spent.
+    """The bounded research-round budget for THIS Story is spent.
 
-    V1.2-G2.2 §3. Quota wording is used only when the backend really knows the
-    limit is the cause — here, the canonical round counter against
-    `MAX_RESEARCH_ROUNDS` — never as a guess about a provider.
+    V1.2-G2.2 §3, corrected by owner review: `MAX_RESEARCH_ROUNDS` is a
+    per-Story bound, NOT a provider, daily or account quota. The old wording
+    ("...е изчерпан за момента") let an editor conclude the account had run out
+    of quota, which is a different and wrong fact. The sentence now names the
+    real scope: the limit of this Story.
+
+    The HTTP 429 status is kept for the client, but the sentence never implies an
+    external quota the backend cannot actually observe. A genuine external quota
+    or provider outage stays under RESEARCH_UNAVAILABLE.
     """
 
     code = "RESEARCH_QUOTA_EXHAUSTED"
     status = 429
-    default_message = "Лимитът за автоматично проучване е изчерпан за момента."
+    default_message = "Достигнат е лимитът за автоматично проучване на тази история."
 
 
 class EditorVersionConflict(EditorApplicationError):
