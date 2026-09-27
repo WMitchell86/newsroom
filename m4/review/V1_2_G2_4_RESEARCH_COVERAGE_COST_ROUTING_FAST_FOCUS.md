@@ -407,7 +407,49 @@ the daily budget is spent they fail. They fail **identically with this slice's
 changes stashed** — verified with `git stash` — so they are environment
 state, not regressions. The offline, code-relevant suite is what §12 counts.
 
-## 14. Owner decisions still open
+## 14. Session code review — three defects found in this slice and fixed
+
+The diff was reviewed against the real corpus and against adversarial markup.
+Three genuine defects were found in the slice's own work, and all three are now
+fixed with regression tests.
+
+**HIGH — an unclosed container silently deleted the article.** The typed
+segmentation popped its kind stack only when the closing tag was on top, so a
+single missing `</nav>` left NAV open forever and every following paragraph was
+labelled navigation and never offered as prose. The failure is silent and
+indistinguishable from "this page had no usable text" — the exact failure mode
+Part A exists to prevent. Fixed with the standard recovery (an end tag unwinds
+to the nearest matching open tag; an unmatched end tag is ignored) plus two
+structural signals that a container was never closed: a HEADING inside one, and a
+PARAGRAPH inside one. Six new tests cover unclosed `nav`/`header`/`aside`,
+crossed tags, and a real menu that must *stay* navigation.
+
+**MEDIUM — the artefact filter rejected legal citations.** The whitespace-less
+node rule fired on any digit followed by a capital, which is how Bulgarian legal
+and administrative references are written: `Решение 12А`, `Отдел 3Б`, `чл. 5Б`.
+Council stories are a large share of this corpus, so the rule was suppressing
+real facts. It now demands a whole run — a token long enough to be concatenated
+nodes rather than a two-character citation — while the two unambiguous signatures
+are unchanged. The observed artefacts are still rejected.
+
+**LOW — the Serper budget claimed to be policy but was a plain parameter.**
+`MAX_SERPER_QUERIES_PER_ROUND` was documented as something no caller can raise,
+while `run_event_discovery` accepted an argument that could be set arbitrarily.
+The code now matches the stated policy: a caller may spend less and the value is
+clamped to the constant.
+
+**Lint.** 16 Ruff errors introduced by this slice are fixed, returning to the 1
+pre-existing error that was already there before G2.4. The suite is 68 tests, up
+from 55.
+
+Two things the review explicitly did **not** change, because the measurement
+rejected the fix:
+
+- the two-anchor rule (corrected to one non-generic anchor in the slice);
+- the abbreviation-aware sentence splitter, which fixes both QUESTIONABLE items
+  and immediately merges `… на 1 октомври 2026 г.` with the next sentence.
+
+## 15. Owner decisions still open
 1. **Coverage** — the 29-vs-159 semantic-decision gap must be explained before
    G2.4 can be signed off. This is the one blocker.
 2. **The single-source Draft policy** — measured (it would unlock 3 of 24 Stories),
