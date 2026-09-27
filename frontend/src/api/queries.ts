@@ -4,6 +4,7 @@ import {
   getArticle,
   getArticles,
   getFinalizedArticle,
+  getSources,
   getStories,
   getStory,
   getToday,
@@ -19,6 +20,8 @@ export const queryKeys = {
   article: (id: string) => ["article", id] as const,
   archive: (query: string) => ["archive", { query }] as const,
   archiveArticle: (id: string) => ["archiveArticle", id] as const,
+  /** V1.2-G4: one canonical registry, one query key. */
+  sources: ["sources"] as const,
 };
 
 export async function invalidateArticleProjections(
@@ -78,3 +81,4 @@ export const archiveOptions = (query: string) =>
   queryOptions({ queryKey: queryKeys.archive(query), queryFn: () => getArchive(query) });
 export const archiveArticleOptions = (id: string) =>
   queryOptions({ queryKey: queryKeys.archiveArticle(id), queryFn: () => getFinalizedArticle(id) });
+export const sourcesOptions = () => queryOptions({ queryKey: queryKeys.sources, queryFn: getSources });

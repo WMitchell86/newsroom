@@ -473,6 +473,67 @@ publish machine-readable dates for a fixed venue.
 layer is a prerequisite for the horizon filter. It is not on the critical path of
 `G2.4` and deliberately does not delay it.
 
+## V1.2-G4 follow-ups — source registry (recorded 2026-09-27)
+
+G4 shipped the editor-facing Sources screen. These are the items it deliberately
+did **not** do, with the reason each was left.
+
+### BNR: `bnrnews.bg` is not declared (needs its own slice)
+
+The registry row `bnr-burgas` declares `bnr.bg`, but the BNR Burgas articles that
+row discovers actually live on `bnrnews.bg` (16 URLs in
+`m4/review/evidence/v1_2_g2_4b_frozen_discovery.json`; see also
+`v1_2_g2_1_open_source_audit.json`, where an item discovered via `bnr-burgas`
+resolves to `final_host: bnrnews.bg`, `in_registry: false`).
+
+**Not changed in G4.** The registry has no alias / domain-identity field, so
+resolving `bnrnews.bg` to the БНР policy means a new field on a closed schema
+**plus** a change to `newsroom_run.authority_by_domain` /
+`rows_by_publisher_domain` — the publisher-authority resolution that G2.3/G2.4B
+validated at `WRONG=0 / CHROME=0`. That is a Research change (§23 forbids it in
+G4) and it touches a frozen correctness property.
+
+It is also an **owner decision, not a mechanical fix**: `bnrnews.bg` is BNR's
+national portal and also carries non-Burgas material, so declaring it would grant
+first-party authority nationally, not for the Burgas service.
+
+Current behaviour is the safe direction: those items are an unknown publisher, so
+they get **no** authority and never wrong facts.
+
+**To do, in a dedicated slice:** add `publisher_aliases` to the registry, declare
+`["bnrnews.bg"]` on the БНР row, then re-run the G2.4B frozen replay and confirm
+`WRONG=0` still holds. **No code exception for the domain.**
+
+### Four regional institutions are not monitored
+
+Confirmed absent from the canonical registry: **Пътна полиция / КАТ**, **НИМХ**,
+**ВиК Бургас**, **EVN**. (ОДМВР Бургас **is** present as `odmvr-burgas`.)
+
+No entry was invented, because that would mean guessing a feed for an
+institution the registry has never declared. G4 made this an editor action rather
+than an engineering task: `Настройки → Източници → + Добави източник` derives the
+id, the collector and the query, and validates the result. Each still needs the
+owner to confirm the canonical publisher/feed first. NIMH is a §6 authority
+candidate (weather alerts) once its host is confirmed.
+
+### Event sources (§24, untouched by design)
+
+tickets.bg, eventim.bg, grabo.bg, Летен театър Бургас, Държавна опера Бургас,
+ДТ „Адриана Будевска“ — recorded, not scraped or integrated.
+
+### `AI и модели` / `Система` settings
+
+Still unimplemented. They were **removed** from the Settings screen rather than
+shipped as empty tabs: a placeholder an editor can open teaches them that
+Settings is unfinished.
+
+### `search_runs` module-level path leak (§33)
+
+Still present after G4, recorded and not broadened. `search.py:68` hard-codes
+`var/editorial_workflow/search_runs` at import time; `story_research.py:444`
+redirects it only when a `root` argument is passed. It does not interfere with
+G4's isolated-registry proofs, so it was left alone per §33.
+
 ## V1.2-G2.4 Part F follow-up — `Най-много източници` sorting
 
 `story_store.publisher_count` now carries the correct independent-publisher

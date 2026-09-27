@@ -1,51 +1,41 @@
+import { Link } from "react-router-dom";
 import { PageHeader } from "../shared/EditorPrimitives";
 import styles from "./SupportingPages.module.css";
 
+/**
+ * V1.2-G4 §3: the secondary navigation under `Настройки`.
+ *
+ * `Източници` is the one screen this slice makes real, so it is a real link.
+ * `AI и модели` and `Система` are deliberately **absent** rather than shipped as
+ * empty tabs: §3 prefers one polished Sources screen over three half-built ones,
+ * and a placeholder an editor can open teaches them that Settings is unfinished.
+ */
 const settingsEntries = [
   {
     to: "/settings/sources",
     title: "Източници",
-    description: "Настройки на източниците и начина на събиране на материали.",
-  },
-  {
-    to: "/settings/ai",
-    title: "AI и разходи",
-    description: "Модели, квоти, платени и безплатни настройки и видимост на разходите.",
-  },
-  {
-    to: "/settings/inputs",
-    title: "Канали за вход",
-    description: "Входни канали и интеграции, включително YouTube.",
-  },
-  {
-    to: "/settings/system",
-    title: "Система",
-    description: "Технически настройки и диагностика на системата.",
+    description: "Какво следим, кои източници приемаме за надеждни за факти и колко са важни.",
+    available: true,
   },
 ] as const;
 
 export function SettingsLanding() {
   return <div className={styles.page}>
     <PageHeader
-      kicker="Технически настройки"
+      kicker="Настройки"
       title="Настройки"
-      lede="Отделни технически настройки, които не са част от ежедневната редакционна работа."
+      lede="Настройките, които определят какво следим и какво можем да използваме като факти."
     />
-    <p className={styles.settingsNote}>
-      Тези четири бъдещи подраздела са запазени като навигационни точки. Съдържанието им още не е внедрено.
-    </p>
-    <div className={styles.settingsList} aria-label="Технически настройки">
+    <div className={styles.settingsList} aria-label="Настройки">
       <ul>
-      {settingsEntries.map((entry) => <li
-        className={styles.settingsRow}
-        key={entry.to}
-        aria-disabled="true"
-      >
-        <span>
-          <span className={styles.settingsTitle}>{entry.title}</span>
-          <span className={styles.settingsDescription}>{entry.description}</span>
-        </span>
-        <span className={styles.settingsAvailability}>Още не е налично</span>
+      {settingsEntries.map((entry) => <li key={entry.to}>
+        <Link className={styles.settingsRow} to={entry.to}>
+          <span>
+            <span className={styles.settingsTitle}>{entry.title}</span>
+            <span className={styles.settingsDescription}>{entry.description}</span>
+          </span>
+          {entry.available ? <span className={styles.settingsAvailability}>Отвори</span> : null}
+        </Link>
       </li>)}
       </ul>
     </div>

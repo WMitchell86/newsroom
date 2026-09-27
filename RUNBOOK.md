@@ -48,10 +48,15 @@ never a guess:
 | anything else | **Loud startup failure.** The process refuses to start. |
 
 In SPA mode the SPA owns exactly `/`, `/stories`, `/stories/:id`, `/articles`,
-`/articles/:id`, `/archive`, `/archive/:id`, `/settings`. Nothing else changes
-route owner: `/api/v1/*`, `/healthz`, `/static/style.css` and the operator
-surfaces `/cases`, `/inbox`, `/sources`, `/models`, `/intake` stay backend, and
-any other URL is a real 404 — the SPA is never a catch-all.
+`/articles/:id`, `/archive`, `/archive/:id`, `/settings`, `/settings/sources`.
+Nothing else changes route owner: `/api/v1/*`, `/healthz`, `/static/style.css` and
+the operator surfaces `/cases`, `/inbox`, `/sources`, `/models`, `/intake` stay
+backend, and any other URL is a real 404 — the SPA is never a catch-all.
+
+A new client route must be added in **two** places: the React router **and**
+`spa.owns_spa_route`. The allowlist is closed on purpose, so a route that exists
+only in the SPA works when it is reached by clicking but 404s on a reload or a
+pasted URL — and the page then silently falls back to a legacy Workbench page.
 
 - **Cache policy:** hashed `/assets/*` are immutable; `index.html` is `no-cache`;
   `/api/v1` keeps its existing `no-store`.

@@ -1759,3 +1759,119 @@ def build_g3_article_fixture(*, newsroom: Path, editorial: Path) -> dict:
         "warning_article_id": warning_article,
         "ready_article_id": ready_article,
     }
+
+
+def build_g4_sources_fixture(*, newsroom: Path, editorial: Path) -> dict:
+    """Seed an isolated registry the owner would recognise as the real one.
+
+    Written through `sources_registry` itself — the canonical write path — so the
+    browser proof starts from exactly the shape a real install has: the Burgas
+    municipalities, the police row, both national wires, monitoring-only regional
+    media, one already-disabled row, and **three rows sharing `burgas.bg`**, which
+    is the §19 case that must never be collapsed.
+
+    Health is seeded too, so the §15 `Проблем` indicator is exercised against a
+    real FAILED record rather than mocked in the browser.
+    """
+    from editor_assistant.workflow import source_health, sources_registry
+
+    newsroom.mkdir(parents=True, exist_ok=True)
+    editorial.mkdir(parents=True, exist_ok=True)
+    path = newsroom / "sources.json"
+
+    official = [
+        # §19: three registry rows, one publisher domain.
+        ("burgas-municipality", "Община Бургас", "burgas.bg", "Община Бургас", "high", True, "active"),
+        ("burgas-cultural-program", "Културна програма — Бургас", "burgas.bg", "Културна програма Бургас", "normal", True, "active"),
+        ("burgas-sport-program", "Спортна програма — Бургас", "burgas.bg", "Спортна програма Бургас", "normal", True, "active"),
+        ("pomorie-municipality", "Община Поморие", "pomorie.bg", "Община Поморие", "high", True, "active"),
+        ("nessebar-municipality", "Община Несебър", "nesebar.bg", "Община Несебър", "low", True, "active"),
+        ("sozopol-municipality", "Община Созопол", "sozopol.org", "Община Созопол", "low", True, "active"),
+        ("tsarevo-municipality", "Община Царево", "tsarevo.bg", "Община Царево", "low", True, "active"),
+        # §17: the owner asked about the police source. It is already registered.
+        ("odmvr-burgas", "ОДМВР Бургас", "mvr.bg", "ОДМВР Бургас", "high", True, "active"),
+        ("burgas-regional-administration", "Областна администрация Бургас", "bs.gov.bg", "Областна администрация Бургас", "normal", True, "active"),
+        ("burgas-prosecution", "Прокуратура Бургас", "prb.bg", "Прокуратура Бургас", "high", True, "active"),
+        ("ruo-burgas", "РУО Бургас", "ruoburgas.bg", "РУО Бургас", "normal", True, "active"),
+    ]
+    for source_id, name, domain, query, priority, authority, status in official:
+        sources_registry.add_source(
+            path=path,
+            source_id=source_id,
+            name=name,
+            kind="official",
+            domain=domain,
+            collector="google_news_rss",
+            query=query,
+            priority=priority,
+            factual_authority=authority,
+            status=status,
+        )
+
+    # The one direct feed, added separately so its `rss` collector is real.
+    sources_registry.add_source(
+        path=path,
+        source_id="burgas-municipal-council",
+        name="Общински съвет Бургас",
+        kind="official",
+        domain="burgascouncil.org",
+        collector="rss",
+        url="https://burgascouncil.org/last-update.xml",
+        priority="high",
+        factual_authority=True,
+    )
+
+    media = [
+        ("bnr-burgas", "БНР Бургас", "bnr.bg", "БНР Бургас", "high", True, "media"),
+        ("bta-burgas", "БТА — област Бургас", "bta.bg", "БТА Бургас", "high", True, "media"),
+        ("darik-burgas", "DarikNews Бургас", "dariknews.bg", "DarikNews Бургас", "normal", False, "regional"),
+        ("chernomorski-far", "Черноморски фар", "faragency.bg", "Черноморски фар", "normal", False, "regional"),
+        ("burgasinfo", "BurgasInfo", "burgasinfo.com", "BurgasInfo", "low", False, "regional"),
+    ]
+    for source_id, name, domain, query, priority, authority, kind in media:
+        sources_registry.add_source(
+            path=path,
+            source_id=source_id,
+            name=name,
+            kind=kind,
+            domain=domain,
+            collector="google_news_rss",
+            query=query,
+            priority=priority,
+            factual_authority=authority,
+            # One already-disabled row, so the list proves it keeps showing it.
+            status="disabled" if source_id == "burgasinfo" else "active",
+        )
+
+    sources_registry.add_source(
+        path=path,
+        source_id="google-news-burgas-region",
+        name="Бургаски регион (наблюдение)",
+        kind="aggregator",
+        collector="google_news_rss",
+        query="Бургас OR Поморие OR Несебър OR Созопол OR Царево",
+        priority="high",
+        factual_authority=False,
+    )
+
+    # §15: one genuinely failing row, so `Проблем` is a real health record and
+    # the underlying HTTP text has to stay behind the API boundary. Written
+    # through `record_source`, the same path the collector uses.
+    health = newsroom / "source_health.json"
+    source_health.record_source(
+        "burgas-regional-administration",
+        status=source_health.FAILED,
+        error="HTTPError 503 while reading https://bs.gov.bg/",
+        path=health,
+    )
+    source_health.record_source(
+        "burgas-municipality",
+        status=source_health.OK,
+        item_count=14,
+        new_count=2,
+        success=True,
+        path=health,
+    )
+    return {"registry": path, "health": health}
+
+

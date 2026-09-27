@@ -1977,15 +1977,27 @@ describe("Archive and Settings", () => {
     expect(screen.queryByRole("button", { name: /Редактирай|Финализирай|Направи чернова/ })).toBeNull();
   });
 
-  it("exposes exactly four disabled technical settings", () => {
+  /**
+   * V1.2-G4 §3: `Настройки` now leads to one real screen instead of four
+   * permanently-disabled placeholders.
+   *
+   * The old contract asserted four `aria-disabled` rows. G4 replaced it on
+   * purpose: `Източници` became a working link, and `AI и модели` / `Система`
+   * were **removed** rather than shipped as empty tabs — §3 prefers one polished
+   * Sources screen over three half-built ones. This test pins the new state, and
+   * it also pins that no row claims to be disabled, because a screen an editor
+   * can open must actually work.
+   */
+  it("offers exactly one settings entry, and it is a working link", () => {
     renderWithProviders(<SettingsLanding />, { route: "/settings" });
-    const entries = screen.getAllByRole("listitem").filter((entry) => entry.getAttribute("aria-disabled") === "true");
-    expect(entries).toHaveLength(4);
-    expect(entries.map((entry) => entry.textContent)).toEqual([
-      expect.stringContaining("Източници"), expect.stringContaining("AI и разходи"),
-      expect.stringContaining("Канали за вход"), expect.stringContaining("Система"),
-    ]);
-    entries.forEach((entry) => expect(entry).toHaveAttribute("aria-disabled", "true"));
+    const entries = screen.getAllByRole("listitem");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.textContent).toContain("Източници");
+    const link = screen.getByRole("link", { name: /Източници/ });
+    expect(link).toHaveAttribute("href", "/settings/sources");
+    // No placeholder claims to be a settings surface any more.
+    expect(screen.queryByText(/Още не е налично/)).toBeNull();
+    expect(document.querySelector('[aria-disabled="true"]')).toBeNull();
   });
 });
 

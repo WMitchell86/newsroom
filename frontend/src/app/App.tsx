@@ -7,6 +7,7 @@ import { ArticleListPage } from "../pages/ArticleListPage";
 import { ArchivePage } from "../pages/ArchivePage";
 import { FinalizedArticleView } from "../pages/FinalizedArticleView";
 import { SettingsLanding } from "../pages/SettingsLanding";
+import { SourcesPage } from "../pages/SourcesPage";
 import { StoryWorkspace } from "../pages/StoryWorkspace";
 import { StoryListPage } from "../pages/StoryListPage";
 import { TodayPage } from "../pages/TodayPage";
@@ -26,6 +27,10 @@ export function App() {
             <Route path="archive" element={<ArchivePage />} />
             <Route path="archive/:articleId" element={<FinalizedArticleView />} />
             <Route path="settings" element={<SettingsLanding />} />
+            {/* V1.2-G4 §3: `Настройки` stays in the left rail; `Източници` is the
+                one secondary screen this slice makes real. `AI и модели` and
+                `Система` stay unimplemented rather than shipping as empty tabs. */}
+            <Route path="settings/sources" element={<SourcesPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

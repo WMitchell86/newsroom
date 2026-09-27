@@ -9,6 +9,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 from editor_assistant.workflow import editor_application as app
+from editor_assistant.workflow import editor_source_settings as sources_settings
 from editor_assistant.workflow import story_editor_metadata
 
 LOG = logging.getLogger(__name__)
@@ -141,6 +142,46 @@ def _body(handler: BaseHTTPRequestHandler, required: set[str]) -> dict:
     return value
 
 
+def _body_partial(handler: BaseHTTPRequestHandler, allowed: set[str]) -> dict:
+    """A body carrying **some** of `allowed`, and nothing else.
+
+    The exact-match `_body` is right for a command that takes one fixed shape.
+    A partial update is different: `Следи се`, `Надежден за факти`, `Приоритет`
+    and the name are independent editor actions, and a row must be editable one
+    field at a time. The key set is still closed, so no unregistered field can be
+    reached — the refusal is on the name, not on completeness (§10, §32).
+    """
+    content_type = handler.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise ApiError(400, "VALIDATION_ERROR", "Очаква се JSON съдържание.")
+    try:
+        length = int(handler.headers.get("Content-Length") or "")
+    except ValueError as exc:
+        raise ApiError(400, "VALIDATION_ERROR", "Размерът на заявката е невалиден.") from exc
+    if length < 0 or length > MAX_BODY_BYTES:
+        raise ApiError(400, "VALIDATION_ERROR", "Заявката е твърде голяма.")
+    try:
+        value = json.loads(
+            handler.rfile.read(length).decode("utf-8"),
+            parse_constant=lambda _v: (_ for _ in ()).throw(ValueError("non-finite number")),
+        )
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ApiError(400, "VALIDATION_ERROR", "JSON заявката е невалидна.") from exc
+    if not isinstance(value, dict):
+        raise ApiError(400, "VALIDATION_ERROR", "JSON заявката трябва да е обект.")
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ApiError(
+            400,
+            "VALIDATION_ERROR",
+            "Тези полета не могат да се променят.",
+            field_errors=[{"field": name} for name in unknown],
+        )
+    if not value:
+        raise ApiError(400, "VALIDATION_ERROR", "Няма какво да се промени.")
+    return value
+
+
 def _string(value, field: str, *, maximum: int, required: bool = True) -> str:
     if not isinstance(value, str):
         raise ApiError(400, "VALIDATION_ERROR", f"Полето {field} трябва да е текст.")
@@ -155,6 +196,84 @@ def _version(value) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ApiError(400, "VALIDATION_ERROR", "Очакваната версия трябва да е цяло число.")
     return value
+
+
+# ---------- V1.2-G4: Settings / Sources ----------
+
+
+#: §26. `/settings/sources/{id}` is the only path with a free-form id, so the id
+#: is constrained to the registry's own slug shape rather than to the Story or
+#: Article patterns used elsewhere.
+SOURCE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,63}\Z")
+
+
+def _source_id(value: str) -> str:
+    if not SOURCE_ID_RE.match(value):
+        raise ApiError(404, "NOT_FOUND", "Източникът не е намерен.")
+    return value
+
+
+def _sources_error(exc: sources_settings.SourceSettingsError) -> ApiError:
+    """A registry refusal becomes the editor's own sentence, with a 4xx.
+
+    The service already speaks editor language (§20); this only picks the status.
+    A missing source is a genuine 404; everything else is a bad request, because
+    the SPA must never be able to reach the store with an invalid change.
+    """
+    if isinstance(exc, sources_settings.SourceNotFound):
+        return ApiError(404, "NOT_FOUND", exc.message)
+    return ApiError(
+        400,
+        "VALIDATION_ERROR",
+        exc.message,
+        field_errors=[{"field": exc.field}] if exc.field else None,
+    )
+
+
+def _sources_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except sources_settings.SourceSettingsError as exc:
+        raise _sources_error(exc) from exc
+
+
+def _list_sources() -> dict:
+    return _sources_call(sources_settings.list_sources)
+
+
+def _create_source(handler: BaseHTTPRequestHandler) -> dict:
+    """`+ Добави източник`. Every field is explicit; nothing is inferred here."""
+    body = _body(handler, {"name", "address", "kind", "monitored", "factualAuthority", "priority"})
+    return _sources_call(
+        sources_settings.add_source,
+        name=_string(body["name"], "name", maximum=120),
+        address=_string(body["address"], "address", maximum=500, required=False),
+        kind=_string(body["kind"], "kind", maximum=40),
+        monitored=body["monitored"],
+        factual_authority=body["factualAuthority"],
+        priority=_string(body["priority"], "priority", maximum=20),
+    )
+
+
+def _update_source(handler: BaseHTTPRequestHandler, source_id: str) -> dict:
+    """`Редактирай` and both toggles (§10).
+
+    The four settable fields are one flat body rather than a sub-resource per
+    field, so a row can never be half-updated by a client that sends two
+    requests. Unknown keys are refused, which is what keeps a frontend from
+    reaching `source_id`, `collector` or any other registry field (§10, §32).
+    """
+    body = _body_partial(handler, {"name", "monitored", "factualAuthority", "priority"})
+    changes: dict = {}
+    if "name" in body:
+        changes["name"] = _string(body["name"], "name", maximum=120)
+    if "monitored" in body:
+        changes["monitored"] = body["monitored"]
+    if "factualAuthority" in body:
+        changes["factualAuthority"] = body["factualAuthority"]
+    if "priority" in body:
+        changes["priority"] = _string(body["priority"], "priority", maximum=20)
+    return _sources_call(sources_settings.update_source, _source_id(source_id), changes)
 
 
 def _review(handler: BaseHTTPRequestHandler, story_id: str) -> dict:
@@ -336,6 +455,16 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         query = _query(handler, {"query"})
         search = _string(query.get("query", ""), "query", maximum=200, required=False)
         return 200, {"articles": app.list_archive(search)}
+    # V1.2-G4 §26. Three thin endpoints around the existing registry service.
+    # Deliberately no DELETE: §11 requires proven historical-reference safety
+    # first, and `Изключи` already covers the editor's real need.
+    if parts == [*prefix, "settings", "sources"]:
+        if method == "GET":
+            return 200, _list_sources()
+        if method == "POST":
+            return 201, _create_source(handler)
+    if len(parts) == 5 and parts[:4] == [*prefix, "settings", "sources"] and method == "PUT":
+        return 200, _update_source(handler, parts[4])
     if len(parts) == 4 and parts[:3] == [*prefix, "archive"] and method == "GET":
         article_id = _identifier(parts[3], ARTICLE_ID_RE, "статия")
         rows = [row for row in app.list_archive() if row["id"] == article_id]
@@ -357,7 +486,10 @@ def _known_resource_path(parts: list[str]) -> bool:
         [*prefix, "stories"],
         [*prefix, "articles"],
         [*prefix, "archive"],
+        [*prefix, "settings", "sources"],
     ):
+        return True
+    if len(parts) == 5 and parts[:4] == [*prefix, "settings", "sources"]:
         return True
     if len(parts) == 4 and parts[:3] == [*prefix, "operations"]:
         return True

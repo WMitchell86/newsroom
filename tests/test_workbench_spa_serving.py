@@ -462,6 +462,10 @@ SPA_ROUTES = [
     "/archive",
     "/archive/art_1",
     "/settings",
+    # V1.2-G4: the Settings -> Sources screen is a real client route, so a
+    # reload or a pasted URL on it must serve the SPA rather than fall through
+    # to the legacy dispatcher. The browser proofs caught exactly that.
+    "/settings/sources",
 ]
 
 

@@ -3,7 +3,11 @@ import type {
   ArchiveArticle,
   ArticleDetail,
   ArticleSummary,
+  NewSourceInput,
   QuickDraftResult,
+  SourceChanges,
+  SourceRow,
+  SourcesProjection,
   StoryDetail,
   TodayProjection,
 } from "./dto";
@@ -596,6 +600,39 @@ export function getArchive(query = ""): Promise<{ articles: ArchiveArticle[] }> 
 
 export function getFinalizedArticle(id: string): Promise<ArchiveArticle> {
   return getData(`/archive/${encodeURIComponent(id)}`);
+}
+
+// ---------- V1.2-G4: Settings / Sources ----------
+
+/**
+ * The registry, as the editor sees it.
+ *
+ * A plain same-origin GET. There is no frontend-owned source list anywhere in
+ * the SPA: this projection is the only thing the Sources screen renders, and it
+ * is produced by the same canonical registry the collector reads (§2).
+ */
+export function getSources(): Promise<SourcesProjection> {
+  return getData("/settings/sources");
+}
+
+/** `+ Добави източник` (§9). Every field is sent explicitly. */
+export function createSource(input: NewSourceInput): Promise<SourceRow> {
+  return sendStoryCommand<SourceRow>("/settings/sources", "POST", input);
+}
+
+/**
+ * `Редактирай` and both toggles (§10).
+ *
+ * Only the changed fields are sent. The backend's key set is closed, so a future
+ * caller cannot widen what this screen is able to reach — the client is not the
+ * thing keeping `source_id` immutable, the API is.
+ */
+export function updateSource(id: string, changes: SourceChanges): Promise<SourceRow> {
+  return sendStoryCommand<SourceRow>(
+    `/settings/sources/${encodeURIComponent(id)}`,
+    "PUT",
+    changes,
+  );
 }
 
 export type ArticleFilter = "all" | "preparation" | "draft" | "ready";

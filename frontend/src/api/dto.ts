@@ -479,3 +479,66 @@ export interface ApiErrorEnvelope {
     fieldErrors: Array<{ field: string }>;
   };
 }
+
+/**
+ * V1.2-G4 §12/§13: the canonical registry enums, unchanged.
+ *
+ * These are the *stored* values. The screen renders `kindLabel` / `priorityLabel`
+ * and filters on these, so the editor never reads a registry word but the client
+ * still compares against the real vocabulary instead of parsing a label.
+ */
+export type SourceKind = "official" | "media" | "national" | "regional" | "aggregator";
+export type SourcePriority = "high" | "normal" | "low";
+
+/** One source row, in the words the newsroom uses. */
+export interface SourceRow {
+  /** The immutable `source_id`. Never editable, so history stays interpretable. */
+  id: string;
+  name: string;
+  kind: SourceKind;
+  kindLabel: string;
+  domain: string;
+  /** The feed URL, or what the monitoring query watches. */
+  address: string;
+  /** §8: the *effective* status, so an expired mute reads as monitored again. */
+  monitored: boolean;
+  muteUntil: string;
+  /** §6: the editor's own claim-appropriateness policy for this publisher. */
+  factualAuthority: boolean;
+  priority: SourcePriority;
+  priorityLabel: string;
+  note: string;
+  /** §15: a quiet status. No HTTP error, no collector internals. */
+  health: { status: "working" | "problem" | "unknown"; label: string; lastSuccessAt: string };
+}
+
+export interface SourceSummary {
+  total: number;
+  monitored: number;
+  notMonitored: number;
+  factualAuthority: number;
+  problems: number;
+}
+
+export interface SourcesProjection {
+  sources: SourceRow[];
+  summary: SourceSummary;
+}
+
+/** §9: the six things the add form asks for. Everything else is derived. */
+export interface NewSourceInput {
+  name: string;
+  address: string;
+  kind: SourceKind;
+  monitored: boolean;
+  factualAuthority: boolean;
+  priority: SourcePriority;
+}
+
+/** §10: the closed set of fields a row may be changed on. */
+export interface SourceChanges {
+  name?: string;
+  monitored?: boolean;
+  factualAuthority?: boolean;
+  priority?: SourcePriority;
+}

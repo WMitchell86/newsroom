@@ -210,9 +210,14 @@ def owns_spa_route(path: str) -> bool:
     """True when the SPA owns this exact client route.
 
     The allowlist is deliberately closed: ``/``, the three list routes, the
-    three detail routes and ``/settings``. Everything else — including
-    ``/case/*``, ``/cases``, ``/inbox``, ``/sources``, ``/models``, ``/intake``
-    and every unknown URL — is excluded.
+    three detail routes, ``/settings`` and ``/settings/sources`` (V1.2-G4).
+    Everything else — including ``/case/*``, ``/cases``, ``/inbox``, ``/sources``,
+    ``/models``, ``/intake`` and every unknown URL — is excluded.
+
+    The closed list is the reason a client route has to be declared here as well
+    as in the React router: a route that exists in the SPA but not in this
+    allowlist still works when it is reached by clicking, but a reload or a
+    pasted URL on it falls through to the legacy dispatcher and 404s.
     """
     parts = _segments(path)
     if parts is None:
@@ -220,6 +225,8 @@ def owns_spa_route(path: str) -> bool:
     if not parts:
         return True
     if parts == ["settings"]:
+        return True
+    if parts == ["settings", "sources"]:
         return True
     if len(parts) == 1:
         return parts[0] in {"stories", "articles", "archive"}
