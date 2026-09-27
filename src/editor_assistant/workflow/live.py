@@ -243,17 +243,42 @@ def live_generate_draft(
     assessment = angles.check_angle_gate(packet)
     if assessment:
         if assessment["status"] == angles.NO_ANGLE:
-            return {"status": angles.NO_ANGLE, "reason": assessment["reason"]}
-        packet = angles.selected_angle_packet(packet, assessment)
+            # V1.2-G4.2 §6: a closed angle set is an editorial-quality signal, not
+            # a safety one. With `force_draft` the Draft is still produced and the
+            # weakness travels with it as a warning; without it the historical
+            # refusal stands, so the CLI/workbench are unchanged.
+            if not force_draft:
+                return {"status": angles.NO_ANGLE, "reason": assessment["reason"]}
+        else:
+            packet = angles.selected_angle_packet(packet, assessment)
     readiness = readiness_mod.assess_readiness(packet, mode=mode)
     status = readiness["status"]
-    if status == readiness_mod.NO_ANGLE:
+    # V1.2-G4.2 §6: **angle quality no longer prevents a first Draft.** The angle
+    # machinery is an editorial-quality signal, not a safety one, and it was the
+    # last gate standing between a readable Story and a Draft. It now becomes a
+    # warning on the text instead of a refusal.
+    #
+    # Both angle gates are covered: the packet-level `angles.check_angle_gate`
+    # above and this orchestrator-level `NO_ANGLE`. The refusal is kept for every
+    # caller that does NOT set `force_draft` (the CLI and the workbench still
+    # judge strictly), so nothing else in the product changes behaviour.
+    angle_overridden = force_draft and status == readiness_mod.NO_ANGLE
+    if angle_overridden:
+        readiness = readiness_mod.apply_editor_override(
+            readiness, action="FORCE_DRAFT", reason=editor_override_reason
+        )
+    elif status == readiness_mod.NO_ANGLE:
         return {
             "status": readiness_mod.NO_ANGLE,
             "reason": readiness["reason"],
             "readiness": readiness,
         }
-    if status == readiness_mod.DRAFT_READY:
+    if angle_overridden:
+        # The override is already recorded above; falling through the chain below
+        # would reach the fail-closed `else` and raise, which is how a retired
+        # angle gate kept refusing a Draft it had already agreed to allow.
+        pass
+    elif status == readiness_mod.DRAFT_READY:
         pass  # §24: only DRAFT_READY proceeds automatically
     elif status == readiness_mod.RESEARCH_MORE and not force_draft:
         return {

@@ -32,6 +32,7 @@ from editor_assistant.workflow import (
     live_store,
     newsroom_refresh,
     newsroom_run,
+    publication_material,
     quick_draft,
     source_health,
     story_editor_metadata,
@@ -824,7 +825,21 @@ def _article_projection(
         evidence_status=str(missing.get("evidenceStatus") or ""),
     )
     draft_warnings = list(basis_decision["warnings"])
-    if state != "preparation" and draft_material.WARNING_OPEN_GAPS in draft_warnings:
+    # V1.2-G4.2 §16: for an Article that already has a generated Draft, the
+    # material basis recorded WITH the text is the authority — it describes what
+    # was actually written, including a publication read outside Research, which
+    # by construction leaves the research basis empty and would otherwise warn
+    # about nothing.
+    recorded = article.get("draft_material_basis") or {}
+    if recorded.get("basis") and state != "preparation":
+        draft_warnings = []
+        if recorded.get("attributionRequired"):
+            draft_warnings.append(draft_material.WARNING_SINGLE_SOURCE)
+        if blocking_gaps:
+            draft_warnings.append(draft_material.WARNING_OPEN_DRAFT)
+        if not draft_warnings:
+            draft_warnings = list(basis_decision["warnings"])
+    elif state != "preparation" and draft_material.WARNING_OPEN_GAPS in draft_warnings:
         # Once a Draft exists the open questions are the reason Ready is withheld;
         # the single-sentence "проверка преди готовност" framing belongs to the
         # Preparation screen, where the editor is deciding whether to start.
@@ -1455,15 +1470,98 @@ def _draft_snapshot(article_id: str) -> dict:
     snapshot = article_readiness.build_snapshot(
         article, content, story, facts, missing, missing.get("openedSources") or ()
     )
+    headline = _story_title(story, items_by_id) or article["working_title"]
+    representative = items_by_id.get(story.get("representative_item_id")) or {}
+    opened = list(missing.get("openedSources") or ())
+    # V1.2-G4.2 §2/§3C: when the evidence basis holds no usable material, the
+    # Story's OWN publication is read. This happens ONCE per Draft command, on
+    # the canonical representative Publication, through the same fetch guards
+    # research uses. It is source material for a work-in-progress Draft and is
+    # never written to the research store, so no fact is promoted and no gap is
+    # cleared.
+    if not facts and not any(row.get("claims") for row in opened):
+        # The Story's own publication, in the order it can actually be read:
+        # a member URL that is a real publisher page first, then — for the very
+        # common case of a `news.google.com` collection — the publisher URL the
+        # newsroom's own discovery audit already recorded when it collected the
+        # item. Both are one bounded read of the Story's own article.
+        read = None
+        for member in story.get("members") or []:
+            item = items_by_id.get(member.get("item_id")) or {}
+            read = publication_material.read_publication(
+                str(item.get("url") or ""), topic=headline
+            )
+            if read:
+                break
+        if not read:
+            # Every publisher URL this Story's article might be readable at,
+            # tried in turn. Two passes: the keyless provider rate-limits, and a
+            # throttled lookup must not be what decides that a Story with a real
+            # article has no readable material.
+            for attempt in (False, True):
+                for resolved in publication_material.publication_urls(
+                    headline, refresh=attempt
+                ):
+                    read = publication_material.read_publication(resolved, topic=headline)
+                    if read:
+                        break
+                    # A publisher ROOT (from the keyless news feed) names who
+                    # carries the story but not where. One bounded site search
+                    # finds the article on that same publisher.
+                    found = publication_material.find_on_publisher(resolved, headline)
+                    if found:
+                        read = publication_material.read_publication(found, topic=headline)
+                        if read:
+                            break
+                if read:
+                    break
+        if read:
+            authoritative = _original_publication_is_authoritative(read["domain"])
+            opened = [
+                {
+                    "id": "src_original_publication",
+                    "name": read["domain"]
+                    or representative.get("publisher_domain")
+                    or "източник",
+                    "url": read["url"],
+                    "domain": read["domain"],
+                    # A publication read outside Research carries no authority
+                    # claim of its own: whether it is a factual authority is the
+                    # editor's own source setting, resolved exactly as before.
+                    "factualAuthority": authoritative,
+                    "authority": "PRIMARY" if authoritative else "CORROBORATING",
+                    "claims": read["claims"],
+                    "origin": "original_publication",
+                }
+            ]
     snapshot.update(
         {
-            "headline": _story_title(story, items_by_id) or article["working_title"],
-            "summary": str(
-                (items_by_id.get(story.get("representative_item_id")) or {}).get("summary") or ""
-            ),
+            "headline": headline,
+            "summary": str(representative.get("summary") or ""),
+            "sources": opened,
         }
     )
     return snapshot
+
+
+def _original_publication_is_authoritative(domain: str) -> bool:
+    """Whether the editor's own registry marks this publisher a factual authority.
+
+    Read through the SAME registry and the same publisher-identity resolution the
+    rest of the product uses, so reading a Story's own publication introduces no
+    new trust system (G4 `Надежден за факти` remains the only authority).
+    """
+    if not domain:
+        return False
+    try:
+        resolved = newsroom_run.resolve_publisher_policy(
+            domain,
+            _registry_rows_by_domain(),
+            publisher_identity=story_store.publisher_identity,
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return bool(resolved.get("factual_authority"))
 
 
 def _draft_signature(snapshot: dict) -> str:
@@ -1736,9 +1834,33 @@ def _quick_evidence_verdict(story_id: str, articles: list[dict]):
     return article_readiness.evaluate_evidence(
         evidence_status=str(missing.get("evidenceStatus") or ""),
         facts=facts,
-        blocking_gaps=[row for row in missing["items"] if row.get("blocking")],
+        # Every gap, not only the blocking ones: a detected conflict is an
+        # editorial obstacle the Draft gate must see (V1.2-G4.1 §C2).
+        blocking_gaps=missing["items"],
         source_url=article_readiness._first_source_url(facts),
+        sources=missing.get("openedSources") or (),
     )
+
+
+
+def _original_publication_is_readable(story_id: str, story: dict) -> bool:
+    """Whether the Story's own publication can be read right now.
+
+    V1.2-G4.2 §3C/§5: this is the ONLY thing that makes a `NO_DRAFT_MATERIAL`
+    verdict final. Research failing, corroboration being absent, an open
+    question or a weak angle are all warnings; the absence of readable prose is
+    the real blocker.
+
+    Bounded and cheap: the URL is only *resolved* here (no page is fetched). The
+    read itself happens once, in the Draft command, and only when it is needed.
+    """
+    items = _story_items()
+    for member in (story or {}).get("members") or []:
+        url = str((items.get(member.get("item_id")) or {}).get("url") or "")
+        if publication_material.is_readable_publication(url):
+            return True
+    title = _story_title(story, items)
+    return bool(publication_material.publication_urls(title))
 
 
 def _create_quick_article(story_id: str, story: dict) -> str | None:
@@ -1832,20 +1954,33 @@ def _run_quick_draft(story_id: str) -> dict:
     # 2. Research, when the canonical basis warrants it and the round cap allows.
     # `research_story` is the same synchronous implementation the normal command
     # runs, including the cap; a transport failure stops rather than degrades.
+    research_problem = ""
     if _research_remedy_needed(story_id, story):
         try:
             research_story(story_id)
-        except (EditorResearchUnavailable, EditorInvalidTransition) as exc:
-            return quick_draft.result_needs_attention(
-                story_id, quick_draft.DRAFT_GENERATION_FAILED, str(exc)
-            )
+        except (
+            EditorResearchUnavailable,
+            EditorInvalidTransition,
+            story_research.StoryResearchError,
+            OSError,
+            ValueError,
+        ) as exc:
+            research_problem = str(exc)
+        except Exception:  # noqa: BLE001 - a research failure is never fatal (§4)
+            # V1.2-G4.2 §4: research is an IMPROVEMENT, not a permission. Any
+            # research failure — including an exhausted round cap or a page that
+            # yielded no extractable claim — is recorded and carried on to the
+            # Draft as a warning. It stops the Draft only if the Story's own
+            # publication also cannot be read, which the Draft gate decides.
+            research_problem = "Допълнителното проучване не можа да завърши успешно."
+            LOG.info("quick draft: research did not complete for %s: %s", story_id, research_problem)
 
     # 3. Re-evaluate the canonical evidence. This is the honest re-check: a
     # completed research round that did not produce usable material stops the
     # command *before* an Article exists, so nothing is left behind to clean up.
     articles, contents = _story_articles(story_id)
     verdict = _quick_evidence_verdict(story_id, articles)
-    if not verdict.eligible:
+    if not verdict.eligible and not _original_publication_is_readable(story_id, story):
         return quick_draft.result_needs_attention(
             story_id, verdict.reason_code, verdict.reason_message
         )

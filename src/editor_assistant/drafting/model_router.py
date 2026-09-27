@@ -86,6 +86,17 @@ _DAILY_QUOTA_MARKERS = (
     "rpd",
 )
 
+#: Provider wording that means "this model does not exist", as opposed to "this
+#: request was malformed". Only a 400 carrying one of these is permanent.
+_MODEL_MISSING_MARKERS = (
+    "model not found",
+    "models.notfound",
+    "is not found for api version",
+    "unknown model",
+    "no such model",
+    "does not exist",
+)
+
 _DAILY_QUOTA_CATEGORIES = {QUOTA_EXHAUSTED, MODEL_LIMIT_REACHED, ROLE_HARD_BUDGET}
 
 
@@ -228,8 +239,25 @@ def classify_failure(exc) -> str:
             body = ""
     code = getattr(exc, "code", None)
     if isinstance(code, int):
-        if code in (400, 404, 422):
+        # V1.2-G4.2 §12/§14: a removed model must not disable the product, and a
+        # HEALTHY model must not be disabled either. The reliable "this model does
+        # not exist" signal is 404 (and 422, a well-formed but unacceptable
+        # request for that model). A bare **400 is not** that signal: Gemini
+        # answers 400 for a malformed request — an unsupported generation
+        # parameter, or an output budget smaller than its own thinking budget —
+        # and a single such request was enough to mark the ONLY working Draft
+        # route `INVALID_MODEL` until the policy changed. That made the primary
+        # product action look permanently broken while the model answered fine.
+        #
+        # So: 404/422 stay permanent, and 400 is permanent only when the provider
+        # actually says the model is unknown. Everything else is retryable.
+        if code in (404, 422):
             return INVALID_MODEL
+        if code == 400:
+            lowered = str(body).lower()
+            if any(marker in lowered for marker in _MODEL_MISSING_MARKERS):
+                return INVALID_MODEL
+            return TRANSIENT
         if code == 402:
             # The provider refuses for billing reasons (OpenRouter: no credits).
             # That is not a transient failure: retrying wastes time and never fixes it.

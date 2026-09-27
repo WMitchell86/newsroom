@@ -46,6 +46,10 @@ ARTICLE_FIELDS = {
     # content version the immutable generation audit assessed.
     "draft_established_version",
     "generated_content_version",
+    # V1.2-G4.2 §16: WHAT the generated Draft was written from, so the warnings
+    # the editor sees afterwards describe the real material rather than being
+    # recomputed from a basis that may since have moved on.
+    "draft_material_basis",
     # V1.1-C: the durable identity of the last genuine generation failure. It
     # exists so `Редактирай` can be a recovery path rather than an always-on
     # escape hatch, and it is bound to the generation basis it was produced from.
@@ -190,7 +194,15 @@ def validate_editor_article(raw) -> dict:
     missing = sorted(
         (
             ARTICLE_FIELDS
-            - {"draft_established_version", "generated_content_version", "draft_generation_failure"}
+            - {
+                "draft_established_version",
+                "generated_content_version",
+                "draft_generation_failure",
+                # V1.2-G4.2 §16: optional like the other post-C1 markers, so
+                # every Article written before this field stays readable instead
+                # of invalidating a real store.
+                "draft_material_basis",
+            }
         )
         - set(raw)
     )
@@ -268,7 +280,33 @@ def validate_editor_article(raw) -> dict:
         "finalized_at": finalized_at,
         "draft_established_version": draft_established_version,
         "generated_content_version": generated_content_version,
+        "draft_material_basis": _validate_draft_material_basis(raw.get("draft_material_basis")),
         "draft_generation_failure": draft_generation_failure,
+    }
+
+
+def _validate_draft_material_basis(raw) -> dict | None:
+    """The material a generated Draft was built from, or `None`.
+
+    Editor-facing strings only: which basis it was (promoted / official /
+    single source), the publisher it came from, and the attribution the text
+    must carry. Absent is normal and means "not recorded", never a claim.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ArticleStoreError("draft_material_basis must be object")
+    unknown = sorted(set(raw) - {"basis", "sourceDomain", "sourceUrl", "attributionRequired"})
+    if unknown:
+        raise ArticleStoreError(f"unknown draft_material_basis fields {unknown}")
+    basis = str(raw.get("basis") or "")
+    if not basis:
+        raise ArticleStoreError("draft_material_basis.basis is required")
+    return {
+        "basis": basis,
+        "sourceDomain": str(raw.get("sourceDomain") or ""),
+        "sourceUrl": str(raw.get("sourceUrl") or ""),
+        "attributionRequired": bool(raw.get("attributionRequired")),
     }
 
 
@@ -748,6 +786,7 @@ def publish_generated_draft(
     title: str,
     body: str,
     internal_refs=None,
+    draft_material_basis=None,
     now=None,
     root=None,
 ) -> dict:
@@ -791,6 +830,10 @@ def publish_generated_draft(
         record["content_path"] = _content_relative_path(article_id, next_version)
         record["updated_at"] = stamp
         record["internal_refs"] = refs
+        # §16: record what the text was actually written from, so the warnings
+        # shown afterwards describe this Draft and not a basis that has since
+        # changed. Absent stays absent: nothing is invented.
+        record["draft_material_basis"] = _validate_draft_material_basis(draft_material_basis)
         record["ready_version"] = None
         record["ready_validation_digest"] = None
         record["ready_at"] = None

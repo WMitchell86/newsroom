@@ -244,6 +244,37 @@ def evaluate(snapshot: dict) -> None:
         raise DraftRefused(readiness.reason_code, readiness.reason_message)
 
 
+
+def _draft_material_basis(snapshot: dict) -> dict:
+    """What THIS generated Draft was written from, in editor-safe terms.
+
+    V1.2-G4.2 §16. Recorded with the text so the warnings the editor sees
+    afterwards describe the real material. Derived from the SAME snapshot the
+    generation used, so it cannot disagree with what was actually written.
+    """
+    facts = list(snapshot.get("facts") or [])
+    sources = [
+        row
+        for row in (snapshot.get("sources") or ())
+        if str((row or {}).get("url") or "")
+    ]
+    if facts:
+        basis = draft_material.PROMOTED
+    elif any(
+        str((row or {}).get("authority") or "").upper() == "PRIMARY" for row in sources
+    ):
+        basis = draft_material.PRIMARY
+    else:
+        basis = draft_material.SINGLE_SOURCE
+    origin = next((row for row in sources if (row or {}).get("claims")), None)
+    return {
+        "basis": basis,
+        "sourceDomain": str((origin or (sources[0] if sources else {})).get("domain") or ""),
+        "sourceUrl": str((origin or (sources[0] if sources else {})).get("url") or ""),
+        "attributionRequired": basis == draft_material.SINGLE_SOURCE,
+    }
+
+
 def build_packet(snapshot: dict, evidence_id: str) -> dict:
     """Adapt the canonical Story basis into one M2.3B EvidencePacket.
 
@@ -470,6 +501,7 @@ def generate(snapshot: dict, *, root=None, now=None) -> dict:
         title=snapshot["content"]["title"],
         body=body,
         internal_refs=internal_refs,
+        draft_material_basis=_draft_material_basis(snapshot),
         now=now,
         root=editorial,
     )
