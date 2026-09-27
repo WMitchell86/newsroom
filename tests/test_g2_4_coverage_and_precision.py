@@ -70,6 +70,48 @@ def test_plain_text_pages_still_work_as_one_prose_block():
     assert [b["kind"] for b in blocks] == [html_desc.PROSE]
 
 
+@pytest.mark.parametrize(
+    "html",
+    [
+        # A container the page never closes. Real markup omits end tags, and the
+        # failure is SILENT: every later paragraph is labelled NAV and lost, which
+        # looks exactly like "this page had no usable text".
+        "<nav><a>Меню</a><p>Реален факт за Бургас днес.</p>",
+        "<header><h1>Заглавие</h1><p>Реален факт за Бургас днес.</p>",
+        "<aside>Сподели</aside><p>Реален факт за Бургас днес.</p>",
+        # Crossing / mismatched end tags.
+        "<nav><div></span></nav><p>Реален факт за Бургас днес.</p>",
+    ],
+)
+def test_an_unclosed_container_never_swallows_the_article(html):
+    """§A2 recovery: broken markup must not delete real prose."""
+    blocks = html_desc.normalize_blocks(html)
+    assert any(b["kind"] == html_desc.PROSE and "Реален факт" in b["text"] for b in blocks), blocks
+
+
+def test_well_formed_navigation_is_still_navigation():
+    """The recovery must not demote a real menu to prose."""
+    html = "<nav>" + "<a>Начало</a><a>Новини</a><a>Култура</a>" * 10 + "</nav><p>Реален факт.</p>"
+    blocks = html_desc.normalize_blocks(html)
+    assert blocks[0]["kind"] == html_desc.NAV
+    assert any(b["kind"] == html_desc.PROSE and "Реален факт" in b["text"] for b in blocks)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Legal and administrative references glue a digit to a capital constantly.
+        # An earlier version of the artefact rule rejected every one of these, and
+        # council stories are a large share of this corpus.
+        "Решение 12А на ОбС е прието на заседанието в сградата на Община Бургас.",
+        "Отдел 3Б ще извърши проверката на обектите през месец октомври 2026 г.",
+    ],
+)
+def test_an_article_reference_is_not_a_renderer_artefact(text):
+    """§A2: the glued-node rule must demand a RUN, not a single citation."""
+    assert cq.is_factual_candidate(text) is True
+
+
 # ---------------------------------------------------------------------------
 # §A3 — the generalised tag-cloud / widget classes
 # ---------------------------------------------------------------------------
@@ -113,14 +155,22 @@ def test_legitimate_short_sentences_are_not_over_filtered(text):
 #: renderer artefact, and each is a property of the TEXT rather than of a
 #: publisher: an accessibility skip link, and a whitespace-less node boundary.
 G24_RENDERER_ARTEFACTS = (
-    "сеп.212026ПресцентърСпортНа 19 и 20 септември се състоя първият кръг от "
-    "първенството на детския отбор на ОФК „Поморие“.",
-    "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 "
-    "септември – Община Поморие Skip to content 27.09.2026г.",
-    "2 публикацииНа 21 септември се отбелязва Световният ден за информираност "
-    "за болестта на Алцхаймер.",
-    "сеп.142026ПресцентърСпортНа 12 и 13 септември 2026 година започнаха "
-    "първенствата на детско-юношеската школа на Общински футболен клуб „Поморие“.",
+    (
+        "сеп.212026ПресцентърСпортНа 19 и 20 септември се състоя първият кръг от "
+        "първенството на детския отбор на ОФК „Поморие“."
+    ),
+    (
+        "Резултати от срещите на детско-юношеските школи на ОФК „Поморие“ за 19 и 20 "
+        "септември – Община Поморие Skip to content 27.09.2026г."
+    ),
+    (
+        "2 публикацииНа 21 септември се отбелязва Световният ден за информираност "
+        "за болестта на Алцхаймер."
+    ),
+    (
+        "сеп.142026ПресцентърСпортНа 12 и 13 септември 2026 година започнаха "
+        "първенствата на детско-юношеската школа на Общински футболен клуб „Поморие“."
+    ),
 )
 
 
@@ -165,14 +215,20 @@ def test_a_leading_preposition_does_not_cost_a_real_fact():
 @pytest.mark.parametrize(
     "text",
     [
-        "На 21 септември се отбелязва Световният ден за информираност за болестта "
-        "на Алцхаймер.",
-        "Четирите гола за Поморие бяха дело на Калоян Димов – 2 гола, Пламен "
-        "Продромов – 1 гол и Александър Демирев – 1 гол.",
+        (
+            "На 21 септември се отбелязва Световният ден за информираност за "
+            "болестта на Алцхаймер."
+        ),
+        (
+            "Четирите гола за Поморие бяха дело на Калоян Димов – 2 гола, Пламен "
+            "Продромов – 1 гол и Александър Демирев – 1 гол."
+        ),
         "Те срещнаха отбора на ФК „Карнобат“ и загубиха с 1 – 6.",
         "Майка и дете пострадаха при катастрофа на пътя Бургас-Созопол вчера.",
-        "В центъра на романа е балкански град, чиито жители решават да построят "
-        "физическа стена.",
+        (
+            "В центъра на романа е балкански град, чиито жители решават да "
+            "построят физическа стена."
+        ),
     ],
 )
 def test_real_facts_survive_the_renderer_filter(text):
@@ -287,6 +343,32 @@ def test_the_generic_region_is_a_last_resort_never_a_default():
 def test_the_ladder_is_deterministic():
     anchors = event_search.event_anchors(BURGAS_SOZOPOL)
     assert event_search.event_queries(anchors) == event_search.event_queries(anchors)
+
+
+def test_the_serper_budget_is_policy_and_cannot_be_raised():
+    """§B5: a caller may spend LESS, never more, of the owner's allocation."""
+    from editor_assistant.workflow import search as search_mod
+
+    spent = {"n": 0}
+
+    class _Provider:
+        name = "serper"
+
+        def search(self, query, **kw):
+            spent["n"] += 1
+            return {"status": search_mod.SEARCH_OK, "results": []}
+
+    op = search_mod.run_event_discovery(
+        topic=BURGAS_SOZOPOL,
+        constraints=search_mod.make_constraints(description="x", location="Бургас"),
+        provider=_Provider(),
+        page_opener=lambda _url: (_ for _ in ()).throw(RuntimeError("no network")),
+        serper_budget=99,          # a caller asking for far more
+        env={},                    # no Serper key -> the stub chain only
+    )
+    # With no Serper key the chain contributes nothing, so the clamp is asserted
+    # structurally as well: the recorded budget can never exceed the policy.
+    assert op["serper_budget"] <= event_search.MAX_SERPER_QUERIES_PER_ROUND
 
 
 # ---------------------------------------------------------------------------
@@ -478,14 +560,15 @@ def test_alternatives_never_gate_draft_eligibility():
 
 
 def _single_source_basis():
-    return dict(
-        evidence_status="assessed",
-        facts=[{"id": "fact_1", "sourceId": "s1", "text": "X",
-                "source": {"id": "s1", "url": "https://x.test/a", "name": "X"}}],
-        sources=[{"id": "s1", "domain": "x.test", "name": "X", "url": "https://x.test/a"}],
-        gaps=[{"kind": "unresolved", "question": "Нужен е още независим източник.",
-               "blocking": True}],
-    )
+    return {
+        "evidence_status": "assessed",
+        "facts": [{"id": "fact_1", "sourceId": "s1", "text": "X",
+                   "source": {"id": "s1", "url": "https://x.test/a", "name": "X"}}],
+        "sources": [{"id": "s1", "domain": "x.test", "name": "X",
+                     "url": "https://x.test/a"}],
+        "gaps": [{"kind": "unresolved", "question": "Нужен е още независим източник.",
+                  "blocking": True}],
+    }
 
 
 def test_the_experiment_unlocks_a_single_media_source_with_attribution():

@@ -57,6 +57,13 @@ _SKIP_TAGS = frozenset({"script", "style"})
 # flattening behaviour of `normalize_description` is untouched for its existing
 # callers.
 
+#: §A2 recovery — how long a run of text may stay classified as NAV before the
+#: classification is distrusted. A menu, a footer and a sidebar are short; a
+#: navigation run longer than this means the container was never closed, and
+#: continuing to label the rest of the article "navigation" would silently lose
+#: real facts. Losing recall quietly is far worse than demoting chrome to prose.
+_MAX_NAV_CHARS = 800
+
 #: Block kinds. Only `PROSE` may become a factual sentence.
 HEADING = "HEADING"
 LIST_ITEM = "LIST_ITEM"
@@ -89,6 +96,7 @@ class _DescriptionParser(HTMLParser):
         self._skip_depth = 0
         self._typed = typed
         self._kind_stack: list[str] = []
+        self._tag_stack: list[str] = []
         self.blocks: list[dict] = []
         self._open: str | None = None
         self._buffer: list[str] = []
@@ -110,21 +118,31 @@ class _DescriptionParser(HTMLParser):
         self._open = None
         self._buffer = []
 
-    def _open_kind(self, kind: str) -> None:
+    def _open_kind(self, kind: str | None) -> None:
         if self._open == kind:
             return
         self._flush()
         self._open = kind
         self._buffer = []
 
-    def _close_kind(self, kind: str) -> None:
-        if self._kind_stack and self._kind_stack[-1] == kind:
+    def _close_kind(self, tag: str) -> None:
+        """Unwind to the matching open tag, tolerating markup that is not well formed.
+
+        Real pages omit end tags. Popping only when the tag is on top of the stack
+        leaves a container open forever, and every later paragraph is then
+        classified as NAV and silently lost — a recall failure that looks like
+        "this page had no usable text". The standard recovery is used instead:
+        find the nearest matching open tag and unwind everything opened inside
+        it; ignore an end tag that matches nothing.
+        """
+        if tag not in self._tag_stack:
+            return
+        while self._tag_stack:
+            top = self._tag_stack.pop()
             self._kind_stack.pop()
-        if self._open is not None and self._kind_stack:
-            # The block continues under the next enclosing kind.
-            self._open_kind(self._kind())
-        else:
-            self._flush()
+            if top == tag:
+                break
+        self._open_kind(self._kind() if self._kind_stack else None)
 
     def _push(self, tag: str) -> None:
         kind = None
@@ -137,7 +155,18 @@ class _DescriptionParser(HTMLParser):
         elif tag in _LIST_TAGS:
             kind = LIST_ITEM
         if kind is not None:
+            # §A2 recovery: a HEADING inside a still-open furniture container
+            # means the container was never closed — a `<header>` left open at
+            # the top of an article is the common case, and without this every
+            # following paragraph is lost as NAV. A heading is the one block kind
+            # that is essentially never nested inside a nav/footer/form.
+            if kind == HEADING:
+                while self._tag_stack and self._kind_stack[-1] == NAV:
+                    self._tag_stack.pop()
+                    self._kind_stack.pop()
+                self._open_kind(self._kind())
             self._flush()
+            self._tag_stack.append(tag)
             self._kind_stack.append(kind)
             if self._open is None:
                 self._open_kind(kind)
@@ -155,6 +184,18 @@ class _DescriptionParser(HTMLParser):
                     self.hrefs.append(value.strip())
                     break
         if self._typed:
+            # §A2 recovery: a PARAGRAPH inside a still-open navigation container
+            # means the container was never closed. Menus are built from links
+            # and list items; a `<p>` only ever appears in the article. Without
+            # this, one missing `</nav>` silently deletes the whole article.
+            if name == "p" and NAV in self._kind_stack:
+                index = len(self._kind_stack) - 1 - self._kind_stack[::-1].index(NAV)
+                del self._kind_stack[index:]
+                del self._tag_stack[index:]
+                # Close the navigation block that was still open, so the
+                # paragraph that follows is buffered as prose rather than
+                # appended to the menu.
+                self._open_kind(self._kind())
             self._push(name)
         if name in _BLOCK_TAGS:
             self.chunks.append(" ")
@@ -182,18 +223,9 @@ class _DescriptionParser(HTMLParser):
             self.chunks.append(" ")
 
     def _close_kind_for(self, name: str) -> None:
-        """Close the block kind this end tag opened, if it opened one."""
-        kind = None
-        if name in _NAV_TAGS:
-            kind = NAV
-        elif name in _HEADING_TAGS:
-            kind = HEADING
-        elif name in _LABEL_TAGS:
-            kind = LABEL
-        elif name in _LIST_TAGS:
-            kind = LIST_ITEM
-        if kind is not None:
-            self._close_kind(kind)
+        """Close the block this end tag opened, if it opened one."""
+        if name in _NAV_TAGS or name in _HEADING_TAGS or name in _LABEL_TAGS or name in _LIST_TAGS:
+            self._close_kind(name)
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth:
@@ -203,6 +235,9 @@ class _DescriptionParser(HTMLParser):
             if self._typed:
                 if self._open is None:
                     self._open_kind(self._kind())
+                if self._open == NAV and sum(len(part) for part in self._buffer) > _MAX_NAV_CHARS:
+                    # The container was never closed. Stop trusting the label.
+                    self._open_kind(PROSE)
                 self._buffer.append(data)
 
 

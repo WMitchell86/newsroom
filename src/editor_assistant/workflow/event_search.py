@@ -69,11 +69,11 @@ _EVENT_WORDS = frozenset(
         "пострадаха", "пострадал", "пострадала", "загина", "загинал", "загинаха",
         "ранен", "ранени", "катастрофа", "катастрофи", "инцидент", "инциденти",
         "пожари", "пожар", "земетресение", "наводнение", "сблъскване", "обръщане",
-        "крадеж", "грабеж", "нападение", "инцидент", "авари", "авария", "проблем",
+        "крадеж", "грабеж", "нападение", "авари", "авария", "проблем",
         "отвори", "отвориха", "отваря", "започна", "започнаха", "завърши",
         "представи", "представя", "представяне", "изнесе", "изнася", "изяви",
         "прие", "приеха", "одобри", "одобриха", "отхвърли", "избра", "провежда",
-        "започнаха", "пристигна", "заминава", "завършиха", "подписа", "обяви",
+        "пристигна", "заминава", "завършиха", "подписа", "обяви",
         "награди", "празнува", "отдава", "посрещне", "среща", "изложба", "концерт",
         "спектакъл", "турнир", "мач", "предаване", "зала", "събитие", "фестивал",
     }
@@ -121,7 +121,7 @@ def _content_words(value: str, *, for_query: bool = False) -> list[str]:
     count towards claim agreement, but it is precisely what a search query
     needs in order to return publishers covering that event.
     """
-    from editor_assistant.workflow.claim_quality import _key, _NEVER_ANCHOR
+    from editor_assistant.workflow.claim_quality import _NEVER_ANCHOR, _key
 
     blocked = _QUERY_NOISE_WORDS if for_query else _NEVER_ANCHOR
     out: list[str] = []
@@ -325,7 +325,7 @@ def event_filter(anchors: dict, candidates) -> list[dict]:
     distinctive term, is REJECTED: that is the "Катастрофа край Казанлък…"
     case, decided from metadata before the expensive open.
     """
-    from editor_assistant.workflow.claim_quality import _key, _NEVER_ANCHOR
+    from editor_assistant.workflow.claim_quality import _NEVER_ANCHOR, _key
 
     subject_localities = {
         _key(word.casefold()) for word in (anchors.get("localities") or []) if len(word) > 3

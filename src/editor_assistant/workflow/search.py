@@ -440,8 +440,13 @@ def run_event_discovery(
     """
     from editor_assistant.workflow import event_search
 
-    if serper_budget is None:
-        serper_budget = event_search.MAX_SERPER_QUERIES_PER_ROUND
+    # §B5: the budget is POLICY, not a hint. The parameter exists only so a test
+    # can spend LESS; it is clamped to the constant so no caller — including a
+    # future one — can spend more of the owner's allocation than the policy says.
+    serper_budget = min(
+        event_search.MAX_SERPER_QUERIES_PER_ROUND,
+        event_search.MAX_SERPER_QUERIES_PER_ROUND if serper_budget is None else int(serper_budget),
+    )
 
     anchors = event_search.event_anchors(topic)
     ladder = event_search.event_queries(anchors, missing_dimensions=missing_dimensions)

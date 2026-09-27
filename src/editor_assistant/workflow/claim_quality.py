@@ -89,11 +89,15 @@ _TAG_CLOUD_PATTERNS = (
     # 1. any hashtag token. `#` is never part of Bulgarian prose.
     r"#\w",
     # 3. share / follow components.
-    r"сподели статия|споделете статия|харесва(йте)?\s+страницата|следвай(те)?\s+ни|"
-    r"свали приложението|абонирай(те)?\s+за",
+    (
+        r"сподели статия|споделете статия|харесва(йте)?\s+страницата|следвай(те)?\s+ни|"
+        r"свали приложението|абонирай(те)?\s+за"
+    ),
     # 4. recommendation widgets.
-    r"препоръчано за вас|още от автора|повече (новини|статии) от|свързани статии|"
-    r"прочетете още|вижте още",
+    (
+        r"препоръчано за вас|още от автора|повече (новини|статии) от|свързани статии|"
+        r"прочетете още|вижте още"
+    ),
 )
 
 #: 2. a navigation/category run: three or more short Title-Case labels with no
@@ -121,10 +125,20 @@ _SKIP_LINK = re.compile(
 )
 
 #: Proof of a whitespace-less node boundary inside the text.
+#:
+#: Two independent signatures, because a single digit-then-capital adjacency is
+#: NOT enough: Bulgarian legal and administrative references use it constantly
+#: ("чл. 5Б", "Решение 12А", "Отдел 3Б"), and an earlier version of this rule
+#: rejected every one of them — real sentences, on council stories in particular.
+#: The artefact is a *whole run* of concatenated nodes, so the digit rule demands
+#: a token that is long enough to be a run and not a citation.
 _GLUED_TOKEN = re.compile(
-    r"\d[А-ЯЪA-Z]"          # digits immediately followed by a capitalised word
-    r"|[а-я]{3}[А-ЯЪ]"       # a lowercase word run glued to a new capitalised word
-    r"|\)[А-ЯЪ]"           # a closing bracket glued to the next word
+    # a long token mixing digits and capitals: `212026ПресцентърСпорт`
+    r"\b\w*[0-9]\w*[А-ЯЪ]\w{3,}\b"
+    # a lowercase word run glued to a new capitalised word: `публикацииНа`
+    r"|[а-я]{3}[А-ЯЪ]"
+    # a closing bracket glued to the next word
+    r"|\)[А-ЯЪ]"
 )
 
 _NAV_RUN_CLOUD = re.compile(

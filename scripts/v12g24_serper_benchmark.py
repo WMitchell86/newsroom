@@ -48,10 +48,14 @@ def main() -> int:
 
     from editor_assistant.workflow import (
         editor_application as app,
+    )
+    from editor_assistant.workflow import (
         event_search,
         inbox_store,
-        search as search_mod,
         story_store,
+    )
+    from editor_assistant.workflow import (
+        search as search_mod,
     )
 
     newsroom = Path(args.newsroom)
