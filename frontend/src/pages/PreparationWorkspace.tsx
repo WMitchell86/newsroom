@@ -38,6 +38,17 @@ export function PreparationWorkspace({
     queryClient.setQueryData(queryKeys.article(projection.id), projection);
     await invalidateArticleProjections(queryClient, projection.id, projection.story.id);
   };
+  /**
+   * Re-read the Article and its Story readiness from the server.
+   *
+   * Research does NOT go through `acceptProjection`: there is no fresh Article
+   * payload to accept, and handing the render-time `article` to it would write
+   * the pre-research projection back into the cache - a visible flash of the
+   * old readiness sentence, and stale state for good if the refetch fails.
+   */
+  const refreshReadiness = async () => {
+    await invalidateArticleProjections(queryClient, article.id, article.story.id);
+  };
   const titleSave = useMutation({
     mutationFn: () => updateArticleTitle(article.id, article.content.version, title.trim()),
     onSuccess: async (projection) => {
@@ -97,7 +108,7 @@ export function PreparationWorkspace({
     onSuccess: async (outcome) => {
       setResearchError("");
       if (outcome.status === "completed") {
-        await acceptProjection(article);
+        await refreshReadiness();
       } else {
         // §2: still running after the bounded wait. The token lets the editor
         // reattach to the same operation rather than start another round.
@@ -117,9 +128,12 @@ export function PreparationWorkspace({
     mutationFn: () => checkResearchStatus(researchToken ?? ""),
     onSuccess: async (outcome) => {
       setResearchError("");
-      if (outcome.status === "completed") setResearchToken(null);
-      else setResearchToken(outcome.operationToken);
-      await acceptProjection(article);
+      if (outcome.status === "continuing") {
+        setResearchToken(outcome.operationToken);
+        return;
+      }
+      setResearchToken(null);
+      await refreshReadiness();
     },
     onError: (error) => setResearchError(getErrorMessage(error)),
   });

@@ -438,21 +438,28 @@ def execute_story_research(
         for item in items
         if item["authority"] == "PRIMARY" or len({x["domain"] for x in items}) >= 2
     }
-    # §12: how many claims actually existed before the promotion gate, so the
-    # two "nothing was promoted" reasons can be told apart truthfully.
-    claims_found = len(source_records)
-    facts = [fact for fact in facts if fact["source_refs"][0]["source_id"] in allowed]
+    # §12: which of the two "nothing was promoted" reasons applies depends on
+    # whether a claim existed BEFORE the promotion gate and was dropped by it.
+    # `dropped_by_gate` names that directly: inside the `not facts` branch it
+    # equals the pre-filter claim count, and a claim only exists there because
+    # the extractor accepted a sentence from an opened page.
+    promoted = [fact for fact in facts if fact["source_refs"][0]["source_id"] in allowed]
+    dropped_by_gate = len(facts) - len(promoted)
+    facts = promoted
     if not facts:
         # V1.1-A §10/§16: a completed first round with no usable opened
         # source is ASSESSED with an explicit gap — never an empty assessed
         # basis and never silent UNASSESSED. Later gap-driven rounds keep the
         # historical refusal (nothing to merge, nothing to persist).
-        # §12: the pages DID open. Which of the two honest sentences applies
-        # depends on whether a claim existed at all before the promotion gate:
-        # a claim that never passed the gate is a corroboration problem, and
-        # saying so is the point of this slice.
+        # §12: the pages DID open. A claim that existed and was dropped by the
+        # gate is specifically a corroboration problem: a fact survives only if
+        # its source is PRIMARY or its claim was seen on two independent
+        # domains, so a dropped single-domain claim is exactly the case where
+        # one more independent publisher would settle it. When no claim was
+        # extracted at all, nothing is known and the vaguer sentence is the
+        # truthful one.
         gap_text = (
-            GAP_NEEDS_CORROBORATION if claims_found else GAP_NOTHING_PROMOTED
+            GAP_NEEDS_CORROBORATION if dropped_by_gate else GAP_NOTHING_PROMOTED
         )
         if bootstrap:
             return story_research_store.merge_research(

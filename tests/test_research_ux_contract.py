@@ -262,6 +262,104 @@ def test_the_three_insufficient_evidence_reasons_are_distinct_and_truthful():
             assert forbidden not in reason.casefold()
 
 
+CLAIM_SENTENCE = "Ремонтът на улицата започна през октомври 2026 година."
+
+
+def _research_with_hosts(newsroom, monkeypatch, hosts):
+    """Run one real research round whose results come from `hosts`."""
+    editorial = newsroom.parent / "editorial"
+
+    class _Provider:
+        name = "g22-hosts"
+
+        def search(self, query, count=10, **_kw):
+            return {
+                "provider": self.name,
+                "query": query,
+                "requested_count": count,
+                "started_at": "2026-09-25T11:00:00Z",
+                "status": search_mod.SEARCH_OK,
+                "attempt": 1,
+                "http_status": 200,
+                "retry_after": None,
+                "elapsed_ms": 1,
+                "results": [
+                    {
+                        "rank": index + 1,
+                        "title": "Ремонтът на улицата започна",
+                        "url": f"https://{host}.example.test/article",
+                        "snippet": CLAIM_SENTENCE,
+                        "published_at": "",
+                        "source_name": host,
+                    }
+                    for index, host in enumerate(hosts)
+                ],
+            }
+
+    monkeypatch.setattr(
+        search_mod, "provider_chain", lambda capability=None, env=None: ([_Provider()], [])
+    )
+
+    def _open(url, **_kw):
+        return {
+            "final_url": url,
+            "content_type": "text/html; charset=utf-8",
+            "bytes": len(CLAIM_SENTENCE),
+            "text": CLAIM_SENTENCE,
+        }
+
+    monkeypatch.setattr(web_fetch, "fetch_page", _open)
+    story_research.execute_story_research(
+        "s-one",
+        topic=HEADLINE,
+        root=editorial,
+        canonical_story={"story_id": "s-one"},
+        page_opener=_open,
+        story_title=HEADLINE,
+        # Nothing is a registered factual authority, so every opened host is
+        # CORROBORATING. The promotion gate is then decided purely by how many
+        # independent domains carried the same claim - exactly the condition the
+        # reason has to describe, with the gate itself untouched.
+        authority_resolver=dict,
+    )
+    return story_research_store.get_story_research("s-one", root=editorial)
+
+
+def test_a_claim_dropped_by_the_gate_says_an_independent_source_is_needed(
+    newsroom, monkeypatch
+):
+    # §12: this is the dominant real failure from the G2.1 audit. A claim WAS
+    # extracted from an opened page and the promotion gate rejected it, so the
+    # reason must name corroboration - and must not claim nothing was opened.
+    basis = _research_with_hosts(newsroom, monkeypatch, ["unregistered-one"])
+
+    assert [gap["question"] for gap in basis["gaps"]] == [
+        story_research.GAP_NEEDS_CORROBORATION
+    ]
+    assert "отворим" not in story_research.GAP_NEEDS_CORROBORATION
+    # A claim really was seen, it simply did not become evidence.
+    assert basis["facts"] == []
+    assert basis["evidence_status"] == story_research_store.EVIDENCE_ASSESSED
+
+
+def test_two_independent_publishers_clear_the_same_claim(newsroom, monkeypatch):
+    # The contrast that proves the reason above is earned and not a default: the
+    # SAME claim from a second independent domain is promoted by the unchanged
+    # corroboration gate, and no corroboration gap is written at all.
+    basis = _research_with_hosts(
+        newsroom, monkeypatch, ["unregistered-one", "unregistered-two"]
+    )
+
+    # Each independent publisher contributes its own source row for the claim,
+    # which is how the unchanged gate records corroborated evidence.
+    assert [fact["text"] for fact in basis["facts"]] == [CLAIM_SENTENCE, CLAIM_SENTENCE]
+    assert len({fact["sourceId"] for fact in basis["facts"]}) == 2
+    assert basis["gaps"] == []
+    assert story_research.GAP_NEEDS_CORROBORATION not in [
+        gap["question"] for gap in basis["gaps"]
+    ]
+
+
 def test_a_round_that_opens_nothing_says_exactly_that(newsroom, monkeypatch):
     editorial = newsroom.parent / "editorial"
 

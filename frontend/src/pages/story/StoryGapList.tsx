@@ -14,6 +14,11 @@ export interface StoryResearchControl {
   continuingToken: string | null;
   /** The backend's own sentence for a failed round, or `null`. */
   error: string | null;
+  /**
+   * §2: a reattach that could not reach the backend. The operation is still
+   * running, so this is a message about the check, never about the research.
+   */
+  statusError: string | null;
   onResearch(): void;
   onCheckStatus(): void;
 }
@@ -76,6 +81,9 @@ export function StoryGapList({ story, research }: StoryGapListProps) {
       {/* §2: still running after the bounded wait. This is a statement about
           the wait, never a failure, and it is re-attachable to the same
           operation. */}
+      {research.statusError ? (
+        <span className={styles.researchStatus} role="alert">{research.statusError}</span>
+      ) : null}
       {research.continuingToken ? (
         <span className={styles.researchContinuing} role="status" aria-live="polite">
           Проучването продължава.

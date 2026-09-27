@@ -3,6 +3,10 @@
 **Status:** complete, committed, pushed. Awaiting owner review.
 **Scope:** editor-facing operational defects only. **No evidence semantics were touched.**
 
+> **Addendum — self code review.** A review of this slice's own diff found and
+> fixed four defects, and **retracted one claim made in the first report**. See
+> §12 at the end. Nothing in the original scope changed.
+
 ---
 
 ## 1. Research operation UX
@@ -252,3 +256,87 @@ stands: exact-text corroboration never matched independent publishers in
 24/24 samples, 83% of opened hosts are absent from the registry, and the
 extractor promoted navigation chrome as its single fact. Repairing only the
 message made the experience comprehensible; it did not make it productive.
+
+---
+
+## 12. Self code review (addendum)
+
+The committed slice was reviewed against its own diff. Four real defects were
+found and fixed; one earlier claim of mine was wrong and is retracted.
+
+### Fixed
+
+1. **Research had its own second polling loop** — the most substantive finding.
+   `followResearchOperation` re-implemented `pollOperationFor` (~30 duplicated
+   lines: malformed check, terminal-status handling, failure extraction), and
+   the slice's own comment and report claimed "no second polling loop". The
+   claim was false. The shared helper now carries the two options research
+   needs — `onExhausted` and `tolerateUnreachablePolls` — and the exhausted
+   behaviour is a **discriminated union**, so a caller must choose exactly one
+   of `exhausted` (throw) or `onExhausted` (resolve with the token) and cannot
+   silently pass neither.
+
+2. **A stale projection was written into the query cache.** After research
+   completed, `PreparationWorkspace` called `acceptProjection(article)` with the
+   render-time Article, which does `setQueryData(article.id, article)` — writing
+   the *pre-research* projection back before the refetch. Visible flash of the
+   old readiness sentence, and stale state for good if the refetch failed. It
+   also ran that write when the outcome was still `continuing`. Replaced with a
+   `refreshReadiness()` that only invalidates, matching how `StoryWorkspace`
+   already did it.
+
+3. **A failed reattach was silent.** `Провери статуса` had no `onError`, so a
+   check that could not reach the backend left a control that appeared to do
+   nothing — visually the same as the original bug. It now renders the
+   transport message in an `alert`, and a test pins it.
+
+4. **`tolerateUnreachablePolls` was an undocumented divergence.** Research alone
+   survived a dropped poll. That is a deliberate policy (its rounds are long),
+   but it was undocumented; it is now a named option on the shared helper with
+   the reasoning attached, and covered by a test. Draft and «Обнови» behaviour
+   is unchanged.
+
+### Retracted
+
+**I reported that the §12 corroboration branch was dead code. It was not.**
+
+I reasoned that `claims_found = len(source_records)` was always zero in the
+`not facts` branch, and a probe appeared to confirm it. Both were wrong. The
+probe was exercising claim *extraction* (which returned no claim), not the
+promotion gate. And `claims_found` is computed **before** the filter, so it
+equals the pre-filter claim count — a claim that existed and was dropped yields
+`1`, not `0`. The proof I should have run first: the new test passes against
+**both** implementations, which shows they are provably equivalent in that
+branch (`dropped_by_gate == len(source_records)` whenever the filtered list is
+empty).
+
+The branch was therefore always correct. I renamed the signal to
+`dropped_by_gate` — which states its intent more directly and is provably
+identical in this branch — and removed the false comment claiming
+`source_records` "cannot answer this". No behaviour change.
+
+### Test coverage this exposed
+
+The original §12 test only asserted the three reason strings *differed*, which
+is why nothing caught the subtlety. Two end-to-end tests now exercise the real
+path with a controlled `authority_resolver`:
+
+- a claim extracted from an opened page, one unregistered publisher → the gate
+  rejects it → **`Нужен е още независим източник за потвърждение.`**;
+- the same claim from a second independent domain → promoted, **no gap at all**.
+
+The second is the control that proves the first is earned rather than a
+default, and it also documents that corroboration records one fact row per
+source. Both leave the promotion gate itself untouched.
+
+### Verification after the review
+
+| suite | result |
+|---|---|
+| Vitest | **190 passed** (5 files) — was 187 |
+| Python (G2.2 contract) | **14 passed** — was 12 |
+| Browser (G2.2 + D2A articles + G2 workspace) | **22 passed** |
+| Python full suite | failure set unchanged vs the recorded baseline |
+| Runtime stores | 274 files, **0 changed** |
+
+`tsc`, `eslint` and `ruff` are clean.

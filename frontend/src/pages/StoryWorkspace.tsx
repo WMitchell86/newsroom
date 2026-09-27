@@ -89,7 +89,9 @@ export function StoryWorkspace() {
   // and the editor can reattach to the same operation instead of being told the
   // research failed.
   const [continuingToken, setContinuingToken] = useState<string | null>(null);
+  const [researchStatusError, setResearchStatusError] = useState("");
   const applyResearch = async (outcome: ResearchOutcome) => {
+    setResearchStatusError("");
     if (outcome.status === "continuing") {
       setContinuingToken(outcome.operationToken);
       return;
@@ -105,6 +107,12 @@ export function StoryWorkspace() {
   const researchStatus = useMutation({
     mutationFn: () => checkResearchStatus(continuingToken ?? ""),
     onSuccess: applyResearch,
+    // §2: a reattach that cannot reach the backend is still not a research
+    // failure, and it must not be silent - the editor would be left with a
+    // control that appears to do nothing.
+    onError: (error) => setResearchStatusError(
+      getErrorMessage(error, "Статусът на проучването не можа да се провери. Опитайте отново."),
+    ),
   });
   const start = useMutation({
     mutationFn: () => {
@@ -177,6 +185,7 @@ export function StoryWorkspace() {
           onCheckStatus: () => {
             if (continuingToken) researchStatus.mutate();
           },
+          statusError: researchStatusError,
           // §17: the backend's own sentence. The frontend never invents
           // «ненадежден източник» — a failed round says what actually failed.
           error: research.error

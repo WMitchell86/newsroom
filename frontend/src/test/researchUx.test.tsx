@@ -131,6 +131,40 @@ describe("V1.2-G2.2 — the research operation is followed, not timed out", () =
       expect(screen.queryByText(/Проучването продължава/)).toBeNull(),
     );
   });
+
+  it("never leaves a reattach failure silent", async () => {
+    // A `Провери статуса` that cannot reach the backend must say so. Silently
+    // doing nothing would look exactly like the old broken behaviour.
+    const client = await import("../api/client");
+    vi.spyOn(client, "researchMoreStory").mockResolvedValue({
+      status: "continuing",
+      operationToken: "op-silent",
+    });
+    // A transport fault, not an API answer: the editor gets the calm
+    // editor-safe sentence, never an internal message.
+    const statusSpy = vi.spyOn(client, "checkResearchStatus").mockRejectedValue(
+      new client.ApiError(0, "NETWORK_ERROR", "Връзката е прекъсната.", true),
+    );
+    fetchMock.mockResolvedValue(dataResponse(unassessedStory));
+    const user = userEvent.setup();
+    renderWithProviders(storyRoute(), { initialEntries: [`/stories/${unassessedStory.id}`] });
+    await screen.findByRole("heading", { level: 1, name: unassessedStory.title });
+
+    await user.click(screen.getByRole("button", { name: "Проучи още" }));
+    await waitFor(() => expect(screen.getByText(/Проучването продължава/)).toBeVisible());
+    await user.click(screen.getByRole("button", { name: "Провери статуса" }));
+
+    // The editor is told, and is still not told the research failed. The check
+    // targets the sentence itself, because this page legitimately renders other
+    // alerts (the Story's gaps) and a bare role query would match one of those.
+    await waitFor(() => expect(statusSpy).toHaveBeenCalledWith("op-silent"));
+    // The backend's own transport sentence, in an alert, and NOT a claim about
+    // the research: the operation is still running, as the control says.
+    const told = await screen.findByText("Връзката е прекъсната.");
+    expect(told).toBeVisible();
+    expect(told.closest("[role='alert']")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Проучването все още не е готово");
+  });
 });
 
 describe("V1.2-G2.2 — an operational refusal is never an evidence statement", () => {

@@ -296,6 +296,66 @@ describe("the Story research operation policy", () => {
     }
   });
 
+  it("tolerates one unreachable poll but not a real failure", async () => {
+    // §2: a long round must survive a single dropped poll. This is the one
+    // deliberate difference from Draft and «Обнови», and it is scoped to
+    // research because its rounds are long enough for a hiccup to matter.
+    const detail = { id: "s-one", missingInformation: { items: [] } };
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ data: { operationToken: "op-flaky" } }),
+      } as Response)
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    for (let poll = 0; poll < 3; poll += 1) {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { status: "running" } }),
+      } as Response);
+    }
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { status: "succeeded", result: detail } }),
+    } as Response);
+
+    const pending = researchMoreStory("s-one");
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(pending).resolves.toEqual({ status: "completed", story: detail });
+  });
+
+  it("still reports a real backend failure through the shared helper", async () => {
+    // The refactor onto the shared helper must not soften a genuine refusal.
+    const detail = { id: "s-one", missingInformation: { items: [] } };
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ data: { operationToken: "op-refused" } }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            status: "failed",
+            error: {
+              code: "RESEARCH_QUOTA_EXHAUSTED",
+              message: "Лимитът за автоматично проучване е изчерпан за момента.",
+              retryable: true,
+            },
+          },
+        }),
+      } as Response);
+
+    await expect(researchMoreStory("s-one")).rejects.toEqual(
+      expect.objectContaining({ code: "RESEARCH_QUOTA_EXHAUSTED" }),
+    );
+    expect(detail).toBeDefined();
+  });
+
   it("keeps the Story and a reattach token when the bounded wait ends mid-round", async () => {
     // §2: a transport timeout is not a research failure, and it must not cost
     // the editor the operation. The caller reattaches to the SAME token.

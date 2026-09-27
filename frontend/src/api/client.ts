@@ -339,21 +339,39 @@ export interface OperationPollBudget {
  */
 export const DRAFT_POLL_BUDGET: OperationPollBudget = { attempts: 60, delayMs: 1000 };
 
-interface OperationPollOptions<T> {
+interface OperationPollCommon<T> {
   budget: OperationPollBudget;
   /** Said when the server answered something that is not an operation at all. */
   malformed: string;
-  /** Said when the bounded client budget ran out. Must not imply failure. */
-  exhausted: string;
   /**
    * Said when the operation reported success but carried no payload. Omitted for
    * operations with no payload to unwrap, whose success *is* the result: the
    * helper then resolves with `null` instead of throwing.
    */
   succeededWithoutResult?: string;
+  /**
+   * A single unreachable poll is a transport hiccup, not a failed operation.
+   * Off by default; Research turns it on because its rounds are long, so one
+   * dropped poll among 180 must not abort a round that is still working.
+   */
+  tolerateUnreachablePolls?: boolean;
   /** The payload the editor is waiting for, or `null` while still running. */
   extract: (value: ResearchOperation) => T | null;
 }
+
+/**
+ * An exhausted budget ends ONE of two ways, and a caller must choose one.
+ *
+ * `exhausted` is the historical behaviour: throw one calm sentence that must
+ * not imply failure. `onExhausted` is V1.2-G2.2 §2, for Research: a long round
+ * that is still running when the client stops looking is NOT a failure, so the
+ * caller receives the token and reattaches to the same operation.
+ */
+type OperationPollOptions<T> = OperationPollCommon<T> &
+  (
+    | { exhausted: string; onExhausted?: never }
+    | { exhausted?: never; onExhausted: (operationToken: string) => T }
+  );
 
 /**
  * Poll one operation to a terminal state.
@@ -370,7 +388,17 @@ async function pollOperationFor<T>(
   const { budget } = options;
   for (let attempt = 0; attempt < budget.attempts; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, budget.delayMs));
-    const value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
+    let value: unknown;
+    try {
+      value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
+    } catch (error) {
+      const unreachable =
+        options.tolerateUnreachablePolls === true &&
+        error instanceof ApiError &&
+        error.code === "NETWORK_ERROR";
+      if (unreachable) continue;
+      throw error;
+    }
     if (!isResearchOperation(value)) {
       throw new ApiError(0, "INTERNAL_ERROR", options.malformed, true);
     }
@@ -384,6 +412,7 @@ async function pollOperationFor<T>(
       throw new ApiError(0, "INTERNAL_ERROR", options.succeededWithoutResult, true);
     }
   }
+  if (options.onExhausted) return options.onExhausted(operationToken);
   throw new ApiError(0, "INTERNAL_ERROR", options.exhausted, true);
 }
 
@@ -434,34 +463,34 @@ const RESEARCH_POLL_MESSAGES = {
   succeededWithoutResult: "Проучването не върна актуализирана история.",
 } as const;
 
+/**
+ * Follow one research operation on the SHARED long-operation helper.
+ *
+ * §1: there is one polling loop for every long operation, and research uses it
+ * exactly as Draft and «Обнови» do. The only differences are the two options
+ * research needs: an exhausted budget resolves with the token instead of
+ * throwing, and a single unreachable poll is tolerated because a research round
+ * is long and the backend is still working.
+ */
 async function followResearchOperation(operationToken: string): Promise<ResearchOutcome> {
-  for (let attempt = 0; attempt < LONG_OPERATION_POLL_BUDGET.attempts; attempt += 1) {
-    if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, LONG_OPERATION_POLL_BUDGET.delayMs));
-    }
-    let value: unknown;
-    try {
-      value = await getData<unknown>(`/operations/${encodeURIComponent(operationToken)}`);
-    } catch (error) {
-      // A single unreachable poll is a transport hiccup, not a failed round.
-      // Keep following the operation the backend is still running.
-      if (error instanceof ApiError && error.code === "NETWORK_ERROR") continue;
-      throw error;
-    }
-    if (!isResearchOperation(value)) {
-      throw new ApiError(0, "INTERNAL_ERROR", RESEARCH_POLL_MESSAGES.malformed, true);
-    }
-    const story = operationStory(value);
-    if (story) return { status: "completed", story };
-    const status = value.status.toUpperCase();
-    if (status === "FAILED" || status === "ERROR") throw operationFailure(value);
-    if (status === "SUCCEEDED" || status === "COMPLETED") {
-      throw new ApiError(0, "INTERNAL_ERROR", RESEARCH_POLL_MESSAGES.succeededWithoutResult, true);
-    }
+  const outcome = await pollOperationFor<ResearchOutcome>(operationToken, {
+    budget: LONG_OPERATION_POLL_BUDGET,
+    malformed: RESEARCH_POLL_MESSAGES.malformed,
+    succeededWithoutResult: RESEARCH_POLL_MESSAGES.succeededWithoutResult,
+    extract: (value) => {
+      const story = operationStory(value);
+      return story ? { status: "completed", story } : null;
+    },
+    onExhausted: (token) => ({ status: "continuing", operationToken: token }),
+    tolerateUnreachablePolls: true,
+  });
+  // `succeededWithoutResult` is supplied above, so the helper throws rather than
+  // resolving `null`. Stated explicitly so the invariant survives a refactor of
+  // either side instead of leaking a `null` outcome to the UI.
+  if (outcome === null) {
+    throw new ApiError(0, "INTERNAL_ERROR", RESEARCH_POLL_MESSAGES.succeededWithoutResult, true);
   }
-  // The bounded wait ended with real work still in flight. Say exactly that,
-  // and hand back the token so the editor can reattach to the SAME operation.
-  return { status: "continuing", operationToken };
+  return outcome;
 }
 
 /** `Провери статуса`: reattach to the running operation, never start another. */
@@ -482,7 +511,7 @@ export async function researchMoreStory(storyId: string): Promise<ResearchOutcom
   if (isRecord(value) && "missingInformation" in value) {
     return { status: "completed", story: value as unknown as StoryDetail };
   }
-  throw new ApiError(200, "INTERNAL_ERROR", "Проучването не върна актуализирана история.", true);
+  throw new ApiError(200, "INTERNAL_ERROR", RESEARCH_POLL_MESSAGES.succeededWithoutResult, true);
 }
 
 export const researchStory = researchMoreStory;
