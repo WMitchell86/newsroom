@@ -596,6 +596,16 @@ def ingest_transcript(text, *, source_id, source_name, url=""):
 # ---------- council safeguard (§14, test 8) ----------
 
 
+def decision_claim_pattern():
+    """The shared decision-claim pattern (§15).
+
+    Exposed so the research executor can decline to corroborate a decision
+    claim from media with exactly the rule the council guard enforces, instead
+    of duplicating (and eventually drifting from) the pattern.
+    """
+    return _DECISION_RE
+
+
 def council_decision_claims(packet):
     """Facts asserting adopted/approved/rejected/voted outcomes (BG verbs)."""
     return [f for f in packet["facts"] if _DECISION_RE.search(f["text"])]

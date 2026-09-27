@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 from editor_assistant.sources import html_desc, web_fetch
 from editor_assistant.workflow import blocked_domains as blocked_mod
 from editor_assistant.workflow import (
+    claim_equivalence,
+    claim_quality,
     live_store,
     newsroom_run,
     publication_identity,
@@ -38,6 +40,13 @@ GAP_NOTHING_PROMOTED = (
     "Намерени са източници, но информацията още не е достатъчно потвърдена."
 )
 GAP_NEEDS_CORROBORATION = "Нужен е още независим източник за потвърждение."
+
+#: §9 — a small bounded candidate set per opened page, never the whole page.
+CLAIMS_PER_PAGE = 4
+#: §7/§30 — semantic comparison is a model call, so the number of candidate
+#: PAIRS is bounded per round and counted. Deterministic verdicts (equality and
+#: hard contradiction) are free and are always checked first.
+MAX_SEMANTIC_COMPARISONS = 12
 
 
 def _fact_id(story_id, source_id, text):
@@ -157,6 +166,110 @@ def _claim_for_questions(sentences, questions):
         ):
             return value
     return ""
+
+
+def _needs_official_record(claim: str) -> bool:
+    """True for a claim the existing council-decision guard reserves (§15).
+
+    The pattern is the SAME one `research.validate_council_claims` enforces, so
+    the two can never drift: a decision claim that this module declines to
+    promote from media is exactly the decision claim the guard would refuse.
+    """
+    return bool(research.decision_claim_pattern().search(str(claim or "")))
+
+
+def _conflict_id(marker) -> str:
+    return _gap_id("conflict", " | ".join(marker))
+
+
+def _comparable(left: dict, right: dict) -> bool:
+    """§7 — only compare claims that were extracted for the same reason.
+
+    Two candidates are comparable when their dimension sets intersect, or when
+    one of them is unlabelled. This is what keeps the number of comparisons
+    bounded and prevents an arbitrary sentence being matched against an
+    unrelated one.
+    """
+    left_dimensions = set(left.get("dimensions") or ())
+    right_dimensions = set(right.get("dimensions") or ())
+    if not left_dimensions or not right_dimensions:
+        return True
+    return bool(left_dimensions & right_dimensions)
+
+
+def _promote_claims(records):
+    """§1/§2/§7/§8/§16/§21 — which sources may support a fact.
+
+    A claim is promoted when EITHER its own opened source is PRIMARY (§15 keeps
+    the existing claim-appropriate authority semantics: a source is authoritative
+    for what it publishes, not for everything on the page), OR an **independent
+    domain** confirms the same factual proposition (§8: two URLs from one
+    publisher are one source, never two).
+
+    Returns the set of source ids whose claims are supported, the conflicts that
+    must not become corroboration (§21), and how many pairs were compared, so
+    the cost of the stage is measurable (§30).
+    """
+    supported: set[str] = set()
+    conflicts: list[dict] = []
+    comparisons = 0
+    seen_conflicts: set[tuple[str, str]] = set()
+
+    for position, record in enumerate(records):
+        if record["authority"] == "PRIMARY":
+            # §1-A: an authoritative source supports the claim on its own.
+            supported.add(record["source"]["id"])
+            continue
+        if _needs_official_record(record["claim"]):
+            # §15 / the pre-existing M2S council-decision guard: "the council
+            # approved X" is a decision claim. It may not be corroborated by two
+            # media articles, however well they agree - only an official
+            # protocol/decision source can carry it. Leaving it unsupported here
+            # is what keeps `research.validate_council_claims` satisfied, and it
+            # makes the round finish with a truthful gap instead of aborting on a
+            # ResearchError after pages had already been opened.
+            continue
+        for other in records[position + 1 :]:
+            if not _comparable(record, other):
+                continue
+            # §8: independence is per publisher domain, never per URL.
+            if other["domain"] == record["domain"]:
+                continue
+            if _needs_official_record(other["claim"]):
+                continue
+            if other["claim"] == record["claim"] or other["authority"] == "PRIMARY":
+                # Exact agreement, or a PRIMARY confirmation, settles it without
+                # spending a model call.
+                supported.add(record["source"]["id"])
+                supported.add(other["source"]["id"])
+                continue
+            if comparisons >= MAX_SEMANTIC_COMPARISONS:
+                break
+            comparisons += 1
+            verdict = claim_equivalence.compare_claims(record["claim"], other["claim"])
+            if verdict == claim_equivalence.SAME_FACT:
+                supported.add(record["source"]["id"])
+                supported.add(other["source"]["id"])
+            elif verdict == claim_equivalence.CONFLICT:
+                # §21: a conflict is NOT corroboration. It becomes a visible
+                # question instead, so the editor sees the disagreement.
+                marker = tuple(sorted((record["claim"], other["claim"])))
+                if marker in seen_conflicts:
+                    continue
+                seen_conflicts.add(marker)
+                conflicts.append(
+                    {
+                        "id": _conflict_id(marker),
+                        "question": (
+                            "Източниците се разминават: "
+                            f"\u201c{record['claim']}\u201d срещу "
+                            f"\u201c{other['claim']}\u201d. Кое е вярно?"
+                        ),
+                        "kind": "conflict",
+                        "blocking": False,
+                    }
+                )
+    return supported, conflicts, comparisons
 
 
 def execute_story_research(
@@ -381,8 +494,16 @@ def execute_story_research(
             html_desc.normalize_description(str(page.get("text") or ""), base_url=normalized_url)[0]
             or ""
         )
-        claim = _claim_for_questions(re.split(r"(?<=[.!?])\s+", text), plan["research_questions"])
-        if not claim:
+        # §9/§10/§11/§12: a small, ordered candidate set instead of the first
+        # matching sentence. Navigation chrome and non-propositional text are
+        # rejected here, before anything can be promoted, and each surviving
+        # candidate remembers which research question it answers.
+        candidates = claim_quality.select_candidate_claims(
+            re.split(r"(?<=[.!?])\s+", text),
+            plan["research_questions"],
+            limit=CLAIMS_PER_PAGE,
+        )
+        if not candidates:
             continue
         row = policy.get(host) if isinstance(policy, dict) else None
         factual = bool(row and row.get("factual_authority"))
@@ -399,9 +520,6 @@ def execute_story_research(
             "url": normalized_url,
         }
         sources.append(source)
-        source_records.append(
-            {"source": source, "claim": claim, "domain": host, "authority": authority}
-        )
         research.add_candidate(
             bundle,
             candidate_id=f"C{index + 1}",
@@ -419,33 +537,47 @@ def execute_story_research(
             source_name=source["name"],
             source_type=source_type,
             authority=authority,
-            relevant_claims=[claim],
+            relevant_claims=[row["text"] for row in candidates],
         )
-        facts.append(
-            {
-                "id": _fact_id(story_id, source_id, claim),
-                "text": claim,
-                "source_refs": [{"source_id": source_id, "locator": "claim:0"}],
-                "scope": "current_event",
-            }
-        )
-    grouped = {}
-    for item in source_records:
-        grouped.setdefault(" ".join(item["claim"].lower().split()), []).append(item)
-    allowed = {
-        item["source"]["id"]
-        for items in grouped.values()
-        for item in items
-        if item["authority"] == "PRIMARY" or len({x["domain"] for x in items}) >= 2
-    }
-    # §12: which of the two "nothing was promoted" reasons applies depends on
-    # whether a claim existed BEFORE the promotion gate and was dropped by it.
-    # `dropped_by_gate` names that directly: inside the `not facts` branch it
-    # equals the pre-filter claim count, and a claim only exists there because
-    # the extractor accepted a sentence from an opened page.
-    promoted = [fact for fact in facts if fact["source_refs"][0]["source_id"] in allowed]
-    dropped_by_gate = len(facts) - len(promoted)
-    facts = promoted
+        for slot, row in enumerate(candidates):
+            source_records.append(
+                {
+                    "source": source,
+                    "claim": row["text"],
+                    "domain": host,
+                    "authority": authority,
+                    "dimensions": row["dimensions"],
+                    "locator": f"claim:{slot}",
+                }
+            )
+    # §2/§16: promotion is decided per CLAIM, not per source, and corroboration
+    # means two independent publishers supporting the SAME FACTUAL PROPOSITION
+    # rather than the same string. The safety rule is untouched: a claim is
+    # promoted when its own source is PRIMARY, or when an independent domain
+    # confirms it. Nothing else grants evidence.
+    allowed_source_ids, new_conflicts, comparison_count = _promote_claims(source_records)
+    assert comparison_count <= MAX_SEMANTIC_COMPARISONS
+    # §30: the semantic stage is a model call. `comparison_count` is how many
+    # candidate PAIRS this round actually spent, and the cap that bounds it is
+    # asserted directly by the test suite, so the cost cannot drift upward
+    # silently.
+    facts = [
+        {
+            "id": _fact_id(story_id, item["source"]["id"], item["claim"]),
+            # §20: the wording is the supporting source's own sentence. No
+            # synthesis is invented, and every supporting source keeps its own
+            # fact row, so provenance stays per source.
+            "text": item["claim"],
+            "source_refs": [
+                {"source_id": item["source"]["id"], "locator": item["locator"]}
+            ],
+            "scope": "current_event",
+        }
+        for item in source_records
+        if item["source"]["id"] in allowed_source_ids and item["claim"]
+    ]
+    # §12: a claim existed and the gate dropped it is a corroboration problem.
+    dropped_by_gate = len(source_records) - len(facts)
     if not facts:
         # V1.1-A §10/§16: a completed first round with no usable opened
         # source is ASSESSED with an explicit gap — never an empty assessed
@@ -462,18 +594,22 @@ def execute_story_research(
             GAP_NEEDS_CORROBORATION if dropped_by_gate else GAP_NOTHING_PROMOTED
         )
         if bootstrap:
+            # §21/§23: a contradiction found while promoting is still shown as
+            # itself, even when nothing was promoted. The editor must see the
+            # disagreement rather than a generic "insufficient" sentence.
+            insufficient_gaps = [
+                {
+                    "id": _gap_id(story_id, gap_text),
+                    "question": gap_text,
+                    "kind": "unresolved",
+                    "blocking": True,
+                }
+            ] + list(new_conflicts)
             return story_research_store.merge_research(
                 story_id,
                 facts=[],
                 sources=[],
-                gaps=[
-                    {
-                        "id": _gap_id(story_id, gap_text),
-                        "question": gap_text,
-                        "kind": "unresolved",
-                        "blocking": True,
-                    }
-                ],
+                gaps=insufficient_gaps,
                 assessed_at=now,
                 root=root,
                 canonical_story=canonical_story,
@@ -553,6 +689,11 @@ def execute_story_research(
         raise StoryResearchError("готовността на Story не можа да се оцени") from exc
     current_gaps = list(current.get("gaps") or [])
     conflicts = [gap for gap in current_gaps if gap.get("kind") == "conflict"]
+    # §21/§23: a detected contradiction is shown as the plain-language question
+    # it is, never absorbed into a generic "insufficient" sentence.
+    for gap in new_conflicts:
+        if gap["id"] not in {known["id"] for known in conflicts}:
+            conflicts.append(gap)
     if assessment.get("status") == readiness_mod.SUFFICIENT:
         gaps = conflicts
     else:
