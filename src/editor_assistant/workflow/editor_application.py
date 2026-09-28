@@ -1876,7 +1876,31 @@ def _run_draft_generation(article_id: str, token: str) -> dict:
             "Статията е променена, преди черновата да се създаде.",
         ) from exc
     except Exception as exc:
-        raise article_generation.DraftRefused("", "Source unavailable") from exc
+        # V1.2-G4.5: this used to claim "Source unavailable" for EVERY
+        # unclassified failure. That is a lie in the common case and it cost a
+        # full day of debugging: a quota-exhausted model and an unreadable
+        # source produce byte-identical editor screens, so the only visible
+        # symptom was a red badge with no cause.
+        #
+        # The message is now the real exception type plus the provider's own
+        # reason when the router supplies one, so the editor sees WHICH class of
+        # failure happened. The cause is never invented: if the exception has
+        # nothing to say, the type is still more useful than a wrong claim.
+        assert not isinstance(exc, article_generation.DraftRefused), (
+            "a classified refusal must keep its own code, not be relabelled"
+        )
+        reason = getattr(exc, "reason", "") or ""
+        trace = getattr(exc, "trace", None) or []
+        detail = reason or str(exc) or type(exc).__name__
+        blocked = [t for t in trace if t.get("event") in {"SKIPPED", "FAILED"}]
+        if blocked:
+            detail = f"{detail} ({blocked[0].get('route')}: {blocked[0].get('reason')})"
+        # No failure marker is recorded here: the preflight marker contract is
+        # that it is written only against a basis this attempt actually used,
+        # and an unclassified provider failure has no basis digest.
+        raise article_generation.DraftRefused(
+            "PROVIDER_UNAVAILABLE", f"Черновата не можа да бъде създадена: {detail}"
+        ) from exc
     finally:
         article_generation.release(article_id, token)
 
