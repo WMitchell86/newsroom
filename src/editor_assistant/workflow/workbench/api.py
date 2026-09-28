@@ -8,11 +8,9 @@ import re
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+from editor_assistant.workflow import draft_material, editor_queries, story_editor_metadata
 from editor_assistant.workflow import editor_application as app
-from editor_assistant.workflow import draft_material
-from editor_assistant.workflow import editor_queries
 from editor_assistant.workflow import editor_source_settings as sources_settings
-from editor_assistant.workflow import story_editor_metadata
 
 LOG = logging.getLogger(__name__)
 MAX_BODY_BYTES = 1_000_000

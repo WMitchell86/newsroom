@@ -1231,6 +1231,16 @@ def _run_newsroom_feedback(args):
         print("Нищо не е променено. Одобрете с: newsroom feedback approve <pattern_id>")
         return
     if action in {"approve", "reject"}:
+        # G1: the threshold gates the WHOLE loop, not just the report. Without
+        # this check an operator could approve a rule built from three comments
+        # while the gate exists precisely to say three is not yet a pattern.
+        if not rewrite_feedback.is_eligible():
+            pending = len(rewrite_feedback.unprocessed())
+            print(
+                f"{pending} / {rewrite_feedback.threshold()} — решение по предложение "
+                "не е възможно при този брой записи."
+            )
+            raise SystemExit(1)
         proposals = {row["pattern_id"]: row for row in rewrite_feedback.analyze()}
         target = proposals.get(args.pattern_id)
         if target is None:

@@ -79,6 +79,44 @@ _NON_PUBLISHER_HOSTS = frozenset(
 _SELF_HOSTS = ("chernomorie-bg.com",)
 
 
+#: Hosts that are a REDIRECT WRAPPER rather than a dead end. A URL on one of
+#: these is not readable as-is, but the command can still resolve it to the real
+#: publisher page from the Story's headline, so it is worth ATTEMPTING.
+_RESOLVABLE_WRAPPER_HOSTS = frozenset({"news.google.com", "news.google.co.uk"})
+
+
+def may_resolve_to_publisher(url: str) -> bool:
+    """Whether this URL is worth ONE bounded attempt at reading, offline.
+
+    **V1.2-G4.3 §A — the distinction the Draft button depends on.** There are two
+    different questions and they were being collapsed into one:
+
+    * `is_readable_publication` — can this URL be read AS IS? A Google News RSS
+      link answers no, because it is a redirect wrapper.
+    * this function — is it worth trying at all? A wrapper still answers yes,
+      because `publication_urls()` can resolve it to the real publisher page
+      from the headline, which is exactly how most collected Stories arrive.
+
+    A projection must use THIS one, and only this one: it answers the question
+    without a network call, so the editor is offered `Чернова` for the real
+    Stories that need a resolve. Using the strict predicate instead hid the
+    button for every Google-News-collected Story - which is most of the desk.
+    """
+    text = str(url or "").strip()
+    if not text.lower().startswith(("http://", "https://")):
+        return False
+    host = (urlsplit(text).hostname or "").lower()
+    if not host:
+        return False
+    bare = host.removeprefix("www.")
+    if any(bare == bad or bare.endswith("." + bad) for bad in _NON_PUBLISHER_HOSTS):
+        # A wrapper is fine; a social post is a dead end either way.
+        return any(bare == wrap or bare.endswith("." + wrap) for wrap in _RESOLVABLE_WRAPPER_HOSTS)
+    if any(bare == own or bare.endswith("." + own) for own in _SELF_HOSTS):
+        return False
+    return not blocked_domains.is_blocked(text)
+
+
 def is_readable_publication(url: str) -> bool:
     """Whether this URL is worth one bounded read.
 

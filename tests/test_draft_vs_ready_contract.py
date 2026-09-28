@@ -32,14 +32,17 @@ from editor_assistant.drafting import generate as gen
 from editor_assistant.workflow import (
     article_generation,
     article_readiness,
-    article_validation,
     draft_material,
-    editor_article_store as articles,
-    editor_application as app,
     inbox_store,
     story_operations,
     story_research_store,
     story_store,
+)
+from editor_assistant.workflow import (
+    editor_application as app,
+)
+from editor_assistant.workflow import (
+    editor_article_store as articles,
 )
 
 BODY = "Общинският съвет одобри 1,2 милиона лева за ремонта на улицата."

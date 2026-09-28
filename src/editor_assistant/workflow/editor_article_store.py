@@ -327,17 +327,32 @@ def _validate_draft_material_basis(raw) -> dict | None:
         return None
     if not isinstance(raw, dict):
         raise ArticleStoreError("draft_material_basis must be object")
-    unknown = sorted(set(raw) - {"basis", "sourceDomain", "sourceUrl", "attributionRequired"})
+    allowed = {
+        "basis",
+        "sourceDomain",
+        "sourceUrl",
+        "attributionRequired",
+        # V1.2-G4.3 §A2: what the automatic gathering actually did, recorded
+        # WITH the text so the editor can be told "the search found nothing" or
+        # "the search was cut off" instead of silence. Editor-safe sentences
+        # only, produced by `draft_enrichment`, never by this store.
+        "enrichmentWarnings",
+    }
+    unknown = sorted(set(raw) - allowed)
     if unknown:
         raise ArticleStoreError(f"unknown draft_material_basis fields {unknown}")
     basis = str(raw.get("basis") or "")
     if not basis:
         raise ArticleStoreError("draft_material_basis.basis is required")
+    warnings = raw.get("enrichmentWarnings") or []
+    if not isinstance(warnings, list) or any(not isinstance(w, str) for w in warnings):
+        raise ArticleStoreError("draft_material_basis.enrichmentWarnings must be a list of text")
     return {
         "basis": basis,
         "sourceDomain": str(raw.get("sourceDomain") or ""),
         "sourceUrl": str(raw.get("sourceUrl") or ""),
         "attributionRequired": bool(raw.get("attributionRequired")),
+        "enrichmentWarnings": [str(w) for w in warnings],
     }
 
 
@@ -496,10 +511,43 @@ def _article_id_for(
     return candidate
 
 
-def _write_content(content, *, root=None) -> dict:
+def _is_unreachable_version(article_id: str, version: int, *, root=None) -> bool:
+    """Whether a content document at `version` was never actually published.
+
+    **V1.2-G4.3 — the orphan-version recovery.** A publish writes the immutable
+    content document first and the Article pointer last, so a crash in between
+    leaves an orphan document at a version the pointer never reached. Because
+    the POINTER is what makes a version real, any document at a version strictly
+    greater than the Article's current `content_version` is unreachable debris
+    by definition.
+
+    Without this, one interrupted publish permanently bricked the Article: the
+    next publish targeted the same version, `_write_content` refused to
+    overwrite a non-identical existing document, and every later Draft or
+    rewrite failed with "an Article content version is immutable" — for good,
+    until the editor made some unrelated edit that moved the version on.
+    """
+    try:
+        record = get_editor_article(article_id, root=root)
+    except ArticleStoreError:
+        return False
+    return int(version) > int(record.get("content_version", 0))
+
+
+def _write_content(content, *, root=None, replace_unreachable: bool = False) -> dict:
     normalized = validate_article_content(content)
     path = article_content_path(normalized["article_id"], normalized["content_version"], root=root)
     if path.exists():
+        if replace_unreachable and _is_unreachable_version(
+            normalized["article_id"], normalized["content_version"], root=root
+        ):
+            # Debris from an interrupted publish, never a version the editor
+            # ever saw. Replacing it is the recovery, not a loss.
+            live_store.atomic_write(
+                path,
+                json.dumps(normalized, ensure_ascii=False, sort_keys=True, indent=1) + "\n",
+            )
+            return normalized
         try:
             existing = validate_article_content(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError) as exc:
@@ -676,7 +724,9 @@ def update_editor_focus(
     non-empty saved Focus IS the confirmed Focus, and this is the only place
     that decides it, so the editor simply edits the field. Clearing the field
     therefore removes the confirmation, and `focus_is_confirmed` answers false
-    again - which is exactly the state `Направи чернова` must refuse.
+    again. That withdraws `Готова`/finalization, but it no longer refuses a
+    Draft: V1.2-G4.3 §C makes Focus guidance, so the Draft command writes the
+    deterministic default when it finds none.
     """
     focus = _text(editorial_focus, "editorial_focus")
     with _MUTATION_LOCK, _cross_process_article_lock(root=root):
@@ -793,6 +843,7 @@ def save_article_content(
                 "updated_at": stamp,
             },
             root=root,
+            replace_unreachable=True,
         )
         record["working_title"] = new_title
         record["content_version"] = content["content_version"]
@@ -916,6 +967,7 @@ def publish_generated_draft(
                 "updated_at": stamp,
             },
             root=root,
+            replace_unreachable=True,
         )
         record["working_title"] = new_title
         record["content_version"] = content["content_version"]

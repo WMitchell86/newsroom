@@ -211,6 +211,11 @@ def rewrite(
     text = " ".join(str(comment or "").split())
     evaluate(article=article, content=content, comment=text)
 
+    # V1.2-G4.3 - the module lock guards the store mutations BELOW, and is
+    # deliberately NOT held across `generate_draft`, which is a blocking model
+    # call of up to 240 s. Holding it there blocked `start_article_rewrite` for
+    # every OTHER Article for the whole generation, because the guard functions
+    # take the same lock.
     with _LOCK:
         prefix = _rewrite_evidence_prefix(article_id)
         evidence_id = f"{prefix}-{_attempts(editorial, prefix) + 1:02d}"
@@ -255,37 +260,43 @@ def rewrite(
                 "REWRITE_UNAVAILABLE", "За този материал няма публикуем ъгъл."
             )
 
-        voice = _voice_for(article)
-        try:
-            outcome = pipeline_state.generate_draft(
-                idea["idea_id"],
-                evidence_id,
-                force=True,
-                # §E2 - the honest recorded reason for the same override the
-                # first Draft uses: a rewrite is explicitly requested on
-                # material the editor has already seen and judged draftable.
-                force_reason=(
-                    "V1.2-G4.3 §E: пренаписване по изрично редакторско указание. "
-                    "Материалът е проверен от редактора; липсващото покритие остава "
-                    "предупреждение, не отказ."
-                ),
-                # §B/E1 - the editorial context and the editor's own words.
-                title=str(content.get("title") or ""),
-                focus=str(article.get("editorial_focus") or ""),
-                editor_comment=text,
-                voice=voice,
-            )
-        except angles.AngleError as exc:
-            raise RewriteRefused(
-                "REWRITE_UNAVAILABLE", "Материалът още не е оценен за ъгъл."
-            ) from exc
-        except pipeline_state.WorkbenchError as exc:
-            raise RewriteRefused(
-                "REWRITE_UNAVAILABLE", "Пренаписването не можа да се извърши."
-            ) from exc
-        if outcome.get("status") != "DRAFTED":
-            raise RewriteRefused(
-                "REWRITE_UNAVAILABLE", "Пренаписването не можа да се извърши."
+    # ---- store mutations above; the MODEL CALL below runs WITHOUT the lock ----
+    voice = _voice_for(article)
+    try:
+        outcome = pipeline_state.generate_draft(
+            idea["idea_id"],
+            evidence_id,
+            force=True,
+            # §E2 - the honest recorded reason for the same override the
+            # first Draft uses: a rewrite is explicitly requested on
+            # material the editor has already seen and judged draftable.
+            force_reason=(
+                "V1.2-G4.3 §E: пренаписване по изрично редакторско указание. "
+                "Материалът е проверен от редактора; липсващото покритие остава "
+                "предупреждение, не отказ."
+            ),
+            # §B/E1 - the editorial context and the editor's own words.
+            title=str(content.get("title") or ""),
+            focus=str(article.get("editorial_focus") or ""),
+            editor_comment=text,
+            voice=voice,
+            # G4: the human-approved permanent rules apply here too, not
+            # only to a first Draft.
+            learned_instructions=rewrite_feedback.active_instruction_texts(
+                root=editorial
+            ),
+        )
+    except angles.AngleError as exc:
+        raise RewriteRefused(
+            "REWRITE_UNAVAILABLE", "Материалът още не е оценен за ъгъл."
+        ) from exc
+    except pipeline_state.WorkbenchError as exc:
+        raise RewriteRefused(
+            "REWRITE_UNAVAILABLE", "Пренаписването не можа да се извърши."
+        ) from exc
+    if outcome.get("status") != "DRAFTED":
+        raise RewriteRefused(
+            "REWRITE_UNAVAILABLE", "Пренаписването не можа да се извърши."
             )
 
     case = _find_case(editorial, str(outcome.get("case_id") or ""))

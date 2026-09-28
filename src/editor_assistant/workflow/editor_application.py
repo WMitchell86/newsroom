@@ -883,6 +883,10 @@ def _article_projection(
         # what made the Draft screen say the same thing four times.
         if not draft_warnings:
             draft_warnings = list(basis_decision["warnings"])
+        # §A2: what the automatic gathering did is part of what this Draft was
+        # written from, so it is reported beside the material warnings. These
+        # are the sentences four specifications promise the editor will see.
+        draft_warnings.extend(recorded.get("enrichmentWarnings") or [])
     elif state != "preparation" and draft_material.WARNING_OPEN_GAPS in draft_warnings:
         # Once a Draft exists, `blocking_gap_open` above is the authority for the
         # open questions; the Preparation wording ("преди черновата да е готова")
@@ -1509,12 +1513,21 @@ def start_newsroom_refresh(*, idempotency_key: str = "") -> dict:
 # ---------------------------------------------------------------- C2 «Направи чернова»
 
 
-def _draft_snapshot(article_id: str) -> dict:
+def _draft_snapshot(article_id: str, *, enrich: bool = True) -> dict:
     """Everything the Draft command is bound to, read from canonical stores.
 
     Deliberately a snapshot of *server* state: the request carries no facts, no
     focus, no title and no evidence, so a client cannot talk the backend into
     drafting from material it chose.
+
+    **V1.2-G4.3 §E2 — `enrich=False` for a rewrite.** A `Пренапиши` is a
+    WRITING operation over the material the editor already judged, so it must
+    not go looking for new material. Passing this false keeps the factual basis
+    of a rewrite identical to the basis of the Draft it replaces; the automatic
+    enrichment stays exactly where the owner put it, on the way to the FIRST
+    Draft. The Story's own publication is still read here, because that is the
+    same canonical material the first Draft used rather than something newly
+    discovered - without it a single-source Draft could not be rewritten at all.
 
     **V1.1-B:** the readiness-relevant part is now assembled by the shared
     `article_readiness.build_snapshot`, the very builder the Article preparation
@@ -1593,7 +1606,7 @@ def _draft_snapshot(article_id: str) -> dict:
     enrichment = _bounded_draft_enrichment(
         headline=headline,
         existing_sources=opened,
-    )
+    ) if enrich else {"sources": [], "queries": [], "warnings": []}
     opened = draft_enrichment.merge_sources(opened, enrichment["sources"])
     snapshot.update(
         {
@@ -1920,6 +1933,19 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
 # --------------------------------------------------------------------------
 
 
+def _rewrite_published(article_id: str, before: dict) -> bool:
+    """Whether the rewrite actually replaced the text.
+
+    The store is the authority: if the content version moved past the one this
+    attempt started from, the publish happened, whatever raised afterwards.
+    """
+    try:
+        current = int(editor_article_store.get_article_content(article_id)["content_version"])
+    except (editor_article_store.ArticleStoreError, OSError, ValueError, KeyError, TypeError):
+        return False
+    return current > int(before.get("content_version", 0))
+
+
 def _running_rewrite(article_id: str) -> dict | None:
     """A rewrite for this Article already in flight, as a still-valid operation."""
     token = article_rewrite.active_token(article_id)
@@ -1981,9 +2007,17 @@ def _run_rewrite(article_id: str, comment: str, token: str) -> dict:
     try:
         article = _active_article(article_id)
         content = editor_article_store.get_article_content(article_id)
+        # §C: a rewrite also always has a Focus. An Article whose owner typed
+        # the body by hand may never have had one, and rewriting it with an
+        # empty editorial focus would produce a text with no editorial
+        # instruction at all.
+        _ensure_default_focus(article_id)
+        article = _active_article(article_id)
         # §E2 - the factual basis is read ONCE, from the same canonical stores
-        # the first Draft read. No search, no research, no new facts.
-        snapshot = _draft_snapshot(article_id)
+        # the first Draft read, and `enrich=False` keeps the automatic gathering
+        # out of a rewrite entirely. A rewrite must not silently introduce
+        # unreviewed web material into text the editor has already judged.
+        snapshot = _draft_snapshot(article_id, enrich=False)
         article_rewrite.rewrite(
             article=article,
             content=content,
@@ -2001,13 +2035,15 @@ def _run_rewrite(article_id: str, comment: str, token: str) -> dict:
             "Статията е променена, преди пренаписването да завърши.",
         ) from exc
     except Exception as exc:
-        # §E4 - an unclassified failure is retryable and never fabricates text.
-        # This is deliberately broad: the model transport can raise its own
-        # exception types, and every one of them must end in "keep the current
-        # body, keep the comment, offer a retry" rather than in a stack trace
-        # crossing the editor boundary.
-        LOG.warning("rewrite failed for %s: %s", article_id, type(exc).__name__)
-        _record_failed_rewrite_feedback(article_id, comment)
+        # V1.2-G4.3: the publish may have SUCCEEDED and something after it (the
+        # projection read) failed. Reporting that as a failed rewrite tells the
+        # editor their text was lost when it was in fact replaced - and a retry
+        # then rewrites it again, so the same comment is recorded twice with
+        # contradictory outcomes. The STORE decides, not whether an exception
+        # happened to be raised afterwards.
+        LOG.exception("rewrite failed after the publish step for %s", article_id)
+        if not _rewrite_published(article_id, content):
+            _record_failed_rewrite_feedback(article_id, comment)
         raise article_rewrite.RewriteRefused(
             "REWRITE_UNAVAILABLE", "Пренаписването не можа да се извърши."
         ) from exc
@@ -2153,7 +2189,15 @@ def _original_publication_is_readable(story_id: str, story: dict, *, resolve: bo
         if publication_material.is_readable_publication(url):
             return True
     if not resolve:
-        return False
+        # The offline half: is ANY member URL worth one bounded attempt? This
+        # deliberately accepts a redirect wrapper, because the command can
+        # resolve it to the real publisher page from the headline.
+        return any(
+            publication_material.may_resolve_to_publisher(
+                str((items.get(member.get("item_id")) or {}).get("url") or "")
+            )
+            for member in (story or {}).get("members") or []
+        )
     title = _story_title(story, items)
     return bool(publication_material.publication_urls(title))
 

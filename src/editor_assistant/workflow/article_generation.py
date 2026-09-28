@@ -46,6 +46,7 @@ from editor_assistant.workflow import (
     editor_article_store,
     live,
     live_store,
+    rewrite_feedback,
     story_operations,
 )
 from editor_assistant.workflow import ideas as ideas_mod
@@ -276,6 +277,10 @@ def material_basis(snapshot: dict) -> dict:
         "sourceDomain": str((origin or (sources[0] if sources else {})).get("domain") or ""),
         "sourceUrl": str((origin or (sources[0] if sources else {})).get("url") or ""),
         "attributionRequired": basis == draft_material.SINGLE_SOURCE,
+        # V1.2-G4.3 §A2: the automatic gathering's own outcome travels with the
+        # text, so "the search found nothing" and "the search was cut off" are
+        # visible to the editor instead of silently swallowed.
+        "enrichmentWarnings": [str(w) for w in (snapshot.get("enrichment_warnings") or [])],
     }
 
 
@@ -466,6 +471,10 @@ def generate(snapshot: dict, *, root=None, now=None) -> dict:
             outcome = pipeline_state.generate_draft(
                 idea["idea_id"],
                 evidence_id,
+                # G4: the human-approved permanent rules, and ONLY those. Empty
+                # unless a person approved one, in which case the prompt is
+                # byte-identical to the pre-feature one.
+                learned_instructions=rewrite_feedback.active_instruction_texts(root=editorial),
                 force=True,
                 force_reason=_FORCE_REASON,
             )

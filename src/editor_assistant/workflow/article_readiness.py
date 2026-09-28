@@ -250,9 +250,10 @@ def evaluate_evidence(
     """The evidence half of `evaluate`, answerable without an Article (§7 D2).
 
     `evaluate` answers a question about one Article: may *this* Article start a
-    Draft? Its first two steps are about the Article (lifecycle, lineage, Focus,
-    content version) and the rest is about the Story's evidence basis, which
-    exists and is canonical long before any Article does.
+    Draft? Its steps are about the Article (lifecycle, lineage, content version)
+    and the rest is about the Story's evidence basis, which exists and is
+    canonical long before any Article does. **V1.2-G4.3 §C:** the Focus is no
+    longer one of those steps — it is guidance, not a gate.
 
     V1.1-D2 has to ask that second question at a point where no Article exists
     yet — §10 requires evidence to be judged sufficient *before* an Article is

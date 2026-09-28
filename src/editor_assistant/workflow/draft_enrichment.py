@@ -39,10 +39,14 @@ existing `draft_material` gate decides what that material is worth.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
+import threading
 import time
 
+from editor_assistant.sources import web_fetch as web_fetch_mod
 from editor_assistant.workflow import publication_material
 from editor_assistant.workflow import search as search_mod
 
@@ -121,7 +125,7 @@ _EVENT_CUES = (
     "турнир", "мач", "зала", "театър", "кино", "празник", "събор",
 )
 _INCIDENT_CUES = (
-    "пожари", "пожар", "инцидент", "катастрофа", "авари", "земетресение",
+    "пожар", "инцидент", "катастрофа", "авари", "земетресение",
     "наводнение", "сблъскване", "пострад", "загина", "ранен", "автомобил",
     "превозно", "влак", "самолет", "кораб", "спасява", "полиция", "пожарна",
 )
@@ -142,19 +146,34 @@ def plan_questions(title: str, *, limit: int = 3) -> tuple[str, ...]:
 
     Deterministic and model-free, which keeps the *Draft* budget where it
     belongs: on writing the Article rather than on deciding what to ask.
+
+    **Word-boundary matching, not substring.** Plain `cue in text` classified
+    a theatre story as a municipal decision, because "цена" is a substring of
+    "сцена" — so a Story about a stage asked what a government decision
+    changes and when it takes effect. The wrong questions are worse than no
+    questions: they steer the search away from the actual event.
     """
     text = " ".join(str(title or "").lower().split())
     if not text:
         return GENERAL_QUESTIONS[: max(1, int(limit))]
-    if any(cue in text for cue in _INCIDENT_CUES):
+    if any(_has_word(text, cue) for cue in _INCIDENT_CUES):
         pool = INCIDENT_QUESTIONS
-    elif any(cue in text for cue in _EVENT_CUES):
+    elif any(_has_word(text, cue) for cue in _EVENT_CUES):
         pool = EVENT_QUESTIONS
-    elif any(cue in text for cue in _DECISION_CUES):
+    elif any(_has_word(text, cue) for cue in _DECISION_CUES):
         pool = DECISION_QUESTIONS
     else:
         pool = GENERAL_QUESTIONS
     return pool[: max(1, int(limit))]
+
+
+def _has_word(text: str, cue: str) -> bool:
+    """Whether `cue` appears in `text` as a whole word (or a whole prefix of one).
+
+    Bulgarian inflects, so a cue is allowed to match the START of a word
+    ("пожар" in "пожари"), but never in the middle of one.
+    """
+    return re.search(rf"(?<!\w){re.escape(cue)}\w*", text) is not None
 
 
 class Budget:
@@ -163,6 +182,11 @@ class Budget:
     Exists so the bound is *enforced* rather than documented: `exhausted` is
     checked before each page open, so a slow provider costs the enrichment its
     extra work and never the editor's Draft.
+
+    **The constructor CLAMPS to the module policy.** These are documented as
+    constants "no caller — including a future one — can raise", so a caller
+    passing `Budget(pages=99)` must not be able to open 99 pages. A caller may
+    ask for LESS (a test, a deliberately cheap run), never for more.
     """
 
     def __init__(
@@ -173,9 +197,9 @@ class Budget:
         seconds: float = WALL_CLOCK_BUDGET_S,
         clock=time.monotonic,
     ) -> None:
-        self.queries_left = max(0, int(queries))
-        self.pages_left = max(0, int(pages))
-        self.seconds = float(seconds)
+        self.queries_left = min(MAX_QUERIES, max(0, int(queries)))
+        self.pages_left = min(MAX_OPENED_PAGES, max(0, int(pages)))
+        self.seconds = min(WALL_CLOCK_BUDGET_S, max(0.0, float(seconds)))
         self._clock = clock
         self._started = clock()
         self.timed_out = False
@@ -189,11 +213,81 @@ class Budget:
             return True
         return False
 
+    def take_query(self) -> bool:
+        """Spend one of the query allowance. Symmetric with `take_page`."""
+        if self.queries_left <= 0:
+            return False
+        self.queries_left -= 1
+        return True
+
     def take_page(self) -> bool:
         if self.pages_left <= 0 or self.exhausted():
             return False
         self.pages_left -= 1
         return True
+
+
+class _PageCache:
+    """A page opener that fetches each URL once and remembers the result.
+
+    `run_event_discovery` opens a candidate page to decide whether it is a real
+    publisher, and the extraction pass then reads the SAME page again. Without
+    this, every accepted page was downloaded twice - so a stated envelope of "3-5
+    opened pages" was really up to ten fetches plus the wrapper rejections.
+    """
+
+    def __init__(self, opener=None) -> None:
+        self._opener = opener
+        self._pages: dict[str, dict] = {}
+
+    def __call__(self, url: str) -> dict:
+        if url not in self._pages:
+            self._pages[url] = self._opener(url) if self._opener else web_fetch_mod.fetch_page(url)
+        return self._pages[url]
+
+    def cached(self, url: str) -> dict | None:
+        return self._pages.get(url)
+
+
+def _run_discovery_bounded(work, *, seconds: float):
+    """Run `work` with a real wall-clock deadline; `None` if it overran.
+
+    The bounded-operation registry the product already uses is for POLLS, not
+    for cancelling work, so the deadline here is enforced by running the call on
+    a worker thread and simply not waiting for it past the envelope. The
+    enrichment is opportunistic by contract, so an overrun costs the Draft its
+    extra material and nothing else.
+    """
+    remaining = max(0.0, float(seconds))
+    if remaining <= 0:
+        return None
+    result: dict = {}
+    done = threading.Event()
+
+    def runner() -> None:
+        try:
+            result["operation"] = work()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
+            result["error"] = exc
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=runner, name="draft-enrichment", daemon=True)
+    worker.start()
+    if not done.wait(remaining):
+        LOG.warning(
+            "draft enrichment exceeded its %.0fs envelope; continuing without it", remaining
+        )
+        return None
+    if "error" in result:
+        error = result["error"]
+        # A provider, key or transport problem is an enrichment problem and
+        # nothing more; a real defect in this module still surfaces loudly.
+        if isinstance(error, (search_mod.SearchError, OSError, ValueError, KeyError, TypeError)):
+            LOG.warning("draft enrichment could not run: %s", type(error).__name__)
+            return None
+        raise error
+    return result.get("operation")
 
 
 def enrich(
@@ -227,23 +321,36 @@ def enrich(
         # the operator turned it off, so there is nothing unresolved to report.
         return {"sources": [], "queries": [], "warnings": (), "elapsed_s": spend.elapsed()}
     if not title:
-        # Nothing to search *for* is a real reason to skip, and it is reported
-        # honestly rather than dressed up as a failed search.
+        # Nothing to search *for*. This reports NO warning at all rather than
+        # "found no additional sources": no search was performed, so claiming it
+        # found nothing would be a fabricated observation. The Draft still
+        # proceeds from whatever material the Story already had.
         return {
             "sources": [],
             "queries": [],
-            "warnings": (WARNING_ENRICHMENT_EMPTY,),
+            "warnings": (),
             "elapsed_s": spend.elapsed(),
         }
 
     known = {str(url or "").strip() for url in existing_urls if str(url or "").strip()}
     queries_run: list[str] = []
 
-    # One bounded discovery round. The query ladder, the provider chain, the
-    # budget clamp and the DISCOVERY_ONLY invariant are all the existing,
-    # already-exercised `search` machinery - this is reuse, not a new engine.
-    try:
-        operation = search_mod.run_event_discovery(
+    # The pages discovery already opened are re-used for the extraction pass
+    # below, so an accepted page is fetched ONCE rather than twice. This is
+    # also what keeps the real page count near the stated envelope.
+    cache = _PageCache(page_opener)
+
+    # A3 - the deadline is REAL, not advisory. `run_event_discovery` is a single
+    # blocking call with no cancellation, and the keyless provider chain inside
+    # it can spend far longer than the whole envelope. Checking the clock before
+    # and after the call is therefore not enough: the call has to be bounded
+    # from the outside, or the editor waits for minutes behind a 30 s promise.
+    #
+    # On overrun the Draft continues with no enrichment and an honest warning.
+    # The abandoned thread is left to die on its own; killing it would mean
+    # interrupting a socket mid-write for no benefit to the editor.
+    operation = _run_discovery_bounded(
+        lambda: search_mod.run_event_discovery(
             topic=title,
             constraints=search_mod.make_constraints(
                 description="автоматично обогатяване на материал за чернова",
@@ -251,8 +358,8 @@ def enrich(
             ),
             missing_dimensions=list(asked),
             provider=provider,
-            page_opener=page_opener,
-            max_open=min(MAX_OPENED_PAGES, max(1, spend.pages_left)),
+            page_opener=cache,
+            max_open=min(MAX_OPENED_PAGES, max(0, spend.pages_left)),
             audit_path=audit_path,
             # A3: the round may not spend more of the owner's Serper
             # allocation than the enrichment envelope allows.
@@ -260,13 +367,10 @@ def enrich(
             # A2: stop as soon as the material is good enough. A Story already
             # covered elsewhere must not cost the whole query ladder.
             stop_after_publishers=max(1, min(2, spend.pages_left)),
-        )
-    except (search_mod.SearchError, OSError, ValueError, KeyError, TypeError):
-        # A provider, key or transport problem is an enrichment problem and
-        # nothing more. The Draft continues from whatever the original gave us.
-        # Deliberately narrow: a real defect in this module must still surface
-        # loudly instead of being silently absorbed as "enrichment was weak".
-        LOG.warning("automatic draft enrichment could not run; continuing without it")
+        ),
+        seconds=spend.seconds - spend.elapsed(),
+    )
+    if operation is None:
         return {
             "sources": [],
             "queries": [],
@@ -289,20 +393,24 @@ def enrich(
         )
         if not final_url or final_url in known:
             continue
-        if (candidate.get("opened") or {}).get("status") != "FETCH_OK":
+        if (candidate.get("opened") or {}).get("status") != web_fetch_mod.FETCH_OK:
             continue
         # A5 / B4: only a real publisher page that was actually OPENED may
         # contribute. `read_publication` re-checks the wrapper, blocked-domain
         # and on-topic rules, and returns verbatim claims with their locators.
         if not spend.take_page():
             break
-        read = publication_material.read_publication(final_url, topic=title, opener=page_opener)
+        read = publication_material.read_publication(final_url, topic=title, opener=cache)
         if not read:
             continue
         known.add(read["url"])
         opened.append(
             {
-                "id": "",
+                # A real identity, not "". The claims of two different
+                # publisher pages would otherwise share the source_reference
+                # "<id>:claim:0", which is what makes a claim traceable back to
+                # the page it came from.
+                "id": _source_id_for(read["url"]),
                 "name": read["domain"],
                 "url": read["url"],
                 "domain": read["domain"],
@@ -314,9 +422,32 @@ def enrich(
     return {
         "sources": opened,
         "queries": queries_run,
-        "warnings": () if opened else (WARNING_ENRICHMENT_EMPTY,),
+        # Honesty about WHY there is nothing: a search that ran and found
+        # nothing is one thing, and an envelope that ran out mid-flight is
+        # another. Reporting the second as the first tells the editor a search
+        # came back empty when it was in fact cut off.
+        "warnings": _no_material_warning(opened, spend),
         "elapsed_s": spend.elapsed(),
     }
+
+
+def _no_material_warning(opened: list[dict], spend: Budget) -> tuple[str, ...]:
+    """The honest reason no enrichment material reached the Draft."""
+    if opened:
+        return ()
+    if spend.exhausted():
+        return (WARNING_ENRICHMENT_UNAVAILABLE,)
+    return (WARNING_ENRICHMENT_EMPTY,)
+
+
+def _source_id_for(url: str) -> str:
+    """A stable, URL-derived source id.
+
+    Derived from the URL rather than a counter so it is reproducible: the same
+    publisher page always yields the same id, which is what lets a claim's
+    provenance be re-resolved later.
+    """
+    return "src_enrichment_" + hashlib.sha256(str(url).encode("utf-8")).hexdigest()[:10]
 
 
 def merge_sources(existing, discovered) -> list[dict]:

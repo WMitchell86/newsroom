@@ -223,6 +223,7 @@ def live_generate_draft(
     title="",
     focus="",
     editor_comment="",
+    learned_instructions=(),
 ):
     """Fresh grounded draft via the proven M2.3B path.
 
@@ -333,6 +334,11 @@ def live_generate_draft(
         # so the label is what travels into the prompt.
         voice_label=voice_profile.get("display_name", ""),
         editor_comment=editor_comment,
+        # V1.2-G4.3 §G4: the human-approved writing rules, and ONLY those. The
+        # section is omitted entirely when none have been approved, so a product
+        # that has not made the decision yet generates exactly as it did before
+        # this feature existed.
+        learned_instructions=learned_instructions,
     )
     raw, generation_meta = gen.call_model(
         prompt_spec["text"],

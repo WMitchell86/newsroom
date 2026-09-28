@@ -326,7 +326,7 @@ The response exposes only bounded execution status and the command's eventual re
 
 ### 9.7 Archive and Settings boundaries
 
-`PUT /content` is autosave transport, not a new editor action. `PUT /focus` represents the frozen `Избери фокус / Промени фокуса` decision: AI may first propose text, but only an editor command stores `focus_confirmed_at`. `MAKE_DRAFT` is absent from `availableActions` until confirmation. Finalize returns an Archive link and never publishes.
+`PUT /content` is autosave transport, not a new editor action. `PUT /focus` represents the frozen `Промени фокуса` decision: the Focus is stored, and a non-empty saved Focus IS the confirmed Focus. `PUT /voice` is the optional §D style choice. **V1.2-G4.3 §C:** `MAKE_DRAFT` is no longer withheld until confirmation — a Draft always has a deterministic default Focus, and the command writes it through the same `PUT /focus` path an editor edit uses. Finalize returns an Archive link and never publishes.
 
 ```text
 GET /api/v1/archive?query=
@@ -349,6 +349,7 @@ Archive returns only finalized Articles, newest first, with no V1 filters. Detai
 type AvailableAction =
   | "REVIEW" | "FOLLOW" | "UNFOLLOW" | "IGNORE" | "RESEARCH_MORE"
   | "START_ARTICLE" | "SELECT_FOCUS" | "CHANGE_FOCUS" | "MAKE_DRAFT"
+  | "CHANGE_VOICE" | "REWRITE"
   | "EDIT" | "MARK_READY" | "FINALIZE";
 
 type NextAction = {
@@ -514,7 +515,7 @@ else:
 
 | Editor state | Canonical condition | Notes |
 |---|---|---|
-| `Подготовка` | No non-empty current body | Focus may be proposed or confirmed; gaps may block Draft. |
+| `Подготовка` | No non-empty current body | V1.2-G4.3: gaps do NOT block Draft; they warn it. A default Focus always exists. |
 | `Чернова` | Non-empty body and no valid current readiness checkpoint | Covers AI/manual content and reopened ready Articles. |
 | `Готова` | `ready_version == content_version` and the recorded validation digest is current | No automatic transition; any content or validation change invalidates readiness. |
 | Archive | `finalized_at != null` and final content exists | Not active; excluded from `Статии`. |
@@ -676,6 +677,37 @@ It must:
 The frontend still performs ONE Draft action; the enrichment is internal.
 
 The frontend never calls separate idea/evidence/prepared/case operations.
+
+### 16.3 Rewrite (V1.2-G4.3 §E)
+
+```text
+POST /api/v1/articles/{articleId}/rewrite
+Idempotency-Key: <required>
+{ "comment": "Какво да променя?" }
+```
+
+Returns `202 { operationToken }` and the Article detail on success. The
+implementation is `workflow/article_rewrite.py`; the editor action is
+`Пренапиши`.
+
+It must:
+
+- reuse the CURRENT factual basis and run **no** automatic enrichment
+  (`_draft_snapshot(..., enrich=False)`) — a rewrite is a writing operation;
+- treat the editor's comment as having editorial priority over style defaults,
+  but never over factual safety;
+- publish through the SAME versioned content store, so the previous text stays
+  recoverable and no new versioning subsystem is introduced;
+- record one compact feedback row (§F) on both success and failure;
+- on failure, leave the body, the Focus, the Voice and the comment untouched and
+  return a stable retryable code.
+
+### 16.4 Optional voice (V1.2-G4.3 §D)
+
+`PUT /api/v1/articles/{articleId}/voice` with `{ "voice": "" | <frozen id> }`.
+Validated against the canonical frozen voice list only. It creates no Article,
+rewrites no existing text, and does not withdraw the readiness checkpoint; it
+affects the next Draft or Rewrite. `""` is `Автоматично`, the default.
 
 ## 17. Manual Draft continuation
 
@@ -882,13 +914,13 @@ Risk scale: Low / Medium / High.
 | Ignore | Exists | Ignore command/projection | Story action | Low | Ignored+followed is absent from `Днес`, remains in `Игнорирани`; opening and `Прегледай` restore normal semantics. |
 | New Development | Partial relation/reopen | Cursor/delta projection | Today/Story | High | A/B visible then C arrives → one `Прегледай` clears A/B only; C remains unreviewed. |
 | Facts/Sources | Strong packet/provenance | Story projection | Newsroom notes | Medium | Verified source/locator inspectable; snippets never promoted. |
-| Missing Information | Partial readiness | Blocking assessment | Inline section | Medium | Blocking gap blocks Draft; non-blocking stays visible. |
+| Missing Information | Partial readiness | Blocking assessment | Inline section | Medium | V1.2-G4.3: gaps WARN a Draft and may block `Готова`; they never withhold a Draft. |
 | Research More | Primitives, no executor | Story orchestration/operation | Inline load/error | High | Same-Story update; failure preserves gaps; no Research state. |
 | Start Article | Lineage-losing bridge | Article command/store | Story→Article | High | Immediate `Подготовка` with Story/title/focus. |
 | Editorial Focus | Internal suggestion | Canonical field/projection | Simple editor | Medium | 1–3 sentences; no angle/mode/voice quartet. V1.2-G4.3: default, editable, never a gate, no generic alternatives. |
 | Style (voice) | Internal profile | Optional Article field | Progressive disclosure | Low | V1.2-G4.3: secondary optional control, default automatic, never a workflow step. |
 | Rewrite (`Пренапиши`) | Editor comment | New content version of the same Article | Comment field + one action | Medium | V1.2-G4.3: not a new Article, state, finalization or Research. |
-| Draft readiness | Internal readiness | Server re-evaluation | Primary action | High | Invalid focus/blocking gap prevents generation. |
+| Draft readiness | Internal readiness | Server re-evaluation | Primary action | High | V1.2-G4.3: only a genuine absence of readable source-backed material prevents generation. |
 | Draft generation | Strong path | One orchestration command | Preparing state | High | One editor call; real text → `Чернова`; no fabricated Draft. |
 | Manual continuation | Missing | Content command in preparation | `Редактирай` | High | Manual text transitions `Подготовка → Чернова`. |
 | Editing/autosave | Case partial | Revision/conflict API | Local editor/autosave | High | Passive status; serialized saves; conflict preserves local. |

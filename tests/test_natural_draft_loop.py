@@ -405,9 +405,12 @@ def test_rewrite_does_not_research_by_default(prepared, model, monkeypatch):
         prepared["article_id"], "По-кратко.", idempotency_key="r3"
     )["operationToken"]
     assert _await(token)["status"] == "succeeded"
-    # The one enrichment the snapshot performs is the existing one; the rewrite
-    # itself added no research of its own beyond that single bounded pass.
-    assert len(searched) <= 1
+    # ZERO, not "at most one". The previous assertion here was `len(searched)
+    # <= 1`, which passed while the rewrite was still running a full enrichment
+    # round and merging newly discovered pages into the packet - i.e. unreviewed
+    # web material silently entering text the editor had already judged. E2
+    # means the factual basis is REUSED, not merely bounded.
+    assert searched == [], "Пренапиши must not run any discovery round"
 
 
 def test_rewrite_failure_preserves_the_text_and_the_comment(prepared, model, monkeypatch):
@@ -681,6 +684,73 @@ def test_a_rejected_proposal_is_not_re_proposed(tmp_path):
     assert len(active) == 1 and active[0]["approved"] is True
 
 
+def test_an_approved_instruction_actually_reaches_the_prompt(tmp_path, monkeypatch):
+    """G4 - approval is not a dead letter: the rule must reach the model.
+
+    The loop used to end at a file nothing read, so approving a rule changed no
+    generation behaviour whatsoever. This asserts the whole path: approve ->
+    approved set -> prompt section -> the rendered text the model is sent.
+    """
+    from editor_assistant.drafting import prompt as prompt_mod
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(tmp_path, ["Започни директно с факта."] * 4)
+    target = next(
+        row for row in rfb.analyze(root=tmp_path, minimum=3)
+        if row["pattern_id"] == "direct_lead"
+    )
+    rfb.apply_approval(target, root=tmp_path)
+
+    rules = rfb.active_instruction_texts(root=tmp_path)
+    assert rules, "an approved rule must be readable back as a prompt-ready line"
+
+    built = prompt_mod.build_prompt(
+        {"source_url": "https://x.test/a", "source_headline": "h", "facts": [], "quotes": [],
+         "unknowns": []},
+        site_dna={"conventions": {}},
+        voice_profile={"profile_id": "VOICE_HOUSE", "headline": {"common_patterns": []},
+                       "opening": {"typical_patterns": []},
+                       "body": {"paragraph_shape": "", "sentence_shape": ""},
+                       "quotes": {"frequency": "", "placement": ""},
+                       "tone": {"factual_vs_descriptive": "", "narrative_distance": ""},
+                       "numbers_dates": {"conventions": []},
+                       "lexical_notes": {"recurring_preferences": []}, "avoidances": []},
+        mode_profile={"profile_id": "MODE_BRIEF", "headline": {"common_patterns": []},
+                      "opening": {"typical_patterns": []},
+                      "body": {"paragraph_shape": "", "sentence_shape": ""},
+                      "quotes": {"frequency": "", "placement": ""},
+                      "tone": {"factual_vs_descriptive": "", "narrative_distance": ""},
+                      "numbers_dates": {"conventions": []},
+                      "lexical_notes": {"recurring_preferences": []}, "avoidances": []},
+        style_examples=[],
+        learned_instructions=rules,
+    )
+    assert "===== LEARNED_INSTRUCTIONS =====" in built["text"]
+    assert rules[0] in built["text"]
+
+
+def test_a_rejected_rule_never_reaches_the_prompt(tmp_path):
+    """G4 - a human 'no' stays a no."""
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(tmp_path, ["Започни директно с факта."] * 4)
+    target = next(
+        row for row in rfb.analyze(root=tmp_path, minimum=3)
+        if row["pattern_id"] == "direct_lead"
+    )
+    rfb.apply_approval(target, approved=False, root=tmp_path)
+    assert rfb.active_instruction_texts(root=tmp_path) == ()
+
+
+def test_an_unapproved_proposal_never_reaches_the_prompt(tmp_path):
+    """G4 - detection alone must not activate anything."""
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(tmp_path, ["Започни директно с факта."] * 4)
+    assert rfb.analyze(root=tmp_path, minimum=3), "the pattern is detected"
+    assert rfb.active_instruction_texts(root=tmp_path) == ()
+
+
 def test_prompt_source_is_unchanged_until_approval(tmp_path):
     """§L: the canonical prompt is untouched by feedback, approved or not."""
     from editor_assistant.drafting import prompt as prompt_mod
@@ -712,3 +782,355 @@ def test_rewrite_records_feedback_on_success(prepared, model, monkeypatch):
     assert row["draft_version_after"] == before["content_version"] + 1
     assert row["generated_by_model"] is True
     assert "кратък" in row["editor_comment"]
+
+
+# ---------------------------------------------------------------- store safety
+
+
+def test_an_interrupted_publish_does_not_brick_the_article(newsroom, prepared):
+    """§E3 — an orphaned content document must not make the Article unwritable.
+
+    A publish writes the immutable content document first and the Article
+    pointer last, so a crash in between leaves debris at a version the pointer
+    never reached. Before this recovery existed, that debris made EVERY later
+    publish fail with "an Article content version is immutable" — permanently,
+    so the `Пренапиши` retry the owner is offered could never succeed.
+    """
+    article_id = prepared["article_id"]
+    editorial = app._editorial_root()
+    articles.save_article_content(article_id, 0, "Работа", "Първи текст")
+    assert articles.get_article_content(article_id)["content_version"] == 1
+
+    # Simulate the crash: the document is written, the pointer never moves.
+    orphan = editorial / "editor_articles" / article_id / "v00000002.json"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_text(
+        json.dumps(
+            {
+                "article_id": article_id,
+                "title": "Работа",
+                "body": "получен текст, който никога не е бил публикуван",
+                "content_version": 2,
+                "updated_at": "2026-09-25T10:00:00Z",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    # The next real publish must recover rather than refuse forever.
+    published = articles.publish_generated_draft(
+        article_id, 1, title="Работа", body="Новият текст"
+    )
+    assert published["content_version"] == 2
+    assert published["body"] == "Новият текст"
+    # And the version the editor actually had is still readable.
+    v1 = json.loads(
+        (editorial / "editor_articles" / article_id / "v00000001.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert v1["body"] == "Първи текст"
+
+
+def test_a_reachable_version_is_still_immutable(newsroom, prepared):
+    """The recovery must not weaken the immutability that actually protects work."""
+    article_id = prepared["article_id"]
+    articles.save_article_content(article_id, 0, "Работа", "Първи текст")
+    editorial = app._editorial_root()
+    path = editorial / "editor_articles" / article_id / "v00000001.json"
+    existing = json.loads(path.read_text(encoding="utf-8"))
+    existing["body"] = "подменен текст"
+    path.write_text(json.dumps(existing, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(articles.ArticleStoreError):
+        articles.save_article_content(article_id, 0, "Работа", "Първи текст")
+
+
+# ---------------------------------------------------------------- A3 enforcement
+
+
+def test_the_wall_clock_envelope_actually_bounds_a_slow_discovery(monkeypatch):
+    """A3 - a slow provider must cost the enrichment, not the editor's wait.
+
+    The previous implementation only CHECKED the clock around one unbounded
+    blocking call, so a discovery that slept 2s against a 0.5s budget returned
+    after the full 2s and the promise was fiction. The deadline is now enforced
+    from the outside.
+    """
+    from editor_assistant.workflow import draft_enrichment as de
+
+    def slow(**_kwargs):
+        time.sleep(2.0)
+        return {"status": "SEARCH_OK", "queries": [], "candidates": []}
+
+    monkeypatch.setattr(de.search_mod, "run_event_discovery", slow)
+    started = time.monotonic()
+    result = de.enrich(topic=HEADLINE, budget=de.Budget(seconds=0.4))
+    elapsed = time.monotonic() - started
+
+    assert result["sources"] == []
+    assert elapsed < 1.5, f"the envelope did not bound the call ({elapsed:.1f}s)"
+    # And it is reported honestly: cut off, not "found nothing".
+    assert result["warnings"] == (de.WARNING_ENRICHMENT_UNAVAILABLE,)
+
+
+def test_a_spent_budget_is_not_reported_as_an_empty_search(monkeypatch):
+    """A2 - 'enrichment found nothing' and 'enrichment was cut off' differ."""
+    from editor_assistant.workflow import draft_enrichment as de
+
+    _no_search(monkeypatch, sources=["https://a.example.test/x"])
+    _stub_publication(monkeypatch)
+    ticks = {"n": 0}
+
+    def clock():
+        ticks["n"] += 1
+        # Blow the budget immediately after the discovery call returns.
+        return 0.0 if ticks["n"] < 3 else 999.0
+
+    result = de.enrich(
+        topic=HEADLINE, budget=de.Budget(clock=clock, seconds=1.0)
+    )
+    assert result["sources"] == []
+    assert result["warnings"] == (de.WARNING_ENRICHMENT_UNAVAILABLE,), (
+        "a cut-off round must not be reported as a search that found nothing"
+    )
+
+
+def test_an_accepted_page_is_fetched_only_once():
+    """A3 - a page discovery opened is not downloaded again for extraction.
+
+    `run_event_discovery` opens a candidate to decide whether it is a real
+    publisher, and the extraction pass then reads the SAME page. Without the
+    cache every accepted page was downloaded twice, so a stated envelope of
+    "3-5 opened pages" was really up to ten fetches.
+    """
+    from editor_assistant.workflow import draft_enrichment as de
+
+    calls: list[str] = []
+
+    def opener(url):
+        calls.append(url)
+        return {"final_url": url, "text": "текст", "bytes": 4}
+
+    cache = de._PageCache(opener)
+    first = cache("https://p.example.test/a")
+    second = cache("https://p.example.test/a")
+    cache("https://q.example.test/b")
+
+    assert first is second, "the same URL must return the same page object"
+    assert calls == ["https://p.example.test/a", "https://q.example.test/b"], (
+        f"a page was fetched more than once: {calls}"
+    )
+    # And the same instance is what both phases are given, which is what makes
+    # the deduplication real rather than incidental.
+    assert cache.cached("https://p.example.test/a") is first
+    assert cache.cached("https://missing.example.test") is None
+
+
+def test_a_caller_cannot_raise_the_envelope(monkeypatch):
+    """A3 - the constants are policy: a caller may ask for less, never more."""
+    from editor_assistant.workflow import draft_enrichment as de
+
+    assert de.Budget(pages=99).pages_left == de.MAX_OPENED_PAGES
+    assert de.Budget(queries=99).queries_left == de.MAX_QUERIES
+    assert de.Budget(seconds=9999).seconds == de.WALL_CLOCK_BUDGET_S
+    # Asking for less still works, which is what tests and cheap runs need.
+    assert de.Budget(pages=1).pages_left == 1
+
+    urls = [f"https://p{i}.example.test/a" for i in range(12)]
+    _no_search(monkeypatch, sources=urls)
+    _stub_publication(monkeypatch)
+    result = de.enrich(topic=HEADLINE, budget=de.Budget(pages=99))
+    assert len(result["sources"]) <= de.MAX_OPENED_PAGES
+
+
+def test_enrichment_sources_carry_a_resolvable_identity(monkeypatch):
+    """A5 - a claim must be traceable to the page it came from."""
+    from editor_assistant.workflow import draft_enrichment as de
+
+    _no_search(monkeypatch, sources=["https://a.example.test/x", "https://b.example.test/y"])
+    _stub_publication(monkeypatch)
+    result = de.enrich(topic=HEADLINE)
+    ids = [row["id"] for row in result["sources"]]
+    assert all(ids), "every enrichment source needs a non-empty id"
+    assert len(set(ids)) == len(ids), "two pages must not share one identity"
+
+
+def test_plan_questions_does_not_match_inside_a_word(monkeypatch):
+    """A4 - 'цена' inside 'сцена' must not turn a theatre story into a decision."""
+    from editor_assistant.workflow import draft_enrichment as de
+
+    assert de.plan_questions("Ремонт на сцената в читалището") == de.GENERAL_QUESTIONS[:3]
+    # A real decision word still classifies, including an inflected form.
+    assert de.plan_questions("Общинският съвет одобри цените") == de.DECISION_QUESTIONS[:3]
+    assert de.plan_questions("Пожари в центъра на града") == de.INCIDENT_QUESTIONS[:3]
+
+
+def test_an_empty_enrichment_is_reported_to_the_editor(prepared, model, monkeypatch):
+    """A2 - "no enrichment" ends in a Draft PLUS a warning, and the warning is VISIBLE.
+
+    Four specifications promise the editor is told when the automatic gathering
+    found nothing. The warnings were computed and then dropped on the floor:
+    they lived in a snapshot key that nothing read, so the promise was kept only
+    in the documents.
+    """
+    from editor_assistant.workflow import draft_enrichment as de
+
+    _no_search(monkeypatch, sources=[], queries=["няма нищо"])
+    token = app.start_article_draft(prepared["article_id"], idempotency_key="w1")[
+        "operationToken"
+    ]
+    assert _await(token)["status"] == "succeeded"
+
+    projection = app.read_article(prepared["article_id"])
+    assert de.WARNING_ENRICHMENT_EMPTY in projection["draftWarnings"], (
+        "the enrichment outcome must reach the editor, not just the snapshot"
+    )
+    # And it is recorded with the text, so it survives the snapshot.
+    basis = articles.get_editor_article(prepared["article_id"])["draft_material_basis"]
+    assert de.WARNING_ENRICHMENT_EMPTY in basis["enrichmentWarnings"]
+
+
+def test_a_cut_off_enrichment_reaches_the_editor_as_its_own_sentence(
+    prepared, model, monkeypatch
+):
+    """A2 - a cut-off round and an empty result are different sentences.
+
+    The module-level honesty (`_no_material_warning`) is covered directly by
+    `test_a_spent_budget_is_not_reported_as_an_empty_search`; what this adds is
+    the end-to-end half: the sentence the editor is shown is the cut-off one,
+    not a claim that a search came back empty.
+    """
+    from editor_assistant.workflow import draft_enrichment as de
+
+    _no_search(monkeypatch, sources=[], queries=["q"])
+    real_budget = de.Budget
+
+    def budget_with_no_time(**kwargs):
+        made = real_budget(**kwargs)
+        # An envelope already spent: discovery is allowed to run, but the
+        # extract loop that follows is cut off before it can open anything.
+        made.seconds = 0.0
+        return made
+
+    monkeypatch.setattr(de, "Budget", budget_with_no_time)
+    token = app.start_article_draft(prepared["article_id"], idempotency_key="w2")[
+        "operationToken"
+    ]
+    assert _await(token)["status"] == "succeeded"
+    warnings = app.read_article(prepared["article_id"])["draftWarnings"]
+    assert de.WARNING_ENRICHMENT_UNAVAILABLE in warnings
+    assert de.WARNING_ENRICHMENT_EMPTY not in warnings
+
+
+# ---------------------------------------------------------------- G hardening
+
+
+def test_a_rejected_pattern_is_never_proposed_again(tmp_path):
+    """G4 - a refusal retires the pattern instead of nagging about it.
+
+    The previous version deleted the earlier decision, so a rejected pattern was
+    re-proposed on the next analyse and a later approval overwrote the human's
+    "no" with no trace that it had ever been given.
+    """
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(tmp_path, ["Започни директно с факта."] * 4)
+    target = next(
+        row for row in rfb.analyze(root=tmp_path, minimum=3)
+        if row["pattern_id"] == "direct_lead"
+    )
+    rfb.apply_approval(target, approved=False, root=tmp_path)
+    assert "direct_lead" in rfb.retired_patterns(root=tmp_path)
+
+    # More matching feedback arrives; the retired pattern stays silent.
+    _seed(tmp_path, ["Започни директно с факта."] * 3, article="art_more")
+    again = {row["pattern_id"] for row in rfb.analyze(root=tmp_path, minimum=3)}
+    assert "direct_lead" not in again, "a refused rule was proposed again"
+
+    # And re-deciding records the history rather than erasing the refusal.
+    entry = rfb.apply_approval(target, approved=True, root=tmp_path)
+    assert entry["approved"] is True
+    assert entry.get("history"), "the earlier decision must remain on record"
+
+
+def test_a_conflict_cannot_be_approved_as_an_instruction(tmp_path):
+    """G2/G4 - a conflict is a question to the editor, not a rule."""
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(
+        tmp_path,
+        ["Съкрати текста.", "Съкрати.", "По-кратко.", "Започни директно с факта.",
+         "Лийдът е твърде общ.", "Без общо въведение."],
+    )
+    conflicts = [
+        row for row in rfb.analyze(root=tmp_path, minimum=2) if row["status"] == "conflict"
+    ]
+    assert conflicts, "the fixture must produce a conflict"
+    with pytest.raises(rfb.FeedbackError):
+        rfb.apply_approval(conflicts[0], root=tmp_path)
+    assert rfb.active_instruction_texts(root=tmp_path) == ()
+
+
+def test_approval_is_refused_below_the_threshold(tmp_path, monkeypatch):
+    """G1 - the threshold gates the DECISION, not only the report."""
+    from editor_assistant.workflow import cli as cli_mod
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(tmp_path, ["Започни директно с факта."] * 4)
+    assert any(
+        row["pattern_id"] == "direct_lead" for row in rfb.analyze(root=tmp_path, minimum=3)
+    ), "the fixture must produce a detectable pattern"
+    monkeypatch.setenv("WB_EDITORIAL_WORKFLOW_DIR", str(tmp_path))
+    args = type("A", (), {"feedback_action": "approve", "pattern_id": "direct_lead"})()
+    with pytest.raises(SystemExit):
+        cli_mod._run_newsroom_feedback(args)
+    assert rfb.active_instruction_texts(root=tmp_path) == (), (
+        "3 records must not be enough to approve a permanent rule"
+    )
+
+
+def test_marking_processed_keeps_every_record(tmp_path, monkeypatch):
+    """F/G - the marking pass marks, it never rewrites the log from a stale read.
+
+    The previous version read the log, then truncated and rewrote it from that
+    snapshot. A record appended in between - the ordinary case of an editor
+    hitting Пренапиши while an operator approves a pattern - was silently
+    DELETED. Both sides of the file now take the same lock, and the write is
+    atomic, so no append can be lost.
+    """
+    from editor_assistant.workflow import rewrite_feedback as rfb
+
+    _seed(tmp_path, ["Започни директно с факта."] * 4)
+    target = next(
+        row for row in rfb.analyze(root=tmp_path, minimum=3)
+        if row["pattern_id"] == "direct_lead"
+    )
+    target_ids = set(target["feedback_ids"])
+    assert len(target_ids) == 4
+
+    real_read = rfb.read_all
+    seen: list[int] = []
+
+    def read_and_let_one_land(*args, **kwargs):
+        rows = real_read(*args, **kwargs)
+        seen.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(rfb, "read_all", read_and_let_one_land)
+    # The editor's newer feedback lands while the approval is in flight.
+    rfb.record(
+        article_id="art_live",
+        editor_comment="Съкрати още веднъж.",
+        draft_version_before=1,
+        draft_version_after=2,
+        root=tmp_path,
+    )
+    rfb.apply_approval(target, root=tmp_path)
+    monkeypatch.undo()
+
+    rows = rfb.read_all(root=tmp_path)
+    live = [row for row in rows if row["article_id"] == "art_live"]
+    assert live, "the concurrently appended record was destroyed by the marking pass"
+    assert all(row["processed_for_learning"] for row in rows if row["feedback_id"] in target_ids)
+    assert not live[0]["processed_for_learning"], "an unrelated record must not be marked"

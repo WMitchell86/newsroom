@@ -29,8 +29,11 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+from editor_assistant.workflow import live_store
 
 #: G1 - how many unprocessed records make an analysis worthwhile. Not a
 #: scheduler and not a per-comment trigger: one-off notes are noise, and a
@@ -169,7 +172,11 @@ def record(
         }
     )
     path = feedback_path(root=root)
-    with _LOCK:
+    # The APPEND takes the same file lock as the marking pass. Without that, a
+    # record written here could land between the marking pass's read and its
+    # truncate and be silently destroyed - so both sides of the file must
+    # serialize, not just the destructive one.
+    with _LOCK, _file_lock(path):
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = read_all(root=root)
         # The same comment on the same version is the same feedback, however
@@ -299,6 +306,20 @@ def _matches(comment: str) -> list[str]:
     ]
 
 
+def retired_patterns(*, root=None) -> set[str]:
+    """Pattern ids a human has already DECIDED on, approved or rejected.
+
+    A refusal is a decision. Re-proposing a rule someone already refused is how
+    a learning loop turns into a nagging loop, so `analyze` never proposes a
+    retired pattern again.
+    """
+    return {
+        str(row.get("pattern_id") or "")
+        for row in approved_instructions(root=root)
+        if str(row.get("pattern_id") or "")
+    }
+
+
 def analyze(*, root=None, minimum: int = 3) -> list[dict]:
     """G2 - turn accumulated feedback into PROPOSALS. Never into instructions.
 
@@ -309,9 +330,13 @@ def analyze(*, root=None, minimum: int = 3) -> list[dict]:
     into something nobody asked for.
     """
     rows = unprocessed(root=root)
+    retired = retired_patterns(root=root)
     buckets: dict[str, list[dict]] = {}
     for row in rows:
         for pattern_id in _matches(row["editor_comment"]):
+            if pattern_id in retired:
+                # Already decided by a human. Never re-propose it.
+                continue
             buckets.setdefault(pattern_id, []).append(row)
 
     proposals: list[dict] = []
@@ -394,6 +419,25 @@ def approved_instructions(*, root=None) -> list[dict]:
     return [row for row in rows or [] if isinstance(row, dict)]
 
 
+def active_instruction_texts(*, root=None) -> tuple[str, ...]:
+    """The APPROVED writing rules, as prompt-ready sentences.
+
+    This is the single consumer-facing read of the approved set, and it returns
+    only entries a human actually approved. A rejected pattern is not an
+    instruction, and a proposed one is not either, so neither can reach the
+    model by this route.
+
+    Without this function the whole learning loop was decorative: the approved
+    file was written by `apply_approval` and read by nothing, so approving a
+    rule changed no generation behaviour at all.
+    """
+    return tuple(
+        str(row.get("instruction") or "").strip()
+        for row in approved_instructions(root=root)
+        if row.get("approved") and str(row.get("instruction") or "").strip()
+    )
+
+
 def apply_approval(
     proposal: dict,
     *,
@@ -420,10 +464,18 @@ def apply_approval(
     """
     if not isinstance(proposal, dict) or not proposal.get("pattern_id"):
         raise FeedbackError("a proposal must carry a pattern_id")
+    if proposal.get("status") == "conflict":
+        # A conflict is a QUESTION to the editor, not an instruction. Approving
+        # one used to write "the editor must choose which has priority" into the
+        # active set, which is a question masquerading as a rule.
+        raise FeedbackError("a conflict is not an approvable instruction")
+    target = str(proposal.get("target") or GENERAL_DRAFT_INSTRUCTION)
+    if target not in TARGETS:
+        raise FeedbackError(f"unknown instruction target: {target!r}")
     stamp = str(now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     entry = {
         "pattern_id": str(proposal["pattern_id"]),
-        "target": str(proposal.get("target") or GENERAL_DRAFT_INSTRUCTION),
+        "target": target,
         "instruction": str(proposal.get("suggested_instruction") or ""),
         "support": int(proposal.get("support") or 0),
         "feedback_ids": list(proposal.get("feedback_ids") or []),
@@ -434,8 +486,20 @@ def apply_approval(
     with _LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {"version": 1, "instructions": approved_instructions(root=root)}
-        # Re-deciding the same pattern replaces its previous decision instead of
-        # stacking a second, contradictory entry.
+        # Re-deciding REPLACES the previous decision, and the replacement is
+        # recorded as such rather than by silently deleting the earlier one.
+        history = list(entry.pop("history", []))
+        for row in data["instructions"]:
+            if row.get("pattern_id") == entry["pattern_id"]:
+                history.append(
+                    {
+                        "approved": row.get("approved"),
+                        "decided_at": row.get("decided_at"),
+                        "support": row.get("support"),
+                    }
+                )
+        if history:
+            entry["history"] = history[-5:]
         data["instructions"] = [
             row for row in data["instructions"] if row.get("pattern_id") != entry["pattern_id"]
         ] + [entry]
@@ -447,23 +511,64 @@ def apply_approval(
     return entry
 
 
-def _mark_processed(feedback_ids, *, root=None) -> None:
-    """Rewrite the log with the listed records marked processed.
+@contextmanager
+def _file_lock(path: Path):
+    """A cross-process lock for a store file, where the platform offers one.
 
-    The log is a whole-file rewrite rather than an in-place edit because it is
-    append-only in normal operation and small at prototype scale; `apply_approval`
-    is a rare, human-triggered act, not a hot path.
+    The rewrites in `_mark_processed` and `apply_approval` truncate before they
+    write, so a concurrent append can be destroyed. `flock` serializes the two
+    within one machine, which is the real deployment here; where it is
+    unavailable the pass degrades to the in-process lock rather than failing.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        yield
+        return
+    try:
+        with open(str(path) + ".lock", "a+") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                yield
+                return
+            try:
+                yield
+            finally:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+    except OSError:
+        # A store we cannot lock is still better served by proceeding than by
+        # refusing the operator's decision outright.
+        yield
+
+
+def _mark_processed(feedback_ids, *, root=None) -> None:
+    """Mark the listed records processed WITHOUT destroying concurrent appends.
+
+    V1.2-G4.3: the previous version read the log, then truncated and rewrote
+    it. An editor's feedback appended between those two steps was silently
+    DELETED, because the rewrite only wrote the rows it had already read. The
+    re-read now happens INSIDE the lock, and the write is atomic.
+
+    The whole-file rewrite itself is fine: it is a rare, human-triggered act,
+    not a hot path, and it is what lets `processed_for_learning` be a plain
+    field rather than a second store.
     """
     wanted = {str(item) for item in feedback_ids or ()}
     if not wanted:
         return
-    rows = read_all(root=root)
-    if not any(str(row["feedback_id"]) in wanted for row in rows):
-        return
-    for row in rows:
-        if str(row["feedback_id"]) in wanted:
-            row["processed_for_learning"] = True
     path = feedback_path(root=root)
-    with _LOCK, path.open("w", encoding="utf-8") as handle:
+    with _LOCK, _file_lock(path):
+        rows = read_all(root=root)
+        if not any(str(row["feedback_id"]) in wanted for row in rows):
+            return
         for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            if str(row["feedback_id"]) in wanted:
+                row["processed_for_learning"] = True
+        live_store.atomic_write(
+            path,
+            "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        )

@@ -1126,6 +1126,7 @@ def generate_draft(
     focus="",
     editor_comment="",
     voice="",
+    learned_instructions=(),
 ):
     """The real M2.3B generation path, then the same stores the CLI writes.
 
@@ -1174,6 +1175,7 @@ def generate_draft(
                 title=title,
                 focus=focus,
                 editor_comment=editor_comment,
+                learned_instructions=learned_instructions,
             )
         except (angles.AngleError, live.LiveError) as exc:
             raise WorkbenchError(str(exc)) from exc

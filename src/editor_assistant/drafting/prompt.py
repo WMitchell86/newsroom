@@ -12,6 +12,7 @@ SECTIONS = (
     "CURRENT_UNKNOWNS",
     "EDITORIAL",
     "EDITOR_COMMENT",
+    "LEARNED_INSTRUCTIONS",
     "SITE_DNA",
     "VOICE_PROFILE",
     "MODE_PROFILE",
@@ -25,18 +26,24 @@ SECTIONS = (
 #: omitted entirely rather than rendered empty, so a first Draft and a rewrite
 #: can never be mistaken for one another. The two remaining editorial inputs -
 #: the working title and the Focus - are ordinary sections and always present.
-_OPTIONAL_SECTIONS = frozenset({"EDITOR_COMMENT"})
+_OPTIONAL_SECTIONS = frozenset({"EDITOR_COMMENT", "LEARNED_INSTRUCTIONS"})
 
 
-def rendered_sections(editor_comment: str = "") -> tuple[str, ...]:
+def rendered_sections(editor_comment: str = "", has_learned: bool = False) -> tuple[str, ...]:
     """The sections this prompt actually renders, in order.
 
     Kept as the single source of truth so the rendered text and any assertion
-    about it cannot disagree about whether the comment section is present.
+    about it cannot disagree about which optional sections are present.
     """
-    if not str(editor_comment or "").strip():
-        return tuple(name for name in SECTIONS if name not in _OPTIONAL_SECTIONS)
-    return SECTIONS
+    present = {
+        name
+        for name, wanted in (
+            ("EDITOR_COMMENT", bool(str(editor_comment or "").strip())),
+            ("LEARNED_INSTRUCTIONS", bool(has_learned)),
+        )
+        if wanted
+    }
+    return tuple(name for name in SECTIONS if name not in _OPTIONAL_SECTIONS or name in present)
 
 
 # Concrete institutional-attribution formulas found in style-rule examples. They are
@@ -107,6 +114,7 @@ def build_prompt(
     focus="",
     voice_label="",
     editor_comment="",
+    learned_instructions=(),
 ):
     """The one sectioned draft prompt.
 
@@ -185,6 +193,20 @@ def build_prompt(
             ]
         ),
         # Only rendered for `Пренапиши` - see `rendered_sections`.
+        # V1.2-G4.3 §G4 - the ONLY channel by which a learned instruction can
+        # reach the model. It is fed exclusively from the human-approved set, so
+        # an editor comment can never edit it by itself; that is the whole point
+        # of the approval gate. Rendered ONLY when at least one instruction has
+        # been approved, so a product with no decisions yet produces a
+        # byte-identical prompt to the one before this feature existed.
+        "LEARNED_INSTRUCTIONS": (
+            "The newsroom has APPROVED the following permanent writing rules. "
+            "They come from recurring editorial feedback and a human decision, "
+            "and you must follow them for this draft:\n"
+            + "\n".join(f"- {rule}" for rule in learned_instructions)
+            if learned_instructions
+            else ""
+        ),
         "EDITOR_COMMENT": (
             "The editor is asking for a REWRITE of an existing draft. Their exact words:\n"
             f"<<{str(editor_comment or '').strip()}>>\n"
@@ -221,6 +243,6 @@ def build_prompt(
     }
     # The rendered set, not SECTIONS: a first Draft has no comment and must not
     # show an empty one, so the text and the reported section list always agree.
-    names = rendered_sections(editor_comment)
+    names = rendered_sections(editor_comment, bool(learned_instructions))
     text = "\n\n".join(f"===== {name} =====\n{sections[name]}" for name in names)
     return {"prompt_version": PROMPT_VERSION, "sections": list(names), "text": text}
