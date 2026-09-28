@@ -582,7 +582,16 @@ def _respond(handler: BaseHTTPRequestHandler, status: int, value: object) -> Non
     handler.send_header("Cache-Control", "no-store")
     handler.send_header("Connection", "close")
     handler.end_headers()
-    handler.wfile.write(body)
+    try:
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionResetError):
+        # The client hung up before the response was written - a closed tab, a
+        # navigation away, a proxy timeout. That is the CLIENT's disconnect,
+        # not a server fault, and letting it propagate took the whole workbench
+        # process down: one abandoned request killed the editor for everyone
+        # until someone restarted it. Nothing can be delivered now, so the
+        # honest thing is to let this request end and keep serving.
+        LOG.debug("client disconnected before the response was written")
 
 
 def _error(
