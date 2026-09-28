@@ -1555,13 +1555,27 @@ def build_g3_article_fixture(*, newsroom: Path, editorial: Path) -> dict:
     def stamp(**delta) -> str:
         return (now - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    def add_story(story_id: str, title: str, summary: str, status: str) -> None:
+    def add_story(
+        story_id: str, title: str, summary: str, status: str, *, readable: bool = True
+    ) -> None:
+        # V1.2-G4.3 §A: a Story whose own publication is READABLE is now
+        # draft-eligible - the Draft command reads it on the way to the text - so
+        # `Проучи още` is no longer its remedy. A fixture that needs to exercise
+        # the research path must therefore have nothing readable to draft from,
+        # which is exactly what the real "research is the next step" case looks
+        # like. `readable=False` gives it a social-wrapper URL, which the
+        # publisher rules refuse for the same reason they always did.
+        url = (
+            f"https://vestnik.example.test/{story_id}"
+            if readable
+            else f"https://www.facebook.com/{story_id}/posts/1"
+        )
         item = {
             "item_id": f"{story_id}-p0",
             "source_id": f"g3-src-{story_id}",
             "source_item_id": f"{story_id}-p0",
             "title": title,
-            "url": f"https://vestnik.example.test/{story_id}",
+            "url": url,
             "published_at": stamp(minutes=90),
             "discovered_at": stamp(minutes=90),
             "summary": summary,
@@ -1597,6 +1611,7 @@ def build_g3_article_fixture(*, newsroom: Path, editorial: Path) -> dict:
         "Промяна в маршрута на градския транспорт по линия 12",
         "Промяната очаква потвърждение от превозвача.",
         "SEEN",
+        readable=False,
     )
     add_story(
         "s-g3-draft",

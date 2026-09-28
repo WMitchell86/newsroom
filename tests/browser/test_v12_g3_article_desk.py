@@ -166,8 +166,18 @@ def test_preparation_reaches_a_draft_without_touching_the_focus(article_desk):
 # --------------------------------------------------------------------------
 
 
-def test_an_alternative_focus_replaces_and_saves_in_one_click(article_desk):
-    """§11/§39: one click replaces AND saves. No Confirm, no Apply."""
+def test_the_focus_is_edited_directly_and_saved_in_one_step(article_desk):
+    """V1.2-G4.3 §C: no alternative chips; the editable field IS the interaction.
+
+    The previous contract offered two or three deterministic variants and this
+    test proved one click replaced AND saved one. A real review found the
+    variants were templates that could sit on any story in the desk, so they are
+    gone: zero alternatives is the approved outcome.
+
+    What is preserved here is the part that still matters - the editor types a
+    Focus, leaving the field saves it through the one canonical write, there is
+    no Confirm or Apply, and the Draft then works.
+    """
     probe, ids = article_desk
     article_id = ids["prep_article_id"]
     open_article(probe, article_id)
@@ -176,26 +186,30 @@ def test_an_alternative_focus_replaces_and_saves_in_one_click(article_desk):
     focus.wait_for(state="visible")
     original = focus.input_value()
 
-    alternatives = probe.page.locator("button[data-focus-alternative]")
-    count = alternatives.count()
-    assert count >= 2, f"expected the backend's 2-3 alternatives, found {count}"
+    # §C3: no generic alternative chip is rendered at all.
+    assert probe.page.locator("button[data-focus-alternative]").count() == 0, (
+        "the deterministic alternatives are gone; no chip may be rendered"
+    )
+    assert probe.page.locator("[data-focus-own]").count() == 0
 
     writes: list[str] = []
     probe.page.on(
         "request",
         lambda request: (
-            writes.append(request.url) if request.method == "PUT" and request.url.endswith("/focus") else None
+            writes.append(request.url)
+            if request.method == "PUT" and request.url.endswith("/focus")
+            else None
         ),
     )
 
-    chosen = alternatives.nth(1)
-    expected = chosen.inner_text().strip()
-    chosen.click()
+    edited = "Показваме само готовото по ремонта и връзката му с пътищата."
+    focus.fill(edited)
+    focus.blur()
 
     probe.page.wait_for_timeout(600)
-    assert focus.input_value().strip() == expected, "the alternative did not replace the Focus"
-    assert expected != original, "the alternative is the same text as the default"
-    # One click is one save. There is no second confirmation step.
+    assert focus.input_value().strip() == edited, "the edited Focus was not kept"
+    assert edited != original
+    # Leaving the field is the save. There is no second confirmation step.
     assert len(writes) == 1, f"the Focus took {len(writes)} saves, expected exactly 1"
     for absent in ("Потвърди", "Приложи"):
         assert probe.page.get_by_role("button", name=absent).count() == 0, absent
@@ -203,7 +217,7 @@ def test_an_alternative_focus_replaces_and_saves_in_one_click(article_desk):
     probe.page.get_by_role("button", name="Направи чернова").click()
     probe.page.get_by_role("heading", name="Чернова").wait_for(state="visible", timeout=60000)
     assert article_state(probe, article_id) == "draft"
-    probe.assert_clean(context="the alternative Focus")
+    probe.assert_clean(context="the edited Focus")
 
 
 # --------------------------------------------------------------------------
