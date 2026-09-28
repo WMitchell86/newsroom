@@ -5,10 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
-from editor_assistant.workflow import draft_material, editor_queries, story_editor_metadata
+from editor_assistant.workflow import (
+    draft_material,
+    editor_queries,
+    story_editor_metadata,
+    story_operations,
+)
 from editor_assistant.workflow import editor_application as app
 from editor_assistant.workflow import editor_source_settings as sources_settings
 
@@ -442,6 +448,9 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
                     "operationToken"
                 ]
             }
+    if len(parts) == 3 and parts[:3] == [*prefix, "operations"] and method == "GET":
+        # The index an editor needs after asking for several things at once.
+        return 200, {"operations": story_operations.recent()}
     if len(parts) == 4 and parts[:3] == [*prefix, "operations"] and method == "GET":
         return 200, app.operation_status(
             _identifier(parts[3], re.compile(r"op_[0-9a-f]{24}\Z"), "операция")
@@ -542,7 +551,21 @@ def _known_resource_path(parts: list[str]) -> bool:
     return len(parts) == 5 and parts[:3] in ([*prefix, "stories"], [*prefix, "articles"])
 
 
+def _request_line(handler: BaseHTTPRequestHandler, method: str) -> str:
+    """A loggable, secret-free identity for one request.
+
+    The Idempotency-Key is never logged: it is a capability the editor's own
+    request carries, and a log is exactly the place it should not accumulate.
+    Only the path is kept, and only after long opaque ids are collapsed, so a
+    log line identifies the Article without restating a token.
+    """
+    path = getattr(handler, "path", "") or ""
+    parts = [p for p in path.split("?")[0].split("/") if p]
+    return "/" + "/".join(f"{p[:6]}…" if len(p) > 24 else p for p in parts)
+
+
 def dispatch(handler: BaseHTTPRequestHandler, method: str) -> None:
+    started = time.monotonic()
     try:
         resource = _resource(method, handler)
         if resource is None:
@@ -571,10 +594,23 @@ def dispatch(handler: BaseHTTPRequestHandler, method: str) -> None:
     except Exception:
         LOG.exception("Unhandled editor API failure")
         _error(handler, 500, "INTERNAL_ERROR", _MESSAGES["INTERNAL_ERROR"])
+    finally:
+        # Every editor click lands here, so a run can be reconstructed after the
+        # fact instead of inferred from model usage records. The status is read
+        # back off the handler because the response may have been refused before
+        # anything was written.
+        LOG.info(
+            "%s %s -> %s in %dms",
+            method,
+            _request_line(handler, method),
+            getattr(handler, "_editor_status", "?"),
+            int((time.monotonic() - started) * 1000),
+        )
 
 
 def _respond(handler: BaseHTTPRequestHandler, status: int, value: object) -> None:
     body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    handler._editor_status = status
     handler.send_response(status)
     handler.send_header("Content-Type", _JSON)
     handler.send_header("Content-Length", str(len(body)))

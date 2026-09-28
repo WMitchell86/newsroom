@@ -11,6 +11,7 @@ there is no auth on this MVP.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -45,6 +46,36 @@ def main(argv=None):
 
     if args.host != "127.0.0.1":
         print(f"[workbench] WARNING: binding to {args.host} — no auth on this MVP", file=sys.stderr)
+
+    # V1.2-G4.6: request logging. The workbench printed three startup lines and
+    # then said nothing, so an editor click was invisible until model usage
+    # records appeared - which is a downstream trace, and it cannot show a click
+    # that never reached a model at all. Debugging "I clicked and nothing
+    # happened" was guesswork for exactly that reason.
+    #
+    # INFO on the workbench logger, stderr, so it interleaves with the startup
+    # lines in the same terminal. WB_LOG_LEVEL=DEBUG raises the detail for
+    # whoever is chasing a single request. The Idempotency-Key is never logged.
+    logging.basicConfig(
+        level=getattr(logging, os.environ.get("WB_LOG_LEVEL", "INFO").upper(), logging.INFO),
+        format="[api] %(asctime)s %(levelname)s %(message)s",
+        stream=sys.stderr,
+    )
+
+    # A damaged ledger must never stop the editor from starting: the worst case
+    # is a lost history, which is exactly what it already was.
+    from editor_assistant.workflow import story_operations
+
+    try:
+        restored = story_operations.load_ledger()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        restored = 0
+        print(f"[workbench] operation history not restored: {exc}", file=sys.stderr)
+    if restored:
+        print(
+            f"[workbench] restored {restored} operation(s) from the previous run",
+            file=sys.stderr,
+        )
 
     # D2B: the editor frontend is reported at startup so the running topology is
     # never a guess. An invalid mode is a loud configuration failure and a
