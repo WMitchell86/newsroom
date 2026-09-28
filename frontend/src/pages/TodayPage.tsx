@@ -191,7 +191,11 @@ function StoryAttentionRow({
       row={item}
       href={objectHref(item)}
       blocker={blocker}
-      busy={quick.isPending}
+      // V1.2-G4.6: the server's word, not only React's. `quick.isPending` dies
+      // with the component, so returning to this page used to show «Чернова» over
+      // a Quick Draft that was still running - the editor's own click looking
+      // like it had done nothing. Either source of truth may hold the state.
+      busy={quick.isPending || item.quickDraft?.inFlight === true}
       ignoreDisabled={ignore.isPending}
       onIgnore={() => {
         setBlocker(null);

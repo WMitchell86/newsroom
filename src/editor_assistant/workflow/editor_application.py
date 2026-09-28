@@ -2647,6 +2647,9 @@ def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
                 # The reason a row withholds the button, so the projection is
                 # inspectable and the frontend never has to re-derive it.
                 "reasonCode": quick["reasonCode"],
+                # V1.2-G4.6: the row knows a Quick Draft is already running for
+                # this Story, so the pending state survives a navigation.
+                "inFlight": quick["inFlight"],
             },
         }
         if row["attention"] == "NEW_STORY":

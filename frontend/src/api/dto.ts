@@ -363,6 +363,14 @@ export interface TodayQuickDraft {
   articleId: string | null;
   /** Why the row withholds the button; `null` when it is offered. */
   reasonCode: string | null;
+  /**
+   * V1.2-G4.6: a Quick Draft is already running for this Story.
+   *
+   * The pending state used to live only in React, so it vanished the moment the
+   * editor navigated away and the row offered «Чернова» again over work that was
+   * still running. The server owns that fact, so the server says it.
+   */
+  inFlight: boolean;
 }
 
 /**

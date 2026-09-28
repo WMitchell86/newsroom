@@ -204,7 +204,16 @@ def availability(*, story: dict, articles, contents) -> dict:
 
     The label is a hint, never authority — the orchestration re-resolves the
     Article from canonical state when the click arrives.
+
+    `inFlight` is the row the editor lost. The "Подготвя се чернова…" state used
+    to be derived entirely from React's own mutation state, so it survived only
+    as long as the component stayed mounted: navigating to a Story and back
+    remounted the page, the local flag reset, and the row offered `Чернова`
+    again while the work was still running on the server. The editor's own click
+    appeared to have done nothing. The truth lives in the operation registry, so
+    the projection reads it from there rather than from the browser.
     """
+    in_flight = bool(active_token(story["story_id"]))
     ignored = story.get("status") == "IGNORED"
     active = _active_articles(articles, story["story_id"])
     if ignored or len(active) > 1:
@@ -213,9 +222,16 @@ def availability(*, story: dict, articles, contents) -> dict:
             "label": LABEL_DRAFT,
             "articleId": None,
             "reasonCode": STORY_IGNORED if ignored else MULTIPLE_ACTIVE_ARTICLES,
+            "inFlight": in_flight,
         }
     if not active:
-        return {"available": True, "label": LABEL_DRAFT, "articleId": None, "reasonCode": None}
+        return {
+            "available": True,
+            "label": LABEL_DRAFT,
+            "articleId": None,
+            "reasonCode": None,
+            "inFlight": in_flight,
+        }
     article = active[0]
     article_id = article["article_id"]
     if is_empty_preparation(article, contents.get(article_id) or {}):
@@ -224,12 +240,14 @@ def availability(*, story: dict, articles, contents) -> dict:
             "label": LABEL_DRAFT,
             "articleId": article_id,
             "reasonCode": None,
+            "inFlight": in_flight,
         }
     return {
         "available": True,
         "label": LABEL_OPEN_DRAFT,
         "articleId": article_id,
         "reasonCode": None,
+        "inFlight": in_flight,
     }
 
 

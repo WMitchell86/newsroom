@@ -2231,6 +2231,43 @@ describe("Today — D2 fast triage", () => {
     release(dataResponse({ status: "succeeded", result: { status: "draft_created", articleId: activeDraftArticle.id } }));
   });
 
+  /**
+   * V1.2-G4.6: the row the editor lost.
+   *
+   * "Подготвя се чернова…" used to be derived only from React's mutation state.
+   * Navigating to a Story and back remounted the page, that state was gone, and
+   * the row offered «Чернова» again while the work was still running - so the
+   * editor's own click looked like it had done nothing, and the correct move
+   * (click again) would have spent a second round. The pending state must come
+   * from the server, which is the only place that still knows.
+   */
+  it("keeps a running Quick Draft pending after a remount, because the server says so", async () => {
+    const running = {
+      ...todayWith(
+        storyRow({
+          quickDraft: {
+            available: true,
+            label: "Чернова",
+            articleId: null,
+            reasonCode: null,
+            inFlight: true,
+          },
+        }),
+      ),
+    };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/v1/today") return dataResponse(running);
+      return dataResponse(running);
+    });
+
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    // Nothing was clicked in this mount. The state is entirely the server's.
+    expect(await screen.findByRole("button", { name: "Подготвя се чернова…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Чернова" })).toBeNull();
+  });
+
   it("sends exactly one POST per click and lands on the Draft itself", async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
