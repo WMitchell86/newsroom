@@ -307,7 +307,7 @@ export const todayProjection: TodayProjection = {
       // D2: the backend offers all three triage intents for an unassessed Story
       // with no Article, because the quick path researches it first.
       availableActions: ["REVIEW", "IGNORE", "QUICK_DRAFT"],
-      quickDraft: { available: true, label: "Чернова", articleId: null, reasonCode: null, inFlight: false },
+      quickDraft: { available: true, label: "Чернова", articleId: null, reasonCode: null, inFlight: false, lastAttempt: null },
     },
   ],
   newStories: [
@@ -321,7 +321,7 @@ export const todayProjection: TodayProjection = {
       nextAction: "REVIEW",
       delta: { unreviewedDevelopmentCount: 0 },
       availableActions: ["REVIEW", "IGNORE", "QUICK_DRAFT"],
-      quickDraft: { available: true, label: "Чернова", articleId: null, reasonCode: null, inFlight: false },
+      quickDraft: { available: true, label: "Чернова", articleId: null, reasonCode: null, inFlight: false, lastAttempt: null },
     },
   ],
   articlesRequiringAction: [

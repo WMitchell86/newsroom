@@ -371,6 +371,18 @@ export interface TodayQuickDraft {
    * still running. The server owns that fact, so the server says it.
    */
   inFlight: boolean;
+  /**
+   * V1.2-G4.6: the last Quick Draft this editor asked for, and how it ended.
+   *
+   * A failed attempt leaves no Article to open, so this is the only place the
+   * outcome can surface. `null` means they have not tried, which is different
+   * from `status: "failed"` and must not look the same.
+   */
+  lastAttempt: {
+    status: "pending" | "running" | "succeeded" | "failed";
+    errorCode: string;
+    error: string;
+  } | null;
 }
 
 /**

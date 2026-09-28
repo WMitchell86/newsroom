@@ -52,6 +52,12 @@ export function TodayStoryRowView({
   const summary =
     row.summary && !isRedundantSummary(row.title, row.summary) ? row.summary : null;
 
+  // V1.2-G4.6: the server's verdict on this editor's last attempt. Only a
+  // terminal failure is surfaced; a successful one produced a Draft, and the
+  // row already reflects that.
+  const failedAttempt =
+    row.quickDraft?.lastAttempt?.status === "failed" ? row.quickDraft.lastAttempt : null;
+
   return (
     <li className={styles.storyRow} data-story-row={row.objectId}>
       {/*
@@ -91,6 +97,20 @@ export function TodayStoryRowView({
           of the desk down.
         */}
         {blocker ? <TodayBlocker message={blocker} /> : null}
+        {/*
+          V1.2-G4.6. A failed Quick Draft leaves nothing to open, so without this
+          the row simply offers "Чернова" again and the editor is told nothing
+          in the one place they acted. The reason is the server's own, shown
+          only when there is one - "Source unavailable" is the lesson that a
+          confident wrong sentence is worse than an ugly true one. `Прегледай`
+          and the retry button both survive, because the correct next move after
+          a failure is usually to look or to try again.
+        */}
+        {failedAttempt ? (
+          <p className={styles.attemptFailed} role="status">
+            Черновата не се получи: {failedAttempt.error}
+          </p>
+        ) : null}
         {/*
           §19: a blocker always keeps the way out. `Прегледай` survives it, because
           opening the Story is precisely how the editor investigates the gap the

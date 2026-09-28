@@ -467,3 +467,14 @@
   color: #1d4e6f;
   text-decoration: underline;
 }
+
+.attemptFailed {
+  margin: 0 0 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid #a3261a;
+  background: #fdf3f2;
+  color: #7a2016;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  max-width: 30rem;
+}

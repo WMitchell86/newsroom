@@ -2650,6 +2650,10 @@ def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
                 # V1.2-G4.6: the row knows a Quick Draft is already running for
                 # this Story, so the pending state survives a navigation.
                 "inFlight": quick["inFlight"],
+                # V1.2-G4.6: a failed attempt has no Article to show, so the
+                # outcome travels with the row. Without it the editor is told
+                # nothing by the place they acted on.
+                "lastAttempt": quick["lastAttempt"],
             },
         }
         if row["attention"] == "NEW_STORY":

@@ -42,6 +42,8 @@ from __future__ import annotations
 
 import threading
 
+from editor_assistant.workflow import story_operations
+
 #: Operation scope prefix. Not a Story id: it tells the shared bounded-operation
 #: registry which editor wording a transport result belongs to, exactly as
 #: `article_generation.SCOPE_PREFIX` does for the C2 Draft command.
@@ -214,6 +216,18 @@ def availability(*, story: dict, articles, contents) -> dict:
     the projection reads it from there rather than from the browser.
     """
     in_flight = bool(active_token(story["story_id"]))
+    # V1.2-G4.6. A failed Quick Draft leaves no Article to show, so the row has
+    # to say what happened. Silently offering "Чернова" again over a failure is
+    # the same unpressable button as the lost pending state, one step later.
+    last = story_operations.last_for_scope(scope_for(story["story_id"]))
+    last_attempt = None
+    if last:
+        row = last[0]
+        last_attempt = {
+            "status": row["status"],
+            "errorCode": row["errorCode"],
+            "error": row["error"],
+        }
     ignored = story.get("status") == "IGNORED"
     active = _active_articles(articles, story["story_id"])
     if ignored or len(active) > 1:
@@ -223,6 +237,7 @@ def availability(*, story: dict, articles, contents) -> dict:
             "articleId": None,
             "reasonCode": STORY_IGNORED if ignored else MULTIPLE_ACTIVE_ARTICLES,
             "inFlight": in_flight,
+            "lastAttempt": last_attempt,
         }
     if not active:
         return {
@@ -231,6 +246,7 @@ def availability(*, story: dict, articles, contents) -> dict:
             "articleId": None,
             "reasonCode": None,
             "inFlight": in_flight,
+            "lastAttempt": last_attempt,
         }
     article = active[0]
     article_id = article["article_id"]
@@ -241,6 +257,7 @@ def availability(*, story: dict, articles, contents) -> dict:
             "articleId": article_id,
             "reasonCode": None,
             "inFlight": in_flight,
+            "lastAttempt": last_attempt,
         }
     return {
         "available": True,
@@ -248,6 +265,7 @@ def availability(*, story: dict, articles, contents) -> dict:
         "articleId": article_id,
         "reasonCode": None,
         "inFlight": in_flight,
+        "lastAttempt": last_attempt,
     }
 
 

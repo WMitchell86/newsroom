@@ -2268,6 +2268,45 @@ describe("Today — D2 fast triage", () => {
     expect(screen.queryByRole("button", { name: "Чернова" })).toBeNull();
   });
 
+  /**
+   * V1.2-G4.6: unavailability is not a reason to be silent.
+   *
+   * When every model route was down the rows went back to offering "Чернова"
+   * with no trace that anything had been tried. The editor's own click looked
+   * inert. A failure has no Article to open, so the row itself is the only
+   * place the outcome can surface - and the reason is the server's, never a
+   * summary written here.
+   */
+  it("shows the reason on the row when a Quick Draft failed, and keeps the way out", async () => {
+    const failed = todayWith(
+      storyRow({
+        quickDraft: {
+          available: true,
+          label: "Чернова",
+          articleId: null,
+          reasonCode: null,
+          inFlight: false,
+          lastAttempt: {
+            status: "failed",
+            errorCode: "PROVIDER_UNAVAILABLE",
+            error: "Моделът е претоварен в момента. Опитайте след малко.",
+          },
+        },
+      }),
+    );
+    fetchMock.mockImplementation(async () => dataResponse(failed));
+
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(
+      await screen.findByText(/Черновата не се получи: Моделът е претоварен/),
+    ).toBeInTheDocument();
+    // The editor is not locked out: retry and review both remain.
+    expect(screen.getByRole("button", { name: "Чернова" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Прегледай" })).toBeInTheDocument();
+  });
+
   it("sends exactly one POST per click and lands on the Draft itself", async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") {

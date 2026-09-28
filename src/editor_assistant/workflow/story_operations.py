@@ -189,6 +189,34 @@ def load_ledger() -> int:
         return restored
 
 
+def last_for_scope(scope, limit=1):
+    """The most recent operation for one scope, newest first.
+
+    V1.2-G4.6. Being unavailable is not a reason to be silent. When a Quick
+    Draft fails there is nothing to show on the Article - the whole point is
+    that the work never happened - so the row itself has to carry the outcome,
+    or the editor is left with a button that looks unpressed and an Operations
+    page they have to know to visit.
+    """
+    with _LOCK:
+        _prune(time.monotonic())
+        found = []
+        for token, row in _ROWS.items():
+            if row.get("story_id") != scope:
+                continue
+            found.append(
+                {
+                    "operationToken": token,
+                    "status": row["status"],
+                    "errorCode": row.get("error_code", ""),
+                    "error": row.get("error") or "",
+                    "updated_at": row["updated_at"],
+                }
+            )
+        found.sort(key=lambda item: item["updated_at"], reverse=True)
+        return found[:limit]
+
+
 def recent(limit=40):
     """Every operation this process knows about, newest first.
 
