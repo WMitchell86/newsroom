@@ -132,12 +132,38 @@ _OPERATION_ERRORS = {
         "Черновата не може да бъде създадена от този материал.",
         False,
     ),
+    # V1.2-G4.5: a provider failure is NOT a source failure. Saying otherwise
+    # was the second of the two masks: the worker already knew the real cause,
+    # and this envelope replaced it with "Source unavailable".
+    "PROVIDER_UNAVAILABLE": (
+        "PROVIDER_UNAVAILABLE",
+        "Моделът не можа да изработи черновата.",
+        True,
+    ),
 }
 _DEFAULT_OPERATION_ERROR = (
     "SOURCE_UNAVAILABLE",
     "Черновата не можа да бъде създадена. Опитайте отново.",
     True,
 )
+
+#: What a detail may never carry on its way to the editor. A provider error can
+#: echo the request back, and the request carries the key.
+_DETAIL_FORBIDDEN = ("AIza", "x-goog-api-key", "generativelanguage", "openrouter.ai/api")
+
+
+def safe_detail(detail: str) -> str:
+    """Bounded, redacted reason for an editor-visible failure.
+
+    The reason is what makes a failure diagnosable, so it is surfaced - but a
+    provider error is untrusted text that can echo the request, and the request
+    carries the API key. Redaction is the price of saying anything at all.
+    """
+    text = str(detail or "").strip()
+    for secret in _DETAIL_FORBIDDEN:
+        if secret.lower() in text.lower():
+            return ""
+    return text[:160]
 
 #: In-process guard, one canonical generation per Article. It complements the
 #: bounded operation registry, which stops a retried *request* from duplicating
@@ -174,9 +200,19 @@ def is_draft_scope(scope: str) -> bool:
     return str(scope or "").startswith(SCOPE_PREFIX)
 
 
-def operation_error(code: str) -> dict:
-    """The bounded, sanitized error envelope for a failed draft operation."""
+def operation_error(code: str, detail: str = "") -> dict:
+    """The bounded, sanitized error envelope for a failed draft operation.
+
+    `detail` is the worker's own recorded reason. It is included only for a
+    classified provider failure, because that is the one case where a generic
+    sentence tells the editor nothing: the source may be perfectly readable
+    while the model is out of quota, and only the reason separates the two.
+    """
     code_name, message, retryable = _OPERATION_ERRORS.get(code, _DEFAULT_OPERATION_ERROR)
+    if code == "PROVIDER_UNAVAILABLE":
+        shown = safe_detail(detail)
+        if shown:
+            message = f"{message} Причина: {shown}"
     return {"code": code_name, "message": message, "retryable": retryable}
 
 

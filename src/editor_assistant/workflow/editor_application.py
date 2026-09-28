@@ -1407,7 +1407,9 @@ def operation_status(token: str) -> dict:
             return {
                 "operationToken": token,
                 "status": row["status"],
-                "error": article_generation.operation_error(row.get("error_code") or ""),
+                "error": article_generation.operation_error(
+                    row.get("error_code") or "", row.get("error") or ""
+                ),
             }
         if article_rewrite.is_rewrite_scope(row.get("story_id")):
             # §E4: the same contract for a rewrite, with its own wording. The

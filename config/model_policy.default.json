@@ -160,46 +160,35 @@
    "routes": [
     {
      "provider": "gemini",
-     "model": "gemini-3.5-flash",
-     "enabled": true,
-     "billing": "operator_declared",
-     "public_only": false,
-     "daily_call_limit": 20
-    },
-    {
-     "provider": "gemini",
-     "model": "gemini-3.1-flash-lite",
-     "enabled": true,
-     "billing": "operator_declared",
-     "public_only": false,
-     "daily_call_limit": 40
-    },
-    {
-     "provider": "gemini",
      "model": "gemini-3.8-flash",
+     "enabled": true,
      "billing": "operator_declared",
      "public_only": false,
-     "daily_call_limit": 20
+     "daily_call_limit": 80
     },
     {
      "provider": "gemini",
      "model": "gemini-3.7-flash",
+     "enabled": true,
      "billing": "operator_declared",
      "public_only": false,
-     "daily_call_limit": 20
+     "daily_call_limit": 80
     },
     {
      "provider": "gemini",
      "model": "gemini-3.6-flash",
+     "enabled": true,
      "billing": "operator_declared",
      "public_only": false,
-     "daily_call_limit": 20
+     "daily_call_limit": 80
     },
     {
-     "provider": "openrouter",
-     "model": "openai/gpt-5.6-luna",
-     "billing": "paid",
-     "public_only": false
+     "provider": "gemini",
+     "model": "gemini-3.5-flash",
+     "enabled": true,
+     "billing": "operator_declared",
+     "public_only": false,
+     "daily_call_limit": 80
     }
    ]
   },
