@@ -19,6 +19,11 @@ const editorialAreas = [
 ] as const;
 
 /** Separated from the everyday destinations by design, not by accident. */
+// §1 freezes the rail to five primary destinations plus Настройки, and
+// `Източници` was explicitly refused as a sixth. `Операции` is NOT promoted
+// into that frozen set: the rail is where the editor's daily destinations
+// live, and an operations log is a diagnostic, not one of them. It is reached
+// from Today and from Настройки instead.
 const utilityAreas = [{ to: "/settings", label: "Настройки", end: true }] as const;
 
 function RailLink({ to, label, end }: { to: string; label: string; end: boolean }) {

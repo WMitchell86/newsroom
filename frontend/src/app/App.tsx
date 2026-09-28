@@ -12,6 +12,7 @@ import { StoryWorkspace } from "../pages/StoryWorkspace";
 import { StoryListPage } from "../pages/StoryListPage";
 import { TodayPage } from "../pages/TodayPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
+import { OperationsPage } from "../pages/OperationsPage";
 
 export function App() {
   return <AppErrorBoundary>
@@ -24,6 +25,7 @@ export function App() {
             <Route path="stories/:storyId" element={<StoryWorkspace />} />
             <Route path="articles" element={<ArticleListPage />} />
             <Route path="articles/:articleId" element={<ArticleWorkspace />} />
+            <Route path="operations" element={<OperationsPage />} />
             <Route path="archive" element={<ArchivePage />} />
             <Route path="archive/:articleId" element={<FinalizedArticleView />} />
             <Route path="settings" element={<SettingsLanding />} />

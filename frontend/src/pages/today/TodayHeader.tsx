@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import styles from "./Today.module.css";
 
 export interface TodayHeaderProps {
@@ -35,6 +36,15 @@ export function TodayHeader({
           <p className={styles.lede}>
             Нови публикации и развития, които изискват редакционна преценка.
           </p>
+          {/*
+            V1.2-G4.6. The editor starts work from THIS screen, and until the
+            operations page existed there was nowhere to go afterwards to learn
+            what became of it. The link sits next to the button they press, not
+            in a rail that §1 keeps frozen at five destinations.
+          */}
+          <Link className={styles.operationsLink} to="/operations">
+            Какво става с поръчаните чернови →
+          </Link>
         </div>
         <div className={styles.refreshArea}>
           {/*

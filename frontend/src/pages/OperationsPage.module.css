@@ -1,0 +1,18 @@
+.page { max-width: 60rem; padding: 1.5rem 0 3rem; }
+.header h1 { margin: 0 0 0.35rem; font-size: 1.6rem; }
+.lead { margin: 0 0 1.5rem; color: #555; line-height: 1.5; max-width: 46rem; }
+.note { color: #555; }
+.error { color: #a3261a; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.row { border: 1px solid #e0e0e0; border-left-width: 4px; border-radius: 4px; padding: 0.7rem 0.9rem; background: #fff; }
+.row[data-status="failed"] { border-left-color: #a3261a; }
+.row[data-status="succeeded"] { border-left-color: #2c6e49; }
+.row[data-status="running"], .row[data-status="pending"] { border-left-color: #b8860b; }
+.head { display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap; }
+.status { font-weight: 600; }
+.status[data-status="failed"] { color: #a3261a; }
+.status[data-status="succeeded"] { color: #2c6e49; }
+.kind { color: #555; display: flex; gap: 0.5rem; align-items: baseline; }
+.kind a { font-family: ui-monospace, monospace; font-size: 0.85em; }
+.reason { margin: 0.5rem 0 0; color: #333; line-height: 1.45; }
+.reason[data-status="failed"] { color: #7a2016; }

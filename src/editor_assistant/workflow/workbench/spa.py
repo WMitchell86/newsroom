@@ -210,7 +210,8 @@ def owns_spa_route(path: str) -> bool:
     """True when the SPA owns this exact client route.
 
     The allowlist is deliberately closed: ``/``, the three list routes, the
-    three detail routes, ``/settings`` and ``/settings/sources`` (V1.2-G4).
+    three detail routes, ``/settings``, ``/settings/sources`` (V1.2-G4) and
+    ``/operations`` (V1.2-G4.6).
     Everything else — including ``/case/*``, ``/cases``, ``/inbox``, ``/sources``,
     ``/models``, ``/intake`` and every unknown URL — is excluded.
 
@@ -227,6 +228,11 @@ def owns_spa_route(path: str) -> bool:
     if parts == ["settings"]:
         return True
     if parts == ["settings", "sources"]:
+        return True
+    # V1.2-G4.6. Without this the route works by click but 404s on reload or a
+    # pasted URL - which is exactly the case that matters here, since the link
+    # the editor follows is a way back to work they already started.
+    if parts == ["operations"]:
         return True
     if len(parts) == 1:
         return parts[0] in {"stories", "articles", "archive"}

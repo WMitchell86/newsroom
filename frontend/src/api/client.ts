@@ -11,6 +11,7 @@ import type {
   StoryDetail,
   TodayProjection,
   TodayScope,
+  OperationSummary,
 } from "./dto";
 
 /** The canonical result of `Финализирай`: the frozen Article and where it lives. */
@@ -650,6 +651,18 @@ export function getArticles(
   query = "",
 ): Promise<{ articles: ArticleSummary[] }> {
   return getData("/articles", new URLSearchParams({ filter, query }));
+}
+
+/**
+ * V1.2-G4.6: the editor's own requests, newest first.
+ *
+ * Bounded and truthful: this is the history the server kept, so a task that
+ * was interrupted by a restart shows as failed with its reason rather than
+ * disappearing. An empty list means the server has no history, not that
+ * nothing was ever asked for.
+ */
+export function getOperations(): Promise<{ operations: OperationSummary[] }> {
+  return getData("/operations");
 }
 
 export function getArticle(id: string): Promise<ArticleDetail> {

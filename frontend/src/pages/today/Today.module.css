@@ -459,3 +459,11 @@
   font-size: 12px;
   line-height: 16px;
 }
+
+.operationsLink {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+  color: #1d4e6f;
+  text-decoration: underline;
+}

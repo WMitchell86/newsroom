@@ -365,6 +365,25 @@ export interface TodayQuickDraft {
   reasonCode: string | null;
 }
 
+/**
+ * V1.2-G4.6: one entry in the editor's own operation history.
+ *
+ * This exists because asking for a Draft returned an opaque 202 handle and
+ * nothing else. There was no list, so "what happened to the four I started"
+ * had no answer anywhere in the product. The server decides every field; the
+ * client renders and derives nothing.
+ */
+export interface OperationSummary {
+  operationToken: string;
+  /** The scope the work was requested for, e.g. `article-draft:art_...`. */
+  storyId: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  /** Stable code, or "" while nothing has gone wrong. */
+  errorCode: string;
+  /** The server's own recorded reason, already sanitized server-side. */
+  error: string;
+}
+
 export type TodayAttention =
   | (AttentionBase & {
       objectType: "story";
