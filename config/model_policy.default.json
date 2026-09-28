@@ -156,7 +156,7 @@
    "default_payload_class": "private",
    "on_exhausted": "fail_visible",
    "soft_calls_day": 15,
-   "hard_calls_day": 25,
+   "hard_calls_day": 80,
    "routes": [
     {
      "provider": "gemini",
