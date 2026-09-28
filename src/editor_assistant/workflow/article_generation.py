@@ -241,7 +241,13 @@ def evaluate(snapshot: dict) -> None:
     any value the client sent.
     """
     readiness = article_readiness.evaluate(snapshot)
-    if not readiness.eligible:
+    # V1.2-G4.4: the projection is conservative about `eligible` when nothing has
+    # been read yet, but the COMMAND is the authority and it is about to read the
+    # Story's own publication itself. Refusing here would put the editor back on
+    # "press Проучи още first", which is exactly what this milestone removed.
+    if not readiness.eligible and (
+        readiness.reason_code != article_readiness.DRAFT_FROM_UNREAD_SOURCE
+    ):
         raise DraftRefused(readiness.reason_code, readiness.reason_message)
 
 

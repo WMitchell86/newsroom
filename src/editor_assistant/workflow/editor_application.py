@@ -743,6 +743,15 @@ def _article_actions(
         if readiness.eligible:
             actions.append("MAKE_DRAFT")
             return actions, _next_action("MAKE_DRAFT", readiness.reason_code, "Направи чернова")
+        if readiness.reason_code == article_readiness.DRAFT_FROM_UNREAD_SOURCE:
+            # Nothing is read yet, but the Draft command reads the Story's own
+            # publication itself, so attempting is the right action. `draftEligible`
+            # stays false - the material is not confirmed - while the button is
+            # offered, because the editor should not have to research first.
+            actions.append("MAKE_DRAFT")
+            return actions, _next_action(
+                "MAKE_DRAFT", readiness.reason_code, "Направи чернова"
+            )
         # Focus is no longer a refusal source, so the only remaining refusals are
         # evidence ones. Those whose remedy is research route the editor to the
         # owning Story — which stays the sole owner of research orchestration.
@@ -1540,7 +1549,19 @@ def _draft_snapshot(article_id: str, *, enrich: bool = True) -> dict:
     facts, missing = _story_evidence_projection(article["story_id"])
     items_by_id = _story_items()
     snapshot = article_readiness.build_snapshot(
-        article, content, story, facts, missing, missing.get("openedSources") or ()
+        article,
+        content,
+        story,
+        facts,
+        missing,
+        missing.get("openedSources") or (),
+        # The SAME locally-computed "is this worth one read" the projection uses.
+        # Without it the projection and the command reach different conclusions
+        # about the same Article, which is the one thing this file exists to
+        # prevent: the editor would see a button the command then refuses.
+        readable_publication=bool(
+            _original_publication_is_readable(article["story_id"], story, resolve=False)
+        ),
     )
     headline = _story_title(story, items_by_id) or article["working_title"]
     representative = items_by_id.get(story.get("representative_item_id")) or {}
@@ -1882,7 +1903,9 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
         # is never trusted: canonical state is re-read here, so a gap that
         # appeared after the render refuses instead of generating over it.
         readiness = article_readiness.evaluate(snapshot)
-        if not readiness.eligible:
+        if not readiness.eligible and (
+            readiness.reason_code != article_readiness.DRAFT_FROM_UNREAD_SOURCE
+        ):
             _raise_draft_refusal(
                 article_generation.DraftRefused(readiness.reason_code, readiness.reason_message)
             )

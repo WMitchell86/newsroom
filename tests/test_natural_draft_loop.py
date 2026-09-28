@@ -1134,3 +1134,72 @@ def test_marking_processed_keeps_every_record(tmp_path, monkeypatch):
     assert live, "the concurrently appended record was destroyed by the marking pass"
     assert all(row["processed_for_learning"] for row in rows if row["feedback_id"] in target_ids)
     assert not live[0]["processed_for_learning"], "an unrelated record must not be marked"
+
+
+def test_an_unread_publication_never_claims_confirmed_information(newsroom, monkeypatch):
+    """G4.4: the readiness sentence must not assert what has not happened.
+
+    Found in the field. A Story whose own publication is readable but NOT yet
+    read was reported as `DRAFT_ELIGIBLE` with the sentence "Има достатъчно
+    потвърдена информация за чернова" - while it had zero opened sources, zero
+    facts, and a research round that had already failed to open anything. The
+    editor was told the material was sufficient, pressed the button, and it
+    failed.
+    """
+    from editor_assistant.workflow import article_readiness as ar
+
+    article = articles.create_editor_article(
+        story_id="s-one",
+        stories_path=newsroom / "stories.json",
+        working_title=HEADLINE,
+        now="2026-09-25T09:00:00Z",
+    )
+    articles.update_editor_focus(article["article_id"], "Фокус")
+    # Assessed, but research opened nothing - exactly the on-screen case.
+    story_research_store.merge_research(
+        "s-one",
+        sources=[],
+        facts=[],
+        gaps=[{"id": "gap_no_source", "question": "Не успяхме да отворим подходящ източник.",
+               "blocking": False}],
+        assessed_at="2026-09-25T08:45:00Z",
+        canonical_story={"story_id": "s-one"},
+        operation_id="op1",
+    )
+
+    # The story's publication is a resolvable wrapper: worth ONE bounded read.
+    decision = ar.evaluate_evidence(
+        evidence_status="assessed",
+        facts=[],
+        blocking_gaps=[],
+        source_url="",
+        sources=[],
+        readable_publication=True,
+    )
+    # eligible stays FALSE: the material is not confirmed, and pretending
+    # otherwise is the defect this test exists for. The ACTION is still offered
+    # by the projection, because the command reads the source itself.
+    assert decision.eligible is False
+    assert decision.reason_code == ar.DRAFT_FROM_UNREAD_SOURCE
+    assert decision.reason_code != ar.DRAFT_ELIGIBLE, (
+        "an unread source must not be reported as confirmed information"
+    )
+    assert "потвърдена информация" not in decision.reason_message
+    assert decision.reason_message == ar.REASON_MESSAGES[ar.DRAFT_FROM_UNREAD_SOURCE]
+
+    # And genuinely confirmed material still uses the strong, true sentence.
+    confirmed = ar.evaluate_evidence(
+        evidence_status="assessed",
+        facts=[],
+        blocking_gaps=[],
+        source_url="",
+        sources=[
+            {
+                "id": "s1", "name": "p", "url": "https://p.example.test/a",
+                "domain": "p.example.test",
+                "claims": [{"text": "Съветът обяви график.", "locator": "claim:0"}],
+            }
+        ],
+    )
+    assert confirmed.reason_code == ar.DRAFT_ELIGIBLE
+    assert "потвърдена информация" in confirmed.reason_message

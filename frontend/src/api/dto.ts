@@ -201,6 +201,9 @@ export interface ArticleValidation {
  */
 export type DraftReadinessCode =
   | "DRAFT_ELIGIBLE"
+  // V1.2-G4.4: the Story's own publication is worth one bounded read, so a
+  // Draft is worth ATTEMPTING - but nothing is read or confirmed yet.
+  | "DRAFT_FROM_UNREAD_SOURCE"
   | "FOCUS_NOT_CONFIRMED"
   | "STORY_UNASSESSED"
   // V1.2-G4.1 §B6: the ONE real Draft blocker — there is genuinely nothing to

@@ -42,6 +42,13 @@ from editor_assistant.workflow import blocked_domains, draft_material, editor_pr
 
 #: A Draft can be generated from this Article right now.
 DRAFT_ELIGIBLE = "DRAFT_ELIGIBLE"
+#: V1.2-G4.4 (found in the field): the Story's own publication is worth one
+#: bounded read, so a Draft is worth ATTEMPTING - but nothing has been read yet
+#: and nothing is confirmed. This needs its own code and its own honest
+#: sentence: reporting it as DRAFT_ELIGIBLE made the product tell the editor
+#: "Има достатъчно потвърдена информация" for a Story with zero opened sources
+#: and a failed research round, and the button then failed when pressed.
+DRAFT_FROM_UNREAD_SOURCE = "DRAFT_FROM_UNREAD_SOURCE"
 #: The Editorial Focus is not confirmed yet. Independent of any evidence state.
 FOCUS_NOT_CONFIRMED = "FOCUS_NOT_CONFIRMED"
 #: The Story has never been researched. There is no basis to draft from yet.
@@ -67,6 +74,9 @@ WORKING_TITLE_REQUIRED = "WORKING_TITLE_REQUIRED"
 #: never render a second, contradictory sentence for the same decision.
 REASON_MESSAGES = {
     DRAFT_ELIGIBLE: "Има достатъчно потвърдена информация за чернова.",
+    DRAFT_FROM_UNREAD_SOURCE: (
+        "Източникът още не е прочетен — черновата ще бъде написана от него."
+    ),
     # V1.2-G2.2 §5/§7: there is no confirmation step left to name, and a Draft
     # simply needs a Focus. §4: an unassessed Story is a normal preparation
     # state with a next action, not an error the editor has caused.
@@ -311,10 +321,18 @@ def evaluate_evidence(
         # This is what lets `Чернова` be a single button: the material is
         # gathered on the way to the Draft instead of demanded before it. The
         # worker still refuses honestly if that read finds nothing.
+        # `eligible` stays FALSE on purpose. This branch means NOTHING has been
+        # read yet, so "the material is sufficient" would be a false claim - and
+        # an earlier version of this code said exactly that, telling the editor
+        # there was enough confirmed information for a Story with zero opened
+        # sources, then failing when the button was pressed.
+        #
+        # The Story is still WORTH a Draft, so the caller offers the action; what
+        # changes is the sentence and the eligibility flag, not the work.
         return DraftReadiness(
-            eligible=True,
-            reason_code=DRAFT_ELIGIBLE,
-            reason_message=REASON_MESSAGES[DRAFT_ELIGIBLE],
+            eligible=False,
+            reason_code=DRAFT_FROM_UNREAD_SOURCE,
+            reason_message=REASON_MESSAGES[DRAFT_FROM_UNREAD_SOURCE],
             evidence_status=evidence_status,
             fact_count=fact_count,
             has_open_source=has_open_source,

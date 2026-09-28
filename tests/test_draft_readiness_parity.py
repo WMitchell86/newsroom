@@ -130,15 +130,30 @@ def model(monkeypatch):
 # remaining material refusal is `NO_DRAFT_MATERIAL` — reached when the Story has
 # neither a promoted fact with an opened URL nor an opened publisher page.
 # `assessed + 1 fact + gap` is now the owner's real case: writable.
+# The last element is now (eligible, reason code, offers MAKE_DRAFT).
+#
+# V1.2-G4.3 §C: an unconfirmed Focus is NOT a gate - the Draft command writes the
+# deterministic default - so `focus=False` no longer changes the outcome. The two
+# `focus=False` rows that used to expect FOCUS_NOT_CONFIRMED are kept as rows,
+# because "Focus does not block" is a contract worth pinning rather than
+# deleting: they now assert the SAME outcome as their focused twin.
+#
+# V1.2-G4.4: `DRAFT_FROM_UNREAD_SOURCE` is a THIRD kind of state, and the reason
+# the matrix had to grow a third slot. Nothing has been read, so `eligible` is
+# honestly False and the editor is not told there is confirmed information; but
+# the Story's own publication is worth one bounded read, so the action IS
+# offered. Conflating those two - as an earlier revision did - is what produced
+# the "Има достатъчно потвърдена информация" screen on a Story with zero
+# opened sources.
 MATRIX = [
-    # focus, evidence,      facts, open_source, gap -> (eligible, reason code)
-    (False, "assessed", 1, True, False, (False, "FOCUS_NOT_CONFIRMED")),
-    (False, "unassessed", 0, False, False, (False, "FOCUS_NOT_CONFIRMED")),
-    (True, "unassessed", 0, False, False, (False, "STORY_UNASSESSED")),
-    (True, "assessed", 0, False, True, (False, "NO_DRAFT_MATERIAL")),
-    (True, "assessed", 0, False, False, (False, "NO_DRAFT_MATERIAL")),
-    (True, "assessed", 1, True, True, (True, "DRAFT_ELIGIBLE")),
-    (True, "assessed", 1, True, False, (True, "DRAFT_ELIGIBLE")),
+    # focus, evidence,      facts, open_source, gap -> (eligible, code, offers)
+    (False, "assessed", 1, True, False, (True, "DRAFT_ELIGIBLE", True)),
+    (False, "unassessed", 0, False, False, (False, "DRAFT_FROM_UNREAD_SOURCE", True)),
+    (True, "unassessed", 0, False, False, (False, "DRAFT_FROM_UNREAD_SOURCE", True)),
+    (True, "assessed", 0, False, True, (False, "DRAFT_FROM_UNREAD_SOURCE", True)),
+    (True, "assessed", 0, False, False, (False, "DRAFT_FROM_UNREAD_SOURCE", True)),
+    (True, "assessed", 1, True, True, (True, "DRAFT_ELIGIBLE", True)),
+    (True, "assessed", 1, True, False, (True, "DRAFT_ELIGIBLE", True)),
 ]
 
 
@@ -232,7 +247,7 @@ def test_the_readiness_matrix_covers_every_canonical_state(newsroom, model, row)
     reported reason code, and the command's deterministic preflight outcome.
     They must all agree; a single mismatch fails the test.
     """
-    focus, evidence, facts, open_source, gap, (eligible, reason) = row
+    focus, evidence, facts, open_source, gap, (eligible, reason, offers) = row
     article = _article(newsroom, focus=focus)
     article_id = article["article_id"]
     _apply_basis(evidence=evidence, facts=facts, open_source=open_source, blocking_gap=gap)
@@ -242,7 +257,8 @@ def test_the_readiness_matrix_covers_every_canonical_state(newsroom, model, row)
     assert preparation is not None, "a preparation Article always has its projection"
     assert preparation["draftEligible"] is eligible
     assert preparation["draftReadiness"]["code"] == reason
-    assert ("MAKE_DRAFT" in projection["availableActions"]) is eligible
+    assert ("MAKE_DRAFT" in projection["availableActions"]) is offers
+    # A confirmed-material claim is only ever made when material IS confirmed.
     assert (preparation["draftReadiness"]["code"] == "DRAFT_ELIGIBLE") is eligible
     # The blocking gaps the projection shows are the real ones, never invented.
     assert [(row["id"], row["question"]) for row in preparation["blockingGaps"]] == (
@@ -257,7 +273,11 @@ def test_the_readiness_matrix_covers_every_canonical_state(newsroom, model, row)
     assert decision.reason_code == reason
     assert decision.reason_message == article_readiness.REASON_MESSAGES[reason]
 
-    if eligible:
+    if eligible or offers:
+        # `offers` is the real contract: an action the projection offers must
+        # never be one the command then refuses. For DRAFT_FROM_UNREAD_SOURCE
+        # the command reads the Story's own publication itself, so accepting is
+        # correct even though `eligible` is honestly False.
         article_generation.evaluate(snapshot)
     else:
         with pytest.raises(article_generation.DraftRefused) as refusal:
@@ -274,13 +294,18 @@ def test_projection_and_command_never_disagree(newsroom, model, row):
     command must refuse before that boundary. The model transport is substituted
     only to detect whether the boundary was reached.
     """
-    focus, evidence, facts, open_source, gap, (expected_eligible, reason) = row
+    focus, evidence, facts, open_source, gap, (expected_eligible, reason, offers) = row
     article = _article(newsroom, focus=focus)
     article_id = article["article_id"]
     _apply_basis(evidence=evidence, facts=facts, open_source=open_source, blocking_gap=gap)
 
     projection = app.read_article(article_id)
     assert projection["preparation"]["draftEligible"] is expected_eligible
+    # An offered action must never be one the command then refuses: the
+    # projection and the command are the same decision, and an offer the command
+    # rejects is exactly the contradiction the editor sees as a dead button.
+    if offers:
+        article_generation.evaluate(app._draft_snapshot(article_id))
     if projection["preparation"]["draftEligible"]:
         # Eligible: the deterministic preflight must pass. Generation itself is
         # out of scope here (it would spend model quota); reaching the preflight
@@ -367,8 +392,14 @@ def test_an_ineligible_projection_becomes_eligible_after_research(newsroom, mode
 
     before = app.read_article(article_id)
     assert before["preparation"]["draftEligible"] is False
-    assert before["preparation"]["draftReadiness"]["code"] == "STORY_UNASSESSED"
-    assert "MAKE_DRAFT" not in before["availableActions"]
+    # V1.2-G4.4: the code is no longer STORY_UNASSESSED, because the Story's own
+    # publication is worth one bounded read and the command reads it itself.
+    # The editor is told that honestly instead.
+    assert before["preparation"]["draftReadiness"]["code"] == "DRAFT_FROM_UNREAD_SOURCE"
+    # The action IS offered - that is the point of the milestone - but the
+    # material is not claimed to be confirmed.
+    assert "MAKE_DRAFT" in before["availableActions"]
+    assert "потвърдена информация" not in before["preparation"]["draftReadiness"]["message"]
 
     _apply_basis(evidence="assessed", facts=1, open_source=True, blocking_gap=False)
 
