@@ -6,6 +6,12 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
+> ⚠ **Before running the test suite, read `agents.md` § "Long test runs".**
+> A careless launch has already pinned this host at 100% CPU and required a
+> reboot. One test run at a time, never re-launch to poll, and rebuild
+> `frontend/dist` after any frontend change or the browser suite silently
+> validates the previous bundle.
+
 **NEXT (single, owner-approved): after this pre-frontend correctness gate is
 reviewed, start `frontend/` — Vite + React + TS SPA over a JSON API, strangler
 migration.** Telegram (M4E) stays backlog unless the owner changes priority.

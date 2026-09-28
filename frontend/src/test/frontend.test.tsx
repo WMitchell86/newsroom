@@ -1018,7 +1018,7 @@ describe("Articles", () => {
     expect(screen.queryByRole("button", { name: /Редактирай|Финализирай/ })).toBeNull();
   });
 
-  it("creates a draft once, shows pending wording, and adopts the canonical read-only Draft", async () => {
+  it("creates a draft once, shows pending wording, and adopts the canonical Draft", async () => {
     const eligible = {
       ...activePreparationArticle,
       editorialFocus: { ...activePreparationArticle.editorialFocus, confirmedAt: "2026-09-25T11:00:00Z" },
@@ -1048,9 +1048,12 @@ describe("Articles", () => {
     resolveDraft(dataResponse(generated));
 
     expect(await screen.findByRole("heading", { name: "Чернова" })).toBeInTheDocument();
-    expect(screen.getByText(generated.content.body)).toBeInTheDocument();
     expect(screen.getByText("Проверете цитата.")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /текст на статията/i })).toBeNull();
+    // V1.2-G4.3: the generated Draft lands straight in the editor. The editor
+    // does not have to ask permission to correct a sentence it just read, and
+    // the canonical text is what the field shows.
+    const body = await screen.findByRole("textbox", { name: /текст на статията/i });
+    expect(body).toHaveValue(generated.content.body);
   });
 
   it("keeps preparation and only offers retry after a retryable draft failure", async () => {
@@ -1153,8 +1156,8 @@ describe("Articles", () => {
       <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
       { initialEntries: [`/articles/${activeDraftArticle.id}`] },
     );
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
-    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    // V1.2-G4.3: a Draft is directly editable - the editor is already open.
+    const body = await screen.findByRole("textbox", { name: "Текст на статията" });
     expect(body).toHaveValue(activeDraftArticle.content.body);
     expect(screen.getByRole("textbox", { name: "Заглавие" })).toHaveValue(activeDraftArticle.content.title);
     expect(screen.queryByRole("button", { name: /запази/i })).toBeNull();
@@ -1187,8 +1190,8 @@ describe("Articles", () => {
       <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
       { initialEntries: [`/articles/${activeDraftArticle.id}`] },
     );
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
-    const editor = screen.getByRole("textbox", { name: "Текст на статията" });
+    // V1.2-G4.3: a Draft is directly editable - the editor is already open.
+    const editor = await screen.findByRole("textbox", { name: "Текст на статията" });
     await user.clear(editor);
     await user.type(editor, "Първи");
     await user.tab();
@@ -1218,8 +1221,8 @@ describe("Articles", () => {
       <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
       { initialEntries: [`/articles/${activeDraftArticle.id}`] },
     );
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
-    const editor = screen.getByRole("textbox", { name: "Текст на статията" });
+    // V1.2-G4.3: a Draft is directly editable - the editor is already open.
+    const editor = await screen.findByRole("textbox", { name: "Текст на статията" });
     await user.clear(editor);
     await user.type(editor, "Локален текст");
     await user.tab();
@@ -1330,7 +1333,7 @@ describe("Articles", () => {
       <Routes><Route path="/articles/:articleId" element={<ArticleWorkspace />} /></Routes>,
       { initialEntries: [`/articles/${activeDraftArticle.id}`] },
     );
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
+    // V1.2-G4.3: a Draft is directly editable - the title field is already there.
 
     const heading = await screen.findByRole("heading", { level: 1 });
     const title = screen.getByRole("textbox", { name: "Заглавие" });
@@ -1682,8 +1685,8 @@ describe("C4 Отбележи като готова", () => {
     });
     renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
 
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
-    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    // V1.2-G4.3: a Draft is directly editable - the editor is already open.
+    const body = await screen.findByRole("textbox", { name: "Текст на статията" });
     await user.clear(body);
     await user.type(body, "Нов текст преди готовност.");
     // The autosave is still pending: the readiness command must await it.
@@ -1965,8 +1968,8 @@ describe("C5 Готова → Редактирай", () => {
     // Readiness is gone until the editor asks for it again.
     expect(screen.queryByRole("button", { name: "Финализирай" })).toBeNull();
     expect(screen.getByRole("button", { name: "Отбележи като готова" })).toBeInTheDocument();
-    // The C3 editor is available again.
-    await user.click(screen.getByRole("button", { name: "Редактирай" }));
+    // V1.2-G4.3: reopening returns the editor to a Draft, and a Draft is now
+    // immediately editable - no second `Редактирай` click to get a textbox.
     expect(await screen.findByRole("textbox", { name: /текст на статията/i })).toBeInTheDocument();
   });
 });

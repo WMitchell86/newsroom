@@ -189,11 +189,18 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
   }
   const facts = article.factsAndSources;
   const missing = article.missingInformation;
+  // V1.2-G4.3: the material this Draft was actually written from. A single-source
+  // Draft has no confirmed fact to show, but the editor must still see WHICH page
+  // it came from and be able to open it - that is what makes the single-source
+  // warning checkable instead of merely asserted.
+  const opened = (missing && missing.openedSources) || [];
 
   // §6: the evidence rail is never reserved empty. An Article with nothing to
   // support it gets the full width for writing, because a blank 300px slab
   // beside a textarea is the most wasteful thing this page could do.
-  const hasEvidence = facts.length > 0 || Boolean(missing && missing.items.length > 0);
+  const hasEvidence = facts.length > 0
+    || opened.length > 0
+    || Boolean(missing && missing.items.length > 0);
 
   return <div className={`${ui.page} ${ui.articles} ${styles.workspace}`}>
     {/* §7/§16: a compact header — back link, what this is, the title, the state.
@@ -207,8 +214,9 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
         </div>
       </div>
       {/* §7/§8: the title is the page's own heading and stays directly editable,
-          with passive save status and no version or concurrency detail. */}
-      <ArticleDeskTitle autosave={autosave} editable={editing} />
+          with passive save status and no version or concurrency detail. V1.2-G4.3:
+          a Draft is editable on arrival; only `Готова` is calm until reopened. */}
+      <ArticleDeskTitle autosave={autosave} editable={!isReady} />
       <p className={styles.linkedStory}>
         История:{" "}
         <Link to={`/stories/${encodeURIComponent(article.story.id)}`}>
@@ -244,15 +252,13 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
                 >
                   {reopen.isPending ? "Връща се…" : "Редактирай"}
                 </button>
-              ) : article.availableActions.includes("EDIT") ? (
-                <button
-                  className={styles.secondaryAction}
-                  type="button"
-                  onClick={() => setEditing((current) => !current)}
-                >
-                  {editing ? "Завърши редакцията" : "Редактирай"}
-                </button>
               ) : null}
+              {/* V1.2-G4.3: a Draft is DIRECTLY editable. The old «Редактирай»
+                  toggle added a step between the editor and their own text on a
+                  page that already autosaves, already negotiates a version, and
+                  already has exactly one body control. The editor opens a Draft
+                  and starts typing. `Готова` stays calm and read-only, and
+                  reopening it is still an explicit decision. */}
               {canMarkReady ? (
                 <button
                   className={styles.primaryAction}
@@ -275,14 +281,18 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
               ) : null}
             </div>
           </div>
-          {editing ? <ArticleContentEditor autosave={autosave} /> : <>
+          {/* V1.2-G4.3: a Draft opens straight into its text - no `Редактирай`
+              step. A `Готова` Article stays calm and read-only until the editor
+              explicitly reopens it, so a finished text is never one stray
+              keystroke away from being changed. */}
+          {isReady ? <>
             {/* The title is already the page heading in the header. Repeating it
                 above the body printed the same sentence twice on one screen, so
                 the read-only view starts at the text itself. */}
             {article.content.body.trim()
               ? <p className={styles.contentBody}>{article.content.body}</p>
               : <p className={styles.contentEmpty}>Още няма текст на статията.</p>}
-          </>}
+          </> : <ArticleContentEditor autosave={autosave} />}
           {ready.isPending ? <p className={styles.readyFeedback} role="status" aria-live="polite">
             Проверява се текущата версия.
           </p> : null}
@@ -364,6 +374,39 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
               </li>;
             })}
           </ul> : null}
+          {/* V1.2-G4.3: what the Draft was written FROM. The panel used to be
+              headed «Факти и източници» while showing no fact and no source at
+              all on a single-source Draft - the very case the warning talks
+              about. Naming the opened publication and linking it makes the
+              single-source warning something the editor can actually check. */}
+          {opened.length > 0 ? <section className={styles.gapBlock}>
+            <h3 className={styles.evidenceSubheading}>Изходен материал</h3>
+            <ul className={styles.missingList}>
+              {opened.map((source) => {
+                const url = safeExternalUrl(source.url);
+                return <li className={styles.missingItem} key={source.id}>
+                  <p className={styles.missingQuestion}>
+                    {url ? <a
+                      className={styles.sourceLink}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      data-article-origin
+                    >
+                      {source.name} <span aria-hidden="true">↗</span>
+                    </a> : <strong>{source.name}</strong>}
+                  </p>
+                </li>;
+              })}
+            </ul>
+            {/* §B3: the honest count. One opened page is not corroboration, and
+                saying so here keeps the panel and the warning in agreement. */}
+            <p className={styles.missingReason}>
+              {opened.length === 1
+                ? "Един източник · няма независимо потвърждение"
+                : `${opened.length} източника · независимо потвърждение не е установено`}
+            </p>
+          </section> : null}
           {missing && missing.items.length > 0 ? <section className={styles.gapBlock}>
             <h3 className={styles.evidenceSubheading}>Остава непотвърдена информация</h3>
             <ul className={styles.missingList}>

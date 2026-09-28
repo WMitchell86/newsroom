@@ -62,6 +62,15 @@ def primary_focus(title: str, *, facts=(), gaps=()) -> str:
     one that does not is framed around what is established so far. A Story with
     no usable subject yields `""`, exactly like the Quick-Draft default, and the
     canonical readiness decision then reports `WORKING_TITLE_REQUIRED`.
+
+    **V1.2-G4.3 — no template that could sit on any other Story.** The previous
+    wording (`с акцент върху потвърдените факти, кога и къде се е случило и какво
+    следва за хората, за които новината има значение`) was editorially empty: it
+    named no decision and would paste onto any story in the desk. Worse, it
+    called the subject "потвърдено" while the same screen warned that the
+    information was NOT independently confirmed, so the page contradicted itself.
+    The Focus now states what the text must actually settle for THIS Story, and
+    never asserts a level of confirmation the basis does not have.
     """
     subject = _clean_title(title)
     if not subject:
@@ -69,13 +78,12 @@ def primary_focus(title: str, *, facts=(), gaps=()) -> str:
     has_facts = bool(list(facts or ()))
     if has_facts:
         return (
-            f"Кратка новина за „{subject}“ с акцент върху потвърдените факти, "
-            "кога и къде се е случило и какво следва за хората, за които новината "
-            "има значение."
+            f"Какво точно е установено за „{subject}“ и какво следва за "
+            "хората, за които новината има значение."
         )
     return (
-        f"Кратка новина за „{subject}“ с акцент върху това, което вече е установено, "
-        "и изрично отбелязване на това, което все още не е потвърдено."
+        f"Какво вече е известно за „{subject}“ и какво остава неуточнено, "
+        "без да се представя за потвърдено."
     )
 
 
@@ -116,12 +124,8 @@ def alternatives(title: str, *, facts=(), gaps=()) -> tuple[str, ...]:
         )
         push(f"Последствията за Бургас и региона от случилото се с „{subject}“.")
     else:
-        push(
-            f"Какво вече е известно за „{subject}“ и какво остава неуточнено."
-        )
-        push(
-            f"Какво следва предвид случилото се с „{subject}“ и какво се очаква."
-        )
+        push(f"Какво вече е известно за „{subject}“ и какво остава неуточнено.")
+        push(f"Какво следва предвид случилото се с „{subject}“ и какво се очаква.")
         push(f"Последствията за Бургас и региона от „{subject}“.")
 
     # D2/D4: the number of GAPS is a real editorial signal. A Story with a named

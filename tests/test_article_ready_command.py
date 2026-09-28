@@ -172,6 +172,46 @@ def _generate(article_id, key):
 # ------------------------------------------------------ current-content validation
 
 
+def test_an_internal_id_never_reaches_the_editor_as_warning_text(newsroom, prepared, model):
+    """V1.2-G4.3: no `gap_...`, `s...` or `fact_...` id in anything the UI renders.
+
+    The defect this closes was visible on the Article screen: the open-question
+    warning carried the raw gap id as its `affectedText`, and that is the one
+    field the page renders as text. Internal identifiers are backend vocabulary
+    and belong in a warning's identity, never in its editor-facing text.
+    """
+    article = prepared
+    _generate(article["article_id"], "g43-internal-id")
+    story_id = article["story"]["id"] if isinstance(article.get("story"), dict) else "s-one"
+
+    result = app.validate_article_current_content(article["article_id"])
+    for row in result["warnings"]:
+        text = str(row.get("affectedText") or "")
+        assert not text.startswith(("gap_", "s1", "fact_", "EV-", "warn_")), text
+        assert story_id not in text, text
+
+    # The open question itself is still reported - as the question, not as an id.
+    projection = app.read_article(article["article_id"])
+    for warning in projection["warnings"]:
+        assert "gap_" not in str(warning.get("affectedText") or "")
+
+
+def test_the_open_question_warning_names_the_question_not_the_gap_id(newsroom):
+    """The blocking gap is still visible, in words the editor can act on."""
+    from editor_assistant.workflow import article_validation as validation
+
+    question = "Нужен е още независим източник за потвърждение."
+    warning = validation._warning(
+        "blocking_gap_open",
+        identity="gap_00239820db796f4d4fb8",
+        affected=question,
+    )
+    assert warning["affectedText"] == question
+    assert "gap_" not in warning["affectedText"]
+    # The id still drives a stable, deterministic warning identity.
+    assert warning["id"].startswith("warn_")
+
+
 def test_validation_runs_against_the_current_text_of_a_generated_draft(newsroom, prepared, model):
     """The unedited generated Draft is validated on its own current content."""
     article_id = prepared["article_id"]

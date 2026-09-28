@@ -276,12 +276,11 @@ def test_the_writing_desk_holds_a_real_session(article_desk):
     # dominant element. The rail is support, not a second page.
     rail = probe.page.get_by_role("heading", name="Факти и източници")
     rail.wait_for(state="visible")
-    box_editor = probe.page.locator("textarea#article-working-body")
-    assert box_editor.count() == 0, "the Draft body is editable without Редактирай"
-
-    probe.page.get_by_role("button", name="Редактирай").first.click()
+    # V1.2-G4.3: the Draft is editable the moment it opens. There is no
+    # `Редактирай` gate in front of the editor's own text.
     body = probe.page.locator("textarea#article-working-body").first
     body.wait_for(state="visible")
+    assert probe.page.get_by_role("button", name="Редактирай").count() == 0
     # §13: exactly one body control, and the labelled one is the real one.
     assert probe.page.locator("textarea#article-working-body").count() == 1
     assert probe.page.locator("label[for='article-working-body']").count() >= 1
@@ -334,7 +333,7 @@ def test_the_writing_desk_holds_a_real_session(article_desk):
 
     # §19: collapsing the rail gives the writing surface the full width back.
     open_article(probe, article_id)
-    probe.page.get_by_role("button", name="Редактирай").first.click()
+    # V1.2-G4.3: a Draft is already editable - no `Редактирай` gate.
     probe.page.locator("textarea#article-working-body").first.wait_for(state="visible")
     open_width = probe.page.locator("textarea#article-working-body").first.evaluate(
         "el => el.getBoundingClientRect().width"
@@ -400,7 +399,7 @@ def test_capture_owner_review_screenshots(article_desk):
 
     # b/c. the Draft, plain and with the evidence rail
     open_article(probe, ids["draft_article_id"])
-    probe.page.get_by_role("button", name="Редактирай").first.click()
+    # V1.2-G4.3: a Draft is already editable - no `Редактирай` gate.
     probe.page.locator("textarea#article-working-body").first.wait_for(state="visible")
     shoot(probe, "b-article-draft-1440x1080")
     shoot(probe, "c-article-draft-evidence-open-1440x1080")
@@ -424,7 +423,7 @@ def test_capture_owner_review_screenshots(article_desk):
     # f. the narrow laptop width
     probe.page.set_viewport_size(LAPTOP_VIEWPORT)
     open_article(probe, ids["draft_article_id"])
-    probe.page.get_by_role("button", name="Редактирай").first.click()
+    # V1.2-G4.3: a Draft is already editable - no `Редактирай` gate.
     probe.page.locator("textarea#article-working-body").first.wait_for(state="visible")
     shoot(probe, "f-article-draft-1280x900")
     # §33: no horizontal overflow at the narrow width.

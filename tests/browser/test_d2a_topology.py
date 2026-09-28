@@ -199,7 +199,7 @@ def test_editor_fields_are_reachable_and_labelled(page, spa_runtime):
         f"{probe.base_url}/articles/{spa_runtime['manual_article_id']}", wait_until="load"
     )
     probe.page.locator("main").wait_for(state="visible")
-    probe.page.get_by_role("button", name="Редактирай").first.click()
+    # V1.2-G4.3: a Draft is already editable - no `Редактирай` gate to open.
     body = probe.page.locator("textarea#article-working-body").first
     body.wait_for(state="visible")
     body.focus()

@@ -163,9 +163,10 @@ def test_make_draft_produces_a_read_only_draft_body(page, spa_runtime):
     detail = probe.page.request.get(f"{probe.base_url}/api/v1/articles/{article_id}").json()["data"]
     assert detail["state"] == "draft"
     assert detail["content"]["body"].strip(), "the generated Draft has no body"
-    # The Draft body renders read-only: the editor is not active.
-    assert probe.page.locator("textarea#article-working-body").count() == 0
-    probe.page.get_by_role("button", name="Редактирай").first.wait_for(state="visible")
+    # V1.2-G4.3: the generated Draft lands directly in the editor - there is no
+    # `Редактирай` step between the editor and the text that was just written.
+    probe.page.locator("textarea#article-working-body").first.wait_for(state="visible")
+    assert probe.page.get_by_role("button", name="Редактирай").count() == 0
     probe.assert_clean(context="make draft")
 
 
@@ -224,17 +225,17 @@ def test_a_slow_draft_operation_still_succeeds_in_the_ui(page, spa_runtime):
 
 
 def open_draft_editor(probe, article_id: str) -> None:
-    """Open a Draft workspace and activate the real editor with `Редактирай`."""
+    """Open a Draft workspace. V1.2-G4.3: the editor is already active.
+
+    A Draft is directly editable, so there is no `Редактирай` step. The button
+    is only present on a `Готова` Article, where reopening is a real decision.
+    """
     open_article(probe, article_id)
-    edit = probe.page.get_by_role("button", name="Редактирай")
-    if edit.count() == 0:
-        return
-    edit.first.click()
     probe.page.locator("textarea#article-working-body").first.wait_for(state="visible")
 
 
 def test_editor_autosaves_and_survives_a_python_served_reload(page, spa_runtime):
-    """Редактирай -> edit -> debounce -> autosave -> Запазено -> reload -> persisted."""
+    """Edit -> debounce -> autosave -> Запазено -> reload -> persisted."""
     probe = page
     article_id = spa_runtime["manual_article_id"]
     open_draft_editor(probe, article_id)

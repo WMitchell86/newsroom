@@ -579,9 +579,7 @@ def _story_evidence_projection(
         "items": unique_gaps,
         "assessedAt": assessed_at,
         "evidenceStatus": evidence_status,
-        "openedSources": [
-            _opened_source_projection(item) for item in basis["sources"]
-        ],
+        "openedSources": [_opened_source_projection(item) for item in basis["sources"]],
     }
     return unique_facts, missing_projection
 
@@ -835,19 +833,20 @@ def _article_projection(
         draft_warnings = []
         if recorded.get("attributionRequired"):
             draft_warnings.append(draft_material.WARNING_SINGLE_SOURCE)
-        if blocking_gaps:
-            draft_warnings.append(draft_material.WARNING_OPEN_DRAFT)
+        # V1.2-G4.3: the open question is NOT repeated here. `article_validation`
+        # already raises one `blocking_gap_open` warning that states the same
+        # condition AND carries the actual question, and the evidence rail lists
+        # that question. A third phrasing of "there is still an open question" is
+        # what made the Draft screen say the same thing four times.
         if not draft_warnings:
             draft_warnings = list(basis_decision["warnings"])
     elif state != "preparation" and draft_material.WARNING_OPEN_GAPS in draft_warnings:
-        # Once a Draft exists the open questions are the reason Ready is withheld;
-        # the single-sentence "проверка преди готовност" framing belongs to the
-        # Preparation screen, where the editor is deciding whether to start.
+        # Once a Draft exists, `blocking_gap_open` above is the authority for the
+        # open questions; the Preparation wording ("преди черновата да е готова")
+        # is wrong for a Draft and duplicative of it.
         draft_warnings = [
-            warning
-            for warning in draft_warnings
-            if warning != draft_material.WARNING_OPEN_GAPS
-        ] or [draft_material.WARNING_OPEN_DRAFT]
+            warning for warning in draft_warnings if warning != draft_material.WARNING_OPEN_GAPS
+        ]
     # V1.1-C: manual continuation is a SEPARATE question from readiness, not a
     # second half of it. It is answered from one durable marker bound to this
     # exact basis, so it survives a reload and expires by itself when the
@@ -1488,9 +1487,7 @@ def _draft_snapshot(article_id: str) -> dict:
         read = None
         for member in story.get("members") or []:
             item = items_by_id.get(member.get("item_id")) or {}
-            read = publication_material.read_publication(
-                str(item.get("url") or ""), topic=headline
-            )
+            read = publication_material.read_publication(str(item.get("url") or ""), topic=headline)
             if read:
                 break
         if not read:
@@ -1499,9 +1496,7 @@ def _draft_snapshot(article_id: str) -> dict:
             # throttled lookup must not be what decides that a Story with a real
             # article has no readable material.
             for attempt in (False, True):
-                for resolved in publication_material.publication_urls(
-                    headline, refresh=attempt
-                ):
+                for resolved in publication_material.publication_urls(headline, refresh=attempt):
                     read = publication_material.read_publication(resolved, topic=headline)
                     if read:
                         break
@@ -1512,9 +1507,7 @@ def _draft_snapshot(article_id: str) -> dict:
             opened = [
                 {
                     "id": "src_original_publication",
-                    "name": read["domain"]
-                    or representative.get("publisher_domain")
-                    or "източник",
+                    "name": read["domain"] or representative.get("publisher_domain") or "източник",
                     "url": read["url"],
                     "domain": read["domain"],
                     # A publication read outside Research carries no authority
@@ -1834,7 +1827,6 @@ def _quick_evidence_verdict(story_id: str, articles: list[dict]):
     )
 
 
-
 def _original_publication_is_readable(story_id: str, story: dict) -> bool:
     """Whether the Story's own publication can be read right now.
 
@@ -1965,7 +1957,9 @@ def _run_quick_draft(story_id: str) -> dict:
             # Draft as a warning. It stops the Draft only if the Story's own
             # publication also cannot be read, which the Draft gate decides.
             research_problem = "Допълнителното проучване не можа да завърши успешно."
-            LOG.info("quick draft: research did not complete for %s: %s", story_id, research_problem)
+            LOG.info(
+                "quick draft: research did not complete for %s: %s", story_id, research_problem
+            )
 
     # 3. Re-evaluate the canonical evidence. This is the honest re-check: a
     # completed research round that did not produce usable material stops the
@@ -2530,9 +2524,7 @@ def start_article(story_id: str, *, idempotency_key: str) -> dict:
         # existing Article returned by the idempotency key is never re-focused.
         if focus and not editor_projections.focus_is_confirmed(record):
             try:
-                record = editor_article_store.update_editor_focus(
-                    record["article_id"], focus
-                )
+                record = editor_article_store.update_editor_focus(record["article_id"], focus)
             except editor_article_store.ArticleStoreError:
                 # The Article exists; the editor can still set the Focus. Readiness
                 # then reports FOCUS_NOT_CONFIRMED on its own terms, which is the

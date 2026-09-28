@@ -42,6 +42,36 @@ from urllib.parse import urlsplit
 #: the tail's hyphen ban keeps a title like `... Бургас-Созопол` intact.
 _PUBLISHER_SUFFIX = re.compile(r"^(?P<head>.+?)\s+-\s+(?P<tail>[^-]{1,60})$")
 
+#: V1.2-G4.3: a *site tag* is publisher decoration too, but it is a phrase rather
+#: than a brand, so it can never be found in the identity set. `... - новини от
+#: Бургас и региона` is the publisher's own site tagline, not editorial text, and
+#: it is recognisable by shape: a section noun followed by a service preposition
+#: (`от` / `за` / `в` / `по`).
+#:
+#: The fixed vocabulary, and nothing else, may open a site tag.
+_SITE_TAG_NOUNS = frozenset(
+    {
+        "новини",
+        "новината",
+        "новините",
+        "бюлетин",
+        "бюлетина",
+        "bulletin",
+        "news",
+    }
+)
+
+#: The site-tag shape. This stays deliberately narrow: a tail is only a site tag
+#: when it opens with one of the fixed section nouns above and is immediately
+#: followed by a service preposition. A real headline tail such as
+#: `Поморие: затварят пътя` opens with no noun and carries a colon, and
+#: `Бургас - Поморие: затварят пътя` therefore stays untouched.
+_SITE_TAG = re.compile(
+    r"^(?:"
+    + "|".join(re.escape(word) for word in sorted(_SITE_TAG_NOUNS, key=len, reverse=True))
+    + r")\s+(?:от|за|в|по)\s+\S.*$"
+)
+
 #: A real headline never becomes this short once its decoration is removed.
 _MIN_HEAD_CHARS = 12
 
@@ -144,6 +174,16 @@ def _is_publisher_decoration(tail: str, identity: set[str]) -> bool:
     if not normalized or ":" in tail or "/" in tail:
         return False
     tokens = normalized.split()
+    # V1.2-G4.3: a site tag (`новини от Бургас и региона`) is publisher
+    # decoration by SHAPE, not by identity - it is a publisher tagline, so no
+    # registry row can ever name it. It is tested FIRST, because a site tag is
+    # longer than a brand and would otherwise be rejected by the clause test
+    # below. The form is deliberately narrow (a fixed section noun immediately
+    # followed by a service preposition), so a real clause such as
+    # `Поморие: затварят пътя` - already excluded by the colon/slash guard
+    # above - still cannot match.
+    if _SITE_TAG.match(tail):
+        return True
     if len(tokens) > 2:
         # A clause, not a brand. `Поморие: затварят пътя` and
         # `00 18881 / 25.09.2026 г.` both land here and stay untouched.
@@ -157,6 +197,28 @@ def _is_publisher_decoration(tail: str, identity: set[str]) -> bool:
         # generic section noun rather than editorial text.
         brand = tokens[0]
         return any((brand in value or value in brand) for value in identity if len(value) >= 3)
+    return False
+
+
+def _has_proven_brand(head: str, identity: set[str]) -> bool:
+    """V1.2-G4.3: does this headline already name the publisher itself?
+
+    Used only to authorise removing a site tag. The real feed shape is
+    `headline - Черноморски фар - новини от Бургас и региона`: the site tag can
+    only be decoration because the proven brand sits immediately before it. When
+    no segment of `head` is attributable to this publisher, the trailing phrase
+    stays untouched rather than being guessed away.
+    """
+    if not identity:
+        return False
+    for segment in re.split(r"\s+[-–—]\s+", head):
+        value = _normalize(segment)
+        if not value:
+            continue
+        if value in identity:
+            return True
+        if any((value in known or known in value) for known in identity if len(known) >= 4):
+            return True
     return False
 
 
@@ -180,9 +242,17 @@ def editorial_story_title(raw_title: str | None, *, identity: object = ()) -> st
         tail = match.group("tail").strip()
         if len(head) < _MIN_HEAD_CHARS:
             break
-        if not _is_publisher_decoration(tail, known):
-            break
-        current = head
+        # V1.2-G4.3: a site tag is only removed when this very headline also
+        # carries a segment that IS provably the publisher (`... - Черноморски
+        # фар - новини от Бургас и региона`). With no proven brand anywhere in
+        # the title, an unattributable trailing phrase is left exactly as
+        # collected - the position the existing no-known-publisher test pins.
+        if _is_publisher_decoration(tail, known) and (
+            not _SITE_TAG.match(tail) or _has_proven_brand(head, known)
+        ):
+            current = head
+            continue
+        break
     return current
 
 

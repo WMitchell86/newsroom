@@ -30,6 +30,33 @@ PYTHONPATH=src python3 -m editor_assistant.send_telegram     # dry-run preview (
 - `pip install -e .` is blocked on this machine (PEP 668 externally-managed env) — always run with `PYTHONPATH=src`.
 - Commits: author `editor-assistant <editor-assistant@chernomorie-bg.com>`, subject prefix `M<x.y>:` (or `docs:`/`chore:`).
 
+### Long test runs — never let one pin the machine at 100% CPU
+This suite is slow enough that a careless launch has already frozen this host
+(an agent had to restart it). The offline suite is ~2000 tests, the browser suite
+drives real Chrome and a real HTTP server, and individual tests can hold a socket
+open for their whole timeout. Four rules, all mandatory:
+
+1. **One run at a time.** Never background a test run (`&`) and then start
+   another while the first may still be alive. Check first:
+   `pgrep -af 'pytest|vitest|chrome' | wc -l` — if the answer is not `0`, stop
+   and clean up before launching anything.
+2. **Never re-launch to "check progress."** A run that was started once is either
+   running or finished. Read its output file instead of starting it again.
+3. **Prefer a bounded, in-foreground run.** Use `timeout 25 ...` and a narrow
+   selection (`<file>`, `-k`) so the command returns inside the tool's own limit.
+   Reserve background runs for the genuinely long suites (full `pytest`, all of
+   `tests/browser/`), and then poll the output file with `sleep` in a *separate*
+   command.
+4. **`sleep` between polls must never be combined with launching work.** A
+   `sleep` that outlives a backgrounded run is what turns "waiting" into
+   "relaunching". Poll, read, decide — then act once.
+
+The browser suite serves the **built** frontend from `frontend/dist`, so
+`cd frontend && npm run build` is required after any frontend change or the
+browser tests silently validate the previous bundle. Symptom: a locator waits for
+a control that provably exists in the source. The suite skips with
+`production build missing` if `dist/` is absent.
+
 ## Repo map
 ```text
 src/editor_assistant/

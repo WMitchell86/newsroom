@@ -204,11 +204,12 @@ describe("V1.2-G3 §36 — the Draft is the centre of the screen", () => {
   it("offers exactly one body control and no duplicate save control", async () => {
     // §13: the C3 fix is preserved. The title moved to the header, so there is
     // still exactly ONE body textarea and still no Save button.
-    const user = userEvent.setup();
+    //
+    // V1.2-G4.3: a Draft is directly editable, so the editor is already open and
+    // there is no `Редактирай` step to click through first.
     renderArticle(activeDraftArticle);
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
 
-    expect(screen.getAllByRole("textbox", { name: "Текст на статията" })).toHaveLength(1);
+    expect(await screen.findByRole("textbox", { name: "Текст на статията" })).toBeInTheDocument();
     expect(document.querySelectorAll("textarea")).toHaveLength(1);
     expect(document.querySelectorAll("#article-working-body")).toHaveLength(1);
     // The labelled control is the one the label points at — no orphan.
@@ -217,6 +218,16 @@ describe("V1.2-G3 §36 — the Draft is the centre of the screen", () => {
     expect(new Set(ids).size).toBe(ids.length);
     // §14: no manual save anywhere.
     expect(screen.queryByRole("button", { name: /запази/i })).toBeNull();
+  });
+
+  it("opens a Draft ready to type, with no step in between", async () => {
+    // V1.2-G4.3: Draft -> start writing. The extra `Редактирай` gate bought
+    // nothing on a page that already autosaves and already negotiates a version.
+    renderArticle(activeDraftArticle);
+    expect(await screen.findByRole("textbox", { name: "Текст на статията" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Заглавие" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Редактирай" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Завърши редакцията" })).toBeNull();
   });
 
   it("keeps the title editable in the header and autosaves through the same writer", async () => {
@@ -236,9 +247,8 @@ describe("V1.2-G3 §36 — the Draft is the centre of the screen", () => {
       return dataResponse(canonical);
     });
     renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
 
-    const title = screen.getByRole("textbox", { name: "Заглавие" });
+    const title = await screen.findByRole("textbox", { name: "Заглавие" });
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading).toContainElement(title);
 
@@ -284,6 +294,67 @@ describe("V1.2-G3 §36 — the Draft is the centre of the screen", () => {
     expect(collapsed).toHaveAttribute("aria-expanded", "false");
     await user.click(collapsed);
     expect(screen.getByRole("button", { name: "Скрий източниците" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("names the opened publication a single-source Draft was written from", async () => {
+    // V1.2-G4.3: the rail used to be headed «Факти и източници» while showing no
+    // fact AND no source on a single-source Draft. The editor has to see which
+    // page the text came from, and be able to open it.
+    const singleSource: ArticleDetail = {
+      ...activeDraftArticle,
+      factsAndSources: [],
+      missingInformation: {
+        items: [],
+        assessedAt: "2026-09-25T09:32:00Z",
+        evidenceStatus: "assessed",
+        openedSources: [
+          {
+            id: "chernomorski-far",
+            name: "Черноморски фар",
+            url: "https://www.faragency.bg/news/17905162794342/slab-start",
+            domain: "faragency.bg",
+            factualAuthority: false,
+            authority: "CORROBORATING",
+          },
+        ],
+      },
+    };
+    renderArticle(singleSource);
+    expect(await screen.findByRole("heading", { name: "Изходен материал" })).toBeInTheDocument();
+
+    const origin = document.querySelector("[data-article-origin]") as HTMLAnchorElement;
+    expect(origin).not.toBeNull();
+    expect(origin).toHaveAttribute("href", singleSource.missingInformation.openedSources![0]!.url);
+    expect(origin).toHaveAttribute("target", "_blank");
+    expect(origin).toHaveAttribute("rel", expect.stringContaining("noreferrer") as unknown as string);
+
+    // The honest count: one opened page is not corroboration.
+    expect(screen.getByText(/Един източник · няма независимо потвърждение/)).toBeVisible();
+  });
+
+  it("keeps the rail reserved-empty only when there is genuinely nothing", async () => {
+    // An opened publication alone is enough for the rail to exist: it is the
+    // material behind the Draft even when no fact was promoted.
+    const openedOnly: ArticleDetail = {
+      ...activeDraftArticle,
+      factsAndSources: [],
+      missingInformation: {
+        ...activeDraftArticle.missingInformation,
+        items: [],
+        openedSources: [
+          {
+            id: "far",
+            name: "Черноморски фар",
+            url: "https://www.faragency.bg/news/x",
+            domain: "faragency.bg",
+            factualAuthority: false,
+            authority: "CORROBORATING",
+          },
+        ],
+      },
+    };
+    renderArticle(openedOnly);
+    expect(await screen.findByRole("heading", { name: "Факти и източници" })).toBeInTheDocument();
   });
 
   it("keeps publications and evidence as two different things", async () => {
@@ -462,8 +533,7 @@ describe("V1.2-G3 §37 — Ready and Finalized", () => {
       return dataResponse(activeDraftArticle);
     });
     renderWithProviders(articleRoute(), { initialEntries: [`/articles/${activeDraftArticle.id}`] });
-    await user.click(await screen.findByRole("button", { name: "Редактирай" }));
-    const body = screen.getByRole("textbox", { name: "Текст на статията" });
+    const body = await screen.findByRole("textbox", { name: "Текст на статията" });
     const typed = "Текст, който няма да се запише.";
     await user.clear(body);
     await user.type(body, typed);

@@ -75,6 +75,36 @@ export function useArticleAutosave({
     timerRef.current = null;
   }, []);
 
+  /**
+   * V1.2-G4.3 — adopt a NEW canonical version, without ever discarding typing.
+   *
+   * This hook is created ONCE per Article, above the loading boundary, so its
+   * `useState` initialisers run while the Article is still `Подготовка` and its
+   * body is empty. When `Направи чернова` produces the canonical Draft, the hook
+   * was already mounted: without this the editor would open onto an EMPTY
+   * textarea while the server held the generated text. That was invisible while a
+   * Draft rendered read-only behind a `Редактирай` gate, and it becomes the
+   * normal case now that a Draft is directly editable.
+   *
+   * Local unsaved work always wins over a server read: a version is adopted only
+   * when the editor has nothing pending, or when the server is reporting exactly
+   * the version the local text was already based on.
+   */
+  useEffect(() => {
+    const canonical = article.content;
+    const local = localRef.current;
+    if (canonical.title === local.title && canonical.body === local.body) return;
+    if (dirtyRef.current) {
+      // The editor is mid-sentence. Never overwrite their words with a read.
+      return;
+    }
+    localRef.current = canonical;
+    confirmedRef.current = canonical;
+    setTitle(canonical.title);
+    setBody(canonical.body);
+    setStatus("saved");
+  }, [article.content]);
+
   const flush = useCallback(async (force = false): Promise<boolean> => {
     clearTimer();
     // A save that is already running is awaited, never raced and never reported

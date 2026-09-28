@@ -300,15 +300,26 @@ def evaluate_current_content(
         or story.get("story_id") != article.get("story_id")
         or str(story.get("status") or "") == "IGNORED"
     ):
+        # V1.2-G4.3: the Story id is BACKEND vocabulary and must never reach the
+        # editor as text. `identity` gives the warning its stable, deterministic
+        # identity without producing an `affectedText` the UI would render.
         warnings.append(
-            _warning("story_lineage_unavailable", affected=str(article.get("story_id") or ""))
+            _warning("story_lineage_unavailable", identity=str(article.get("story_id") or ""))
         )
     if not title.strip() or not body.strip():
         # Nothing to audit. That is a real, blocking finding - never a pass.
         warnings.append(_warning("content_empty"))
 
     for gap in [gap for gap in gaps or [] if gap.get("blocking")]:
-        warnings.append(_warning("blocking_gap_open", affected=str(gap.get("id") or "")))
+        # The open question is already rendered in full by the gap list, so the
+        # warning says only THAT one is open - and carries no id as text.
+        warnings.append(
+            _warning(
+                "blocking_gap_open",
+                identity=str(gap.get("id") or ""),
+                affected=str(gap.get("question") or ""),
+            )
+        )
 
     audit: dict = {}
     if body.strip() and facts:
@@ -316,10 +327,11 @@ def evaluate_current_content(
             fact for fact in facts if not str((fact.get("source") or {}).get("url") or "").strip()
         ]
         if missing_source:
+            # Fact ids are internal provenance, never editor-facing text.
             warnings.append(
                 _warning(
                     "evidence_source_missing",
-                    affected=",".join(sorted(str(f.get("id") or "") for f in missing_source)),
+                    identity=",".join(sorted(str(f.get("id") or "") for f in missing_source)),
                 )
             )
         try:

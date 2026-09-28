@@ -138,6 +138,47 @@ def test_strips_a_chained_publisher_decoration():
     assert et.editorial_story_title(title, identity=identity) == "НХА и община обявиха партньорство"
 
 
+# --------------------------------------------------------------------------
+# V1.2-G4.3 — the real feed shape: brand + site tagline
+# --------------------------------------------------------------------------
+
+
+def test_strips_the_real_brand_plus_site_tagline_suffix():
+    """The exact live case: the site tagline made the whole suffix survive.
+
+    The publisher decorates with TWO segments - its brand and its own site
+    tagline - so the conservative rule stopped at the tagline and left the brand
+    in the editorial title. Both are decoration and both are now removed.
+    """
+    title = (
+        "Слаб старт и силен финал: В Слънчев бряг хотелиерите бележат 15% ръст "
+        "в приходите - Черноморски фар - новини от Бургас и региона"
+    )
+    identity = _identity("www.faragency.bg")
+    assert et.editorial_story_title(title, identity=identity) == (
+        "Слаб старт и силен финал: В Слънчев бряг хотелиерите бележат 15% ръст "
+        "в приходите"
+    )
+
+
+def test_a_site_tagline_alone_is_left_exactly_as_collected():
+    """The safety bound: a tagline is only decoration next to a proven brand."""
+    decorated = "Двери се затвориха за ремонт - новини от Бургас и региона"
+    # Proven publisher, but this headline never names it.
+    assert et.editorial_story_title(decorated, identity=_identity("bnr.bg")) == decorated
+    # And with no identity at all, the same title is untouched.
+    assert et.editorial_story_title(decorated, identity=set()) == decorated
+
+
+def test_a_real_clause_tail_is_never_mistaken_for_a_site_tag():
+    """`... от` alone is editorial text; only the fixed noun+preposition is a tag."""
+    for title in (
+        "Страницата взе решение по инициатива от кмера на общината",
+        "Пуснаха линията 12 - 14 след ремонта",
+    ):
+        assert et.editorial_story_title(title, identity=_identity("bnr.bg")) == title
+
+
 def test_discovery_source_does_not_grant_publisher_identity():
     """M4B.1: the feed that carried an item is never the publisher it names."""
     identity = et.publisher_identity(publisher_domain="www.faragency.bg", registry_rows=REGISTRY)
