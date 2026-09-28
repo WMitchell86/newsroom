@@ -129,6 +129,16 @@ function articleBase(): Omit<ArticleDetail, "state" | "content" | "readiness" | 
       text: "Показваме какво е готово по ремонта и какво още трябва да бъде уточнено с община Бургас.",
       confirmedAt: "2026-09-25T09:40:00Z",
     },
+    // V1.2-G4.3 §D: `Автоматично` is the default and the common case.
+    style: {
+      voice: "",
+      label: "Автоматично",
+      options: [
+        { id: "", label: "Автоматично", description: "Стилът се избира от системата." },
+        { id: "VOICE_HOUSE", label: "Глас на сайта (HOUSE)", description: "" },
+        { id: "VOICE_DESISLAVA_RECENT", label: "Глас Десислава (експериментален)", description: "" },
+      ],
+    },
     warnings: [],
     validation: {
       contentVersion: 0,
@@ -229,7 +239,9 @@ export const activeDraftArticle: ArticleDetail = {
     readyEligible: true,
   },
   readiness: { isCurrent: false, readyVersion: null, readyAt: null },
-  availableActions: ["EDIT", "MARK_READY"],
+  // V1.2-G4.3 §D/§E: a real Draft offers the two secondary writing controls,
+  // and the client renders them only because the backend offers them.
+  availableActions: ["EDIT", "MARK_READY", "CHANGE_VOICE", "REWRITE"],
   nextAction: { action: "MARK_READY", reasonCode: "READY_ELIGIBLE", label: "Отбележи като готова", primary: true },
   isFinalized: false,
   finalizedAt: null,

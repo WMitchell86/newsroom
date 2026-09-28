@@ -68,7 +68,7 @@ No confirmation or new action is required.
 
 ### Manual continuation after AI failure
 
-Primary remains `Направи чернова` as the retry action. Secondary fallback is
+Primary remains `Чернова` as the retry action. Secondary fallback is
 the existing `Редактирай`, which lets the editor begin text manually. When real
 text exists:
 
@@ -240,21 +240,22 @@ Scenarios 2, 3, 4, 5, and 7A.
 [Избери фокус / Промени фокуса]
 
 КАКВО ЛИПСВА
-Blocking gap and plain-language reason, or no blocking gap.
+Open questions and plain-language reasons. These WARN the Draft; they do not
+withhold it (V1.2-G4.3).
 
 ФАКТИ И ИЗТОЧНИЦИ
 Relevant facts; detail collapsed.
 
-IF blocking gap:
-[Проучи още] е primary
-[Направи чернова] не е налично
+[Чернова] е primary — винаги, когато има четим материал.
+The system reads the original material and runs a bounded automatic
+enrichment first. Nothing here is a prerequisite the editor must complete.
 
-IF no blocking gap and valid focus:
-[Направи чернова] е primary
+IF the material cannot be read at all:
+[Чернова] не е налично
+[Проучи още] е offered as the explicit deeper-research action
 
 При неуспех на AI:
-Направи чернова remains primary retry.
-[Редактирай] е secondary fallback за ръчно начало на текста.
+Чернова remains primary retry.
 +--------------------------------------------------------------------+
 ```
 
@@ -364,7 +365,8 @@ Scenarios 1 and 6.
 Днес → Article in Готова             Финализирай
 
 Story → Article in Подготовка        Започни статия
-Подготовка → Чернова                 Направи чернова
+Подготовка → Чернова                 Чернова (auto-enriched, warnings allowed)
+Чернова → Чернова (new version)      Пренапиши
 Чернова → Готова                     Отбележи като готова
 Готова → Чернова                     Редактирай
 Готова → Архив                       Финализирай

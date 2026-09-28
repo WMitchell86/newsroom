@@ -1,4 +1,12 @@
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  createIdempotencyKey,
+  rewriteArticle,
+  updateArticleVoice,
+} from "../api/client";
+import { invalidateArticleProjections, queryKeys } from "../api/queries";
+import { getErrorMessage } from "../shared/errorMessage";
 import type { ArticleProjection } from "../api/dto";
 import type { ArticleAutosave } from "./useArticleAutosave";
 import { saveLabel } from "./articleSaveLabel";
@@ -96,5 +104,139 @@ export function DraftFocusBlock({ article }: { article: ArticleProjection }) {
     </div> : <p className={styles.focusSummary}>
       {focus || "Още не е зададен фокус."}
     </p>}
+  </section>;
+}
+
+/**
+ * V1.2-G4.3 §D — the optional Voice control, as progressive disclosure.
+ *
+ * It sits directly under the Focus because that is where an editor thinks about
+ * "what angle is this" and "whose voice is it" - and it is deliberately ONE
+ * line that expands on demand. A permanent Voice dropdown next to every Draft
+ * would be a configuration surface the editor has to read past on every article.
+ *
+ * The three rules it must never break:
+ *   - changing it does NOT create an Article;
+ *   - changing it does NOT rewrite the text on screen;
+ *   - it applies to the NEXT Draft or Rewrite.
+ * The wording below says so, because a control whose effect is invisible is
+ * indistinguishable from a broken one.
+ */
+export function ArticleStyleBlock({ article }: { article: ArticleProjection }) {
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const style = article.style;
+
+  const choose = useMutation({
+    mutationFn: (voice: string) => updateArticleVoice(article.id, voice),
+    onSuccess: async (projection) => {
+      queryClient.setQueryData(queryKeys.article(projection.id), projection);
+      await invalidateArticleProjections(queryClient, projection.id, projection.story.id);
+      setOpen(false);
+    },
+  });
+
+  return <section className={styles.draftFocus} aria-labelledby="article-style">
+    <div className={styles.draftFocusBar}>
+      <h2 className={styles.contextLabel} id="article-style">Стил</h2>
+      <button
+        className={styles.quietAction}
+        type="button"
+        aria-expanded={open}
+        aria-controls="article-style-body"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? "Скрий" : "Промени"}
+      </button>
+    </div>
+    {open ? <div id="article-style-body">
+      <p className={styles.focusSummary}>{style.label}</p>
+      <ul className={styles.preparationList}>
+        {style.options.map((option) => <li key={option.id}>
+          <button
+            className={styles.quietAction}
+            type="button"
+            aria-pressed={option.id === style.voice}
+            disabled={choose.isPending}
+            onClick={() => choose.mutate(option.id)}
+          >
+            {option.label}
+          </button>
+        </li>)}
+      </ul>
+      {choose.isError ? <p className={styles.readyError} role="alert">
+        {getErrorMessage(choose.error, "Стилът не можа да бъде запазен. Опитайте отново.")}
+      </p> : null}
+      <p className={styles.focusSummary}>
+        Промяната се отнася за следващата чернова или пренаписване. Текстът на статията не се променя.
+      </p>
+    </div> : <p className={styles.focusSummary}>{style.label}</p>}
+  </section>;
+}
+
+/**
+ * V1.2-G4.3 §E — `Пренапиши`, the editor's normal way back into the writing.
+ *
+ * The editor reads the draft, says what is wrong in ordinary language, and gets
+ * a new version of the SAME article. There is no wizard, no research step and
+ * no second Article: the comment is the whole instruction.
+ *
+ * §E4 - the comment stays in local state until the operation succeeds, so a
+ * failed rewrite never costs the editor the words they just typed, and a
+ * successful one clears the box because the intent has been carried out.
+ */
+export function RewriteBlock({ article }: { article: ArticleProjection }) {
+  const [comment, setComment] = useState("");
+  const [key, setKey] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const rewrite = useMutation({
+    mutationFn: () => rewriteArticle(article.id, comment, key ?? createIdempotencyKey()),
+    onMutate: () => {
+      // One key per attempt, reused by any retry of that same attempt, so a
+      // double click or a lost response cannot produce two rewrites.
+      setKey(createIdempotencyKey());
+    },
+    onSuccess: async (projection) => {
+      queryClient.setQueryData(queryKeys.article(projection.id), projection);
+      await invalidateArticleProjections(queryClient, projection.id, projection.story.id);
+      setComment("");
+      setKey(null);
+    },
+    onError: () => {
+      // The comment is deliberately NOT cleared: §E4 keeps the editor's words.
+      setKey(null);
+    },
+  });
+
+  return <section className={styles.rewriteBlock} aria-labelledby="article-rewrite">
+    <h2 className={styles.contextLabel} id="article-rewrite">Какво да променя?</h2>
+    <label className={styles.contextLabel} htmlFor="article-rewrite-comment">
+      Коментар за пренаписването
+    </label>
+    <textarea
+      className={styles.rewriteInput}
+      id="article-rewrite-comment"
+      value={comment}
+      rows={3}
+      placeholder="Например: направи текста по-кратък и започни директно с основния факт."
+      onChange={(event) => setComment(event.target.value)}
+    />
+    <div className={styles.rewriteActions}>
+      <button
+        className={styles.quietAction}
+        type="button"
+        disabled={!comment.trim() || rewrite.isPending}
+        onClick={() => rewrite.mutate()}
+      >
+        {rewrite.isPending ? "Пренаписва се…" : "Пренапиши"}
+      </button>
+      {rewrite.isPending ? <p className={styles.readyFeedback} role="status" aria-live="polite">
+        Работи се по текста.
+      </p> : null}
+    </div>
+    {rewrite.isError ? <p className={styles.readyError} role="alert">
+      {getErrorMessage(rewrite.error, "Пренаписването не можа да се извърши. Опитайте отново.")}
+    </p> : null}
   </section>;
 }

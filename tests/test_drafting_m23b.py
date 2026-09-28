@@ -23,7 +23,12 @@ from editor_assistant.drafting.generate import (
     draft_id_for,
     verify_claims_semantic,
 )
-from editor_assistant.drafting.prompt import PROMPT_VERSION, _sanitize_style_rule, build_prompt
+from editor_assistant.drafting.prompt import (
+    PROMPT_VERSION,
+    _sanitize_style_rule,
+    build_prompt,
+    rendered_sections,
+)
 from editor_assistant.style.profiles import validate_profile
 from editor_assistant.style.store import read_jsonl
 
@@ -112,8 +117,16 @@ def test_rendered_prompt_has_no_concrete_institution_attribution():
             }
         ],
     )
-    assert PROMPT_VERSION == "m2.3b-prompt-3" and pt["prompt_version"] == PROMPT_VERSION
+    # The prompt version is a frozen lineage string, not a format check: the
+    # assertion is that the rendered prompt and the constant agree, so a Draft
+    # can always be traced to the prompt that produced it.
+    assert pt["prompt_version"] == PROMPT_VERSION and PROMPT_VERSION.startswith("v1.2-")
     text = pt["text"]
+    # V1.2-G4.3 §B: the editorial instruction is a real section, and a first
+    # Draft carries no editor comment at all.
+    assert "===== EDITORIAL =====" in text
+    assert "===== EDITOR_COMMENT =====" not in text
+    assert pt["sections"] == list(rendered_sections(""))
     assert "ОДМВР" not in text and "пресцентъра на ОД" not in text
     assert "historical_background" in text and "NEVER transfer" in text and "STYLE ONLY" in text
     # M4F F5: the no-copy rule lives in FORBIDDEN, which must survive trimming.

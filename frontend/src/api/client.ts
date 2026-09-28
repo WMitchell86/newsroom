@@ -166,6 +166,17 @@ export function updateArticleFocus(articleId: string, focus: string): Promise<Ar
 }
 
 /**
+ * `Стил` — the optional Voice choice (V1.2-G4.3 §D).
+ *
+ * An empty string is `Автоматично`. It never creates an Article, never rewrites
+ * the current Draft, and never withdraws readiness: it applies to the NEXT
+ * Draft or Rewrite.
+ */
+export function updateArticleVoice(articleId: string, voice: string): Promise<ArticleDetail> {
+  return sendStoryCommand(`/articles/${encodeURIComponent(articleId)}/voice`, "PUT", { voice });
+}
+
+/**
  * «Отбележи като готова». The client sends only the version it observed and the
  * confirmed canonical text; the server revalidates and decides. No warnings, no
  * digest and no override flag are ever sent from the editor.
@@ -239,6 +250,51 @@ export async function makeArticleDraft(articleId: string, idempotencyKey: string
   }
   if (isRecord(value) && "content" in value) return value as unknown as ArticleDetail;
   throw new ApiError(200, "INTERNAL_ERROR", "Черновата не върна актуализирана статия.", true);
+}
+
+/**
+ * `Пренапиши` — a new version of THIS Article from the editor's own comment
+ * (V1.2-G4.3 §E).
+ *
+ * The comment is the entire request. There is no facts payload, no evidence
+ * override and no state transition: the backend reuses the current factual
+ * basis and returns a new content version of the same Article.
+ *
+ * The comment is sent ONLY on an explicit click, and the component keeps it in
+ * local state until the operation succeeds, so a failure leaves the editor's
+ * words on screen for the retry (§E4).
+ */
+export async function rewriteArticle(
+  articleId: string,
+  comment: string,
+  idempotencyKey: string,
+): Promise<ArticleDetail> {
+  const value = await sendStoryCommand<unknown>(
+    `/articles/${encodeURIComponent(articleId)}/rewrite`,
+    "POST",
+    { comment },
+    { "Idempotency-Key": idempotencyKey },
+  );
+  if (isRecord(value) && typeof value.operationToken === "string") {
+    // The same long-operation policy as a first Draft: a rewrite is a real
+    // generation, and an exhausted budget is a statement about the wait, never a
+    // claim that the rewrite failed.
+    const article = await pollOperationFor<ArticleDetail>(value.operationToken, {
+      budget: DRAFT_POLL_BUDGET,
+      malformed: "Пренаписването не можа да се извърши. Опитайте отново.",
+      succeededWithoutResult: "Операцията не върна пренаписан текст.",
+      exhausted: "Пренаписването все още тече. Опитайте отново след малко.",
+      extract: operationArticle,
+    });
+    return article as ArticleDetail;
+  }
+  if (isRecord(value) && "content" in value) return value as unknown as ArticleDetail;
+  throw new ApiError(
+    200,
+    "INTERNAL_ERROR",
+    "Пренаписването не върна актуализирана статия.",
+    true,
+  );
 }
 
 /**

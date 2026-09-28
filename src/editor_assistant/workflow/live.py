@@ -220,6 +220,9 @@ def live_generate_draft(
     timeout=240,
     force_draft=False,
     editor_override_reason=None,
+    title="",
+    focus="",
+    editor_comment="",
 ):
     """Fresh grounded draft via the proven M2.3B path.
 
@@ -320,6 +323,16 @@ def live_generate_draft(
         mode_profile=mode_profile,
         style_examples=examples,
         task_extra=readiness_mod.hook_task_extra(hook),
+        # V1.2-G4.3 §B/D: the editorial instruction reaches the writer here, at
+        # the single place every generation path already passes through - so
+        # `Направи чернова` and `Пренапиши` cannot diverge in what they tell the
+        # model about the article they are producing.
+        title=title,
+        focus=focus,
+        # The profile id is internal (`VOICE_HOUSE`); the editor sees a label,
+        # so the label is what travels into the prompt.
+        voice_label=voice_profile.get("display_name", ""),
+        editor_comment=editor_comment,
     )
     raw, generation_meta = gen.call_model(
         prompt_spec["text"],

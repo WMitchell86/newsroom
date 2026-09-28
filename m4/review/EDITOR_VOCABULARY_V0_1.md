@@ -37,7 +37,7 @@ The editor action vocabulary is:
 
 ```text
 Прегледай → Следи → Игнорирай → Проучи още → Започни статия
-→ Избери фокус / Промени фокуса → Направи чернова → Редактирай
+→ Промени фокуса → Чернова → Промени стил → Пренапиши
 → Отбележи като готова → Финализирай
 ```
 
@@ -45,13 +45,38 @@ The important distinctions are:
 
 ```text
 Започни статия         = the editor decides to produce an article from a story
-Направи чернова        = a draft is created for that article
+Чернова                = a draft is created for that article, with automatic
+                         bounded gathering of useful material first
+Промени стил           = the editor picks the optional voice for the NEXT
+                         draft or rewrite; it changes no existing text
+Пренапиши              = a new working version of THIS draft is generated from
+                         the editor's own comment
 Отбележи като готова   = the editor declares the draft ready for finalization
 Финализирай            = the article becomes a Финализирана статия
 ```
 
 `Отбележи като готова` is a deliberate editorial checkpoint. It does not
 finalize the Article and does not publish it.
+
+### `Пренапиши` (V1.2-G4.3)
+
+```text
+Пренапиши = generate a new working version of the current Draft
+using the editor's comment and current Article/source/style context.
+```
+
+It is NOT:
+
+- a new Article — the same Article, the same Story, the same Focus;
+- a new state — `Чернова` remains `Чернова`;
+- finalization — the readiness checkpoint is withdrawn exactly as any content
+  change withdraws it;
+- Research — the factual basis is reused unchanged; a deeper research pass stays
+  the separate `Проучи още` action.
+
+Every successful `Пренапиши` creates a recoverable content version, so the
+previous text is never overwritten and never lost. A failed `Пренапиши` keeps
+the current text and the editor's comment, and offers a retry.
 
 ## Invariants
 
@@ -72,6 +97,50 @@ require a separately reviewed and approved implementation step.
 
 The owner-approved Step 2 Information Architecture is frozen in
 `m4/review/INFORMATION_ARCHITECTURE_V0_1.md` and uses:
+
+## The canonical writing loop (V1.2-G4.3)
+
+This is the workflow the specifications must agree with:
+
+```text
+Story
+→ editor chooses Чернова
+→ system automatically reads the original material
+→ bounded optional enrichment
+→ automatic/default Focus
+→ style retrieval
+→ Draft
+→ editor edit OR feedback + Пренапиши
+→ optional deeper Проучи още
+→ Отбележи като готова
+→ Финализирай
+```
+
+`Проучи още` remains an explicit deeper-research action. It is **not** a
+prerequisite for a Draft, and it is not a workflow step the editor must pass
+through to write.
+
+`Draft = work in progress`. `Готова = a stronger editorial verification
+boundary`. Open questions and incomplete corroboration normally warn a Draft and
+may block `Готова`. Warnings never create an Article state.
+
+## Focus and voice
+
+`Редакционен фокус` is editorial guidance, not a permission gate. Every Draft
+has a deterministic default Focus; it is always editable; there is no
+confirmation step and no generic alternative chips.
+
+The voice (`Стил`) is a secondary, optional editorial control. It is never a
+workflow step, its default is `Автоматично`, and it affects the next Draft or
+`Пренапиши` only.
+
+## Editorial learning (V1.2-G4.3 §G)
+
+Every `Пренапиши` request is recorded as compact feedback. Detected patterns
+become **proposals** only. No proposal becomes an active instruction without an
+explicit human approval. The model never rewrites its own system instructions.
+
+---
 
 ```text
 Днес / Истории / Статии / Архив / Настройки

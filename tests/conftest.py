@@ -101,3 +101,23 @@ def _isolated_model_state(tmp_path, monkeypatch) -> Iterator[None]:
     monkeypatch.setenv("MODEL_HEALTH_PATH", str(tmp_path / "model_health.json"))
     monkeypatch.setenv("MODEL_POLICY_PATH", str(tmp_path / "model_policy.json"))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_automatic_draft_enrichment(monkeypatch) -> Iterator[None]:
+    """Keep the V1.2-G4.3 automatic draft enrichment out of every test by default.
+
+    `Чернова` now runs a bounded enrichment round internally, which reaches the
+    real search provider. Without this, every test that presses `Чернова` would
+    make a live network call - which breaks the harness rule that tests never
+    touch the network, and turns a 0.4 s test into an 87 s one waiting on a
+    provider that is not part of what is being tested.
+
+    The switch is OFF in tests and ON in production, so the production path is
+    the default and the tests are the exception - never the other way round.
+    `tests/test_natural_draft_loop.py` opts back IN and controls the search
+    transport explicitly, which is where the enrichment contract is actually
+    asserted.
+    """
+    monkeypatch.setenv("NEWSROOM_DRAFT_ENRICHMENT", "off")
+    yield

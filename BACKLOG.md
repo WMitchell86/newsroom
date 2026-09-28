@@ -37,6 +37,31 @@ out of time:
 - [ ] G5 `+ Нова тема` (manual topic creation) — **not started**, pending the
       owner's manual test of the simplified flow (2–3 real Drafts in a row)
 
+## V1.2-G4.3 — shipped in this slice (owner-approved, now historical)
+
+- [x] **Automatic bounded enrichment on `Чернова`** — the Draft command now
+      gathers useful material itself. Opportunistic by contract: no enrichment
+      never withholds a Draft.
+- [x] **`Пренапиши` (rewrite from an editor comment)** — same Article, new
+      content version, previous text recoverable.
+- [x] **Optional voice (`Стил`)** — progressive disclosure, default automatic.
+- [x] **Focus simplification** — one deterministic default, editable, no
+      confirmation gate, no generic alternative chips.
+- [x] **Controlled editorial learning** — feedback capture, threshold-gated
+      pattern proposals, human approval. The model never rewrites its own
+      instructions.
+
+## Still deferred after V1.2-G4.3 (owner-confirmed)
+
+- [ ] Automatic scheduling of the feedback analyzer. The threshold, the
+      proposals and the approval step all exist; only a cron trigger is missing,
+      and at prototype scale `newsroom feedback analyze` is sufficient.
+- [ ] A Settings UI for approving a proposal. CLI approval is deliberate for
+      this slice; a UI would broaden scope without changing the contract.
+- [ ] Model-backed Focus proposals. The current deterministic Focus is
+      Story-specific; alternatives stay empty until they can be genuinely
+      different per Story (§C3).
+
 ## Explicitly NOT for V1 (spec §12)
 LoRA/fine-tuning, generic NER platform, large gazetteer, CRM, pgvector-by-default,
 enterprise social listening, autonomous hard-news writing, closed-FB-group scraping,

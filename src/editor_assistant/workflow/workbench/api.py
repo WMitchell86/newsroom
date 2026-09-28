@@ -330,6 +330,25 @@ def _content(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     )
 
 
+def _voice(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
+    """`Стил` — the optional Voice choice (§D). Empty string = automatic."""
+    body = _body(handler, {"voice"})
+    return app.update_voice(article_id, _string(body["voice"], "voice", maximum=64, required=False))
+
+
+def _rewrite(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
+    """`Пренапиши` — the editor's comment is the whole request body."""
+    body = _body(handler, {"comment"})
+    key = handler.headers.get("Idempotency-Key", "").strip()
+    if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+        raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+    return 202, {
+        "operationToken": app.start_article_rewrite(
+            article_id, _string(body["comment"], "comment", maximum=4000), idempotency_key=key
+        )["operationToken"]
+    }
+
+
 def _ready(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     """`Отбележи като готова` — the client sends only the version it observed."""
     body = _body(handler, {"expectedVersion"})
@@ -453,6 +472,13 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             }
         if method == "PUT" and len(parts) == 5 and parts[4] == "focus":
             return 200, _focus(handler, article_id)
+        if method == "PUT" and len(parts) == 5 and parts[4] == "voice":
+            # §D: the optional Voice choice. Progressive disclosure in the UI,
+            # one authoritative write here.
+            return 200, _voice(handler, article_id)
+        if method == "POST" and len(parts) == 5 and parts[4] == "rewrite":
+            # §E: `Пренапиши`. The editor's own words are the entire request.
+            return _rewrite(handler, article_id)
         if method == "PUT" and len(parts) == 5 and parts[4] == "title":
             return 200, _title(handler, article_id)
         if method == "PUT" and len(parts) == 5 and parts[4] == "content":

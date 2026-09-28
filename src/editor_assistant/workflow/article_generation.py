@@ -245,8 +245,12 @@ def evaluate(snapshot: dict) -> None:
 
 
 
-def _draft_material_basis(snapshot: dict) -> dict:
-    """What THIS generated Draft was written from, in editor-safe terms.
+def material_basis(snapshot: dict) -> dict:
+    """What a generated text was written from, in editor-safe terms.
+
+    Public since V1.2-G4.3 §E: a rewrite is a *generation* too and must record
+    the same material basis, so this is the one function both the first Draft
+    and every rewrite call rather than each re-deriving the summary.
 
     V1.2-G4.2 §16. Recorded with the text so the warnings the editor sees
     afterwards describe the real material. Derived from the SAME snapshot the
@@ -501,7 +505,7 @@ def generate(snapshot: dict, *, root=None, now=None) -> dict:
         title=snapshot["content"]["title"],
         body=body,
         internal_refs=internal_refs,
-        draft_material_basis=_draft_material_basis(snapshot),
+        draft_material_basis=material_basis(snapshot),
         now=now,
         root=editorial,
     )

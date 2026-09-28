@@ -246,14 +246,22 @@ def test_bnrnews_is_not_silently_authoritative():
 
 
 def test_focus_alternatives_are_derived_deterministically_without_a_model():
-    """§13/§D4: three variants CAN be produced deterministically, so no model."""
+    """V1.2-G4.3 §C3: there are no alternatives, and the default is deterministic.
+
+    The old §13/§D4 assertion was that three variants CAN be produced without a
+    model. That capability is deliberately no longer used: the variants were
+    templates rather than real choices, so the honest contract is now "no
+    alternatives at all, and the one default Focus is deterministic". Both
+    halves are asserted, because determinism is the property that actually
+    matters - it is what makes Draft eligibility independent of a model call.
+    """
     from editor_assistant.workflow import focus_suggestions
 
     title = "Майка и дете пострадаха при катастрофа на пътя Бургас-Созопол"
     first = focus_suggestions.alternatives(title, facts=["f"])
     second = focus_suggestions.alternatives(title, facts=["f"])
-    assert first == second
-    assert 2 <= len(first) <= 3
+    assert first == second == ()
     assert focus_suggestions.primary_focus(title, facts=["f"]) == (
         focus_suggestions.primary_focus(title, facts=["f"])
     )
+    assert focus_suggestions.primary_focus(title, facts=["f"]).strip()

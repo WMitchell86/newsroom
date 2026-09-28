@@ -461,7 +461,16 @@ def test_ready_eligibility_comes_from_the_backend_and_not_from_a_warning_count(n
         "blocking": False,
         "readyEligible": True,
     }
-    assert draft["availableActions"] == ["CHANGE_FOCUS", "EDIT", "MARK_READY"]
+    # V1.2-G4.3 §D/§E: a Draft with text also carries the two secondary writing
+    # controls. `nextAction` is still `MARK_READY` - neither new control is ever
+    # promoted to the next action, which is what this test actually protects.
+    assert draft["availableActions"] == [
+        "CHANGE_FOCUS",
+        "EDIT",
+        "CHANGE_VOICE",
+        "REWRITE",
+        "MARK_READY",
+    ]
     assert draft["nextAction"]["action"] == "MARK_READY"
 
 

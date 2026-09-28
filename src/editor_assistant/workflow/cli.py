@@ -975,6 +975,9 @@ def cmd_newsroom(args):
     if args.action == "models":
         _run_newsroom_models(args)
         return
+    if args.action == "feedback":
+        _run_newsroom_feedback(args)
+        return
     raise SystemExit(f"unknown newsroom action: {args.action}")
 
 
@@ -1172,6 +1175,88 @@ def _apply_models_set(args):
     print("Проверете с: newsroom models validate и newsroom models status")
 
 
+def _run_newsroom_feedback(args):
+    """V1.2-G4.3 §G - the CONTROLLED editorial learning loop, from the CLI.
+
+    Four actions, and the separation between them is the whole point:
+
+    ```text
+    status    how many unprocessed records, and is the threshold reached
+    analyze   PROPOSALS only - never an active instruction
+    approve   a HUMAN decision that makes one proposal real
+    reject    a HUMAN decision that retires one proposal for good
+    instructions  what is active right now, and on what evidence
+    ```
+
+    `analyze` cannot change the product. Only `approve` can, and only because a
+    person ran it. That is the whole answer to "may the model rewrite its own
+    prompt" - it may not.
+    """
+    import json
+
+    from editor_assistant.workflow import rewrite_feedback
+
+    action = args.feedback_action
+    if action == "status":
+        pending = rewrite_feedback.unprocessed()
+        print(f"необработени записи: {len(pending)}")
+        print(f"праг: {rewrite_feedback.threshold()}")
+        print(
+            "анализът е възможен" if rewrite_feedback.is_eligible() else "анализът още не е необходим"
+        )
+        return
+    if action == "analyze":
+        pending = rewrite_feedback.unprocessed()
+        if not rewrite_feedback.is_eligible():
+            print(
+                f"{len(pending)} / {rewrite_feedback.threshold()} — анализът още не е необходим."
+            )
+            return
+        proposals = rewrite_feedback.analyze()
+        if getattr(args, "json", False):
+            print(json.dumps(proposals, ensure_ascii=False, indent=2))
+            return
+        if not proposals:
+            print(f"{len(pending)} записа — не е открит повтарящ се модел.")
+            return
+        for row in proposals:
+            status = "ПРОТИВОРЕЧИЕ" if row["status"] == "conflict" else "ПРЕДЛОЖЕНИЕ"
+            print(f"[{status}] {row['label']} ({row['pattern_id']})")
+            print(f"  подкрепа: {row['support']} / {row['total']}")
+            print(f"  къде се прилага: {row['target']}")
+            print(f"  предложение: {row['suggested_instruction']}")
+            for example in row["examples"]:
+                print(f'  · „{example}"')
+            print()
+        print("Нищо не е променено. Одобрете с: newsroom feedback approve <pattern_id>")
+        return
+    if action in {"approve", "reject"}:
+        proposals = {row["pattern_id"]: row for row in rewrite_feedback.analyze()}
+        target = proposals.get(args.pattern_id)
+        if target is None:
+            # Re-analyzing with no stored proposals must not let a typo invent an
+            # instruction: only a pattern the analyzer actually found is decidable.
+            print(f"Няма предложение с име {args.pattern_id}. Стартирайте: feedback analyze")
+            raise SystemExit(1)
+        entry = rewrite_feedback.apply_approval(target, approved=action == "approve")
+        word = "одобрено" if action == "approve" else "отхвърлено"
+        print(f"{word}: {entry['instruction']}")
+        print(f"  подкрепа: {entry['support']} записа; feedback ids: {len(entry['feedback_ids'])}")
+        return
+    if action == "instructions":
+        rows = rewrite_feedback.approved_instructions()
+        if getattr(args, "json", False):
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+            return
+        if not rows:
+            print("Няма одобрени редакционни инструкции.")
+            return
+        for row in rows:
+            print(f"· {row['instruction']}  [{row['target']}, подкрепа {row['support']}]")
+        return
+    raise SystemExit(f"unknown feedback action: {action}")
+
+
 def _run_newsroom_stories(args):
     """M4C: incremental story assignment (or an explicit full rebuild)."""
     from editor_assistant.workflow import story_identity
@@ -1327,6 +1412,34 @@ def _add_newsroom_subcommands(sub):
     m_set.add_argument("--soft-calls", type=int, default=None, help="soft calls/day for --role")
     m_set.add_argument("--hard-calls", type=int, default=None, help="hard calls/day for --role")
     m_set.add_argument("--reset", action="store_true", help="delete the operator override")
+
+    # V1.2-G4.3 §G: the controlled editorial learning loop. `analyze` only ever
+    # PROPOSES; `approve` is the single human-gated step that makes a proposal
+    # real, which is why a Settings UI is not required for this slice.
+    feedback = actions.add_parser(
+        "feedback", help="rewrite feedback: status, analyze, approve/reject, instructions"
+    )
+    feedback_actions = feedback.add_subparsers(dest="feedback_action", required=True)
+    feedback_actions.add_parser(
+        "status", help="how many unprocessed rewrite records, and the threshold"
+    )
+    fb_analyze = feedback_actions.add_parser(
+        "analyze", help="propose recurring patterns (proposes only; changes nothing)"
+    )
+    fb_analyze.add_argument("--json", action="store_true", help="machine-readable output")
+    fb_approve = feedback_actions.add_parser(
+        "approve", help="approve one proposed instruction (the only way one becomes active)"
+    )
+    fb_approve.add_argument("pattern_id", help="the pattern id printed by `feedback analyze`")
+    fb_reject = feedback_actions.add_parser(
+        "reject", help="reject one proposed instruction; it is never proposed again"
+    )
+    fb_reject.add_argument("pattern_id", help="the pattern id printed by `feedback analyze`")
+    fb_instructions = feedback_actions.add_parser(
+        "instructions", help="the currently active, human-approved instructions"
+    )
+    fb_instructions.add_argument("--json", action="store_true", help="machine-readable output")
+
     p.set_defaults(func=cmd_newsroom)
 
 

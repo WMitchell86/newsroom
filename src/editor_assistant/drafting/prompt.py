@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import re
 
-PROMPT_VERSION = "m2.3b-prompt-3"
+PROMPT_VERSION = "v1.2-g4.3-prompt-1"
 SECTIONS = (
     "SYSTEM",
     "CURRENT_EVIDENCE",
     "CURRENT_QUOTES",
     "CURRENT_UNKNOWNS",
+    "EDITORIAL",
+    "EDITOR_COMMENT",
     "SITE_DNA",
     "VOICE_PROFILE",
     "MODE_PROFILE",
@@ -17,6 +19,24 @@ SECTIONS = (
     "TASK",
     "FORBIDDEN",
 )
+
+#: `EDITOR_COMMENT` is the only conditional section. It exists solely for
+#: `Пренапиши`: on the FIRST Draft there is no editor comment and the section is
+#: omitted entirely rather than rendered empty, so a first Draft and a rewrite
+#: can never be mistaken for one another. The two remaining editorial inputs -
+#: the working title and the Focus - are ordinary sections and always present.
+_OPTIONAL_SECTIONS = frozenset({"EDITOR_COMMENT"})
+
+
+def rendered_sections(editor_comment: str = "") -> tuple[str, ...]:
+    """The sections this prompt actually renders, in order.
+
+    Kept as the single source of truth so the rendered text and any assertion
+    about it cannot disagree about whether the comment section is present.
+    """
+    if not str(editor_comment or "").strip():
+        return tuple(name for name in SECTIONS if name not in _OPTIONAL_SECTIONS)
+    return SECTIONS
 
 
 # Concrete institutional-attribution formulas found in style-rule examples. They are
@@ -75,7 +95,33 @@ def _example_text(record):
     )
 
 
-def build_prompt(packet, *, site_dna, voice_profile, mode_profile, style_examples, task_extra=""):
+def build_prompt(
+    packet,
+    *,
+    site_dna,
+    voice_profile,
+    mode_profile,
+    style_examples,
+    task_extra="",
+    title="",
+    focus="",
+    voice_label="",
+    editor_comment="",
+):
+    """The one sectioned draft prompt.
+
+    **V1.2-G4.3 §B — the editorial context now reaches the writer.** Before
+    this slice the model saw the material and the style and nothing about what
+    the newsroom actually wants, so a good Focus and a good article were two
+    unrelated things. `title` and `focus` are therefore ordinary prompt inputs,
+    and `editor_comment` is the `Пренапиши` instruction.
+
+    The ordering matters and is unchanged in spirit: MATERIAL first, then the
+    editorial instruction, then STYLE. Archive examples remain STYLE ONLY and
+    can never become a current fact, and the editor comment is an editorial
+    instruction that yields to factual safety - it may change how the article is
+    written, never what it is allowed to claim.
+    """
     mode_id = mode_profile.get("profile_id", "")
     facts = "\n".join(
         f"- [{f['id']}] ({f.get('scope', 'current_event')}) {f['text']}"
@@ -123,6 +169,30 @@ def build_prompt(packet, *, site_dna, voice_profile, mode_profile, style_example
         f"Each fact is tagged (current_event) or (historical_background).\nFacts:\n{facts}",
         "CURRENT_QUOTES": quotes,
         "CURRENT_UNKNOWNS": unknowns,
+        # V1.2-G4.3 §B/C/D — the editorial instruction. The Focus is guidance,
+        # not a fact source, and the wording says so: it may shape what the
+        # article emphasises but can never license a claim CURRENT EVIDENCE
+        # does not carry. The Voice is named in editor language only, because
+        # the profile itself is already a whole section below.
+        "EDITORIAL": "\n".join(
+            [
+                f"Working title: {str(title or '').strip() or '(none)'}",
+                f"Editorial focus: {str(focus or '').strip() or '(none)'}",
+                f"Chosen voice: {str(voice_label or '').strip() or '(automatic)'}",
+                "The focus is the newsroom's editorial guidance for THIS article.",
+                "Use it to decide emphasis, structure and what to leave out.",
+                "It is NOT a source: never add a fact because the focus implies it.",
+            ]
+        ),
+        # Only rendered for `Пренапиши` - see `rendered_sections`.
+        "EDITOR_COMMENT": (
+            "The editor is asking for a REWRITE of an existing draft. Their exact words:\n"
+            f"<<{str(editor_comment or '').strip()}>>\n"
+            "Treat this as the instruction that governs the rewrite. It has editorial "
+            "priority over the style defaults in this prompt wherever the two do not "
+            "conflict with factual safety: obey it, but never to add, remove or alter a "
+            "fact. Rewrite from CURRENT EVIDENCE, not from memory of the old text."
+        ),
         "SITE_DNA": dna,
         "VOICE_PROFILE": _profile_text(voice_profile),
         "MODE_PROFILE": _profile_text(mode_profile) + mode_guidance,
@@ -149,5 +219,8 @@ def build_prompt(packet, *, site_dna, voice_profile, mode_profile, style_example
             "- anything not supported by CURRENT EVIDENCE (omit unknowns)"
         ),
     }
-    text = "\n\n".join(f"===== {name} =====\n{sections[name]}" for name in SECTIONS)
-    return {"prompt_version": PROMPT_VERSION, "sections": list(SECTIONS), "text": text}
+    # The rendered set, not SECTIONS: a first Draft has no comment and must not
+    # show an empty one, so the text and the reported section list always agree.
+    names = rendered_sections(editor_comment)
+    text = "\n\n".join(f"===== {name} =====\n{sections[name]}" for name in names)
+    return {"prompt_version": PROMPT_VERSION, "sections": list(names), "text": text}

@@ -482,9 +482,20 @@ Finalized Articles use a read-only model with `finalizedAt`, final title/body, S
 
 The backend remains authoritative for unconfirmed focus, blocking gaps, Article state before ready/finalize, safety warnings, stale versions, allowed Story corrections, and `Готова → Чернова` when editing reopens the Article.
 
-A proposed AI focus is displayable but does not satisfy the Draft prerequisite. `Избери фокус / Промени фокуса` atomically stores the selected text and `focus_confirmed_at`; a later confirmed change replaces both focus and confirmation timestamp. This adds no state or editor action.
+**V1.2-G4.3 — Focus is guidance, not a permission gate.** Every Draft has a
+deterministic default Focus, so `FOCUS_NOT_CONFIRMED` is no longer a Draft
+refusal. `Промени фокуса` atomically stores the selected text and
+`focus_confirmed_at`; a later change replaces both focus and confirmation
+timestamp. This adds no state or editor action, and no confirmation step.
 
-Every command re-evaluates policy and returns `INVALID_TRANSITION`, `BLOCKING_GAP`, `SAFETY_BLOCKED`, or `ARTICLE_VERSION_CONFLICT` for stale client action.
+The optional voice (`Стил`) is likewise not a gate: it defaults to automatic, is
+validated against the canonical frozen voice list, persists on the Article, and
+affects the next Draft or Rewrite only.
+
+Every command re-evaluates policy and returns `INVALID_TRANSITION`,
+`SAFETY_BLOCKED`, or `ARTICLE_VERSION_CONFLICT` for stale client action.
+`BLOCKING_GAP` survives only for the generation pipeline's own unassessable
+material, never for an unresolved Story-level question.
 
 ## 12. Article-state mapping
 
@@ -648,12 +659,21 @@ No results, unavailable providers, blocked access, or invalid output must not re
 
 It must:
 
-- re-evaluate focus and blocking gaps;
-- fail with `BLOCKING_GAP` without generation when readiness fails;
+- re-evaluate whether readable, source-backed material exists;
+- **V1.2-G4.3: an open question or an incomplete corroboration WARN the Draft,
+  it does not refuse it.** `BLOCKING_GAP` no longer withholds a generation;
+  only a genuine absence of readable material does;
+- **V1.2-G4.3: run one bounded automatic enrichment round before generating**,
+  using the existing search / safe-open / extraction / publisher-identity /
+  authority / provenance services. It is opportunistic: if it finds nothing, or
+  the provider is unavailable, the Draft proceeds from the original material
+  with a warning;
 - preserve Article/focus on provider failure;
 - create no fabricated/empty Draft;
 - project `Чернова` only when real text exists;
 - return Article detail with warnings and next action.
+
+The frontend still performs ONE Draft action; the enrichment is internal.
 
 The frontend never calls separate idea/evidence/prepared/case operations.
 
@@ -865,7 +885,9 @@ Risk scale: Low / Medium / High.
 | Missing Information | Partial readiness | Blocking assessment | Inline section | Medium | Blocking gap blocks Draft; non-blocking stays visible. |
 | Research More | Primitives, no executor | Story orchestration/operation | Inline load/error | High | Same-Story update; failure preserves gaps; no Research state. |
 | Start Article | Lineage-losing bridge | Article command/store | Story→Article | High | Immediate `Подготовка` with Story/title/focus. |
-| Editorial Focus | Internal suggestion | Canonical field/projection | Simple editor | Medium | 1–3 sentences; no angle/mode/voice quartet. |
+| Editorial Focus | Internal suggestion | Canonical field/projection | Simple editor | Medium | 1–3 sentences; no angle/mode/voice quartet. V1.2-G4.3: default, editable, never a gate, no generic alternatives. |
+| Style (voice) | Internal profile | Optional Article field | Progressive disclosure | Low | V1.2-G4.3: secondary optional control, default automatic, never a workflow step. |
+| Rewrite (`Пренапиши`) | Editor comment | New content version of the same Article | Comment field + one action | Medium | V1.2-G4.3: not a new Article, state, finalization or Research. |
 | Draft readiness | Internal readiness | Server re-evaluation | Primary action | High | Invalid focus/blocking gap prevents generation. |
 | Draft generation | Strong path | One orchestration command | Preparing state | High | One editor call; real text → `Чернова`; no fabricated Draft. |
 | Manual continuation | Missing | Content command in preparation | `Редактирай` | High | Manual text transitions `Подготовка → Чернова`. |

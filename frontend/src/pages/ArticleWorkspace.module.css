@@ -767,3 +767,35 @@
   border-left: 3px solid var(--color-border);
   background: var(--color-evidence);
 }
+
+/* V1.2-G4.3 §E — `Пренапиши`. The editor's own words are the input, so the
+   block is a labelled field plus one action. It sits under the text, not above
+   it: the editor reads what they got, then says what is wrong. */
+.rewriteBlock {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  max-width: 720px;
+}
+
+.rewriteInput {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 25px;
+  resize: vertical;
+}
+
+.rewriteActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}

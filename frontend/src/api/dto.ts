@@ -11,6 +11,11 @@ export type AvailableAction =
   | "EDIT"
   | "MARK_READY"
   | "FINALIZE"
+  // V1.2-G4.3 §D/§E: the two secondary writing controls, offered on a real Draft
+  // and never as a next action. `REWRITE` is `Пренапиши`; `CHANGE_VOICE` is the
+  // optional `Стил` choice. Neither is a state.
+  | "REWRITE"
+  | "CHANGE_VOICE"
   // V1.1-D2: the one Today fast-triage command. It exists only on a Today
   // Story row; the Story and Article workspaces keep their explicit actions.
   | "QUICK_DRAFT";
@@ -264,12 +269,27 @@ export interface PreparationProjection {
   availableActions: AvailableAction[];
 }
 
+/**
+ * V1.2-G4.3 §D — the optional Voice control, as the backend sends it.
+ *
+ * `voice` is `""` for `Автоматично`, which is the default and the common case.
+ * `options` is the complete set the editor may choose from and comes from the
+ * same canonical list the style system consumes, so the UI can never offer a
+ * voice the writer could not honour.
+ */
+export interface ArticleStyle {
+  voice: string;
+  label: string;
+  options: { id: string; label: string; description: string }[];
+}
+
 export interface ArticleProjection {
   id: string;
   title: string;
   story: ArticleReference;
   state: ArticleState | null;
   editorialFocus: EditorialFocus;
+  style: ArticleStyle;
   content: ArticleContent;
   preparation: PreparationProjection | null;
   readiness: {

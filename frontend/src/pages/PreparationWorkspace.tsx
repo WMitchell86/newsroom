@@ -39,7 +39,6 @@ export function PreparationWorkspace({
   const [focusError, setFocusError] = useState("");
   // §D2: the backend's deterministic alternatives, served with the projection.
   // The page never derives them and never invents one.
-  const focusAlternatives = article.preparation?.focusAlternatives ?? [];
   const focusFieldRef = useRef<HTMLTextAreaElement>(null);
   const [draftError, setDraftError] = useState("");
   const [draftRetryable, setDraftRetryable] = useState(false);
@@ -272,42 +271,14 @@ export function PreparationWorkspace({
             <span className={styles.pending} role="status" aria-live="polite">Фокусът се запазва.</span>
           ) : null}
           {focusError ? <p className={styles.fieldError} id="article-editorial-focus-error" role="alert">{focusError}</p> : null}
-          {/* §D2: quiet alternatives. Clicking one REPLACES the text and saves it
-              through the same canonical Focus save an edit uses — no Apply, no
-              Confirm, no modal, and no state of its own. §D3: the textarea above
-              stays editable at all times, and «Напиши свой» only focuses it. */}
-          {focusAlternatives.length ? (
-            <div className={styles.focusAlternatives}>
-              <p className={styles.contextLabel} id="article-focus-alternatives-label">Друг подход:</p>
-              <ul aria-labelledby="article-focus-alternatives-label" className={styles.preparationList}>
-                {focusAlternatives.map((option: string) => (
-                  <li key={option}>
-                    <button
-                      type="button"
-                      className={styles.focusAlternative}
-                      // §34: a stable hook for the browser proof. The CSS-module
-                      // class is hashed in a production build, so a class-based
-                      // locator cannot be used outside the dev server.
-                      data-focus-alternative={option}
-                      onClick={() => adoptFocus(option)}
-                    >
-                      {option}
-                    </button>
-                  </li>
-                ))}
-                <li>
-                  <button
-                    type="button"
-                    className={styles.focusAlternative}
-                    data-focus-own="true"
-                    onClick={() => { setFocusError(""); focusFieldRef.current?.focus(); }}
-                  >
-                    Напиши свой
-                  </button>
-                </li>
-              </ul>
-            </div>
-          ) : null}
+          {/* V1.2-G4.3 §C3: no Focus alternatives are offered.
+              §D2 produced two or three deterministic variants, but a real review
+              showed they were templates that could sit on any story in the desk -
+              a choice the editor had to evaluate without it ever being a real
+              editorial decision. The field above stays fully editable, and that
+              is now the whole interaction. The backend still sends the field
+              (as an empty list), so removing the UI is a pure simplification and
+              not a contract change. */}
         </section> : <section className={styles.preparationSection} aria-labelledby="article-focus-readonly">
           <h2 className={styles.contextLabel} id="article-focus-readonly">Редакционен фокус</h2>
           <p className={styles.focusText}>{focus}</p>

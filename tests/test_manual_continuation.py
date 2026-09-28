@@ -229,6 +229,26 @@ def test_a_fresh_eligible_preparation_article_offers_no_manual_continuation(elig
     assert articles.get_editor_article(article_id)["draft_generation_failure"] is None
 
 
+def _make_publication_unreadable(story_id: str) -> None:
+    """Point the Story's Publications at a URL that is not worth a bounded read.
+
+    V1.2-G4.3 §A: an unassessed Story is DRAFT_ELIGIBLE whenever its own
+    publication could be read, because the command reads it on the way to the
+    Draft. To reach the `STORY_UNASSESSED` refusal at all, the fixture has to
+    have nothing readable — so this replaces the member URL with a social
+    wrapper, which `publication_material.is_readable_publication` refuses for
+    exactly the reason a wrapper is never evidence.
+    """
+    # The application's own resolver, so this can only ever touch the fixture's
+    # store and never the real `var/newsroom`.
+    path = app._paths()["inbox"]
+    items = inbox_store.read_items(path)
+    for row in items:
+        if row.get("source_item_id") == "origin" or "vestnik" in str(row.get("url") or ""):
+            row["url"] = "https://www.facebook.com/somepage/posts/1"
+    inbox_store.save_items(items, path)
+
+
 def _degrade_to(reason: str, article_id: str) -> None:
     """Put the canonical Story basis into one specific ineligible state.
 
@@ -252,6 +272,13 @@ def _degrade_to(reason: str, article_id: str) -> None:
             payload = json.loads(store.read_text(encoding="utf-8"))
             payload["stories"] = [row for row in payload["stories"] if row["story_id"] != "s-one"]
             store.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        # V1.2-G4.3 §A: an unassessed Story is still DRAFT_ELIGIBLE when its own
+        # publication is worth one bounded read - that is the whole point of
+        # gathering the material on the way to the Draft. So this refusal is
+        # only reachable when there is nothing to read either, and the fixture
+        # is arranged to be exactly that. Without this the test would be
+        # asserting a refusal the product has deliberately stopped making.
+        _make_publication_unreadable("s-one")
         return
     if reason == "NO_DRAFT_MATERIAL":
         # V1.2-G4.1 §B6: assessed, but there is genuinely nothing to write from.
@@ -278,7 +305,13 @@ def _degrade_to(reason: str, article_id: str) -> None:
     [
         "STORY_UNASSESSED",
         "NO_DRAFT_MATERIAL",
-        "FOCUS_NOT_CONFIRMED",
+        # V1.2-G4.3 §C: `FOCUS_NOT_CONFIRMED` is deliberately GONE. Focus is
+        # editorial guidance, not a permission gate — the command writes the
+        # deterministic default and drafts. Listing it here would assert a
+        # refusal the product has deliberately stopped making, so the case is
+        # removed rather than the behaviour reintroduced. Its replacement is
+        # covered in `test_natural_draft_loop.py`, which proves a Draft really
+        # is produced with no editor-written Focus.
     ],
 )
 def test_a_readiness_refusal_never_records_a_failure_marker(eligible, reason, working_model):
@@ -289,6 +322,13 @@ def test_a_readiness_refusal_never_records_a_failure_marker(eligible, reason, wo
     marker is written, and `EDIT` stays absent.
     """
     article_id = eligible["article_id"]
+    # V1.2-G4.3 §A: EVERY remaining material refusal needs a Story with nothing
+    # readable. A Story whose own publication can be read is always
+    # DRAFT_ELIGIBLE, because the command reads that publication on the way to
+    # the Draft — that is the entire point of the automatic gathering. So the
+    # precondition is arranged once, for all three states, instead of each
+    # branch having to remember it.
+    _make_publication_unreadable("s-one")
     _degrade_to(reason, article_id)
     before = app.read_article(article_id)
     assert before["preparation"]["draftReadiness"]["code"] == reason

@@ -54,6 +54,12 @@ ARTICLE_FIELDS = {
     # exists so `Редактирай` can be a recovery path rather than an always-on
     # escape hatch, and it is bound to the generation basis it was produced from.
     "draft_generation_failure",
+    # V1.2-G4.3 §D: the editor's optional Voice choice for this Article. Empty
+    # means AUTOMATIC, which is the default and the overwhelmingly common case,
+    # so it is stored as an empty string rather than a default id: an Article
+    # written before this field existed must keep meaning "automatic" and not
+    # silently acquire a preference it never expressed.
+    "editorial_voice",
 }
 #: The editor-safe failure marker. Deliberately narrow: the content version it
 #: was produced against, a digest of the material, when it happened, and one
@@ -202,6 +208,8 @@ def validate_editor_article(raw) -> dict:
                 # every Article written before this field stays readable instead
                 # of invalidating a real store.
                 "draft_material_basis",
+                # V1.2-G4.3 §D: same reasoning for the optional Voice choice.
+                "editorial_voice",
             }
         )
         - set(raw)
@@ -282,7 +290,30 @@ def validate_editor_article(raw) -> dict:
         "generated_content_version": generated_content_version,
         "draft_material_basis": _validate_draft_material_basis(raw.get("draft_material_basis")),
         "draft_generation_failure": draft_generation_failure,
+        "editorial_voice": _validate_editorial_voice(raw.get("editorial_voice")),
     }
+
+
+def _validate_editorial_voice(raw) -> str:
+    """The editor's optional Voice choice, normalized to `""` for automatic.
+
+    Validation is deliberately against the CANONICAL voice list rather than any
+    free string, because §D allows only voices the style system already defines
+    and already consumes. A value the retrieval step could not honour would be a
+    silent lie: the editor would believe a style choice took effect when the
+    prompt actually used the default.
+    """
+    if raw is None or raw == "":
+        return ""
+    value = str(raw)
+    from editor_assistant.style import profiles as style_profiles
+
+    if value not in style_profiles.FROZEN_VOICES:
+        raise ArticleStoreError(
+            f"editorial_voice must be empty (automatic) or one of "
+            f"{list(style_profiles.FROZEN_VOICES)}"
+        )
+    return value
 
 
 def _validate_draft_material_basis(raw) -> dict | None:
@@ -568,6 +599,9 @@ def create_editor_article(
                 "draft_established_version": None,
                 "generated_content_version": None,
                 "draft_generation_failure": None,
+                # §D: a new Article always starts on automatic, never on a
+                # preference the editor has not expressed yet.
+                "editorial_voice": "",
             }
         )
         _write_content(
@@ -660,6 +694,64 @@ def update_editor_focus(
         record["ready_validation_digest"] = None
         record["ready_at"] = None
         return _replace_article(record, root=root)
+
+
+def update_editor_voice(
+    article_id: str,
+    editorial_voice: str = "",
+    *,
+    now=None,
+    root=None,
+) -> dict:
+    """The editor's optional Voice choice for the NEXT Draft/Rewrite (§D).
+
+    **What this deliberately does NOT do**, because each of these was a named
+    requirement:
+
+    * it does not create a new Article - the choice belongs to this Article;
+    * it does not rewrite the existing Draft - the editor chose a style for what
+      comes next, and silently re-running the model over text they are looking
+      at would destroy their reading of it;
+    * it does not invalidate readiness. A Voice is a style preference, not a
+      factual or editorial-verification change, so `Отбележи като готова` must
+      not be withdrawn by choosing a different voice.
+
+    `""` is `Автоматично` and is the default: the style system decides, exactly
+    as it did before this control existed.
+    """
+    value = _validate_editorial_voice(editorial_voice)
+    with _MUTATION_LOCK, _cross_process_article_lock(root=root):
+        record = deepcopy(get_editor_article(article_id, root=root))
+        if record["finalized_at"]:
+            raise ArticleStoreError("finalized Article voice is immutable")
+        stamp = _timestamp(now or _now(), "updated_at")
+        if record["editorial_voice"] == value:
+            return record
+        record["editorial_voice"] = value
+        record["updated_at"] = stamp
+        return _replace_article(record, root=root)
+
+
+#: §D — the ONLY voices the editor may choose, in editor wording. This is read
+#: from the same frozen list the style system and the retrieval step use, so a
+#: new profile cannot appear in the UI before it can actually be honoured.
+def editorial_voice_options() -> tuple[dict, ...]:
+    """§D — the ONLY voices the editor may choose, in editor wording.
+
+    Read from the same frozen list the style system and the retrieval step use,
+    so a new profile cannot appear in the UI before it can actually be honoured.
+    `""` is `Автоматично`, the default, and is always the first option.
+    """
+    from editor_assistant.style import profiles as style_profiles
+    from editor_assistant.workflow.workbench import labels as lb
+
+    return (
+        {"id": "", "label": "Автоматично", "description": "Стилът се избира от системата."},
+        *(
+            {"id": voice, "label": lb.VOICE_LABELS.get(voice, voice), "description": ""}
+            for voice in style_profiles.FROZEN_VOICES
+        ),
+    )
 
 
 def save_article_content(

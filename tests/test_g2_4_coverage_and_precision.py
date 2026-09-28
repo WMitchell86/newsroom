@@ -602,12 +602,18 @@ def test_a_story_with_no_usable_subject_yields_no_focus():
     assert focus_suggestions.alternatives("") == ()
 
 
-def test_two_or_three_quiet_alternatives_are_produced():
-    """§D2: 2-3, Story-specific, and never the old generic placeholder."""
-    options = focus_suggestions.alternatives(BURGAS_SOZOPOL, facts=["f"])
-    assert 2 <= len(options) <= 3
-    assert all("Бургас-Созопол" in option for option in options)
-    assert all("Да разкажем какво се е променило" not in o for o in options)
+def test_no_generic_focus_alternatives_are_produced():
+    """V1.2-G4.3 §C3: the alternatives are gone, and that is the decision.
+
+    The old §D2 contract asked for two or three deterministic variants. A real
+    review of generated articles found the opposite problem: they were
+    templates that could sit on any story in the desk, so the editor had to
+    evaluate a choice that was never a real editorial decision. The brief for
+    this slice is explicit - do not render chips unless they are genuinely
+    Story-specific, and zero alternatives is acceptable - so the honest
+    assertion is that the set is EMPTY, not merely short.
+    """
+    assert focus_suggestions.alternatives(BURGAS_SOZOPOL, facts=["f"]) == ()
 
 
 def test_alternatives_never_gate_draft_eligibility():

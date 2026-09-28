@@ -113,7 +113,7 @@ currently supports. Research does not have an editor-facing status.
 - a link to its Story;
 - a prefilled, editable working title;
 - an Editorial Focus;
-- no Draft until `Направи чернова`.
+- no Draft until `Чернова`.
 
 One Story may have several Articles. V1 requires only
 `Статии по тази история`; it introduces no special multi-Article management
@@ -132,28 +132,54 @@ plain-language sentences answering:
 AI may propose it; the editor may edit it. Angle, mode, voice, and focus are
 not parallel editor concepts.
 
-`Направи чернова` is available when:
+**V1.2-G4.3 — a blocking gap no longer prevents a Draft.** The previous rule
+made research quality equal to permission-to-write, so a Story with real
+material and several open questions could not be drafted at all. That is
+replaced by a two-boundary rule:
 
-- a valid Editorial Focus exists; and
-- no blocking gap remains.
+- **Draft (work in progress)** — a Draft may be created whenever there is
+  readable source-backed material. Open questions, incomplete corroboration
+  and a single unconfirmed source become **warnings on the Draft**. They never
+  withhold the Draft.
+- **`Готова` (verification boundary)** — the same conditions may block
+  `Отбележи като готова`.
 
-A gap may be blocking or non-blocking:
+`Чернова` is available when the article has readable, source-backed material.
+A Draft always has a deterministic default Focus, so a valid Focus is never a
+prerequisite. The editor does not have to press `Проучи още` first.
 
-- a blocking gap prevents Draft creation and makes `Проучи още` the
-  appropriate next action;
-- a non-blocking gap remains visible but does not prevent Draft creation.
+Warnings do not create another Article state, and the editor does not manually
+create a readiness status. The system explains what is still unresolved.
 
-This changes the next action only. It does not create another Article state,
-and the editor does not manually create a readiness status. The system
-determines whether a gap is blocking and must explain why.
+## 7a. Rewrite workflow (V1.2-G4.3)
+
+The editor has a Draft, reads it, and says what is wrong in ordinary language.
+`Пренапиши` turns that into a new working version of the SAME Article.
+
+```text
+Чернова
+→ read the draft
+→ "Какво да променя?" + free-text comment
+→ Пренапиши
+→ new content version of the same Article
+```
+
+Rules:
+
+- the factual basis is reused unchanged; a rewrite does **not** re-run web
+  research by default;
+- the editor comment has editorial priority over stylistic defaults, except
+  where that would conflict with factual safety;
+- the previous text stays recoverable — every rewrite appends a content
+  version;
+- a failure preserves the current text and the editor's comment, and offers a
+  retry. It never produces a blank Article.
 
 ## 8. Article states and ready/finalize workflow
 
 V1 has exactly three editor-facing Article states:
 
-1. `Подготовка` — the Article exists, but Draft creation is not complete.
-   Work may include refining focus, examining Facts and Sources, resolving
-   blocking gaps, or research.
+1. `Подготовка` — the Article exists; no text has been written yet.
 2. `Чернова` — text exists and is being reviewed or edited.
 3. `Готова` — the editor explicitly considers the Article ready for finalization.
 
@@ -261,12 +287,14 @@ Story
 → Започни статия
 → Подготовка
 → working title + Редакционен фокус
-→ Facts/Sources + missing information
-→ Направи чернова
 → Чернова
+→ system reads the original material
+   and runs bounded optional enrichment
+→ Draft text + warnings
 ```
 
-`Направи чернова` requires a valid focus and no blocking gap. Backend
+`Чернова` requires readable, source-backed material — nothing more. A blocking
+gap is not required to be absent, and a Focus is never a prerequisite. Backend
 Idea/Evidence/Prepared/Case steps remain invisible.
 
 ### Scenario 6 — Edit → Ready → Finalize

@@ -88,52 +88,23 @@ def primary_focus(title: str, *, facts=(), gaps=()) -> str:
 
 
 def alternatives(title: str, *, facts=(), gaps=()) -> tuple[str, ...]:
-    """D2/D4 — two or three quiet alternatives, derived deterministically.
+    """V1.2-G4.3 §C3 — no alternatives at all, and that is the point.
 
-    The ordering is stable and the content is built from this Story's own
-    subject and its gaps, so a council agenda Story and a road-accident Story do
-    not get the same three lines. An empty tuple is a legitimate outcome (a
-    Story with no usable subject has no alternatives either), and the caller
-    must treat that as normal rather than as a failure: D4 forbids making Draft
-    eligibility depend on alternatives existing.
+    The previous contract asked for two or three quiet variants derived
+    deterministically from the Story. The owner's review of real generated
+    articles found the opposite problem: the alternatives were templates that
+    could sit on any story in the desk, so they added a choice the editor had to
+    evaluate without it ever being a real editorial decision.
+
+    The brief for this slice is explicit — do not spend more effort producing
+    generic alternatives, and do not render chips unless they are genuinely
+    Story-specific and materially different. At the current deterministic quality
+    that set is EMPTY, so this returns an empty tuple and the caller treats that
+    as the normal outcome rather than as a failure.
+
+    The function is kept, with its signature, because it is the single place the
+    decision lives: if a future model-backed Focus proposal ever becomes
+    genuinely Story-specific, this is where it is allowed to return something,
+    and every consumer already handles the empty case correctly.
     """
-    subject = _clean_title(title)
-    if not subject:
-        return ()
-
-    # D4: prefer variants the Story's own state makes relevant. A Story that
-    # already has confirmed facts can be read for consequence and next steps; a
-    # Story whose basis is thin can be read for what is known and what follows.
-    confirmed = list(facts or ())
-    open_gaps = [str(gap) for gap in (gaps or ()) if str(gap or "").strip()]
-    out: list[str] = []
-
-    def push(value: str) -> None:
-        text = " ".join(str(value or "").split())
-        if text and text not in out:
-            out.append(text)
-
-    if confirmed:
-        push(
-            f"Какво точно се е случило по „{subject}“, кой е засегнат и какво следва "
-            "оттам — без да се повтаря целият текст на източника."
-        )
-        push(
-            f"Практическото значение за читателите: какво трябва да знаят и какво "
-            f"да направят по отношение на „{subject}“."
-        )
-        push(f"Последствията за Бургас и региона от случилото се с „{subject}“.")
-    else:
-        push(f"Какво вече е известно за „{subject}“ и какво остава неуточнено.")
-        push(f"Какво следва предвид случилото се с „{subject}“ и какво се очаква.")
-        push(f"Последствията за Бургас и региона от „{subject}“.")
-
-    # D2/D4: the number of GAPS is a real editorial signal. A Story with a named
-    # open question gets an alternative aimed squarely at it.
-    if open_gaps and len(out) >= 3:
-        question = open_gaps[0].strip()
-        if len(question) > 120:
-            question = question[:117].rstrip() + "…"
-        push(f"Първото, което трябва да стане ясно: „{question}“")
-
-    return tuple(out[:3])
+    return ()

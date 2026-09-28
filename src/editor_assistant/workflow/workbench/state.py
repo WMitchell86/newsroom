@@ -1116,12 +1116,27 @@ def prepare_case(idea_id, evidence_id, *, mode=""):
         }
 
 
-def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
+def generate_draft(
+    idea_id,
+    evidence_id,
+    *,
+    force=False,
+    force_reason="",
+    title="",
+    focus="",
+    editor_comment="",
+    voice="",
+):
     """The real M2.3B generation path, then the same stores the CLI writes.
 
     Appends the immutable AI draft to live_drafts.jsonl and opens a LIVE case
     (LIV-nn). Readiness refusals (RESEARCH_MORE / NO_ANGLE) come back as a
     status, never silently; a forced generation requires a recorded reason.
+
+    **V1.2-G4.3 §B/D/E.** `title` and `focus` carry the editorial instruction
+    into the prompt, `editor_comment` carries the `Пренапиши` words, and `voice`
+    carries the editor's optional style choice. All four default to the
+    historical behaviour, so every existing caller is unchanged.
     """
     with _MUTATION_LOCK:
         from editor_assistant.workflow import angles, live
@@ -1149,10 +1164,16 @@ def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
         try:
             result = live.live_generate_draft(
                 row["packet"],
-                voice=prepared["voice"],
+                # §D: a named editor choice is honoured; empty keeps the
+                # historical default, so this stays a pure pass-through.
+                voice=voice or prepared["voice"],
                 mode=prepared["mode"],
                 force_draft=force,
                 editor_override_reason=force_reason or None,
+                # §B/E: the editorial instruction travels with this one call.
+                title=title,
+                focus=focus,
+                editor_comment=editor_comment,
             )
         except (angles.AngleError, live.LiveError) as exc:
             raise WorkbenchError(str(exc)) from exc
@@ -1174,7 +1195,10 @@ def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
             "factual_gate": result["factual_gate"],
             "originality": result.get("originality"),
             "readiness": result["readiness"],
-            "voice": prepared["voice"],
+            # §D: the voice the editor actually chose, so the recorded lineage
+            # matches the text that was generated. Empty keeps the prepared
+            # default, exactly as the generation call above does.
+            "voice": voice or prepared["voice"],
             "mode": prepared["mode"],
             "mode_suggested_by_tool": prepared.get("mode_suggested", False),
             "retrieval": {k: v for k, v in result["retrieval"].items() if k != "examples"},
@@ -1194,7 +1218,10 @@ def generate_draft(idea_id, evidence_id, *, force=False, force_reason=""):
             idea_id=prepared["idea_id"],
             evidence_id=evidence_id,
             draft=store,
-            voice=prepared["voice"],
+            # §D: same resolved voice as the generation, never the prepared
+            # default - otherwise the Case would misreport which style the
+            # text was written in.
+            voice=voice or prepared["voice"],
             mode=prepared["mode"],
             mode_suggested=prepared.get("suggested_mode"),
             suggestion_reason=prepared.get("suggestion_reason", ""),

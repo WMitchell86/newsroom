@@ -20,7 +20,9 @@ from editor_assistant.workflow import (
     article_draft_failure,
     article_generation,
     article_readiness,
+    article_rewrite,
     article_validation,
+    draft_enrichment,
     draft_material,
     editor_article_store,
     editor_projections,
@@ -34,6 +36,7 @@ from editor_assistant.workflow import (
     newsroom_run,
     publication_material,
     quick_draft,
+    rewrite_feedback,
     source_health,
     story_editor_metadata,
     story_identity,
@@ -721,22 +724,26 @@ def _article_actions(
     if article.get("finalized_at"):
         return [], None
     if state == "preparation":
-        if not editor_projections.focus_is_confirmed(article):
-            return ["SELECT_FOCUS"], _next_action("SELECT_FOCUS", "FOCUS_REQUIRED", "Избери фокус")
-        # Backend-authorized manual continuation uses the same editor and the
-        # same atomic content save. There is no separate manual Draft mode.
-        actions = ["CHANGE_FOCUS"]
-        if manual_continuation:
-            actions.append("EDIT")
         readiness = readiness or article_readiness.DraftReadiness(
             eligible=False,
             reason_code=article_readiness.STORY_UNAVAILABLE,
             reason_message=article_readiness.REASON_MESSAGES[article_readiness.STORY_UNAVAILABLE],
         )
+        # V1.2-G4.3 §C: an unconfirmed Focus no longer hides `Чернова`. The
+        # command writes the deterministic default, so the editor is never made
+        # to type a sentence before they can write. `SELECT_FOCUS` stays
+        # OFFERED - changing the Focus is still a real choice - it simply stops
+        # being the only thing they can do.
+        actions = (
+            ["CHANGE_FOCUS"] if editor_projections.focus_is_confirmed(article)
+            else ["SELECT_FOCUS", "CHANGE_FOCUS"]
+        )
+        if manual_continuation:
+            actions.append("EDIT")
         if readiness.eligible:
             actions.append("MAKE_DRAFT")
             return actions, _next_action("MAKE_DRAFT", readiness.reason_code, "Направи чернова")
-        # Focus is already confirmed here, so the only remaining refusals are
+        # Focus is no longer a refusal source, so the only remaining refusals are
         # evidence ones. Those whose remedy is research route the editor to the
         # owning Story — which stays the sole owner of research orchestration.
         # A refusal with no research remedy (a stopped safety guard, an
@@ -758,6 +765,14 @@ def _article_actions(
         actions.append("SELECT_FOCUS")
         next_action = _next_action("SELECT_FOCUS", "FOCUS_REQUIRED", "Избери фокус")
     actions.append("EDIT")
+    # V1.2-G4.3 §D/§E: on a real Draft the editor gets the two secondary writing
+    # controls. `CHANGE_VOICE` is a style preference and `REWRITE` is the
+    # comment-driven loop; neither is a state, neither is ever the next action,
+    # and both stay available whatever the warnings say. Warnings warn; they do
+    # not take away the editor's ability to keep working on the text.
+    if str(content.get("body") or "").strip():
+        actions.append("CHANGE_VOICE")
+        actions.append("REWRITE")
     if validation is not None and article_validation.ready_eligible(article, content, validation):
         actions.append("MARK_READY")
         return actions, _next_action("MARK_READY", "READY_ELIGIBLE", "Отбележи като готова")
@@ -772,6 +787,19 @@ def _article_dto(
     items_by_id: dict | None = None,
 ) -> dict:
     return _article_projection(article, content, story_reference, story, items_by_id)[0]
+
+
+def _voice_label(voice) -> str:
+    """The editor wording for a Voice id, with automatic as the honest default.
+
+    §D forbids model/provider terminology in the editor UI, so this is a label
+    read from the one place the option list is built, never a formatted id.
+    """
+    value = str(voice or "").strip()
+    for option in editor_article_store.editorial_voice_options():
+        if option["id"] == value:
+            return str(option["label"])
+    return "Автоматично"
 
 
 def _article_projection(
@@ -809,7 +837,22 @@ def _article_projection(
     # snapshot is assembled from state this projection already loaded, so no
     # second evidence read and no second predicate exist.
     readiness_snapshot = article_readiness.build_snapshot(
-        article, content, story, facts, missing, missing.get("openedSources") or ()
+        article,
+        content,
+        story,
+        facts,
+        missing,
+        missing.get("openedSources") or (),
+        # V1.2-G4.3 §A: the projection cannot fetch, so it states the purely
+        # local half of the question - is this Story's own publication worth
+        # one bounded read? That is what keeps `Чернова` offered for a Story the
+        # command can actually write, instead of only for one already researched.
+        readable_publication=bool(
+            story
+            and _original_publication_is_readable(
+                story.get("story_id"), story, resolve=False
+            )
+        ),
     )
     readiness = article_readiness.evaluate(readiness_snapshot)
     # V1.2-G4.1 §B3 — the material warnings a Draft inherits from its basis. They
@@ -891,6 +934,15 @@ def _article_projection(
             "editorialFocus": {
                 "text": article["editorial_focus"],
                 "confirmedAt": article["focus_confirmed_at"],
+            },
+            # V1.2-G4.3 §D: the optional Voice choice, the label the editor sees,
+            # and the small set they may choose from. `""` is Автоматично.
+            "style": {
+                "voice": str(article.get("editorial_voice") or ""),
+                "label": _voice_label(article.get("editorial_voice")),
+                "options": [
+                    dict(option) for option in editor_article_store.editorial_voice_options()
+                ],
             },
             "content": {
                 "title": content["title"],
@@ -1344,6 +1396,14 @@ def operation_status(token: str) -> dict:
                 "status": row["status"],
                 "error": article_generation.operation_error(row.get("error_code") or ""),
             }
+        if article_rewrite.is_rewrite_scope(row.get("story_id")):
+            # §E4: the same contract for a rewrite, with its own wording. The
+            # editor's comment and the current body are both still on screen.
+            return {
+                "operationToken": token,
+                "status": row["status"],
+                "error": article_rewrite.operation_error(row.get("error_code") or ""),
+            }
         if quick_draft.is_quick_draft_scope(row.get("story_id")):
             # §19: a Quick Draft failure carries only a bounded code and one
             # editor sentence. No provider, no model id, no search internals.
@@ -1519,14 +1579,64 @@ def _draft_snapshot(article_id: str) -> dict:
                     "origin": "original_publication",
                 }
             ]
+    # V1.2-G4.3 §A: the automatic, bounded enrichment that runs INSIDE `Чернова`.
+    #
+    # The editor pressed one button and said "give me an Article"; they did not
+    # press `Проучи още`. So the system now does the useful part of it by itself,
+    # once, here - and this is the ONLY place it runs, so a Draft costs at most
+    # one enrichment round no matter how many times the command is re-evaluated.
+    #
+    # It is opportunistic by construction (§A2): whatever it finds is APPENDED to
+    # the opened sources and whatever it fails to find becomes a warning that
+    # travels with the Draft. It can never remove material, never promote a fact,
+    # never close a gap, and never refuse the command that called it.
+    enrichment = _bounded_draft_enrichment(
+        headline=headline,
+        existing_sources=opened,
+    )
+    opened = draft_enrichment.merge_sources(opened, enrichment["sources"])
     snapshot.update(
         {
             "headline": headline,
             "summary": str(representative.get("summary") or ""),
             "sources": opened,
+            # §A2/§I — the enrichment outcome travels WITH the material, so the
+            # warnings the editor sees afterwards describe what actually happened
+            # and not merely what the canonical basis happens to say.
+            "enrichment_warnings": list(enrichment["warnings"]),
+            "enrichment_queries": list(enrichment["queries"]),
         }
     )
     return snapshot
+
+
+def _bounded_draft_enrichment(*, headline: str, existing_sources: list[dict]) -> dict:
+    """Run the bounded enrichment, degrading to a warning on ANY problem.
+
+    This wrapper is what makes the promise in §A2 true at the call site rather
+    than only inside the enrichment module: whatever happens in there, the
+    snapshot still has its original material and a set of editor-safe warnings.
+
+    The open path is deliberately the DEFAULT one (`None` means
+    `publication_material` uses its own guarded fetch), so the blocked-domain,
+    wrapper and on-topic rules that protect the original read protect the
+    discovered pages identically — there is no second fetch implementation.
+    """
+    try:
+        return draft_enrichment.enrich(
+            topic=headline,
+            existing_urls=[row.get("url") for row in existing_sources],
+            questions=draft_enrichment.plan_questions(headline),
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        # A defect that must not cost the editor their Draft. The material the
+        # Story already has is still enough to write one.
+        LOG.warning("draft enrichment degraded to a warning: %s", type(exc).__name__)
+        return {
+            "sources": [],
+            "queries": [],
+            "warnings": [draft_enrichment.WARNING_ENRICHMENT_UNAVAILABLE],
+        }
 
 
 def _original_publication_is_authoritative(domain: str) -> bool:
@@ -1632,6 +1742,40 @@ def _record_draft_failure(article_id: str, snapshot: dict, basis: str, code: str
         LOG.warning("could not persist the draft failure marker for %s", article_id)
 
 
+def _ensure_default_focus(article_id: str) -> None:
+    """Give the Article its deterministic default Focus if it has none (V1.2-G4.3 §C).
+
+    This is what replaces the removed `FOCUS_NOT_CONFIRMED` gate. The Focus is
+    still a real, stored, editable field — the editor can change it at any time
+    and a changed Focus is used by the next Draft or Rewrite — but a Story the
+    editor decided to write about is never blocked from being written.
+
+    Written through the ONE canonical Focus save, deliberately: a default Focus
+    must be indistinguishable from an editor-typed one in the store, in the
+    projection and in the audit, or "who chose this?" becomes unanswerable.
+    """
+    article = _active_article(article_id)
+    if editor_projections.focus_is_confirmed(article):
+        return
+    story = _maybe_story(article["story_id"])
+    focus, _alternatives = _suggested_focus(
+        article["story_id"], story, str(article.get("working_title") or "")
+    )
+    if not focus:
+        # A Story with no usable subject genuinely has no honest Focus. The
+        # canonical readiness decision then reports WORKING_TITLE_REQUIRED on
+        # its own terms; inventing a sentence here would be worse than useless.
+        return
+    with _COMMAND_LOCK:
+        try:
+            editor_article_store.update_editor_focus(article_id, focus)
+        except editor_article_store.ArticleStoreError as exc:
+            LOG.warning("could not store the default Focus for %s", article_id)
+            raise article_generation.DraftRefused(
+                "FOCUS_NOT_CONFIRMED", "Фокусът на статията не може да бъде определен."
+            ) from exc
+
+
 def _run_draft_generation(article_id: str, token: str) -> dict:
     """The one synchronous C2 Draft execution, shared by both callers (§7 D2).
 
@@ -1646,6 +1790,13 @@ def _run_draft_generation(article_id: str, token: str) -> dict:
     editor-facing `needs_attention` result.
     """
     try:
+        # V1.2-G4.3 §C: the Draft always has a Focus. When the editor has not
+        # written one, the deterministic default is stored here — through the
+        # ONE canonical Focus write, so this is indistinguishable from the editor
+        # having typed it. That is what makes Focus guidance rather than a gate,
+        # and it also keeps `Готова`/finalization reachable afterwards, because
+        # both of those still require a confirmed Focus.
+        _ensure_default_focus(article_id)
         # Stale revalidation: the Article may have been edited, refocused or
         # re-gapped while this operation was queued. That is a stable
         # refusal, never a silent overwrite of the editor's text.
@@ -1765,8 +1916,157 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
 
 
 # --------------------------------------------------------------------------
-# V1.1-D2 — Quick Draft orchestration («Today → Чернова»)
+# V1.2-G4.3 §E — `Пренапиши` (rewrite this Draft from the editor's comment)
 # --------------------------------------------------------------------------
+
+
+def _running_rewrite(article_id: str) -> dict | None:
+    """A rewrite for this Article already in flight, as a still-valid operation."""
+    token = article_rewrite.active_token(article_id)
+    if not token:
+        return None
+    row = story_operations.get(token)
+    if row is None or row["status"] not in {"pending", "running"}:
+        return None
+    return {"operationToken": token, "status": row["status"]}
+
+
+def _raise_rewrite_refusal(exc: article_rewrite.RewriteRefused) -> None:
+    """Map a stable rewrite refusal onto the editor error contract."""
+    if exc.code == article_rewrite.OP_INVALID_TRANSITION:
+        raise EditorInvalidTransition(exc.message) from exc
+    if exc.code == "ARTICLE_VERSION_CONFLICT":
+        raise EditorVersionConflict(exc.message) from exc
+    if exc.code in {"NOT_IN_DRAFT", "EMPTY_COMMENT"}:
+        raise EditorInvalidTransition(exc.message) from exc
+    raise EditorApplicationError(exc.message) from exc
+
+
+def _record_failed_rewrite_feedback(article_id: str, comment: str) -> None:
+    """Record a rewrite request that did not produce a new text. Never raises.
+
+    §E4: no new content version exists, and the record says so honestly rather
+    than implying a rewrite that never happened. Losing a learning record must
+    never turn a reported failure into a different, more confusing failure.
+    """
+    text = " ".join(str(comment or "").split())
+    if not text:
+        return
+    try:
+        article = _article(article_id)
+        content = editor_article_store.get_article_content(article_id)
+        rewrite_feedback.record(
+            article_id=article_id,
+            editor_comment=text,
+            focus=str(article.get("editorial_focus") or ""),
+            voice=str(article.get("editorial_voice") or ""),
+            draft_version_before=int(content["content_version"]),
+            draft_version_after=int(content["content_version"]),
+            generated_by_model=False,
+            root=_editorial_root(),
+        )
+    except (editor_article_store.ArticleStoreError, OSError, ValueError, KeyError, TypeError):
+        pass
+
+
+def _run_rewrite(article_id: str, comment: str, token: str) -> dict:
+    """The one synchronous rewrite execution.
+
+    **§E4 - failure preserves everything.** Every refusal path leaves the current
+    body exactly as the editor last confirmed it, and the editor's comment is
+    still in the page because it is never sent anywhere until the work succeeds.
+    The feedback record is still written on failure, because a request the editor
+    made and the product could not satisfy is real editorial signal (§F).
+    """
+    try:
+        article = _active_article(article_id)
+        content = editor_article_store.get_article_content(article_id)
+        # §E2 - the factual basis is read ONCE, from the same canonical stores
+        # the first Draft read. No search, no research, no new facts.
+        snapshot = _draft_snapshot(article_id)
+        article_rewrite.rewrite(
+            article=article,
+            content=content,
+            comment=comment,
+            snapshot=snapshot,
+            root=_editorial_root(),
+        )
+        return _article_dto_by_id(article_id)
+    except article_rewrite.RewriteRefused as exc:
+        _record_failed_rewrite_feedback(article_id, comment)
+        _raise_rewrite_refusal(exc)
+    except editor_article_store.ArticleVersionConflict as exc:
+        raise article_rewrite.RewriteRefused(
+            "ARTICLE_VERSION_CONFLICT",
+            "Статията е променена, преди пренаписването да завърши.",
+        ) from exc
+    except Exception as exc:
+        # §E4 - an unclassified failure is retryable and never fabricates text.
+        # This is deliberately broad: the model transport can raise its own
+        # exception types, and every one of them must end in "keep the current
+        # body, keep the comment, offer a retry" rather than in a stack trace
+        # crossing the editor boundary.
+        LOG.warning("rewrite failed for %s: %s", article_id, type(exc).__name__)
+        _record_failed_rewrite_feedback(article_id, comment)
+        raise article_rewrite.RewriteRefused(
+            "REWRITE_UNAVAILABLE", "Пренаписването не можа да се извърши."
+        ) from exc
+    finally:
+        article_rewrite.release(article_id, token)
+
+
+def start_article_rewrite(article_id: str, comment: str, *, idempotency_key: str = "") -> dict:
+    """`Пренапиши` — begin one rewrite of THIS Article from the editor's comment.
+
+    Transport only, exactly like `Направи чернова`: the token carries a bounded
+    poll and nothing else. The backend is the authority, the preconditions are
+    re-checked inside the worker, and a repeated request with the same key
+    addresses the same operation instead of rewriting twice.
+    """
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise EditorApplicationError("Idempotency key is required.")
+    key = idempotency_key.strip()
+    text = " ".join(str(comment or "").split())
+    with _COMMAND_LOCK:
+        article = _active_article(article_id)
+        content = editor_article_store.get_article_content(article_id)
+        try:
+            article_rewrite.evaluate(article=article, content=content, comment=text)
+        except article_rewrite.RewriteRefused as exc:
+            _raise_rewrite_refusal(exc)
+    in_flight = _running_rewrite(article_id)
+    if in_flight is not None:
+        return in_flight
+    scope = article_rewrite.scope_for(article_id)
+    # A rewrite is bound to the exact text it was asked to rewrite, so a new
+    # comment is a new operation even though the Article is the same one.
+    signature = hashlib.sha256(
+        f"{content['content_version']}\0{text}".encode()
+    ).hexdigest()[:24]
+    if key:
+        signature = ""
+    token = story_operations.token_for(scope, signature, 0, key)
+    if key:
+        accepted = story_operations.get(token)
+        if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
+            return {"operationToken": token, "status": accepted["status"]}
+    try:
+        article_rewrite.acquire(article_id, token)
+    except article_rewrite.RewriteRefusal as exc:
+        existing = _running_rewrite(article_id)
+        if existing is not None:
+            return existing
+        _raise_rewrite_refusal(exc)
+
+    def work():
+        return _run_rewrite(article_id, text, token)
+
+    try:
+        operation_token, view = story_operations.start(scope, signature, work, key=key)
+    except story_operations.BusyError as exc:
+        article_rewrite.release(article_id, token)
+        raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
+    return {"operationToken": operation_token, "status": view["status"]}
 
 
 def _story_articles(story_id: str) -> tuple[list[dict], dict[str, dict]]:
@@ -1827,7 +2127,7 @@ def _quick_evidence_verdict(story_id: str, articles: list[dict]):
     )
 
 
-def _original_publication_is_readable(story_id: str, story: dict) -> bool:
+def _original_publication_is_readable(story_id: str, story: dict, *, resolve: bool = True) -> bool:
     """Whether the Story's own publication can be read right now.
 
     V1.2-G4.2 §3C/§5: this is the ONLY thing that makes a `NO_DRAFT_MATERIAL`
@@ -1837,12 +2137,23 @@ def _original_publication_is_readable(story_id: str, story: dict) -> bool:
 
     Bounded and cheap: the URL is only *resolved* here (no page is fetched). The
     read itself happens once, in the Draft command, and only when it is needed.
+
+    **V1.2-G4.3 §A — `resolve=False` is the STRICTLY OFFLINE half.** Resolving a
+    URL from a headline can reach the network (the keyless lookup), which is fine
+    inside a Draft command that is about to do real work anyway, and is NOT fine
+    inside a READ projection that only has to decide which buttons to draw. The
+    projection therefore passes `resolve=False` and answers the purely local
+    question: "does this Story already carry a publication URL worth one
+    bounded read?". A projection that quietly searched the web on every render
+    would be a latency and privacy defect, not a convenience.
     """
     items = _story_items()
     for member in (story or {}).get("members") or []:
         url = str((items.get(member.get("item_id")) or {}).get("url") or "")
         if publication_material.is_readable_publication(url):
             return True
+    if not resolve:
+        return False
     title = _story_title(story, items)
     return bool(publication_material.publication_urls(title))
 
@@ -2602,6 +2913,28 @@ def update_focus(article_id: str, focus: str) -> dict:
             if "unknown article_id" in str(exc):
                 raise EditorNotFound("Статията не е намерена.") from exc
             raise EditorApplicationError("Фокусът не може да бъде запазен.") from exc
+    return _article_dto_by_id(article_id)
+
+
+def update_voice(article_id: str, voice: str) -> dict:
+    """`Стил` — the editor's optional Voice choice for the next Draft/Rewrite (§D).
+
+    Server-authoritative like every other editor command: the client sends a
+    voice id, the store validates it against the canonical frozen list, and the
+    Article projection that comes back is the truth the page re-renders from.
+
+    It deliberately does not create an Article, does not rewrite the current
+    Draft, and does not withdraw the readiness checkpoint — a style preference is
+    not a factual or editorial-verification change.
+    """
+    _active_article(article_id)
+    with _COMMAND_LOCK:
+        try:
+            editor_article_store.update_editor_voice(article_id, voice)
+        except editor_article_store.ArticleStoreError as exc:
+            if "unknown article_id" in str(exc):
+                raise EditorNotFound("Статията не е намерена.") from exc
+            raise EditorApplicationError("Стилът не може да бъде запазен.") from exc
     return _article_dto_by_id(article_id)
 
 

@@ -174,6 +174,8 @@ def build_snapshot(
     facts: list[dict],
     missing: dict,
     sources: list[dict] | None = None,
+    *,
+    readable_publication: bool = False,
 ) -> dict:
     """Assemble the ONE canonical readiness input from already-loaded state.
 
@@ -186,6 +188,17 @@ def build_snapshot(
     include pages that were opened but promoted no fact. Without them the
     single-source fallback would be invisible to the gate, because a basis with
     zero facts used to also mean "nothing was ever opened".
+
+    **V1.2-G4.3 §A — `readable_publication`.** The command reads the Story's own
+    publication (and then enriches) on the way to the Draft, so it can see
+    material the READ projection cannot: a projection must not fetch a page just
+    to decide which buttons to draw. This flag carries the purely local half of
+    that question - "does this Story have a publication URL that is worth one
+    bounded read?" - which is an offline check of the URL, never an open.
+
+    It is deliberately permissive: it says the Draft is worth ATTEMPTING, not
+    that it will succeed. If the read then finds nothing, the worker still
+    refuses honestly with `NO_DRAFT_MATERIAL`.
     """
     return {
         "article": article,
@@ -200,6 +213,7 @@ def build_snapshot(
         "evidence_status": str(missing.get("evidenceStatus") or ""),
         "assessed_at": missing.get("assessedAt"),
         "source_url": _first_source_url(facts),
+        "readable_publication": bool(readable_publication),
     }
 
 
@@ -231,6 +245,7 @@ def evaluate_evidence(
     blocking_gaps: list[dict],
     source_url: str,
     sources=(),
+    readable_publication: bool = False,
 ) -> DraftReadiness:
     """The evidence half of `evaluate`, answerable without an Article (§7 D2).
 
@@ -267,21 +282,46 @@ def evaluate_evidence(
             blocking_gaps=blocking_gaps,
         )
 
-    # V1.1-A: an unresearched Story is UNASSESSED, not a clean empty basis.
-    # Checked before facts so the editor is told to research the Story rather
-    # than shown a fabricated Article-level gap.
-    if evidence_status != "assessed":
-        return refusal(STORY_UNASSESSED)
-
-    # V1.2-G4.1 §B3: the one material decision. Promoted facts, an appropriate
-    # PRIMARY, or one real opened publisher page all permit a start; only a
-    # genuine absence of material refuses.
+    # V1.2-G4.3 §A — the UNASSESSED early-return is GONE, and this is the third
+    # and last gate in the same family that the owner asked to remove.
+    #
+    # It used to sit here, BEFORE the material decision below, which meant a
+    # Story whose own publication had just been successfully read was still told
+    # "research the story first". That is precisely the manual-research
+    # prerequisite `Чернова` is no longer supposed to have: the whole point of
+    # the automatic bounded enrichment is that the useful material is gathered
+    # on the way to the Draft, not demanded as a prior step.
+    #
+    # `draft_material.assess` already answers this correctly and in one place:
+    # it returns `NEVER_RESEARCHED` only when there is genuinely nothing opened,
+    # and it admits an opened publisher page as `SINGLE_SOURCE` regardless of
+    # the assessment state. So the decision below is now the ONLY authority on
+    # whether the material is enough, and the reason code it produces is passed
+    # through unchanged.
     decision = draft_material.assess(
         facts=facts,
         sources=sources,
         blocking_gaps=blocking_gaps,
         evidence_status=evidence_status,
     )
+    if not decision["eligible"] and readable_publication:
+        # V1.2-G4.3 §A: the Story's own publication is worth one bounded read, so
+        # the Draft is worth ATTEMPTING even though the canonical basis is empty.
+        # This is what lets `Чернова` be a single button: the material is
+        # gathered on the way to the Draft instead of demanded before it. The
+        # worker still refuses honestly if that read finds nothing.
+        return DraftReadiness(
+            eligible=True,
+            reason_code=DRAFT_ELIGIBLE,
+            reason_message=REASON_MESSAGES[DRAFT_ELIGIBLE],
+            evidence_status=evidence_status,
+            fact_count=fact_count,
+            has_open_source=has_open_source,
+            blocking_gaps=blocking_gaps,
+            # The read has not happened yet, so the basis is honestly unknown
+            # rather than guessed: the worker fills it in from what it opened.
+            draft_basis="",
+        )
     if not decision["eligible"]:
         return refusal(
             STORY_UNASSESSED
@@ -380,9 +420,18 @@ def evaluate(snapshot: dict) -> DraftReadiness:
     if str(snapshot.get("state") or "") != "preparation":
         return refusal(NOT_IN_PREPARATION)
 
-    # 2. Focus is an independent editorial blocker, never mixed with evidence.
-    if not editor_projections.focus_is_confirmed(article):
-        return refusal(FOCUS_NOT_CONFIRMED)
+    # 2. V1.2-G4.3 §C — Focus is editorial GUIDANCE, not a permission gate.
+    #
+    # This refusal is the exact defect the owner named: a real Article with a
+    # real publication could not be drafted until a human typed a sentence, which
+    # made research quality equal to permission-to-write all over again. The
+    # Focus is still REQUIRED — `can_mark_article_ready` and finalization both
+    # need it, and the command writes the deterministic default before
+    # generating — but it is no longer a gate on starting.
+    #
+    # It stays a reported reason code so the preparation projection can still
+    # SHOW that the Focus is the default and the editor may change it, rather
+    # than silently generating under a Focus nobody chose.
 
     # 3-5. The evidence decision, in one place. V1.1-D2 must be able to ask the
     # same question before an Article exists (§10), so the rules live in
@@ -398,4 +447,7 @@ def evaluate(snapshot: dict) -> DraftReadiness:
         blocking_gaps=snapshot.get("gaps") or blocking_gaps,
         source_url=source_url,
         sources=snapshot.get("sources") or (),
+        # §A: the caller states whether the Story's own publication is worth
+        # one bounded read, so this gate can admit an empty basis.
+        readable_publication=bool(snapshot.get("readable_publication")),
     )

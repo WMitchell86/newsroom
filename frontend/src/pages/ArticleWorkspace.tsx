@@ -17,7 +17,12 @@ import {
 import { getErrorMessage } from "../shared/errorMessage";
 import { safeExternalUrl } from "../shared/safeNavigation";
 import { ArticleContentEditor } from "./ArticleContentEditor";
-import { ArticleDeskTitle, DraftFocusBlock } from "./ArticleDeskParts";
+import {
+  ArticleDeskTitle,
+  ArticleStyleBlock,
+  DraftFocusBlock,
+  RewriteBlock,
+} from "./ArticleDeskParts";
 import { PreparationWorkspace } from "./PreparationWorkspace";
 import { useArticleAutosave } from "./useArticleAutosave";
 import ui from "../shared/ui.module.css";
@@ -202,6 +207,13 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
     || opened.length > 0
     || Boolean(missing && missing.items.length > 0);
 
+  // V1.2-G4.3 §D/§E: the two new writing controls are SERVER-authoritative, like
+  // every other action on this page. The client renders what the backend offers
+  // and derives nothing from local state — otherwise a Draft the backend would
+  // refuse to rewrite would still show a `Пренапиши` button.
+  const canChangeVoice = article.availableActions.includes("CHANGE_VOICE");
+  const canRewrite = article.availableActions.includes("REWRITE");
+
   return <div className={`${ui.page} ${ui.articles} ${styles.workspace}`}>
     {/* §7/§16: a compact header — back link, what this is, the title, the state.
         The Story stays one quiet line away, not a second workspace. */}
@@ -235,6 +247,11 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
         {/* §12: once a Draft exists the Focus is a quiet, collapsible block. A
             large textarea above every Draft would compete with the text. */}
         <DraftFocusBlock article={article} />
+
+        {/* V1.2-G4.3 §D: the Voice is a secondary, optional control directly under
+            the Focus. Same disclosure level, same quiet presence — it must never
+            look like a required step before the text can be written. */}
+        {canChangeVoice ? <ArticleStyleBlock article={article} /> : null}
 
         <section className={styles.content} aria-labelledby="article-content-heading">
           <div className={styles.contentHeader}>
@@ -338,6 +355,12 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
             <p className={styles.noWarnings}>Няма твърдения, които изискват проверка.</p>
           ) : null}
         </section>
+
+        {/* V1.2-G4.3 §E: `Пренапиши` closes the natural writing loop. It is offered
+            on a real Draft and nowhere else — there is nothing to rewrite in
+            `Подготовка`, and a `Готова` article is reopened through the existing
+            `Редактирай` decision instead. */}
+        {canRewrite ? <RewriteBlock article={article} /> : null}
       </section>
 
       {/* §17/§19: the factual support rail — collapsible, and rendered only when

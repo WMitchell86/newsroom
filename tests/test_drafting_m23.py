@@ -22,7 +22,11 @@ from editor_assistant.drafting.evidence import (
     write_packets,
 )
 from editor_assistant.drafting.generate import draft_id_for, make_lineage
-from editor_assistant.drafting.prompt import PROMPT_VERSION, SECTIONS, build_prompt
+from editor_assistant.drafting.prompt import (
+    PROMPT_VERSION,
+    build_prompt,
+    rendered_sections,
+)
 from editor_assistant.drafting.retrieval import (
     StyleRetrievalError,
     retrieve_examples,
@@ -116,10 +120,15 @@ def test_prompt_keeps_evidence_and_style_sections_separate():
         style_examples=records,
     )
     assert prompt["prompt_version"] == PROMPT_VERSION
-    assert prompt["sections"] == list(SECTIONS)
+    # V1.2-G4.3: a FIRST Draft renders no editor comment, so EDITOR_COMMENT is
+    # absent from the text. The assertion follows the rendered set - the
+    # invariant is that the text and the reported section list agree, and that
+    # a rewrite (which does carry a comment) renders exactly one more section.
+    assert prompt["sections"] == list(rendered_sections(""))
+    assert "EDITOR_COMMENT" not in prompt["sections"]
     text = prompt["text"]
     parts = {}
-    for name in SECTIONS:
+    for name in prompt["sections"]:
         header = f"===== {name} ====="
         start = text.index(header)
         body_from = start + len(header)

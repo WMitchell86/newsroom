@@ -31,6 +31,12 @@ The visual system must preserve:
 - Exactly five primary areas.
 - `История` remains what is happening; `Статия` remains newsroom production.
 - Exactly three editor-facing Article states: `Подготовка / Чернова / Готова`.
+- **V1.2-G4.3:** `Чернова` is work in progress; `Готова` is the stronger
+  editorial verification boundary. Warnings never create a state.
+- **V1.2-G4.3:** the Focus is a quiet, collapsible block; the optional style
+  (`Стил`) is a progressive disclosure beside it; `Пренапиши` is a labelled
+  comment field plus one action, below the text. None of them is a wizard step,
+  and none uses model or provider terminology.
 - Frozen editor vocabulary and actions.
 - `Днес` remains a derived attention view and owns no state.
 - Publications have no independent editor-facing review lifecycle.

@@ -368,10 +368,11 @@ def test_start_article_creates_canonical_preparation_article_and_retry_is_idempo
         "draftFailure": None,
         "availableActions": ["CHANGE_FOCUS", "RESEARCH_MORE"],
     }
-    # §D2: the alternatives are real, Story-specific sentences — never the old
-    # generic placeholder, and never empty here.
-    assert len(article["preparation"]["focusAlternatives"]) >= 2
-    assert all("Развитие Б" in option for option in article["preparation"]["focusAlternatives"])
+    # V1.2-G4.3 §C3: there are no Focus alternatives any more. The projection
+    # still carries the field (so the API shape is unchanged) and it is empty -
+    # the deterministic variants were templates rather than real choices, and the
+    # approved contract is that zero alternatives is acceptable.
+    assert article["preparation"]["focusAlternatives"] == []
     serialized = json.dumps(article, ensure_ascii=False)
     assert not any(
         value in serialized for value in ("Case", "Idea", "idea_id", "case_id", "draft_id")

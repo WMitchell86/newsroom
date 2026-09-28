@@ -109,15 +109,20 @@ describe("V1.2-G3 §35 — Preparation is a launchpad, not a form", () => {
     expect(screen.getByRole("button", { name: "Направи чернова" })).toBeEnabled();
   });
 
-  it("shows the backend's alternatives and saves an adopted one in one click", async () => {
-    // §11: one click replaces AND saves. There is no second confirm step.
+  it("offers no generic Focus alternatives and saves an edited Focus directly", async () => {
+    // V1.2-G4.3 §C3: the deterministic alternatives are gone. They were templates
+    // that could sit on any story in the desk, so the page now offers no chip at
+    // all and the editable field IS the whole interaction.
+    //
+    // The contract this pins: no alternative chip is rendered, and typing a Focus
+    // saves it through the one canonical Focus write.
     const article = eligiblePreparation();
-    const alternative = article.preparation!.focusAlternatives[0]!;
+    const edited = "Ремонтът започва през октомври, но точната дата още не е обявена.";
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "PUT" && url.endsWith("/focus")) {
         return dataResponse({
           ...article,
-          editorialFocus: { text: alternative, confirmedAt: "2026-09-25T11:10:00Z" },
+          editorialFocus: { text: edited, confirmedAt: "2026-09-25T11:10:00Z" },
         });
       }
       return dataResponse(article);
@@ -126,7 +131,15 @@ describe("V1.2-G3 §35 — Preparation is a launchpad, not a form", () => {
     renderWithProviders(articleRoute(), { initialEntries: [`/articles/${article.id}`] });
     const focus = await screen.findByRole("textbox", { name: "Редакционен фокус" });
 
-    await user.click(screen.getByRole("button", { name: alternative }));
+    // No alternative chip and no "write your own" affordance is offered.
+    expect(document.querySelector("[data-focus-alternative]")).toBeNull();
+    expect(document.querySelector("[data-focus-own]")).toBeNull();
+
+    await user.clear(focus);
+    await user.type(focus, edited);
+    // The Focus is committed on blur, exactly as a real editor leaving the field
+    // would trigger it - there is no Save button anywhere on this page.
+    await user.tab();
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       `/api/v1/articles/${article.id}/focus`,
@@ -135,10 +148,8 @@ describe("V1.2-G3 §35 — Preparation is a launchpad, not a form", () => {
     const focusWrites = fetchMock.mock.calls.filter(
       ([url, init]) => url.endsWith("/focus") && init?.method === "PUT",
     );
-    // Exactly ONE save: the click is the save.
+    // Exactly ONE save: leaving the field is the save.
     expect(focusWrites).toHaveLength(1);
-    expect(await screen.findByRole("textbox", { name: "Редакционен фокус" })).toHaveValue(alternative);
-    expect(focus).toBeInTheDocument();
   });
 
   it("keeps the Focus freely editable and treats an empty one as the current blocker", async () => {
@@ -210,8 +221,13 @@ describe("V1.2-G3 §36 — the Draft is the centre of the screen", () => {
     renderArticle(activeDraftArticle);
 
     expect(await screen.findByRole("textbox", { name: "Текст на статията" })).toBeInTheDocument();
-    expect(document.querySelectorAll("textarea")).toHaveLength(1);
+    // §13: still exactly ONE *body* textarea. V1.2-G4.3 adds the `Пренапиши`
+    // comment field, so the count is asserted by role+id rather than by raw
+    // <textarea>: the invariant that matters is one editable ARTICLE BODY, not
+    // one textarea on the page.
     expect(document.querySelectorAll("#article-working-body")).toHaveLength(1);
+    // The rewrite comment is a distinct, separately labelled control.
+    expect(document.querySelectorAll("#article-rewrite-comment")).toHaveLength(1);
     // The labelled control is the one the label points at — no orphan.
     expect(document.querySelector('label[for="article-working-body"]')).not.toBeNull();
     const ids = Array.from(document.querySelectorAll("[id]")).map((node) => node.id);

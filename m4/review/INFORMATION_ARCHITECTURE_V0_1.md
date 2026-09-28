@@ -78,7 +78,7 @@ editor chooses `Започни статия` from a Story. At creation it has:
 - a link to its Story;
 - a working title;
 - an editorial focus;
-- no current draft until `Направи чернова` creates one.
+- no current draft until `Чернова` creates one.
 
 A Story may have several Articles, but V1 needs no special management UX beyond
 `Статии по тази история`.
@@ -87,16 +87,31 @@ V1 has exactly three editor-understandable Article states:
 
 | State | Meaning |
 |---|---|
-| **Подготовка** | Information is still being collected and/or the editorial focus is being determined. |
+| **Подготовка** | The Article exists; the text has not been written yet. |
 | **Чернова** | Text exists and is being edited. |
 | **Готова** | The editor considers the text ready to finalize. |
+
+**V1.2-G4.3 — Draft vs Ready.** `Чернова` is work in progress and `Готова`
+is a stronger editorial verification boundary. Open questions, incomplete
+corroboration and a single unconfirmed source normally **warn** a Draft; they
+may **block** `Готова`. A warning never creates an Article state.
 
 `Какво липсва` and `Редакционен фокус` are content or next-step information
 inside `Подготовка`; they are not Article states. The state names are not
 navigation destinations.
 
-Primary actions are `Избери фокус / Промени фокуса`, `Проучи още`,
-`Направи чернова`, `Редактирай`, `Отбележи като готова`, and `Финализирай`.
+Primary actions are `Промени фокуса`, `Чернова`, `Промени стил`,
+`Пренапиши`, `Проучи още`, `Отбележи като готова`, and `Финализирай`.
+
+`Проучи още` remains an explicit deeper-research action. It is **not** a
+prerequisite for a Draft.
+
+`Редакционен фокус` is editorial guidance, not a permission gate: every Draft
+has a deterministic default Focus, it is always editable, and there is no
+confirmation step and no generic alternative chips.
+
+`Стил` is a secondary, optional editorial control. It is never a workflow step,
+its default is `Автоматично`, and it affects the next Draft or `Пренапиши` only.
 
 The editor continues to experience one workflow. Backend terms such as Idea,
 EvidencePacket, Prepared, Case, mode, and voice are not normal editor nouns or
