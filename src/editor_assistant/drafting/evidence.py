@@ -215,6 +215,84 @@ def classify_scope(text):
     return "current_event"
 
 
+#: V1.2-G4.19. The marker the editor sees when the packet's own two halves
+#: describe different articles. Measured: a Story titled «Бургас влиза в новия
+#: Източен район» was packed with the URL and body of a completely unrelated
+#: ЦИК piece about voting machines, and the model drafted the ЦИК text under
+#: the park's headline. The owner chose to CONTINUE and be told, rather than
+#: refuse — a feed that rewords a headline is normal, and refusing every such
+#: case would block real work. So it is marked, loudly, in both places that
+#: matter: the packet the model reads, and the Article screen the editor reads.
+IDENTITY_MISMATCH_MARKER = "⚠ ЗАГЛАВИЕТО И ТЕКСТЪТ НЕ СЪВПАДАТ"
+
+#: Cheap, deterministic identity signals. Deliberately conservative: a
+#: disagreement only COUNTS when the two sides have enough to compare, so a
+#: short body or a long headline can never manufacture a warning.
+_IDENTITY_STOPWORDS = {
+    "по", "на", "с", "за", "от", "при", "и", "в", "да", "се", "не", "ще",
+    "а", "но", "че", "как", "вече", "още", "също", "така", "този", "това",
+}
+
+
+def _proper_nouns(text: str) -> set:
+    """Capitalised words that are not simply the first word of a sentence.
+
+    A headline's own proper nouns — the place, the institution, the company —
+    are the part a rewording feed KEEPS. That is what makes them usable here:
+    a headline reworded from "ЦИК започна проверката" to "ЦИК започна
+    проверката на машините" still says ЦИК, so the check stays silent. The
+    measured corruption replaced "Бургас / Източен район" with a story that
+    never says either, and that is the case worth stopping the editor for.
+    """
+    found = set()
+    for sentence in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        for word in re.findall(r"[^\W\d_]{3,}", sentence):
+            # The first word is included deliberately: a Bulgarian headline is
+            # usually one sentence, and its place or institution sits exactly
+            # there. Dropping it is what hid «Бургас» in the measured case.
+            if word[0].isupper():
+                # Both spellings: matching is case-folded, the message shows the
+                # editor the name as the headline wrote it.
+                found.add((word, word.casefold()))
+    return found
+
+
+def annotate_source_identity_conflict(packet):
+    """Mark a packet whose headline and body describe different articles.
+
+    The number-conflict annotator above catches one narrow symptom: a figure in
+    the headline that the body never mentions. This catches the general case
+    the real failure was — every figure could be internally consistent and the
+    two halves still belonged to different stories, because NOTHING compared
+    them. The model then wrote the ЦИК text under the park's headline, and the
+    park's actual content never reached it at all.
+
+    It fires only when the headline names something the body never says. A
+    reworded headline keeps its proper nouns and stays silent, and a body too
+    short to compare is left alone. Refusing nothing and marking is the
+    owner's explicit choice: a feed that lightly rewords a headline is normal,
+    and refusing every such case would block real work.
+    """
+    named = _proper_nouns(packet.get("source_headline"))
+    body = (packet.get("source_text") or "").casefold()
+    if not named or len(body) < 120:
+        return False
+    missing = {word for word, folded in named if folded not in body}
+    # One unseen name is normal; every one of them is a different story.
+    if len(missing) < 2 or len(missing) < len(named):
+        return False
+    unknowns = list(packet.get("unknowns") or [])
+    note = (
+        f"{IDENTITY_MISMATCH_MARKER}: заглавието и текстът изглеждат като за "
+        f"различни материали — в текста няма: {', '.join(sorted(missing)[:5])}. "
+        f"Провери източника преди публикуване."
+    )
+    if note in unknowns:
+        return True
+    packet["unknowns"] = unknowns + [note]
+    return True
+
+
 def build_packet_from_record(record, *, evidence_id, observed_at, max_facts=14):
     """Deterministic packet builder from an extracted ArticleRecord.
 

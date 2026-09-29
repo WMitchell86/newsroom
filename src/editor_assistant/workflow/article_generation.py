@@ -412,6 +412,11 @@ def build_packet(snapshot: dict, evidence_id: str) -> dict:
         "source_text": "\n".join(str(fact.get("text") or "") for fact in facts),
     }
     evidence_mod.annotate_headline_number_conflicts(packet)
+    # V1.2-G4.19: also mark a packet whose headline and body are about different
+    # articles. The number check above cannot see this — both halves can be
+    # internally consistent and still be different stories, which is exactly
+    # what happened.
+    evidence_mod.annotate_source_identity_conflict(packet)
     evidence_mod.validate_packet(packet)
     return packet
 
