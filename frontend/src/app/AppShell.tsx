@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getOperations } from "../api/client";
+import type { OperationSummary } from "../api/dto";
 import { SidebarCategories, categoryRailHint } from "./SidebarCategories";
 import styles from "./AppShell.module.css";
 
@@ -141,22 +142,116 @@ export function RouteOutlet() {
  * It shows only unfinished work, and only when there is some. A permanent
  * "0 running" badge trains the eye to skip the one place status is shown.
  */
-function ActivityStrip() {
-  const operations = useQuery({
-    queryKey: ["operations"],
-    queryFn: getOperations,
-    refetchInterval: 3_000,
-    retry: false,
-  });
-  // Defensive on purpose. This strip lives in the SHELL, above every page, so
-  // a shape it did not expect would take the whole application down with it —
-  // a status line must never be able to break the product it reports on. The
-  // first version called `.filter` on the response and a `{}` from one failed
-  // poll unmounted the editor's entire desk.
-  const rows = operations.data?.operations;
-  const active = Array.isArray(rows)
-    ? rows.filter((op) => op.status === "running" || op.status === "pending")
-    : [];
+/**
+ * V1.2-G4.12 — "it is ready", even if you never opened the page.
+ *
+ * The G4.11 strip answers "is anything happening". It cannot answer "is it
+ * done", and that is the question an editor actually has after pressing a
+ * button and walking away: they went to Stories, and the only way to learn
+ * the draft had landed was to go back and look.
+ *
+ * Two deliberate constraints:
+ *
+ * - **Only a transition, never a backlog.** Work that finished before this
+ *   page opened produces nothing. A page that greets you with "3 drafts ready"
+ *   from last night is a backlog, not a notification — the editor has a list.
+ * - **Only while you are elsewhere.** The moment the editor is on the Article,
+ *   the Article page shows its own state; announcing it there would be
+ *   announcing news they are looking straight at.
+ */
+interface ReadyNotice {
+  token: string;
+  href: string;
+  label: string;
+}
+
+/** Where a finished operation actually lives, derived from its own scope id. */
+function destinationFor(storyId: string): { href: string; label: string } | null {
+  const draft = /^article-draft:(art_[a-z0-9]+(?:_[0-9]+)?)$/.exec(storyId);
+  if (draft?.[1]) return { href: `/articles/${draft[1]}`, label: "Черновата е готова" };
+  if (storyId === "today-refresh") return { href: "/", label: "Новините са обновени" };
+  if (/^s[a-zA-Z0-9_-]+$/.test(storyId)) {
+    return { href: `/stories/${storyId}`, label: "Историята е готова" };
+  }
+  return null;
+}
+
+function useReadyNotices(rows: unknown, pathname: string) {
+  const seenRunning = useRef<Set<string>>(new Set());
+  const dismissed = useRef<Set<string>>(new Set());
+  const [notices, setNotices] = useState<ReadyNotice[]>([]);
+  const list = Array.isArray(rows) ? rows : [];
+
+  useEffect(() => {
+    for (const op of list) {
+      if (op.status === "running" || op.status === "pending") {
+        seenRunning.current.add(op.operationToken);
+      }
+    }
+    setNotices((prev) => {
+      const known = new Set(prev.map((n) => n.token));
+      const fresh: ReadyNotice[] = [];
+      for (const op of list) {
+        if (op.status !== "succeeded") continue;
+        if (!seenRunning.current.has(op.operationToken)) continue;
+        if (dismissed.current.has(op.operationToken)) continue;
+        if (known.has(op.operationToken)) continue;
+        const where = destinationFor(op.storyId);
+        if (!where) continue;
+        known.add(op.operationToken);
+        fresh.push({ token: op.operationToken, ...where });
+      }
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+  }, [list]);
+
+  const dismiss = (token: string) => {
+    // Remembered beyond the click: the operation is still `succeeded` on every
+    // poll, so without this it would come straight back.
+    dismissed.current.add(token);
+    setNotices((prev) => prev.filter((n) => n.token !== token));
+  };
+
+  return { notices: notices.filter((n) => n.href !== pathname), dismiss };
+}
+
+function ReadyBanner({
+  notices,
+  onDismiss,
+}: {
+  notices: ReadyNotice[];
+  onDismiss: (token: string) => void;
+}) {
+  if (!notices.length) return null;
+  return (
+    <div className={styles.ready ?? ""} role="status" data-ready="yes">
+      <span className={styles.readyDot ?? ""} aria-hidden="true" />
+      <ul className={styles.readyList ?? ""}>
+        {notices.map((n) => (
+          <li key={n.token} className={styles.readyItem ?? ""}>
+            <Link
+              className={styles.readyLink ?? ""}
+              to={n.href}
+              onClick={() => onDismiss(n.token)}
+            >
+              {n.label}
+            </Link>
+            <button
+              className={styles.readyDismiss ?? ""}
+              type="button"
+              aria-label={`Скрий: ${n.label}`}
+              onClick={() => onDismiss(n.token)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ActivityStrip({ active }: { active: OperationSummary[] }) {
   if (!active.length) return null;
   return (
     <div className={styles.activity ?? ""} role="status" data-activity="active">
@@ -172,12 +267,37 @@ function ActivityStrip() {
   );
 }
 
+/** One poll, two surfaces: what is running, and what just finished. */
+function ShellActivity() {
+  const location = useLocation();
+  const operations = useQuery({
+    queryKey: ["operations"],
+    queryFn: getOperations,
+    refetchInterval: 3_000,
+    retry: false,
+  });
+  // Defensive on purpose, and it belongs HERE: this lives in the shell above
+  // every page, so a shape it did not expect would take the whole application
+  // down. The first version called `.filter` on a `{}` and unmounted the
+  // editor's entire desk. Anything unrecognised is "nothing running".
+  const rows = operations.data?.operations;
+  const list = Array.isArray(rows) ? rows : [];
+  const active = list.filter((op) => op.status === "running" || op.status === "pending");
+  const { notices, dismiss } = useReadyNotices(rows, location.pathname);
+  return (
+    <>
+      <ReadyBanner notices={notices} onDismiss={dismiss} />
+      <ActivityStrip active={active} />
+    </>
+  );
+}
+
 export function AppShell() {
   return (
     <div className={styles.shell}>
       <Sidebar />
       <main className={styles.main}>
-        <ActivityStrip />
+        <ShellActivity />
         <RouteOutlet />
       </main>
     </div>

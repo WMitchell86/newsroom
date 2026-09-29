@@ -28,12 +28,19 @@ function routes() {
         <Route path="/" element={<TodayPage />} />
         <Route path="/stories" element={<p>РАЗДЕЛ ИСТОРИИ</p>} />
         <Route path="/articles" element={<p>РАЗДЕЛ СТАТИИ</p>} />
+        <Route path="/articles/:articleId" element={<p>СТАТИЯ</p>} />
+        <Route path="/operations" element={<p>ЛОГ</p>} />
       </Route>
     </Routes>
   );
 }
 
 beforeEach(() => {
+  // The remembered Today view lives in sessionStorage by design, so it leaks
+  // between tests unless cleared. A test that inherits another test's desk is
+  // not testing this one, and it fails only in a full run, which is the worst
+  // possible moment to discover that.
+  window.sessionStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
@@ -61,10 +68,11 @@ describe("state survives navigation", () => {
     await screen.findByText("РАЗДЕЛ СТАТИИ");
     await user.click(screen.getByRole("link", { name: "Днес" }));
 
-    // The desk must come back exactly as it was left.
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^Нови/ })).toHaveAttribute("aria-pressed", "true"),
-    );
+    // The desk must come back exactly as it was left. `findBy*` rather than
+    // `waitFor(getBy*)`: the earlier version could observe a button mid-render,
+    // before its label was attached, and fail intermittently in a full run.
+    const restored = await screen.findByRole("button", { name: /^Нови/ });
+    expect(restored).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText(/Сортирай/)).toHaveValue("publishers");
   });
 
@@ -181,4 +189,113 @@ describe("the status line cannot break the product", () => {
     renderWithProviders(routes(), { initialEntries: ["/"] });
     await screen.findByRole("button", { name: /^Всички/ });
   });
+});
+
+/**
+ * V1.2-G4.12 — "tell me when it is ready", from wherever the editor is.
+ *
+ * The strip from G4.11 answers "is anything happening". The question an editor
+ * actually has after pressing a button and walking away is "is it done", and
+ * the only way to learn it was to go back and look.
+ */
+describe("ready notice", () => {
+  function op(status: string, storyId = "article-draft:art_7ecf") {
+    return { operationToken: "op_1", storyId, status, errorCode: "", error: "" };
+  }
+
+  it("announces a draft that finished while the editor was on another page", async () => {
+    let phase = 0;
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) return data(todayProjection);
+      if (s.includes("/operations")) return data({ operations: [op(phase ? "succeeded" : "running")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/stories"] });
+    // While it runs, the strip says so and there is nothing to announce yet.
+    expect(await screen.findByText(/В момента върви/)).toBeInTheDocument();
+    expect(screen.queryByText("Черновата е готова")).toBeNull();
+
+    phase = 1;
+    await waitFor(() => expect(screen.getByText("Черновата е готова")).toBeInTheDocument(), {
+      timeout: 6000,
+    });
+    // And it takes the editor straight to the finished work.
+    expect(screen.getByRole("link", { name: "Черновата е готова" })).toHaveAttribute(
+      "href",
+      "/articles/art_7ecf",
+    );
+  }, 12_000);
+
+  it("does not announce work that was already finished before the page opened", async () => {
+    // A page that greets you with yesterday's finished drafts is a backlog,
+    // not a notification. The Articles list is the backlog.
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) return data(todayProjection);
+      if (s.includes("/operations")) return data({ operations: [op("succeeded")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/stories"] });
+    await screen.findByText("РАЗДЕЛ ИСТОРИИ");
+    expect(screen.queryByText("Черновата е готова")).toBeNull();
+  }, 12_000);
+
+  it("does not shout about a draft on the page the editor is already reading", async () => {
+    let phase = 0;
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) return data(todayProjection);
+      if (s.includes("/operations")) return data({ operations: [op(phase ? "succeeded" : "running")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/articles/art_7ecf"] });
+    await screen.findByText(/В момента върви/);
+    phase = 1;
+    // The Article page shows its own state; announcing it there is noise.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.queryByText("Черновата е готова")).toBeNull();
+  }, 12_000);
+
+  it("announces a finished refresh, which belongs to no single page", async () => {
+    let phase = 0;
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) return data(todayProjection);
+      if (s.includes("/operations"))
+        return data({ operations: [op(phase ? "succeeded" : "running", "today-refresh")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/stories"] });
+    await screen.findByText(/В момента върви/);
+    phase = 1;
+    await waitFor(() => expect(screen.getByText("Новините са обновени")).toBeInTheDocument(), {
+      timeout: 6000,
+    });
+  }, 12_000);
+
+  it("can be dismissed and does not come back on the next poll", async () => {
+    let phase = 0;
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) return data(todayProjection);
+      if (s.includes("/operations")) return data({ operations: [op(phase ? "succeeded" : "running")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/stories"] });
+    await screen.findByText(/В момента върви/);
+    phase = 1;
+    // The poll is every 3s, so the default 1s findBy timeout is not enough.
+    await waitFor(() => expect(screen.getByText("Черновата е готова")).toBeInTheDocument(), {
+      timeout: 6000,
+    });
+    await user.click(screen.getByRole("button", { name: /Скрий/ }));
+    expect(screen.queryByText("Черновата е готова")).toBeNull();
+  }, 12_000);
 });
