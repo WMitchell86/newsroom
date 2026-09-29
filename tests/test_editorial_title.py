@@ -362,6 +362,10 @@ def test_today_row_title_matches_the_story_it_opens(newsroom, monkeypatch):
             "label": "Чернова",
             "articleId": None,
             "reasonCode": None,
+            # V1.2-G4.6: the row carries the server's own in-flight and
+            # last-attempt state, so the stub of that contract must too.
+            "inFlight": False,
+            "lastAttempt": None,
         },
     )
     story = app._story("s-one")
