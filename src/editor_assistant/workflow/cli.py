@@ -972,6 +972,14 @@ def cmd_newsroom(args):
     if args.action == "refresh":
         _run_newsroom_refresh(args)
         return
+    if args.action == "doctor":
+        report, code = newsroom_doctor()
+        print(report)
+        raise SystemExit(code)
+    if args.action == "repair":
+        report, code = newsroom_repair()
+        print(report)
+        raise SystemExit(code)
     if args.action == "models":
         _run_newsroom_models(args)
         return
@@ -1312,6 +1320,291 @@ def _run_newsroom_refresh(args):
         raise SystemExit(1)
 
 
+#: What each role's safe-degradation contract means to the editor, in words.
+#: These are the outcomes that were measured, not hypotheticals: a role with no
+#: eligible route does not fail loudly, it quietly does less, and the operator
+#: has to be told which kind of "less".
+_ON_EXHAUSTED_PLAIN = {
+    "fail_visible": "черновата се проваля видимо",
+    "review_required": "изисква човешка проверка",
+    "degraded": "работи с намалено качество",
+    "conservative": "слива само при пълна сигурност",
+    "deterministic": "само детерминистично, без модел",
+    "cheap_only": "само евтини маршрути",
+    "distinguish_zero": "връща резултат или нищо",
+}
+
+
+def newsroom_doctor(*, last_run_path=None) -> tuple[str, int]:
+    """One screen that answers "is the newsroom actually working right now?".
+
+    V1.2-G4.5. An honest correction about why this exists, because the first
+    version of this docstring overclaimed. The 2026-09-28 outage - every `story`
+    route marked EXHAUSTED, so two publishers covering one event were never
+    merged - was NOT entirely silent: `GroupingHealthNotice` on the Today
+    screen renders any non-healthy status, and that run carries
+    `status: "unavailable"`, so the editor saw a grouping warning. The real gaps
+    were narrower and are what this answers: no per-route health anywhere in the
+    product, no connection between the warning and its cause, and nothing that
+    names the ONE command that fixes it (`newsroom models validate`, which
+    clears a mark on every route that still validates).
+
+    It reads the plan the router would actually follow - no provider call, no
+    spend - plus the last collection record.
+
+    Returns the report and an exit code: 0 healthy, 1 something is wrong.
+    """
+    from editor_assistant.drafting import model_policy as policy_mod
+    from editor_assistant.drafting import model_router as router
+    from editor_assistant.workflow import source_health
+
+    policy = policy_mod.load_policy()
+    lines = ["СЪСТОЯНИЕ НА НОВОСТНИЯ ОФИС", "=" * 44, ""]
+
+    dead_roles = []
+    lines.append("МОДЕЛНИ МАРШРУТИ")
+    for role in sorted(policy.get("roles") or {}):
+        plan = router.plan_routes(role, policy=policy, payload_class="public")
+        routes = plan.get("routes") or []
+        eligible = [r for r in routes if r.get("eligible")]
+        mark = "✓" if eligible else "✗"
+        lines.append(f"  {mark} {role:9s} {len(eligible)}/{len(routes)} достъпни")
+        if not eligible:
+            dead_roles.append((role, plan.get("on_exhausted") or ""))
+            for row in routes[:4]:
+                why = row.get("reason") or "няма причина"
+                lines.append(f"      - {row.get('model')}: {str(why)[:90]}")
+
+    lines.append("")
+    lines.append("ВЪЗРАСТ НА ДАННИТЕ")
+    stale = False
+    # Deliberately NOT a broad except. An earlier version caught TypeError here
+    # and reported "the newsroom has never collected" when the real cause was
+    # that this function was called with the wrong argument - i.e. a bug in this
+    # file would have printed a confident false statement about the operator's
+    # system, which is the one thing this whole command exists to prevent.
+    last = source_health.read_last_run(path=last_run_path) or {}
+    finished = str(last.get("finished_at") or "")
+    if finished:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            when = _dt.strptime(finished, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_tz.utc)
+            hours = (_dt.now(_tz.utc) - when).total_seconds() / 3600
+            fresh = f"преди {hours:.0f}ч ({finished})"
+            if hours > 3:
+                stale = True
+        except ValueError:
+            fresh = f"нечетливо: {finished}"
+    else:
+        fresh = "НЯМА ЗАПИС — newsroom-ът не е събирал"
+        stale = True
+    lines.append(f"  последно събиране: {fresh}")
+
+    grouping = last.get("grouping") or {}
+    degraded = int(grouping.get("semanticDegraded") or 0)
+    if degraded:
+        lines.append(
+            f"  семантично групиране: {degraded} класификации НЕ са завършени"
+        )
+        if not grouping.get("lastSuccessfulSemanticClassificationAt"):
+            lines.append("    (не е работило нито веднъж)")
+    elif grouping:
+        lines.append(
+            f"  семантично групиране: {grouping.get('semanticAnswered', 0)}/"
+            f"{grouping.get('semanticRequired', 0)} класифицирани"
+        )
+
+    lines.append("")
+    schedule = cron_status()
+    if not schedule["readable"]:
+        lines.append("РАЗПИС: не можа да прочета crontab — не твърдя, че е наличен.")
+    elif schedule["missing"]:
+        lines.append(
+            "РАЗПИС: липсва " + ", ".join(schedule["missing"]) + " — бюрото не се обновява."
+        )
+    else:
+        lines.append(f"РАЗПИС: на място ({len(schedule['present'])} задачи).")
+
+    lines.append("")
+    problems = bool(dead_roles) or stale or bool(schedule["missing"])
+    if dead_roles:
+        for role, contract in dead_roles:
+            plain = _ON_EXHAUSTED_PLAIN.get(contract, contract or "неизвестно")
+            lines.append(
+                f"ПРОБЛЕМ: ролята „{role}“ няма достъпен маршрут → {plain}."
+            )
+    if stale:
+        lines.append("ПРОБЛЕМ: бюрото не е събирало скоро — новите истории са в очакване.")
+
+    if problems:
+        lines.append("")
+        lines.append("ПЪРВА ПОДХОД: newsroom models validate")
+        lines.append(
+            "  проверява всеки модел срещу живите каталози и ИЗЧИСТВА грешна "
+            "маркировка за всеки валиден маршрут."
+        )
+    else:
+        lines.append("Всички роли имат достъпен маршрут и данните са пресни.")
+
+    _record_doctor_status(
+        {
+            "ok": not problems,
+            "unroutableRoles": [role for role, _ in dead_roles],
+            "stale": stale,
+            "cronMissing": schedule["missing"],
+            "groupingDegraded": degraded,
+        }
+    )
+    return "\n".join(lines), (1 if problems else 0)
+
+
+def _record_doctor_status(record: dict) -> None:
+    """Keep the LAST verdict on disk, so status is history and not a snapshot.
+
+    V1.2-G4.5. A status recomputed on demand is only as good as the moment
+    someone remembers to look. The record is what lets the product say "healthy
+    for 6 hours" or "last checked 40 minutes ago", and it is what makes a silent
+    regression visible afterwards instead of only during the run that caught it.
+
+    Best effort by design: a health check must never fail because it could not
+    write its own log.
+    """
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "var" / "doctor_status.json"
+    payload = {**record, "checkedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    previous = {}
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        previous = {}
+    if previous.get("ok") and not record.get("ok"):
+        payload["sinceHealthyAt"] = previous.get("sinceHealthyAt") or previous.get("checkedAt")
+    elif record.get("ok"):
+        payload["sinceHealthyAt"] = previous.get("sinceHealthyAt") or payload["checkedAt"]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def newsroom_repair(*, timeout: int = 20) -> tuple[str, int]:
+    """Self-check AND self-repair, for the one failure that must not persist.
+
+    V1.2-G4.5. On 2026-09-28 every route of the `story` role was marked
+    EXHAUSTED, and that state was WRONG: all seven models were present in their
+    provider catalogues the whole time. The newsroom went a day unable to merge
+    two publishers covering one event, and the only recovery - `newsroom models
+    validate`, which clears a mark on every route that still exists - had to be
+    discovered by hand.
+
+    So the check runs itself. The safety rule that matters: **this acts only
+    when a role has NO routable path at all.** Then trying its routes is strictly
+    better than trying none, and a real exhaustion simply re-marks itself on the
+    next call. It never clears a mark while the system can still work, so it
+    cannot paper over a genuine quota being spent.
+
+    Returns the report and an exit code: 0 nothing needed repair or repair
+    succeeded, 1 something is still unroutable.
+    """
+    from editor_assistant.drafting import model_catalog, model_policy, model_router
+
+    policy = model_policy.load_policy()
+    blocked = []
+    for role in sorted(policy.get("roles") or {}):
+        plan = model_router.plan_routes(role, policy=policy, payload_class="public")
+        if not [r for r in (plan.get("routes") or []) if r.get("eligible")]:
+            blocked.append(role)
+
+    lines = ["САМОПОЧИСТВАНЕ НА СЪСТОЯНИЕТО", "=" * 40, ""]
+    if not blocked:
+        lines.append("Всички роли имат поне един достъпен маршрут — нищо не се прави.")
+        lines.append("(Правило: пипа се само при роля БЕЗ достъпен маршрут.)")
+        return "\n".join(lines), 0
+
+    lines.append(
+        "Роли без достъпен маршрут: " + ", ".join(blocked) + " — проверявам каталозите."
+    )
+    report = model_catalog.validate_policy_models(policy, timeout=timeout)
+    cleared, still_missing = [], []
+    for row in report.get("rows") or []:
+        route = {"provider": row.get("provider"), "model": row.get("model")}
+        role = str(row.get("role") or "")
+        if role in blocked and row.get("status") == model_catalog.STATUS_OK:
+            model_router.clear_route(route)
+            cleared.append(f"{role}: {row.get('model')}")
+        elif role in blocked and row.get("status") == model_catalog.STATUS_INVALID:
+            still_missing.append(f"{role}: {row.get('model')} ({row.get('detail')})")
+
+    lines.append("")
+    if cleared:
+        lines.append(f"ИЗЧИСТЕНИ маркировки ({len(cleared)}) — моделът съществува:")
+        for item in cleared:
+            lines.append(f"  - {item}")
+    if still_missing:
+        lines.append(f"НЕВАЛИДНИ модели ({len(still_missing)}) — премахни ги от политиката:")
+        for item in still_missing:
+            lines.append(f"  - {item}")
+    if not cleared and not still_missing:
+        lines.append("Нито един маршрут не беше с маркировка — няма какво да се чисти.")
+
+    if still_missing:
+        lines.append("")
+        lines.append("ОСТАВА: роля без работещ маршрут. Вземи решение: newsroom models set")
+    return "\n".join(lines), (1 if still_missing else 0)
+
+
+#: V1.2-G4.5. The ONE source of truth for the newsroom's schedule.
+#:
+#: Both `doctor` and the installer read this list, so "what is installed" and
+#: "what should be installed" cannot drift apart — which is the failure every
+#: hand-maintained crontab eventually has. The minute offsets are deliberate:
+#: `repair` and `doctor` must not land on the same minute, and `doctor` runs
+#: after `repair` so it reports the repaired state rather than the broken one.
+#: Collection is every 2 hours, not hourly, because `newsroom_run` treats a lock
+#: as stale after LOCK_STALE_SECONDS = 3600 and an hourly schedule collides with
+#: exactly that window.
+NEWSROOM_CRONS = (
+    ("13,43 * * * *", "newsroom repair"),
+    ("17 */2 * * *", "newsroom refresh"),
+    ("47 * * * *", "newsroom doctor"),
+    ("41 6 * * *", "newsroom models validate"),
+)
+
+CRON_ENTRY = "/home/test/media/scripts/newsroom_cron.sh"
+
+
+def cron_status() -> dict:
+    """Is the newsroom's own schedule actually installed?
+
+    V1.2-G4.5. A crontab that was never installed, or lost to a reinstall, is
+    the quietest kind of breakage: the newsroom simply stops updating and every
+    number still looks plausible. `doctor` therefore checks its own schedule,
+    and reports a missing job rather than assuming it.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=10, check=False
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        # Cannot tell is not the same as "absent". Saying "missing" here would
+        # be exactly the confident wrong sentence this command exists to avoid.
+        return {"readable": False, "missing": [], "present": []}
+
+    missing, present = [], []
+    for schedule, command in NEWSROOM_CRONS:
+        line = f"{schedule} {CRON_ENTRY} {command}"
+        (present if line in out else missing).append(command)
+    return {"readable": True, "missing": missing, "present": present}
+
+
 def render_refresh_summary(collect, stories, story_error):
     """The editor-facing one-shot summary (PART 11)."""
     lines = []
@@ -1329,6 +1622,44 @@ def render_refresh_summary(collect, stories, story_error):
             f"{stories['deterministic_matches'] + stories['semantic_matches'] + stories['exact_duplicates']}"
         )
         lines.append(f"за преглед: {stories['needs_review']}")
+    # V1.2-G4.5. The console said nothing about the grouping verdict, and a cron
+    # run is read by its log. Correction to what this comment first claimed: the
+    # Today screen was NOT silent about this - `GroupingHealthNotice` renders any
+    # status other than healthy, and the 2026-09-28 run carries
+    # `status: "unavailable"`, so the editor did see "Групирането на истории е
+    # ограничено... (5 публикации)". What was missing is the CAUSE and the way
+    # out: the notice says the symptom, nothing on screen said a model route was
+    # marked EXHAUSTED, and `newsroom doctor` now answers both.
+    grouping = stories.get("grouping")
+    if isinstance(grouping, dict):
+        required = int(grouping.get("semanticRequired") or 0)
+        answered = int(grouping.get("semanticAnswered") or 0)
+        degraded = int(grouping.get("semanticDegraded") or 0)
+        if required:
+            lines.append(
+                f"семантично групиране: {answered}/{required} класифицирани"
+                + (f", {degraded} неочаквани" if degraded else "")
+            )
+        if degraded:
+            unavailable = int(grouping.get("semanticDegradedUnavailable") or 0)
+            out_of_budget = int(grouping.get("semanticDegradedBudgetExhausted") or 0)
+            cause = []
+            if unavailable:
+                cause.append(f"{unavailable} недостъпен модел")
+            if out_of_budget:
+                cause.append(f"{out_of_budget} изчерпан бюджет")
+            lines.append(
+                "  ВНИМАНИЕ: две публикации на едно събитие може да са оставени "
+                "отделни ("
+                + (", ".join(cause) or "причина не е отчетена")
+                + "). Провери: newsroom models status"
+            )
+        last_ok = str(grouping.get("lastSuccessfulSemanticClassificationAt") or "")
+        if degraded and not last_ok:
+            lines.append(
+                "  Семантичното групиране не е работило нито веднъж - всички "
+                "дубликати от различни медии остават отделни."
+            )
     errors = int(collect.get("failed") or 0) + (1 if story_error else 0)
     lines.append(f"грешки: {errors}")
     if story_error:
@@ -1354,6 +1685,14 @@ def _add_newsroom_subcommands(sub):
         "--force", action="store_true", help="ignore cadence (collect even if already done today)"
     )
 
+    actions.add_parser(
+        "doctor",
+        help="one screen: is every role routable and is the desk fresh? (exit 1 if not)",
+    )
+    actions.add_parser(
+        "repair",
+        help="self-check: clear a wrong health mark, but only for a role with no route",
+    )
     stories = actions.add_parser("stories", help="M4C story identity")
     story_actions = stories.add_subparsers(dest="stories_action", required=True)
     upd = story_actions.add_parser("update", help="assign newly collected items to stories")

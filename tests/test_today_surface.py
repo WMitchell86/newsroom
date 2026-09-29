@@ -796,3 +796,48 @@ def test_deriving_today_never_writes_to_any_store(tmp_path):
     stored = story_store.read_store(paths["stories"])["stories"]
     assert {row["story_id"]: row["status"] for row in stored}["s-ancient"] == "NEW"
     assert len(stored) == 41
+
+
+# --------------------------------------------------------------------------
+# V1.2-G4.5 — who said this, and take me there
+# --------------------------------------------------------------------------
+
+
+def test_a_today_row_carries_the_representative_publication_and_its_name(tmp_path):
+    """The editor's first question about a wire row is "who said this?".
+
+    `publisherCount` answers "how many", which names nobody and opens nothing.
+    The row now also carries the representative publication's own URL - the same
+    item the Draft command reads, so the link and the draft are about one page -
+    and the operator's name for that source.
+    """
+    stories = [_story("s-src", changed_at="2026-09-23T09:00:00Z")]
+    result = _today(_seed(tmp_path, stories), now=NOW)
+    row = next(item for item in result["stories"] if item["id"] == "s-src")
+
+    assert row["sourceUrl"].startswith("http")
+    assert row["sourceName"], "a source with a URL always has something to print"
+
+
+def test_the_source_name_prefers_the_operator_registry_over_the_host(tmp_path):
+    """The newsroom's own name for a source beats a bare domain."""
+    from editor_assistant.workflow.editor_queries import _story_source
+
+    url, name = _story_source(
+        {"url": "https://vestnik.bg/a/1", "source_id": "vestnik"},
+        ({"source_id": "vestnik", "name": "Вестник"},),
+    )
+    assert (url, name) == ("https://vestnik.bg/a/1", "Вестник")
+
+    # An unlisted source falls back to its host, which is a fact. Guessing which
+    # company published it would be inventing.
+    _url, name = _story_source({"url": "https://www.dnes.bg/x", "source_id": "other"}, ())
+    assert name == "dnes.bg"
+
+
+def test_a_story_with_no_source_url_invents_nothing(tmp_path):
+    """No URL means no link, and no name either - not a placeholder."""
+    from editor_assistant.workflow.editor_queries import _story_source
+
+    assert _story_source({"url": "", "source_id": "x"}, ()) == ("", "")
+    assert _story_source({}, ({"source_id": "x", "name": "Име"},)) == ("", "")

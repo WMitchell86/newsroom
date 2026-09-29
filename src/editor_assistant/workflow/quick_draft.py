@@ -95,6 +95,18 @@ _ACTIVE: dict[str, str] = {}
 _LOCK = threading.RLock()
 
 
+class GuardBusy(RuntimeError):
+    """Another Quick Draft already owns the in-flight guard for this Story.
+
+    Carries that operation's token so the caller can reattach to it instead of
+    starting a second research round and a second generation.
+    """
+
+    def __init__(self, token: str) -> None:
+        super().__init__(token)
+        self.token = token
+
+
 def scope_for(story_id: str) -> str:
     return f"{SCOPE_PREFIX}{story_id}"
 
@@ -115,7 +127,19 @@ def active_token(story_id: str) -> str:
 
 
 def acquire(story_id: str, token: str) -> None:
+    """Claim the in-flight Quick Draft guard for one Story.
+
+    Returns the live token when another operation already owns the guard so
+    the caller can reattach: blindly overwriting would orphan the first
+    operation (its `release` then no-ops on token inequality while the
+    registry still runs it).
+    """
     with _LOCK:
+        current = _ACTIVE.get(story_id, "")
+        if current and current != token:
+            row = story_operations.get(current)
+            if row is not None and row["status"] in {"pending", "running"}:
+                raise GuardBusy(current)
         _ACTIVE[story_id] = token
 
 

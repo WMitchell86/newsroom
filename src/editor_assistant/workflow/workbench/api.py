@@ -390,6 +390,10 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
     prefix = ["api", "v1"]
     if parts == [*prefix, "today"] and method == "GET":
         return 200, app.read_today(_query_scope(handler))
+    if parts == [*prefix, "health"] and method == "GET":
+        # V1.2-G4.5. The health verdict belongs where the editor works, not only
+        # in a terminal: a pure read, no provider call, no spend.
+        return 200, app.read_health()
     if parts == [*prefix, "today", "refresh"] and method == "POST":
         key = handler.headers.get("Idempotency-Key", "").strip()
         if key and (len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key)):
@@ -532,6 +536,7 @@ def _known_resource_path(parts: list[str]) -> bool:
     if parts in (
         [*prefix, "today"],
         [*prefix, "today", "refresh"],
+        [*prefix, "health"],
         [*prefix, "stories"],
         [*prefix, "articles"],
         [*prefix, "archive"],
