@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   checkResearchStatus,
   createIdempotencyKey,
@@ -72,6 +72,33 @@ export function StoryWorkspace() {
     mutationFn: (observedIds: string[]) => reviewStory(storyId, observedIds),
     onSuccess: refreshProjections,
   });
+
+  // V1.2-G4.15. Arriving from Today means the editor has dealt with this
+  // Story, so the desk stops carrying it. Measured before this: 434 of 445
+  // stories were still `NEW`, so Today looked exactly like the archive and
+  // the editor had to remember to press «Преглед» on every single row.
+  //
+  // It fires ONLY for `?from=today`. The same Story opened from Stories or
+  // from a search is reading, not a decision, and marking it there would
+  // quietly empty the desk behind the editor's back — the one outcome worse
+  // than a desk that never empties.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fromToday = searchParams.get("from") === "today";
+  const autoReviewed = useRef(false);
+  useEffect(() => {
+    if (!fromToday || autoReviewed.current) return;
+    autoReviewed.current = true;
+    review.mutate([], {
+      onSettled: () => {
+        // The marker is consumed: a reload must not re-fire, and a later
+        // refresh of the URL must not look like a fresh arrival from Today.
+        const next = new URLSearchParams(searchParams);
+        next.delete("from");
+        setSearchParams(next, { replace: true });
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromToday]);
   const follow = useMutation({
     mutationFn: () => followStory(storyId),
     onSuccess: refreshProjections,

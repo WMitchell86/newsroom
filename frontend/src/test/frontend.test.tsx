@@ -135,8 +135,16 @@ describe("Today", () => {
     expect(screen.getByRole("heading", { name: "Статии за действие" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Проблеми" })).toBeInTheDocument();
     const storyLinks = screen.getAllByRole("link", { name: storyDetail.title });
-    expect(storyLinks.some((link) => link.getAttribute("href") === `/stories/${storyDetail.id}`)).toBe(true);
+    // V1.2-G4.15: a Story link from Today carries `from=today`, and that
+    // marker is what marks it reviewed on arrival. It is the only thing that
+    // distinguishes "I am dealing with this now" from "I am reading the
+    // archive", so it is asserted rather than tolerated.
+    expect(
+      storyLinks.some((link) => link.getAttribute("href") === `/stories/${storyDetail.id}?from=today`),
+    ).toBe(true);
     const articleLinks = screen.getAllByRole("link", { name: activeDraftArticle.title });
+    // Articles are NOT marked on arrival: the Draft command owns that state,
+    // and opening a draft must not look like a decision about the desk.
     expect(articleLinks.some((link) => link.getAttribute("href") === `/articles/${activeDraftArticle.id}`)).toBe(true);
     expect(screen.getByRole("link", { name: "Липсва потвърждение" })).toHaveAttribute("href", "/settings/sources");
     // The contract is "no MUTATION", not "exactly one call". The absolute count
@@ -426,7 +434,7 @@ describe("Today — D1 cap and ordering", () => {
     const rendered = screen
       .getAllByRole("link", { name: /Поморие/ })
       .map((node) => node.getAttribute("href"));
-    expect(rendered).toEqual(wireOrder.map((item) => `/stories/${item.objectId}`));
+    expect(rendered).toEqual(wireOrder.map((item) => `/stories/${item.objectId}?from=today`));
   });
 
   it("updates the refresh line and counts after a completed refresh", async () => {
@@ -2201,7 +2209,7 @@ describe("Today — D2 fast triage", () => {
     expect(screen.getByRole("button", { name: "Игнорирай" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Прегледай" })).toHaveAttribute(
       "href",
-      `/stories/${storyDetail.id}`,
+      `/stories/${storyDetail.id}?from=today`,
     );
     expect(screen.getByRole("button", { name: "Чернова" })).toBeInTheDocument();
     // §4: the frontend derives nothing. A row the backend withholds the action

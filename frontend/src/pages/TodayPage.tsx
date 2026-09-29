@@ -99,7 +99,13 @@ function StoryCapNotice({ projection }: { projection: TodayProjection }) {
 
 function objectHref(item: TodayAttention): string {
   const base = item.objectType === "story" ? "/stories" : "/articles";
-  return `${base}/${encodeURIComponent(item.objectId)}`;
+  // V1.2-G4.15. A Story opened FROM Today carries `?from=today`, and only
+  // that link marks it reviewed on arrival. The editor chose that this Story
+  // is what they are dealing with now; opening the same Story from the archive
+  // or from a search is reading, not a decision, and must not silently drain
+  // the desk. Articles are untouched — the Draft command has its own state.
+  const marker = item.objectType === "story" ? "?from=today" : "";
+  return `${base}/${encodeURIComponent(item.objectId)}${marker}`;
 }
 
 /** §27: which tier an Article row belongs to, in the editor's own words. */
