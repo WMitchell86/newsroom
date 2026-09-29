@@ -3158,27 +3158,12 @@ def list_stories_page(
             continue
         result.append(dto)
     result.sort(key=lambda row: (row["latestChangeAt"], row["id"]), reverse=True)
-    # The TOTAL is the whole filtered set, not the page. The nav needs it to say
-    # "1–30 of 445" and the pager needs it to know whether a next page exists.
-    list_stories.last_total = len(result)
-    # Only meaningful without a search: typing narrows the list, and a count
-    # taken from the unfiltered corpus next to a filtered result is a lie.
-    if not query:
-        list_stories.last_counts = counts
     start = max(int(page), 1) - 1
-    return result[start * per_page : start * per_page + per_page], len(result)
-
-
-def list_story_counts() -> dict:
-    """Filter counts for the Stories nav, from the last unfiltered listing.
-
-    Returns `{}` when there is no fresh measurement. Zero is a CLAIM — "there
-    are no followed stories" — and the nav would print it next to a filter the
-    editor has not even opened yet. The first request after a restart is often
-    a searched one, and a shared zero default turned that into four confident
-    zeroes on a corpus of 427. "Not measured" must look different from "none".
-    """
-    return dict(getattr(list_stories, "last_counts", None) or {})
+    # Counts are meaningful only without a search: typing narrows the list, and
+    # a count from the unfiltered corpus next to a filtered result is a lie.
+    # `{}` when unmeasured, because a zero is a CLAIM the nav would print.
+    measured = {} if query else counts
+    return result[start * per_page : start * per_page + per_page], len(result), measured
 
 
 def list_articles(filter_name: str = "all", query: str = "") -> list[dict]:

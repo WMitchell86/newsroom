@@ -25,7 +25,9 @@ def _clear_measurement():
 
 
 def test_no_measurement_reports_nothing_rather_than_zero():
-    counts = app.list_story_counts()
+    # The counts now travel WITH the page from one call, so there is no
+    # module-level slot a second request could overwrite between the two.
+    rows, total, counts = app.list_stories_page("all", "търсене")
     assert counts == {}, counts
 
 
@@ -39,15 +41,13 @@ def test_a_searched_listing_does_not_claim_counts(monkeypatch):
 
     monkeypatch.setattr(app.story_store, "read_store", fake_read)
     monkeypatch.setattr(app, "_story_items", dict)
-    app.list_stories("all", "търсене")
-    assert app.list_story_counts() == {}
+    assert app.list_stories_page("all", "търсене")[2] == {}
 
 
 def test_an_unfiltered_listing_measures_all_four(monkeypatch):
     monkeypatch.setattr(app.story_store, "read_store",
                         lambda path: {"version": 1, "stories": [], "overrides": {}})
     monkeypatch.setattr(app, "_story_items", dict)
-    app.list_stories("all", "")
-    counts = app.list_story_counts()
+    counts = app.list_stories_page("all", "")[2]
     assert set(counts) == {"all", "followed", "developments", "ignored"}
     assert counts["all"] == 0  # an EMPTY corpus really is zero — this one is a fact
