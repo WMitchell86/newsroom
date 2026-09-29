@@ -208,12 +208,6 @@
     },
     {
      "provider": "openrouter",
-     "model": "z-ai/glm-5.2:free",
-     "billing": "free",
-     "public_only": true
-    },
-    {
-     "provider": "openrouter",
      "model": "qwen/qwen3.8-27b:free",
      "billing": "free",
      "public_only": true

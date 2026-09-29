@@ -242,7 +242,16 @@ def record(entry: dict) -> dict:
         "route_index": int(entry.get("route_index") or 0),
         "status": entry.get("status") or STATUS_OK,
         "category": entry.get("category") or "",
-        "provider_attempts": max(int(entry.get("provider_attempts") or 0), 0),
+        # The default is derived from the status, NOT zero. A caller that
+        # forgets this field used to write an integer 0, and `_attempts_of`
+        # returns any int verbatim - so the row silently counted as no attempt
+        # and both the daily and the per-minute guards under-counted. A quota
+        # that cannot be over-spent is not a guardrail. Every current caller
+        # passes the field explicitly; this makes the ledger honest for the
+        # next one that does not.
+        "provider_attempts": max(int(entry["provider_attempts"]), 0)
+        if entry.get("provider_attempts") is not None
+        else (0 if (entry.get("status") or STATUS_OK) == STATUS_SKIPPED else 1),
         "latency_ms": int(entry.get("latency_ms") or 0),
         "input_tokens": int(entry.get("input_tokens") or 0),
         "output_tokens": int(entry.get("output_tokens") or 0),
@@ -289,6 +298,43 @@ def model_calls_today(provider, model, day=None) -> int:
         for call in payload.get("calls") or []
         if call.get("provider") == provider and call.get("model") == model
     )
+
+
+def model_calls_last_minute(provider, model, now=None) -> int:
+    """Provider **attempts** in the trailing 60 seconds for one model.
+
+    V1.2-G4.5. The daily guard counts a whole day, but the dimension that
+    actually binds a Draft is the per-MINUTE one: the measured project limits
+    are RPM 5 for the draft Flash models against RPD 20, so a single generation
+    issuing several calls can exhaust the minute five times over while the day
+    is barely touched. Without this the router learns about it only by eating a
+    429, which costs a real round trip and poisons the route's health state with
+    a failure that was entirely predictable.
+
+    A rolling window, not a calendar minute, because that is how the provider
+    measures it. Attempts, not successes, for the same reason as the daily count:
+    a 429 still consumed the project's per-minute allowance. Rows whose `at`
+    cannot be read are ignored rather than guessed at - an unreadable timestamp
+    is not evidence that a call happened now.
+    """
+    moment = now or _now()
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    cutoff = moment.timestamp() - 60
+    payload = read_day()
+    total = 0
+    for call in payload.get("calls") or []:
+        if call.get("provider") != provider or call.get("model") != model:
+            continue
+        try:
+            at = datetime.strptime(
+                str(call.get("at") or ""), "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if at.timestamp() >= cutoff:
+            total += _attempts_of(call)
+    return total
 
 
 def successful_model_calls_today(provider, model, day=None) -> int:

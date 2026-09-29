@@ -22,9 +22,14 @@ through to OpenRouter (PART 3).
 Failure classes (PART 3):
 
 ```text
-QUOTA_EXHAUSTED   429 + daily/quota marker  -> route exhausted for the provider
+QUOTA_EXHAUSTED   429 + explicit reset-window wording ("per day", "daily limit",
+                                              "RPD", structured quota failure)
+                                           -> route exhausted for the provider
                                               period, continue to the next route
-RATE_LIMITED      429 transient             -> bounded retry, then continue
+QUOTA_AMBIGUOUS   429 whose body only says "quota" -> not provable as a daily
+                                              exhaustion: short RATE_LIMITED
+                                              health state, no long mark
+RATE_LIMITED      429 transient / provider reset metadata -> bounded retry, then continue
 INVALID_MODEL     400/404/422               -> route unhealthy until the policy
                                               changes or `models validate` revalidates
 AUTH              401/403                   -> route unhealthy, continue
@@ -59,6 +64,13 @@ STATUS_INVALID = "INVALID"
 STATUS_RATE_LIMITED = "RATE_LIMITED"
 
 QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+#: V1.2-G4.5-hardening: the provider said "quota" without saying WHICH window.
+#: `You exceeded your current quota` is the wording a per-minute throttle uses
+#: just as often as a daily cap, so a 429 carrying only that wording must never
+#: buy a route a mark that lasts until the next provider reset (measured
+#: 2026-09-28: four working Draft routes were offline for ~14 h by that route).
+#: It gets the short RATE_LIMITED health state instead, with no retry.
+QUOTA_AMBIGUOUS = "QUOTA_AMBIGUOUS"
 RATE_LIMITED = "RATE_LIMITED"
 INVALID_MODEL = "INVALID_MODEL"
 AUTH_FAILED = "AUTH_FAILED"
@@ -69,6 +81,13 @@ NO_KEY = "NO_KEY"
 PAID_DISABLED = "PAID_DISABLED"
 PRIVACY_BLOCKED = "PRIVACY_BLOCKED"
 MODEL_LIMIT_REACHED = "MODEL_LIMIT_REACHED"
+#: V1.2-G4.5. The measured per-MINUTE budget (RPM 5 for the draft Flash models)
+#: is spent while the day is barely touched, and it recovers on its own within a
+#: minute. So it is a skip with its own name and NO health mark: it must never
+#: join `_UNHEALTHY_FOR_THE_PERIOD`, or a five-per-minute ceiling would take a
+#: working route offline for the rest of the day - which is the exact failure
+#: AGENTS.md rule 2 records, re-created one dimension down.
+RPM_LIMIT_REACHED = "RPM_LIMIT_REACHED"
 ROLE_HARD_BUDGET = "ROLE_HARD_BUDGET"
 ROUTE_UNHEALTHY = "ROUTE_UNHEALTHY"
 
@@ -76,14 +95,47 @@ ROUTE_UNHEALTHY = "ROUTE_UNHEALTHY"
 _UNHEALTHY_FOR_THE_PERIOD = {QUOTA_EXHAUSTED}
 _UNHEALTHY_UNTIL_POLICY_CHANGES = {INVALID_MODEL, AUTH_FAILED, PAYMENT_REQUIRED}
 
-#: Marker substrings that mean "daily quota", not "requests per minute".
+#: Marker substrings that PROVE the refusal is a reset-window (daily) exhaustion.
+#: A window must be stated in words: "per day", "daily limit", "RPD", or the
+#: structured quota-failure status the provider returns. Anything that only says
+#: "quota" is ambiguous and is handled separately (see `QUOTA_AMBIGUOUS`).
 _DAILY_QUOTA_MARKERS = (
-    "current quota",
     "quotafailure",
     "quota_exceeded",
+    "quota exceeded",
     "per day",
     "daily limit",
     "rpd",
+)
+
+#: Markers that say "quota" without naming the window, so they cannot support a
+#: daily exhaustion.
+#:
+#: A correction, because this comment used to claim that this wording "took four
+#: working routes offline for a day". That was an unverified causal story. What
+#: was actually measured on 2026-09-28: four draft routes were marked EXHAUSTED
+#: with `reason: "QUOTA_EXHAUSTED: HTTP Error 429: Too Many Requests"` until
+#: 2026-09-29T07:00Z — and that reason string is a LOCAL category label
+#: prepended by `reason=f"{category}: ..."`, not the provider's body, so nothing
+#: in it shows which wording classified them. Three OpenRouter routes carried
+#: the same mark and one of them answered a call immediately afterwards, so at
+#: least some of those marks were simply wrong. The reasoning that stands is the
+#: conservative one: a body that does not name a window cannot prove one, so it
+#: gets the short mark and is re-checked, not a day-long disable.
+_AMBIGUOUS_QUOTA_MARKERS = (
+    "current quota",
+    "quota",
+)
+
+#: Provider metadata that states its own short reset window. When the provider
+#: itself says "retry in 12s", the router must not claim a longer outage - but
+#: this is only allowed to override the AMBIGUOUS wording, never the explicit
+#: daily wording above.
+_RETRY_RESET_MARKERS = (
+    "retrydelay",
+    "retry-after",
+    "retry_after",
+    "retry in",
 )
 
 #: Provider wording that means "this model does not exist", as opposed to "this
@@ -97,7 +149,14 @@ _MODEL_MISSING_MARKERS = (
     "does not exist",
 )
 
-_DAILY_QUOTA_CATEGORIES = {QUOTA_EXHAUSTED, MODEL_LIMIT_REACHED, ROLE_HARD_BUDGET}
+#: V1.2-G4.5. A `_DAILY_QUOTA_CATEGORIES` set and a `_category_is_daily()` helper
+#: used to live here, listing QUOTA_EXHAUSTED / MODEL_LIMIT_REACHED /
+#: ROLE_HARD_BUDGET. Both are GONE: nothing ever called the helper, and the set
+#: was worse than useless - it grouped a provider exhaustion together with two
+#: LOCAL guardrails, so a reader could conclude that a locally-invented limit
+#: takes a route offline for the day, which is the exact confusion AGENTS.md
+#: rule 3 records. What actually decides a lasting mark is the two sets below,
+#: and only QUOTA_EXHAUSTED is in the period one.
 
 
 class RoleUnavailable(RuntimeError):
@@ -265,9 +324,23 @@ def classify_failure(exc) -> str:
         if code in (401, 403):
             return AUTH_FAILED
         if code == 429:
+            # V1.2-G4.5-hardening. Order matters and each step is a claim the
+            # router is entitled to make:
+            #   1. an explicit reset-window wording ("per day", "RPD") -> the
+            #      route really is spent for the provider period;
+            #   2. provider reset metadata ("retryDelay": "12s") -> a short
+            #      throttle, health clears in minutes;
+            #   3. only the word "quota" -> AMBIGUOUS: short health state, no
+            #      long EXHAUSTED mark, because the router cannot observe which
+            #      window the provider meant;
+            #   4. anything else -> plain rate limiting.
             lowered = str(body).lower()
             if any(marker in lowered for marker in _DAILY_QUOTA_MARKERS):
                 return QUOTA_EXHAUSTED
+            if any(marker in lowered for marker in _RETRY_RESET_MARKERS):
+                return RATE_LIMITED
+            if any(marker in lowered for marker in _AMBIGUOUS_QUOTA_MARKERS):
+                return QUOTA_AMBIGUOUS
             return RATE_LIMITED
         if 500 <= code < 600:
             return TRANSIENT
@@ -275,10 +348,6 @@ def classify_failure(exc) -> str:
     if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
         return TRANSIENT
     return TRANSIENT
-
-
-def _category_is_daily(category) -> bool:
-    return category in _DAILY_QUOTA_CATEGORIES
 
 
 def _gemini_key(api_key=None) -> str:
@@ -394,6 +463,17 @@ def _skip_reasons(
         limit
     ):
         reasons.append(f"дневен лимит на модела ({limit}) е достигнат")
+    # V1.2-G4.5. The per-minute dimension, measured for this project: RPM 5 for
+    # the draft Flash models. It is checked BEFORE the call rather than learned
+    # from a 429, because that 429 costs a round trip and then marks the route's
+    # health with a failure that was fully predictable. It is a skip, never a
+    # long mark: a minute is a minute, and the route is healthy again after it.
+    if route.get("provider") == "gemini":
+        rpm = model_policy.GEMINI_RPM_LIMITS.get(route.get("model"))
+        if rpm and model_usage.model_calls_last_minute(
+            route.get("provider"), route.get("model"), now=now
+        ) >= int(rpm):
+            reasons.append(f"минутен лимит на модела ({rpm}) е достигнат")
     if hard and role_calls >= int(hard):
         reasons.append(f"твърд дневен лимит на ролята ({hard}) е достигнат")
     health = route_health(route, policy_hash=policy_hash, now=now)
@@ -609,6 +689,11 @@ def _skip_category(reasons) -> str:
     for marker, category in (
         ("платените", PAID_DISABLED),
         ("публични", PRIVACY_BLOCKED),
+        # The minute marker is checked BEFORE the daily one. Both substrings end
+        # in "лимит на модела" but neither contains the other, so the order is
+        # not load-bearing today - it is pinned so that adding a second
+        # substring relationship later cannot silently reclassify this.
+        ("минутен лимит на модела", RPM_LIMIT_REACHED),
         ("дневен лимит на модела", MODEL_LIMIT_REACHED),
         ("твърд дневен лимит", ROLE_HARD_BUDGET),
         ("липсва", NO_KEY),
@@ -701,7 +786,11 @@ def _try_route(
                     policy_hash=digest,
                     now=now,
                 )
-            elif category == RATE_LIMITED:
+            elif category == RATE_LIMITED or category == QUOTA_AMBIGUOUS:
+                # Both mean "try again shortly": RATE_LIMITED is a plain 429,
+                # QUOTA_AMBIGUOUS is a quota-worded 429 whose window the router
+                # cannot prove. Neither may mark the route for the whole
+                # provider period (that is what QUOTA_EXHAUSTED is for).
                 mark_route(
                     route,
                     STATUS_RATE_LIMITED,

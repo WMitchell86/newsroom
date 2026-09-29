@@ -90,9 +90,48 @@ ON_EXHAUSTED = (
 
 DEFAULT_POLICY_PATH = ROOT / "config" / "model_policy.default.json"
 
-#: Operator-declared per-model RPD (Gemini AI Studio, 2026-09-21). Used only to
-#: fill `daily_call_limit` for routes that come from an env override; the policy
-#: file is authoritative for everything else.
+#: A LOCAL GUARDRAIL that happens to match a MEASURED provider limit.
+#:
+#: Measured on this project's AI Studio rate-limit page (Free tier, 2026-09-28,
+#: peak usage vs limit): RPD 20 for 3.5/3.6/3.7/3.8 Flash and 500 for the two
+#: Flash-Lite entries. The owner's ruling is 20 requests/day for every model, and
+#: it is right - the table agrees with the provider, not with a stale note.
+#:
+#: Two things the public documentation does NOT say, which cost a full day once
+#: before. The limits are applied PER PROJECT, not per API key, and they are
+#: tier-dependent, so these numbers are this project's, not the model's. And the
+#: binding dimension is NOT the one in this table: the same page shows RPM of 5
+#: for the draft Flash models, and no counter in this codebase tracks it. A 429
+#: can therefore come from a per-minute budget that is invisible here, or from
+#: TPD / the rolling 10-minute spend limit, neither of which is counted at all -
+#: which is why nothing in the editor's path may name a cause the system did not
+#: observe (AGENTS.md rule 6).
+#:
+#: Used only to fill `daily_call_limit` for routes that come from an env
+#: override; the policy file is authoritative for everything else.
+GEMINI_RPM_LIMITS = {
+    "gemini-3.5-flash-lite": 15,
+    "gemini-3.1-flash-lite": 15,
+    "gemini-3-flash-preview": 5,
+    "gemini-3.5-flash": 5,
+    "gemini-3.6-flash": 5,
+    "gemini-3.7-flash": 5,
+    "gemini-3.8-flash": 5,
+    "gemini-2.5-flash": 5,
+    "gemini-2.5-flash-lite": 10,
+}
+
+#: Measured for the same project and the same day as `GEMINI_DAILY_LIMITS`, and
+#: the dimension that binds first: RPM 5 against RPD 20 for the draft models.
+#: The same page showed peak usage of 7/5 RPM and 22/20 RPD at the moment this
+#: was read, so a Draft that hit the minute was refused for a reason that had
+#: nothing to do with the day running out.
+#:
+#: A model absent from this table is NOT assumed to be unlimited; it simply has
+#: no measured per-minute figure here, so the minute guard does not apply and
+#: the daily one carries the route alone. Guessing a number would be inventing a
+#: provider limit, which is the one thing this table exists to avoid.
+
 GEMINI_DAILY_LIMITS = {
     "gemini-3.5-flash-lite": 500,
     "gemini-3.1-flash-lite": 500,

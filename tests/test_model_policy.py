@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import urllib.error
+from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 import pytest
 
@@ -246,6 +248,7 @@ def test_true_cross_provider_fallback_gemini_to_openrouter(monkeypatch):
 
 
 def test_invalid_model_marks_the_route_unhealthy_until_the_policy_changes(monkeypatch):
+    """A 400 that *names* a missing model is permanent; the route is not retried."""
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     policy = _policy_with(
@@ -258,7 +261,14 @@ def test_invalid_model_marks_the_route_unhealthy_until_the_policy_changes(monkey
     )
 
     def gone(_prompt, **_kwargs):
-        raise _FakeHTTPError(400, "invalid model id")
+        # The wording the provider actually uses for a model it does not serve.
+        # `invalid model id` (the old fixture) is NOT a marker the classifier
+        # recognises on purpose: a bare 400 is a malformed REQUEST, and treating
+        # it as a removed model is what once parked the only working Draft route
+        # as INVALID until the policy changed (V1.2-G4.2 §12/§14).
+        raise _FakeHTTPError(
+            400, '{"error": {"message": "models/removed-model is not found for API version v1beta"}}'
+        )
 
     callers = _Callers(gemini=gone)
     model_router.call_role("judge", "p", policy=policy, call_map=callers.as_map())
@@ -276,6 +286,135 @@ def test_invalid_model_marks_the_route_unhealthy_until_the_policy_changes(monkey
     callers2 = _Callers()
     model_router.call_role("judge", "p", policy=changed, call_map=callers2.as_map())
     assert callers2.gemini_calls == ["removed-model"]
+
+
+def test_a_bare_400_is_retryable_and_never_a_removed_model(monkeypatch):
+    """The counterpart of the test above: a 400 with no model-missing marker.
+
+    Gemini answers 400 for a malformed request (an unsupported generation
+    parameter, an output budget below its own thinking budget). Reading that as
+    "this model does not exist" parked the only working Draft route as INVALID
+    until the policy changed, which made the primary product action look
+    permanently broken while the model answered fine.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    policy = _policy_with(
+        "judge",
+        [
+            _route("gemini", "healthy-model"),
+            _route("openrouter", "working/model:free", billing="free"),
+        ],
+        default_payload_class="public",
+    )
+
+    def malformed(_prompt, **_kwargs):
+        raise _FakeHTTPError(400, '{"error": {"message": "Invalid JSON payload received"}}')
+
+    callers = _Callers(gemini=malformed)
+    _text, meta = model_router.call_role(
+        "judge", "p", policy=policy, call_map=callers.as_map(), sleep=lambda _s: None
+    )
+    # Retried within the route (bounded), then the next route answered.
+    assert callers.gemini_calls == ["healthy-model", "healthy-model"]
+    assert meta["route_index"] == 1
+    # The route is NOT marked INVALID: the policy's route order still stands.
+    assert model_router.read_health().get("gemini:healthy-model") is None
+
+
+def test_an_ambiguous_quota_429_does_not_buy_a_day_long_mark(monkeypatch):
+    """`You exceeded your current quota` names no window, so the router may not claim one.
+
+    Measured 2026-09-28: this exact wording was read as a daily exhaustion and
+    four working Draft routes were marked EXHAUSTED until the next provider
+    reset (~14 h). The category is now QUOTA_AMBIGUOUS, the health mark is the
+    short RATE_LIMITED window, and the route stays usable after it.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    policy = _policy_with(
+        "judge",
+        [
+            _route("gemini", "throttled"),
+            _route("openrouter", "backup/model:free", billing="free"),
+        ],
+        default_payload_class="public",
+    )
+
+    def throttled(_prompt, **_kwargs):
+        raise _FakeHTTPError(
+            429,
+            '{"error": {"message": "You exceeded your current quota, please check your plan"}}',
+        )
+
+    callers = _Callers(gemini=throttled)
+    _text, meta = model_router.call_role("judge", "p", policy=policy, call_map=callers.as_map())
+    # One attempt on the throttled route, then the fallback answered.
+    assert callers.gemini_calls == ["throttled"]
+    assert meta["route_index"] == 1
+
+    health = model_router.read_health()["gemini:throttled"]
+    assert health["status"] == model_router.STATUS_RATE_LIMITED
+    assert health["status"] != model_router.STATUS_EXHAUSTED
+    assert health["until"], "a short window must be stated"
+    # ...and the window is minutes, not the next provider midnight.
+    assert health["until"] < model_router._iso(
+        model_router._utc_now() + timedelta(minutes=5)
+    )
+
+
+def test_an_explicit_daily_quota_429_still_marks_the_route_for_the_period(monkeypatch):
+    """The ambiguous rule must not weaken the real daily signal."""
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    policy = _policy_with(
+        "judge",
+        [
+            _route("gemini", "spent"),
+            _route("openrouter", "backup/model:free", billing="free"),
+        ],
+        default_payload_class="public",
+    )
+
+    def spent(_prompt, **_kwargs):
+        raise _FakeHTTPError(429, '{"error": {"status": "per day limit exceeded (RPD)"}}')
+
+    callers = _Callers(gemini=spent)
+    model_router.call_role("judge", "p", policy=policy, call_map=callers.as_map())
+    health = model_router.read_health()["gemini:spent"]
+    assert health["status"] == model_router.STATUS_EXHAUSTED
+
+
+def test_provider_reset_metadata_wins_over_ambiguous_quota_wording(monkeypatch):
+    """`retryDelay` in the body is the provider stating its own short reset."""
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    policy = _policy_with(
+        "judge",
+        [
+            _route("gemini", "brief"),
+            _route("openrouter", "backup/model:free", billing="free"),
+        ],
+        default_payload_class="public",
+    )
+
+    def brief(_prompt, **_kwargs):
+        raise _FakeHTTPError(
+            429,
+            '{"error": {"message": "quota", "details": [{"retryDelay": "12s"}]}}',
+        )
+
+    callers = _Callers(gemini=brief)
+    _text, meta = model_router.call_role(
+        "judge", "p", policy=policy, call_map=callers.as_map(), sleep=lambda _s: None
+    )
+    # A stated short reset is worth the bounded RATE_LIMITED retry, then the
+    # next route answers.
+    assert callers.gemini_calls == ["brief", "brief"]
+    assert meta["route_index"] == 1
+    # The provider's own retry metadata means the route is throttled briefly,
+    # never parked until the next reset.
+    assert model_router.read_health()["gemini:brief"]["status"] == model_router.STATUS_RATE_LIMITED
 
 
 def test_quota_exhaustion_skips_the_route_for_the_provider_period(monkeypatch):
@@ -1112,10 +1251,174 @@ def test_paid_soft_budget_warning_is_visible_and_never_blocks(monkeypatch):
     rendered = cli_mod.render_models_status(report)
     assert "ПРЕВИШЕН СОФТ БЮДЖЕТ" in rendered
     # Non-blocking: paid routing still works because paid_enabled is explicit.
+    # The tracked default draft role has Gemini routes only, so this assertion
+    # supplies the paid OpenRouter route it is about, explicitly — rather than
+    # depending on a legacy env knob that can no longer add a route.
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    paid_on = model_policy.load_policy()
+    paid_on = _policy_with("draft", [_route("openrouter", "openai/gpt-5.6-luna", billing="paid")])
     paid_on["global"]["paid_enabled"] = True
     paid_on = model_policy.normalize(paid_on)
     text, _meta = model_router.call_role("draft", "p", policy=paid_on, call_map=_Callers().as_map())
     assert text == "openrouter-answer"
+
+
+# --------------------------------------------------------------------------
+# V1.2-G4.5 — the per-MINUTE dimension, which is the one that actually binds
+# --------------------------------------------------------------------------
+
+DRAFT_FLASH = ("gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash")
+
+
+def _minute_reasons(route, *, recent_minute=0):
+    """The real `_skip_reasons`, with the minute counter pinned to a number.
+
+    Written against the production function so the test cannot drift from it,
+    and stubbing only the one measurement the scenario is about.
+    """
+    policy = {"global": {"paid_enabled": False}, "roles": {}}
+    with mock.patch.object(
+        model_usage, "model_calls_last_minute", return_value=recent_minute
+    ), mock.patch.object(
+        model_usage, "model_calls_today", return_value=0
+    ), mock.patch.object(
+        model_router, "_keys_available", return_value={"gemini": "k", "openrouter": ""}
+    ):
+        return model_router._skip_reasons(
+            route,
+            "draft",
+            payload_class="public",
+            policy=policy,
+            policy_hash="",
+            role_calls=0,
+            hard=None,
+            now=datetime(2026, 9, 28, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_the_measured_rpm_limits_match_the_project_they_were_read_from():
+    """The minute budget is a measured number, and the SHAPE is the point.
+
+    Read from this project's own AI Studio rate-limit page on 2026-09-28, the
+    same screen and the same day as `GEMINI_DAILY_LIMITS`: RPM 5 against RPD 20
+    for the draft models. The ceiling that actually stops a Draft is therefore a
+    minute long, while the only guard this code had was a day long.
+    """
+    for model in DRAFT_FLASH:
+        assert model_policy.GEMINI_RPM_LIMITS[model] == 5, model
+        assert model_policy.GEMINI_DAILY_LIMITS[model] == 20, model
+    assert model_policy.GEMINI_RPM_LIMITS["gemini-3.5-flash-lite"] == 15
+    assert model_policy.GEMINI_DAILY_LIMITS["gemini-3.5-flash-lite"] == 500
+
+
+def test_a_spent_minute_skips_the_route_before_it_costs_a_round_trip():
+    """Under the ceiling the route is offered; at it, it is skipped silently.
+
+    Learning the ceiling from a 429 means paying for the call and then writing a
+    failure into the route's health for something entirely predictable. The skip
+    costs nothing, and it must name the MINUTE - reporting a minute as a day is
+    the mistake that keeps a working model offline.
+    """
+    route = {
+        "provider": "gemini",
+        "model": "gemini-3.7-flash",
+        "enabled": True,
+        "billing": "operator_declared",
+        "daily_call_limit": 20,
+    }
+    assert _minute_reasons(route, recent_minute=0) == []
+    assert _minute_reasons(route, recent_minute=4) == []
+
+    reasons = _minute_reasons(route, recent_minute=5)
+    assert any("минутен лимит" in reason for reason in reasons), reasons
+    assert not any("дневен лимит" in reason for reason in reasons), reasons
+
+
+def test_a_model_with_no_measured_minute_is_not_guessed_one():
+    """Absent from the table means unguarded, not unlimited and not invented."""
+    route = {
+        "provider": "gemini",
+        "model": "some-unmeasured-model",
+        "enabled": True,
+        "billing": "operator_declared",
+    }
+    assert "some-unmeasured-model" not in model_policy.GEMINI_RPM_LIMITS
+    assert _minute_reasons(route, recent_minute=10_000) == []
+
+
+def test_a_spent_minute_never_writes_a_lasting_health_mark():
+    """Five per minute must not take a working route offline for a day.
+
+    This is the failure AGENTS.md rule 2 records, one dimension down. The skip
+    category is therefore excluded from every set that produces a lasting mark.
+    """
+    assert model_router.RPM_LIMIT_REACHED not in model_router._UNHEALTHY_FOR_THE_PERIOD
+    assert model_router.RPM_LIMIT_REACHED not in model_router._UNHEALTHY_UNTIL_POLICY_CHANGES
+    # And the invariant those two sets exist to express: a provider-exhausted
+    # classification is the ONLY thing that takes a route offline until the
+    # provider's own reset.
+    assert model_router._UNHEALTHY_FOR_THE_PERIOD == {model_router.QUOTA_EXHAUSTED}
+
+
+def test_the_minute_counter_reads_a_rolling_window_not_a_calendar_minute():
+    """A call 59 seconds old counts; one 61 seconds old does not."""
+    now = datetime(2026, 9, 28, 12, 0, 0, tzinfo=timezone.utc)
+    for offset, model in ((-59, "gemini-3.7-flash"), (-61, "gemini-3.7-flash"), (-5, "gemini-3.6-flash")):
+        model_usage.record(
+            {
+                "provider": "gemini",
+                "model": model,
+                "at": (now + timedelta(seconds=offset)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+    assert model_usage.model_calls_last_minute("gemini", "gemini-3.7-flash", now=now) == 1
+    assert model_usage.model_calls_last_minute("gemini", "gemini-3.6-flash", now=now) == 1
+
+
+def test_a_skipped_route_spends_no_quota():
+    """A minute skip is a diagnostic row, and a skip is not an attempt."""
+    model_usage.record(
+        {
+            "provider": "gemini",
+            "model": "gemini-3.7-flash",
+            "status": "SKIPPED",
+            "provider_attempts": 0,
+        }
+    )
+    now = datetime.now(timezone.utc)
+    assert model_usage.model_calls_last_minute("gemini", "gemini-3.7-flash", now=now) == 0
+
+
+def test_a_spent_minute_routes_to_the_next_model_instead_of_calling(monkeypatch):
+    """End to end: the ceiling decides the ROUTE, it does not just annotate one.
+
+    This is the behaviour the measured limits exist to produce. The first model
+    is over its five-per-minute ceiling, so the router must fall through to the
+    second and never spend a call that the project would refuse. The trace has to
+    say which dimension stopped it, so an operator reading a later failure is
+    not left guessing between a minute and a day.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    policy = _policy_with(
+        "judge",
+        [
+            _route("gemini", "gemini-3.7-flash"),
+            _route("gemini", "gemini-3.6-flash"),
+        ],
+    )
+    spent = "gemini-3.7-flash"
+
+    def spent_minute_only(_provider, model, now=None):
+        return 5 if model == spent else 0
+
+    with mock.patch.object(
+        model_usage, "model_calls_last_minute", side_effect=spent_minute_only
+    ):
+        callers = _Callers()
+        _text, meta = model_router.call_role("judge", "p", policy=policy, call_map=callers.as_map())
+
+    assert callers.gemini_calls == ["gemini-3.6-flash"], "the spent route must not be called"
+    skipped = [row for row in meta["trace"] if row["event"] == "SKIPPED"]
+    assert skipped, meta["trace"]
+    assert "минутен лимит" in skipped[0]["reason"], skipped[0]
+    assert model_router._skip_category([skipped[0]["reason"]]) == model_router.RPM_LIMIT_REACHED

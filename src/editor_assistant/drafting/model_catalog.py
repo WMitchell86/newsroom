@@ -170,7 +170,16 @@ def validate_policy_models(
                         )
             report["rows"].append(row)
 
-    # An explicit revalidation clears a route previously marked INVALID/AUTH.
+    # An explicit revalidation clears a route's health mark — and this comment
+    # used to UNDERSTATE it, saying "previously marked INVALID/AUTH" when the
+    # code below clears any route that validates, EXHAUSTED included. That gap
+    # is worth stating rather than tidying away, because the wider behaviour IS
+    # the recovery path for a wrong mark: on 2026-09-28 every route of the
+    # `story` role was marked EXHAUSTED for the rest of the day, silently
+    # stopping the newsroom merging two publishers covering one event. One
+    # `models validate` cleared all seven marks, because all seven models were
+    # in the provider catalogues the whole time. The marks were wrong, the escape
+    # hatch existed, and nobody ran it.
     from editor_assistant.drafting import model_router
 
     for row in report["rows"]:
