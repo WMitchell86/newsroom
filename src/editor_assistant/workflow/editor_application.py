@@ -1289,6 +1289,62 @@ def _research_bootstrap_context(story: dict, items_by_id: dict) -> dict:
     }
 
 
+class EditorHintRejected(EditorApplicationError):
+    """The editor's own hint could not be turned into material.
+
+    A separate class because the editor must be able to tell this apart from a
+    system failure: a hint that finds nothing is a real answer about the world
+    and must never be reported as "the research broke".
+    """
+
+    code = "HINT_REJECTED"
+    status = 400
+    default_message = "Подсказката не можа да бъде използвана."
+
+
+def seed_stories_from_hint(hint: str, *, provider=None, page_opener=None, max_open: int = 3) -> dict:
+    """«Започни от идея»: the editor's hint, turned into real material.
+
+    The hint is a search query and never evidence. What comes back is a set of
+    pages that the search chain really opened, written into the ordinary inbox
+    as ordinary Stories — the same rows the newsroom's own collector writes,
+    with their own real URLs. From there the existing path applies unchanged:
+    research, promotion, EvidencePacket, Draft. Nothing downstream knows an
+    editor typed something, and no provenance record was invented.
+
+    Returns what actually happened, including the failures by their real
+    category. `opened` may be empty and that is a legitimate, reportable
+    outcome — not an error and not an excuse to write something anyway.
+    """
+    from editor_assistant.workflow import editor_hint
+
+    try:
+        result = editor_hint.run_hint_search(
+            hint, provider=provider, page_opener=page_opener, max_open=max_open
+        )
+    except editor_hint.HintRejected as exc:
+        raise EditorHintRejected(str(exc)) from exc
+
+    stories = editor_hint.materialise_hint_stories(result, inbox_path=_paths()["inbox"])
+    return {
+        "hint": result.hint,
+        "opened": [
+            {"title": s.get("title") or "", "url": s.get("url") or "", "itemId": s.get("item_id") or ""}
+            for s in stories
+        ],
+        "openedCount": len(stories),
+        "considered": result.considered,
+        # Real categories, so a timeout is visible as a timeout and never
+        # softened into "such material does not exist".
+        "unopened": [
+            {"url": u.get("url") or "", "status": u.get("status") or "", "detail": u.get("detail") or ""}
+            for u in result.unopened
+        ],
+        "providerChain": result.audit.get("provider_chain") or [],
+        "searchStatus": result.audit.get("status") or "",
+    }
+
+
 def research_story(story_id: str, *, provider=None, page_opener=None, now=None) -> dict:
     story = _story(story_id)
     basis = story_research_store.get_story_research(story_id)

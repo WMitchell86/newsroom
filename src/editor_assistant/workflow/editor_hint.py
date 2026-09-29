@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from editor_assistant.sources import web_fetch
 from editor_assistant.workflow import search as search_mod
@@ -40,6 +41,10 @@ from editor_assistant.workflow import search as search_mod
 #: article"), and searching a whole article finds nothing useful.
 HINT_MIN_CHARS = 6
 HINT_MAX_CHARS = 300
+
+#: The honest origin label for material an editor's hint led us to. It is not
+#: a registered publisher and does not pretend to be one.
+HINT_SOURCE_ID = "editor-hint"
 
 
 class HintRejected(ValueError):
@@ -64,6 +69,77 @@ class HintResult:
     @property
     def usable(self) -> bool:
         return bool(self.opened)
+
+
+def materialise_hint_stories(
+    result: HintResult,
+    *,
+    inbox_path,
+    now: str = "",
+) -> list[dict]:
+    """Turn the pages a hint opened into ordinary Stories in the inbox.
+
+    They are written with the same fields the newsroom's own collector writes,
+    so everything downstream — promotion, research, the readiness gates — is
+    exercised exactly as it is for collected material. There is no "hint" kind
+    downstream and no branch that knows an editor typed something.
+
+    Two values are chosen for honesty rather than convenience:
+
+    * `source_id` is `editor-hint`, which is simply true — the origin was the
+      editor, not a registered publisher. It also makes the item id
+      deterministic, so the same page found by two different hints collapses
+      into ONE row instead of a duplicate.
+    * `factual_authority` is False. A page reached through a search engine is
+      not thereby an authority, and `cik.bg` found this way is not promoted
+      above an official source. Authority is earned by registration, exactly
+      as the sources registry already decides it.
+
+    `summary` is left empty on purpose. The only text this path holds for a
+    candidate is the provider snippet, which `search.py` marks DISCOVERY_ONLY;
+    writing it into the lead's summary would move a discovery-only string into
+    a field every other reader treats as collected material. The real article
+    body is re-opened downstream, so nothing is actually lost by leaving it out.
+
+    No body is written: the inbox record has no body field at all (verified
+    against `inbox_store.FIELDS`), and the drafting path re-opens the page.
+    """
+    if not result.usable:
+        return []
+    from datetime import datetime, timezone
+
+    from editor_assistant.workflow import inbox_store
+
+    discovered = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = []
+    for page in result.opened:
+        url = (page.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        items.append(
+            {
+                "source_id": HINT_SOURCE_ID,
+                "source_item_id": url,
+                "title": (page.get("title") or "").strip() or result.hint,
+                "url": url,
+                "published_at": "",
+                "event_at": "",
+                "event_end_at": "",
+                "discovered_at": discovered,
+                "summary": "",
+                "source_kind": "editor-hint",
+                "priority": "normal",
+                "publisher_domain": urlsplit(url).netloc,
+                "publisher_kind": "",
+                "factual_authority": False,
+            }
+        )
+    if not items:
+        return []
+    saved = inbox_store.add_items(items, inbox_path) or {}
+    # `add_items` returns {new, duplicate, items}; a page an earlier hint
+    # already collected is counted as a duplicate, never written twice.
+    return [row for row in saved.get("items", []) if row.get("source_id") == HINT_SOURCE_ID]
 
 
 def _clean_hint(raw: str) -> str:

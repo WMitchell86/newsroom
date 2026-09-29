@@ -27,6 +27,7 @@ import { PreparationWorkspace } from "./PreparationWorkspace";
 import { useArticleAutosave } from "./useArticleAutosave";
 import ui from "../shared/ui.module.css";
 import styles from "./ArticleWorkspace.module.css";
+import { HintSeedControl } from "./HintSeedControl";
 import type { ArticleDetail, Warning } from "../api/dto";
 
 function contentHeading(state: "draft" | "ready") {
@@ -295,6 +296,13 @@ class AutosaveNotConfirmedError extends Error {
                   {reopen.isPending ? "Връща се…" : "Редактирай"}
                 </button>
               ) : null}
+              {/* V1.2-G4.20 «Започни от идея». It lives in the Article desk
+                  because that is where the editor already works, and it adds
+                  no sixth destination to the frozen rail. It is a secondary
+                  action for the whole time: §29 allows at most ONE emphasised
+                  forward action, and starting a new topic is not the forward
+                  motion of the Article already open. */}
+              <HintSeedControl onSeeded={() => void queryClient.invalidateQueries({ queryKey: ["stories"] })} />
               {/* V1.2-G4.3: a Draft is DIRECTLY editable. The old «Редактирай»
                   toggle added a step between the editor and their own text on a
                   page that already autosaves, already negotiates a version, and

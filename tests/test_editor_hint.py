@@ -172,3 +172,78 @@ def test_the_opened_pages_text_travels_with_the_result():
     )
     assert result.opened[0]["text"] == body
     assert "ЦИК" in result.opened[0]["text"]
+
+
+# --- materialising into the real inbox -------------------------------------
+#
+# These write to a temp inbox with the real `inbox_store`, because the point
+# of the feature is that the output is an ORDINARY story. A fake store would
+# prove nothing about the one thing that matters here.
+
+
+def _result(url="https://cik.bg/news/2026/machines", title="ЦИК"):
+    r = editor_hint.HintResult(hint="проверка на машините")
+    r.opened = [{"title": title, "url": url, "bytes": 4200, "content_type": "text/html", "text": "body"}]
+    return r
+
+
+def test_a_hint_page_becomes_an_ordinary_inbox_story(tmp_path):
+    from editor_assistant.workflow import inbox_store
+
+    saved = editor_hint.materialise_hint_stories(_result(), inbox_path=tmp_path / "inbox.json")
+    assert len(saved) == 1
+    row = saved[0]
+    # It must be indistinguishable from collected material downstream.
+    assert row["url"] == "https://cik.bg/news/2026/machines"
+    assert row["title"] == "ЦИК"
+    assert row["status"] == "NEW"
+    assert row["publisher_domain"] == "cik.bg"
+    stored = inbox_store.read_items(tmp_path / "inbox.json")
+    assert [i["url"] for i in stored] == ["https://cik.bg/news/2026/machines"]
+
+
+def test_material_found_by_a_search_is_not_claimed_as_an_authority(tmp_path):
+    """`cik.bg` reached via a search engine is still not a registered source.
+
+    The registry is what confers authority, and this path does not consult it.
+    Claiming otherwise here would let a search result outrank an official
+    source that was registered deliberately.
+    """
+    saved = editor_hint.materialise_hint_stories(_result(), inbox_path=tmp_path / "inbox.json")
+    assert saved[0]["factual_authority"] is False
+    assert saved[0]["source_id"] == editor_hint.HINT_SOURCE_ID
+    assert editor_hint.HINT_SOURCE_ID not in {r["source_id"] for r in []}  # not a publisher row
+
+
+def test_a_discovery_only_snippet_never_reaches_the_summary(tmp_path):
+    """`search.py` marks snippets DISCOVERY_ONLY; the summary field must stay empty.
+
+    Every other reader of `summary` treats it as collected material, so
+    pouring a search snippet in there would launder a discovery string into
+    something that reads as verified.
+    """
+    r = editor_hint.HintResult(hint="проверка на машините")
+    r.opened = [{
+        "title": "ЦИК", "url": "https://cik.bg/x", "bytes": 10,
+        "content_type": "text/html", "text": "b", "snippet": "ЦИК обяви много неща",
+    }]
+    saved = editor_hint.materialise_hint_stories(r, inbox_path=tmp_path / "inbox.json")
+    assert saved[0]["summary"] == ""
+
+
+def test_two_hints_finding_one_page_produce_one_story(tmp_path):
+    """Deterministic ids: a re-hint must not duplicate an article."""
+    path = tmp_path / "inbox.json"
+    editor_hint.materialise_hint_stories(_result(), inbox_path=path)
+    editor_hint.materialise_hint_stories(_result(), inbox_path=path)
+    from editor_assistant.workflow import inbox_store
+
+    assert len(inbox_store.read_items(path)) == 1
+
+
+def test_a_hint_that_opened_nothing_writes_nothing(tmp_path):
+    from editor_assistant.workflow import inbox_store
+
+    empty = editor_hint.HintResult(hint="тема без резултат")
+    assert editor_hint.materialise_hint_stories(empty, inbox_path=tmp_path / "inbox.json") == []
+    assert not (tmp_path / "inbox.json").exists() or inbox_store.read_items(tmp_path / "inbox.json") == []

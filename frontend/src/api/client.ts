@@ -148,6 +148,30 @@ export function startArticle(storyId: string, idempotencyKey: string): Promise<A
   );
 }
 
+/**
+ * «Започни от идея» (V1.2-G4.20) — the editor's own hint.
+ *
+ * The hint is a SEARCH QUERY. The server searches, opens the pages it finds
+ * and returns them as ordinary Stories with their own real URLs; the hint
+ * itself is never evidence and never becomes a source. The reply therefore
+ * carries what actually happened — including the pages that could NOT be
+ * opened, each with its real failure category — so the UI can say "0 found"
+ * or "1 of 3 would not open" rather than a generic failure.
+ */
+export interface HintSeedResult {
+  hint: string;
+  opened: { title: string; url: string; itemId: string }[];
+  openedCount: number;
+  considered: number;
+  unopened: { url: string; status: string; detail: string }[];
+  providerChain: string[];
+  searchStatus: string;
+}
+
+export function seedStoriesFromHint(hint: string): Promise<HintSeedResult> {
+  return sendStoryCommand<HintSeedResult>("/stories/hint", "POST", { hint });
+}
+
 export function updateArticleContent(
   articleId: string,
   expectedVersion: number,

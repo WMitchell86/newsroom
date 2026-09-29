@@ -433,6 +433,12 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         return 202, {
             "operationToken": app.start_newsroom_refresh(idempotency_key=key)["operationToken"]
         }
+    if parts == [*prefix, "stories", "hint"] and method == "POST":
+        # V1.2-G4.20 «Започни от идея». The hint is a search query; the pages it
+        # opens become ordinary Stories. Nothing here writes a provenance
+        # record the editor did not earn by naming a real page.
+        body = _body(handler, {"hint"})
+        return 200, app.seed_stories_from_hint(_string(body.get("hint"), "hint", maximum=300))
     if parts == [*prefix, "stories"] and method == "GET":
         query = _query(handler, {"filter", "query", "page", "per_page"})
         filter_name = _enum(query.get("filter", "all"), app.STORY_FILTERS, "филтър")
@@ -461,7 +467,11 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             "page": page,
             "perPage": per_page,
         }
-    if len(parts) in (4, 5) and parts[:3] == [*prefix, "stories"]:
+    # `hint` is a reserved subpath, not a story id (V1.2-G4.20). Without this
+    # guard a GET on /stories/hint fell through here, was parsed as a story
+    # id, and answered "Няма намерен Story" — a 400 that describes a missing
+    # story, for a request that never asked about one.
+    if len(parts) in (4, 5) and parts[:3] == [*prefix, "stories"] and parts[3] != "hint":
         story_id = _identifier(parts[3], STORY_ID_RE, "Story")
         if method == "GET" and len(parts) == 4:
             return 200, app.read_story(story_id)
@@ -593,6 +603,8 @@ def _known_resource_path(parts: list[str]) -> bool:
         [*prefix, "today", "refresh"],
         [*prefix, "health"],
         [*prefix, "stories"],
+        # V1.2-G4.20: known so a GET on it is 405, not a misleading 404.
+        [*prefix, "stories", "hint"],
         [*prefix, "articles"],
         [*prefix, "archive"],
         [*prefix, "settings", "sources"],
