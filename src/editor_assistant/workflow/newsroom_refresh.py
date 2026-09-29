@@ -259,8 +259,12 @@ def refresh_newsroom(
     # semantic stage in that case would silently change grouping decisions
     # because of a routing check the caller had already overridden, which is
     # how a quota guard becomes a correctness bug.
+    # An explicit `False` means every route is currently unusable and the stage
+    # is skipped. `None` means the router could not judge — no route table in
+    # this environment — and skipping on that would invent a provider outage out
+    # of missing configuration.
     semantic_available = bool(semantic) and (
-        call_model is not None or model_router.role_has_usable_route("story")
+        call_model is not None or model_router.role_has_usable_route("story") is not False
     )
 
     stories = story_identity.update(

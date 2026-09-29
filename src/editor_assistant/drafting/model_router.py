@@ -212,8 +212,19 @@ def route_key(route) -> str:
     return f"{route.get('provider')}:{route.get('model')}"
 
 
-def role_has_usable_route(role, *, policy=None, now=None) -> bool:
-    """Whether `role` currently has at least one route that is worth calling.
+def role_has_usable_route(role, *, policy=None, now=None):
+    """Tri-state: is `role` worth calling?
+
+    `True`  — at least one route is eligible and not currently marked unusable.
+    `False` — routes exist and every one of them is currently unusable.
+    `None`  — **cannot judge**: the role has no configured routes, or no policy
+               could be read.
+
+    The third value exists because the first version answered "no" when it knew
+    nothing, which made the newsroom refresh and the Draft preflight refuse
+    every call in any environment without a full route table — 13 unit tests
+    broke on it. "We have no routes to judge" is not "all your routes are
+    dead", and conflating them is how a guardrail becomes an outage.
 
     V1.2-G4.6. This is the check the newsroom refresh was missing, and its
     absence is what made «Обнови» unusable rather than merely slow.
@@ -229,12 +240,16 @@ def role_has_usable_route(role, *, policy=None, now=None) -> bool:
     in minutes, so there is nothing to retry and nothing to wait for.
     """
     if policy is None:
-        policy = model_policy.load_policy()
+        try:
+            policy = model_policy.load_policy()
+        except Exception:  # noqa: BLE001 - an unreadable policy is "cannot judge"
+            return None
     routes = ((policy.get("roles") or {}).get(role) or {}).get("routes") or []
     if not routes:
-        return False
+        return None
     state = read_health()
     moment = _utc_now(now)
+    saw_candidate = False
     for route in routes:
         if not route.get("eligible"):
             continue
@@ -242,6 +257,7 @@ def role_has_usable_route(role, *, policy=None, now=None) -> bool:
             "paid_enabled", True
         ):
             continue
+        saw_candidate = True
         record = state.get(route_key(route))
         if not isinstance(record, dict):
             return True
@@ -257,7 +273,28 @@ def role_has_usable_route(role, *, policy=None, now=None) -> bool:
                 continue
             return True
         return True
-    return False
+    # Every route exists but none is a candidate we may call.
+    return False if saw_candidate else None
+
+
+def exhausted_routes_for(role, *, policy=None, now=None) -> list:
+    """Which routes of `role` are currently marked unusable, with their reason.
+
+    V1.2-G4.8. A refusal that says only "no route" sends the operator to the
+    provider dashboard. Naming the routes and the reason they were skipped is
+    the difference between a fact and a shrug.
+    """
+    if policy is None:
+        policy = model_policy.load_policy()
+    routes = ((policy.get("roles") or {}).get(role) or {}).get("routes") or []
+    state = read_health()
+    out = []
+    for route in routes:
+        record = state.get(route_key(route))
+        if isinstance(record, dict) and record.get("status"):
+            out.append({"route": route_key(route), "status": record.get("status"),
+                        "until": record.get("until") or ""})
+    return out
 
 
 def mark_route(route, status, *, reason="", policy_hash="", now=None) -> dict:

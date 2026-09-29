@@ -15,6 +15,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from editor_assistant.drafting import model_router
 from editor_assistant.drafting.evidence import EvidenceError, validate_packet
 from editor_assistant.workflow import (
     article_draft_failure,
@@ -1683,6 +1684,39 @@ def _draft_preflight(article_id: str) -> None:
         _raise_draft_refusal(
             article_generation.DraftRefused(readiness.reason_code, readiness.reason_message)
         )
+    _draft_route_preflight()
+
+
+def _draft_route_preflight() -> None:
+    """Refuse a Draft when no Draft route is worth calling.
+
+    V1.2-G4.8. Measured 2026-09-29 10:17-10:21: the editor pressed «Направи
+    чернова», walked away, came back, and found the button still active and
+    nothing ready — because the operation took 3 min 49 s to fail. The routes
+    are not independent: all four are Gemini on one key sharing one daily
+    quota, so when that quota is spent they all fail together, and the router
+    discovers it one 60-second timeout at a time. Three of the four are now
+    recorded EXHAUSTED, so this check answers in milliseconds.
+
+    It is a *routing* preflight, not a model call: no key is spent, no prompt is
+    built, and a route that merely looks unhealthy but may still answer is left
+    alone. Only a role with no usable route left is refused, and the refusal
+    names the real cause instead of a spinner that never resolves.
+    """
+    # Only an explicit `False` is a refusal. `None` means the router could not
+    # judge (no route table in this environment); refusing then would invent an
+    # outage out of missing configuration.
+    if model_router.role_has_usable_route("draft") is not False:
+        return
+    blocked = model_router.exhausted_routes_for("draft")
+    detail = ", ".join(f"{row['route'].split(':')[-1]} ({row['status']})" for row in blocked)
+    _raise_draft_refusal(
+        article_generation.DraftRefused(
+            "DRAFT_ROUTE_UNAVAILABLE",
+            "Няма достъпен модел за чернова — всички маршрути за ролята са изчерпани"
+            + (f": {detail}." if detail else "."),
+        )
+    )
 
 
 def _draft_snapshot(article_id: str, *, enrich: bool = True) -> dict:
