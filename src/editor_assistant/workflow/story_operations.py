@@ -255,6 +255,14 @@ _UNOBSERVED_REASON = "Операцията не можа да завърши п�
 
 
 def _editor_reason(row: dict) -> str:
+    # A row that has not failed has no reason to show. Returning the failure
+    # sentence for `succeeded` because it carries no error code made four real
+    # successes read as "the operation could not finish" — the editor is told
+    # the work failed while the result is sitting right there. Silence is the
+    # truthful value here; the sentence is a fallback for a FAILURE whose cause
+    # was never observed, never a decoration for a row that worked.
+    if row.get("status") != "failed":
+        return ""
     if not str(row.get("error_code") or ""):
         return _UNOBSERVED_REASON
     return safe_detail(str(row.get("error") or "")) or _UNOBSERVED_REASON

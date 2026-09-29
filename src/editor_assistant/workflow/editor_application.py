@@ -2091,6 +2091,12 @@ def _run_draft_generation(article_id: str, token: str) -> dict:
         # Without this the editor's text was still safe, but a full Draft was
         # generated, audited and stored for an Article they had already written.
         _revalidate_before_generation(article_id, current)
+        # V1.2-G4.8. The request path already refused when no route was usable,
+        # but an operation can sit in the queue while the last route is spent.
+        # Re-deciding here, immediately before the call, is what turns that from
+        # "the button spins for four minutes and then fails" into a refusal that
+        # names the cause — the same reason the store state is revalidated here.
+        _draft_route_preflight()
         # NOTE: no global lock is held across generation. The per-Article
         # guard (`acquire` in the request path, `release` in `finally`)
         # already serializes generations for one Article; holding
@@ -3108,11 +3114,13 @@ def list_stories(filter_name: str = "all", query: str = "") -> list[dict]:
 def list_story_counts() -> dict:
     """Filter counts for the Stories nav, from the last unfiltered listing.
 
-    Returning them alongside the list is what keeps the nav honest at no extra
-    cost; a separate endpoint would read and project the whole store again.
+    Returns `{}` when there is no fresh measurement. Zero is a CLAIM — "there
+    are no followed stories" — and the nav would print it next to a filter the
+    editor has not even opened yet. The first request after a restart is often
+    a searched one, and a shared zero default turned that into four confident
+    zeroes on a corpus of 427. "Not measured" must look different from "none".
     """
-    return dict(getattr(list_stories, "last_counts", None) or
-                {"all": 0, "followed": 0, "developments": 0, "ignored": 0})
+    return dict(getattr(list_stories, "last_counts", None) or {})
 
 
 def list_articles(filter_name: str = "all", query: str = "") -> list[dict]:

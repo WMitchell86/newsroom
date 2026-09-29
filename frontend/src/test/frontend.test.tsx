@@ -546,7 +546,10 @@ describe("Stories", () => {
 
   it("omits the count when the server did not send one, rather than showing zero", async () => {
     // A missing count is unknown, not empty. Rendering «0» would be a claim.
-    fetchMock.mockResolvedValue(dataResponse({ stories: [] }));
+    // The server's REAL unmeasured shape: `counts: {}`, not an absent key.
+    // A mock that omits the key entirely is what hid this bug in the first
+    // place, so the shape here is the one the backend actually sends.
+    fetchMock.mockResolvedValue(dataResponse({ stories: [], counts: {} }));
     renderWithProviders(<StoryListPage />);
 
     const filters = screen.getByRole("navigation", { name: "Филтри за истории" });
