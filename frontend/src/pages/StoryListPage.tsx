@@ -39,7 +39,12 @@ export function StoryListPage() {
   const filter: StoryFilter = isStoryFilter(rawFilter) ? rawFilter : "all";
   const rawQuery = searchParams.get("q") ?? "";
   const query = rawQuery.trim();
-  const stories = useQuery(storiesOptions(filter, query));
+  // V1.2-G4.14. The page lives in the URL for the same reason the Today desk's
+  // view does (G4.11): a pager that lives in component state is reset by
+  // navigating away, and Back does not mean anything.
+  const page = Number(searchParams.get("page") ?? "1");
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const stories = useQuery(storiesOptions(filter, query, safePage));
 
   useEffect(() => {
     if (rawFilter !== null && !isStoryFilter(rawFilter)) {
@@ -49,22 +54,35 @@ export function StoryListPage() {
     }
   }, [rawFilter, searchParams, setSearchParams]);
 
-  function updateQuery(value: string) {
+  function updateQuery(value: string, page = 1) {
     const next = new URLSearchParams(searchParams);
     if (value.trim()) next.set("q", value);
     else next.delete("q");
     if (filter !== "all") next.set("filter", filter);
     else next.delete("filter");
+    // A new filter or a new search starts at page 1. Keeping page 7 would land
+    // the editor on an empty screen and read as "the search found nothing".
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
     setSearchParams(next, { replace: true });
   }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    updateQuery(searchParams.get("q") ?? "");
+    updateQuery(searchParams.get("q") ?? "", 1);
   }
 
   const items = stories.data?.stories ?? [];
   const counts = stories.data?.counts;
+  const total = stories.data?.total ?? items.length;
+  const perPage = stories.data?.perPage ?? 30;
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
+  const goToPage = (next: number) => {
+    const params = new URLSearchParams(searchParams);
+    if (next <= 1) params.delete("page");
+    else params.set("page", String(next));
+    setSearchParams(params, { replace: false });
+  };
   const resultMeta = stories.isFetching ? "Обновяване…" : `${items.length} ${items.length === 1 ? "история" : "истории"}`;
 
   return (
@@ -114,6 +132,34 @@ export function StoryListPage() {
           );
         })}
       </nav>
+
+      {/*
+        V1.2-G4.14. Paging, not an infinite scroll: the editor needs to know a
+        list has 445 things in it and be able to say "go back to page 3".
+      */}
+      {total > perPage ? (
+        <nav className={listStyles.pager} aria-label="Страници истории">
+          <button
+            className={listStyles.pagerButton}
+            type="button"
+            disabled={safePage <= 1}
+            onClick={() => goToPage(safePage - 1)}
+          >
+            ← Предишна
+          </button>
+          <span className={listStyles.pagerStatus} data-testid="pager-status">
+            Страница {Math.min(safePage, pageCount)} от {pageCount} · общо {total}
+          </span>
+          <button
+            className={listStyles.pagerButton}
+            type="button"
+            disabled={safePage >= pageCount}
+            onClick={() => goToPage(safePage + 1)}
+          >
+            Следваща →
+          </button>
+        </nav>
+      ) : null}
 
       {stories.isPending ? <LoadingState label="Зареждане на истории…" /> : null}
       {stories.isError ? (

@@ -246,3 +246,35 @@
   border-color: var(--color-accent);
   background: var(--color-selected);
 }
+
+/*
+  V1.2-G4.14. Paging for the Stories desk. The corpus is 445 rows; without
+  this the page rendered all of them and fetched a 320 KB payload to do it.
+*/
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 18px 0 4px;
+}
+
+.pagerButton {
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pagerButton:hover:not(:disabled) { border-color: var(--color-accent); }
+.pagerButton:disabled { opacity: 0.45; cursor: default; }
+
+.pagerStatus {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}

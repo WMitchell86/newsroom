@@ -212,6 +212,23 @@ def _string(value, field: str, *, maximum: int, required: bool = True) -> str:
     return value
 
 
+def _int(value, field: str, *, minimum: int, maximum: int | None = None) -> int:
+    """A positive whole number from a query parameter.
+
+    V1.2-G4.14. A page number is not optional-but-loose: `page=0` or `page=abc`
+    would otherwise become a silent clamp, and the editor would be looking at
+    page 2 wondering what happened to the rows they filtered. A bad page is a
+    client error here, exactly like an unknown filter.
+    """
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ApiError(400, "VALIDATION_ERROR", f"Полето {field} трябва да е цяло число.") from None
+    if parsed < minimum or (maximum is not None and parsed > maximum):
+        raise ApiError(400, "VALIDATION_ERROR", f"Полето {field} е извън допустимия обхват.")
+    return parsed
+
+
 def _version(value) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ApiError(400, "VALIDATION_ERROR", "Очакваната версия трябва да е цяло число.")
@@ -402,15 +419,26 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             "operationToken": app.start_newsroom_refresh(idempotency_key=key)["operationToken"]
         }
     if parts == [*prefix, "stories"] and method == "GET":
-        query = _query(handler, {"filter", "query"})
+        query = _query(handler, {"filter", "query", "page", "per_page"})
         filter_name = _enum(query.get("filter", "all"), app.STORY_FILTERS, "филтър")
         search = _string(query.get("query", ""), "query", maximum=200, required=False)
+        # V1.2-G4.14. Server-side paging. Measured: the corpus is 445 stories
+        # and the unfiltered list was a single 320 KB response carrying a full
+        # summary for every one of them, fetched on every visit. Paging only in
+        # the browser would still have downloaded all of it; the bytes are the
+        # problem, not just the rows on screen.
+        page = _int(query.get("page", "1"), "page", minimum=1)
+        per_page = _int(query.get("per_page", str(app.STORY_PAGE_SIZE)), "per_page",
+                        minimum=1, maximum=200)
         return 200, {
-            "stories": app.list_stories(filter_name, search),
+            "stories": app.list_stories(filter_name, search, page=page, per_page=per_page),
             # V1.2-G4.7. The four filters read as a partition of the corpus and
             # are not one. Sending the counts with the list is what lets the nav
             # stop implying a split it does not have.
             "counts": app.list_story_counts(),
+            "total": app.list_story_total(),
+            "page": page,
+            "perPage": per_page,
         }
     if len(parts) in (4, 5) and parts[:3] == [*prefix, "stories"]:
         story_id = _identifier(parts[3], STORY_ID_RE, "Story")

@@ -3066,7 +3066,16 @@ def read_today(scope: str = editor_queries.SCOPE_REGION, *, now=None) -> dict:
     }
 
 
-def list_stories(filter_name: str = "all", query: str = "") -> list[dict]:
+#: V1.2-G4.14. Rows per page for the Stories desk. Measured: the unfiltered
+#: corpus is 445 stories and the response was a single 320 KB payload carrying a
+#: full summary for each one, on every visit. 30 keeps a screen scannable and the
+#: response at roughly a twentieth of that.
+STORY_PAGE_SIZE = 30
+
+
+def list_stories(
+    filter_name: str = "all", query: str = "", *, page: int = 1, per_page: int = STORY_PAGE_SIZE
+) -> list[dict]:
     stories = story_store.read_store(_paths()["stories"])["stories"]
     items_by_id = _story_items()
     metadata_store = story_editor_metadata.read_story_editor_metadata_store(
@@ -3104,11 +3113,20 @@ def list_stories(filter_name: str = "all", query: str = "") -> list[dict]:
             continue
         result.append(dto)
     result.sort(key=lambda row: (row["latestChangeAt"], row["id"]), reverse=True)
+    # The TOTAL is the whole filtered set, not the page. The nav needs it to say
+    # "1–30 of 445" and the pager needs it to know whether a next page exists.
+    list_stories.last_total = len(result)
     # Only meaningful without a search: typing narrows the list, and a count
     # taken from the unfiltered corpus next to a filtered result is a lie.
     if not query:
         list_stories.last_counts = counts
-    return result
+    start = max(int(page), 1) - 1
+    return result[start * per_page : start * per_page + per_page]
+
+
+def list_story_total() -> int:
+    """How many rows the last listing matched, before paging."""
+    return int(getattr(list_stories, "last_total", 0) or 0)
 
 
 def list_story_counts() -> dict:

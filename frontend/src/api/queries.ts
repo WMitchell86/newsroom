@@ -70,8 +70,14 @@ export async function invalidateFinalizedArticle(
 
 export const todayOptions = (scope: TodayScope = "region") =>
   queryOptions({ queryKey: queryKeys.today(scope), queryFn: () => getToday(scope) });
-export const storiesOptions = (filter: StoryFilter, query: string) =>
-  queryOptions({ queryKey: queryKeys.stories(filter, query), queryFn: () => getStories(filter, query) });
+/** V1.2-G4.14: the page is part of the cache key, or page 2 would show page 1. */
+export const storiesOptions = (filter: StoryFilter, query: string, page = 1) =>
+  queryOptions({
+    // The page belongs in the key. Without it, "next page" reads a cache entry
+    // that already holds page 1 and shows the same rows again.
+    queryKey: [...queryKeys.stories(filter, query), page],
+    queryFn: () => getStories(filter, query, page),
+  });
 export const storyOptions = (id: string) =>
   queryOptions({ queryKey: queryKeys.story(id), queryFn: () => getStory(id) });
 export const articlesOptions = (filter: ArticleFilter, query: string) =>

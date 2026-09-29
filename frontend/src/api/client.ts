@@ -657,12 +657,21 @@ export function getRoleHealth(): Promise<{
 export function getStories(
   filter: StoryFilter = "all",
   query = "",
+  page = 1,
+  perPage?: number,
 ): Promise<{
   stories: import("./dto").StorySummary[];
   /** V1.2-G4.7 — filter counts, so the nav does not imply a split it lacks. */
   counts?: Partial<Record<StoryFilter, number>>;
+  /** V1.2-G4.14 — rows matching the filter, before paging. */
+  total?: number;
+  page?: number;
+  perPage?: number;
 }> {
-  return getData("/stories", new URLSearchParams({ filter, query }));
+  const params = new URLSearchParams({ filter, query });
+  if (page > 1) params.set("page", String(page));
+  if (perPage) params.set("per_page", String(perPage));
+  return getData("/stories", params);
 }
 
 export function getStory(id: string): Promise<StoryDetail> {
