@@ -799,3 +799,28 @@
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
+
+/*
+  V1.2-G4.18. The rewrite's length and format controls. They sit beside the
+  comment rather than inside it because the failure being fixed was an
+  instruction and an auto-suggested mode fighting without either being
+  visible. A rewrite is the editor's last word on their own text, so the
+  choices that shape it are shown next to the words.
+*/
+.rewriteControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 10px 0 4px;
+}
+
+.rewriteSelect {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 18px;
+}

@@ -264,15 +264,38 @@ export async function makeArticleDraft(articleId: string, idempotencyKey: string
  * local state until the operation succeeds, so a failure leaves the editor's
  * words on screen for the retry (§E4).
  */
+/** V1.2-G4.18 — the editor's controls over a rewrite, beside their words. */
+export const REWRITE_LENGTHS = [
+  { value: "", label: "Както е" },
+  { value: "short", label: "Кратка" },
+  { value: "standard", label: "Стандартна" },
+  { value: "full", label: "Пълна статия" },
+] as const;
+
+export const REWRITE_MODES = [
+  { value: "", label: "Автоматично" },
+  { value: "MODE_STANDARD_NEWS", label: "Новина" },
+  { value: "MODE_EVENT_PREVIEW", label: "Събитие" },
+  { value: "MODE_CULTURE_FEATURE", label: "Култура" },
+  { value: "MODE_BRIEF", label: "Кратка новина" },
+] as const;
+
 export async function rewriteArticle(
   articleId: string,
   comment: string,
   idempotencyKey: string,
+  controls: { mode?: string; length?: string } = {},
 ): Promise<ArticleDetail> {
   const value = await sendStoryCommand<unknown>(
     `/articles/${encodeURIComponent(articleId)}/rewrite`,
     "POST",
-    { comment },
+    // Only the keys the editor actually chose travel. Sending empty values
+    // would be a claim that they were set.
+    {
+      comment,
+      ...(controls.mode ? { mode: controls.mode } : {}),
+      ...(controls.length ? { length: controls.length } : {}),
+    },
     { "Idempotency-Key": idempotencyKey },
   );
   if (isRecord(value) && typeof value.operationToken === "string") {

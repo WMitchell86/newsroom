@@ -359,13 +359,28 @@ def _voice(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
 
 def _rewrite(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     """`Пренапиши` — the editor's comment is the whole request body."""
-    body = _body(handler, {"comment"})
+    # V1.2-G4.18. `mode` and `length` are the editor's controls over a rewrite.
+    # Both are optional and both are validated against what the product offers:
+    # an unknown value is a client error, never a silent fallback to the
+    # auto-suggested one — which is the behaviour that made "разшири" come back
+    # shorter.
+    body = _body(handler, {"comment", "mode", "length"})
     key = handler.headers.get("Idempotency-Key", "").strip()
     if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
         raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+    mode = ""
+    if str(body.get("mode") or "").strip():
+        mode = _enum(str(body["mode"]).strip(), app.EDITING_MODES, "режим")
+    length = ""
+    if str(body.get("length") or "").strip():
+        length = _enum(str(body["length"]).strip(), app.REWRITE_LENGTHS, "дължина")
     return 202, {
         "operationToken": app.start_article_rewrite(
-            article_id, _string(body["comment"], "comment", maximum=4000), idempotency_key=key
+            article_id,
+            _string(body["comment"], "comment", maximum=4000),
+            idempotency_key=key,
+            mode=mode,
+            length=length,
         )["operationToken"]
     }
 

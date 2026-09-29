@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   createIdempotencyKey,
+  REWRITE_LENGTHS,
+  REWRITE_MODES,
   rewriteArticle,
   updateArticleVoice,
 } from "../api/client";
@@ -187,11 +189,20 @@ export function ArticleStyleBlock({ article }: { article: ArticleProjection }) {
  */
 export function RewriteBlock({ article }: { article: ArticleProjection }) {
   const [comment, setComment] = useState("");
+  // V1.2-G4.18. Two controls the editor did not have before. Both exist
+  // because of a measured failure: this Article's material is auto-suggested
+  // MODE_BRIEF, whose prompt tells the model "1-2 dense paragraphs, do not
+  // inflate to a feature" — so typing "разшири до пълна статия" produced a
+  // draft 85 characters SHORTER than the one it replaced. The mode and the
+  // length are the two ways the editor's own instruction gets to win.
+  const [mode, setMode] = useState("");
+  const [length, setLength] = useState("");
   const [key, setKey] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const rewrite = useMutation({
-    mutationFn: () => rewriteArticle(article.id, comment, key ?? createIdempotencyKey()),
+    mutationFn: () =>
+      rewriteArticle(article.id, comment, key ?? createIdempotencyKey(), { mode, length }),
     onMutate: () => {
       // One key per attempt, reused by any retry of that same attempt, so a
       // double click or a lost response cannot produce two rewrites.
@@ -222,6 +233,40 @@ export function RewriteBlock({ article }: { article: ArticleProjection }) {
       placeholder="Например: направи текста по-кратък и започни директно с основния факт."
       onChange={(event) => setComment(event.target.value)}
     />
+    {/*
+      V1.2-G4.18. The controls sit BESIDE the comment, not hidden in it: the
+      failure being fixed was an instruction and a mode fighting silently, so
+      the editor has to be able to see which one is in force.
+    */}
+    <div className={styles.rewriteControls}>
+      <label className={styles.contextLabel} htmlFor="article-rewrite-length">
+        Дължина
+      </label>
+      <select
+        id="article-rewrite-length"
+        className={styles.rewriteSelect}
+        value={length}
+        onChange={(event) => setLength(event.target.value)}
+      >
+        {REWRITE_LENGTHS.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+
+      <label className={styles.contextLabel} htmlFor="article-rewrite-mode">
+        Формат
+      </label>
+      <select
+        id="article-rewrite-mode"
+        className={styles.rewriteSelect}
+        value={mode}
+        onChange={(event) => setMode(event.target.value)}
+      >
+        {REWRITE_MODES.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </div>
     <div className={styles.rewriteActions}>
       <button
         className={styles.quietAction}

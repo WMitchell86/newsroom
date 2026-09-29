@@ -185,11 +185,48 @@ def _voice_for(article: dict) -> str:
     return chosen or live.DEFAULT_VOICE
 
 
+#: V1.2-G4.18. The three lengths the editor may ask for on a rewrite.
+#:
+#: Measured before this existed: an editor typed "разшири до пълна статия"
+#: and got a SHORTER draft back, because the material is auto-suggested
+#: MODE_BRIEF and that mode's prompt says "1-2 dense paragraphs, do not
+#: inflate to a feature". The instruction and the mode were fighting and the
+#: mode won without saying so.
+#:
+#: The bounds are instructions to the writer, not a post-hoc truncation, and
+#: they never ask for a single new fact — the factual gate is unchanged. They
+#: are deliberately in the same words the editor picked, so the prompt never
+#: says something the UI did not show.
+REWRITE_LENGTHS = {
+    "short": "КРАТКО: 2-3 абзаца, само най-важното. Без разширяване.",
+    "standard": "СТАНДАРТНО: 4-6 абзаца с водещ абзац, ключовите факти и "
+                "кратък контекст. Без повторения и без раздуване.",
+    "full": "ПЪЛНА СТАТИЯ: 7-10 абзаца с водещ абзац, фактите от източника "
+            "изредени, кратък контекст и завършващ извод. Без нови факти извън "
+            "доказаните.",
+}
+
+
+def _with_length(comment: str, length: str) -> str:
+    """The editor's words, plus the length they chose, as one instruction.
+
+    The length is a request about FORM, never about facts: adding a clause
+    here does not touch the factual gate, so a longer draft still has to pass
+    every check a short one does.
+    """
+    instruction = REWRITE_LENGTHS.get(str(length or "").strip())
+    if not instruction:
+        return comment
+    return f"{comment.strip()}\n\n{instruction}".strip() if comment.strip() else instruction
+
+
 def rewrite(
     *,
     article: dict,
     content: dict,
     comment: str,
+    mode: str = "",
+    length: str = "",
     snapshot: dict,
     root=None,
     now=None,
@@ -246,7 +283,12 @@ def rewrite(
             path=editorial / "live_evidence.jsonl",
         )
         try:
-            prepared = pipeline_state.prepare_case(idea["idea_id"], evidence_id, mode="")
+            # V1.2-G4.18. Measured: this Article's material (3 facts, 369 chars) is
+            # auto-suggested MODE_BRIEF, whose prompt says "1-2 dense paragraphs, do
+            # not inflate to a feature". So an editor who typed "разшири" got a
+            # SHORTER draft back — the instruction and the mode were fighting, and
+            # the mode won silently. An explicit mode now overrides the suggestion.
+            prepared = pipeline_state.prepare_case(idea["idea_id"], evidence_id, mode=mode)
         except angles.AngleError as exc:
             raise RewriteRefused(
                 "REWRITE_UNAVAILABLE", "Материалът не може да бъде подготвен за пренаписване."
@@ -278,7 +320,10 @@ def rewrite(
             # §B/E1 - the editorial context and the editor's own words.
             title=str(content.get("title") or ""),
             focus=str(article.get("editorial_focus") or ""),
-            editor_comment=text,
+            # The length choice is the EDITOR's instruction, so it travels as
+            # one: prepended to their own words rather than hidden in a system
+            # section, so what the model is told is what the editor can see.
+            editor_comment=_with_length(text, length),
             voice=voice,
             # G4: the human-approved permanent rules apply here too, not
             # only to a first Draft.
@@ -361,6 +406,9 @@ def _record_feedback(
     try:
         rewrite_feedback.record(
             article_id=article["article_id"],
+            # The audit trail records the editor's WORDS, not the instruction
+            # this function added on top of them. What the model was told is
+            # recorded above, at the call that told it.
             editor_comment=comment,
             focus=str(article.get("editorial_focus") or ""),
             voice=str(article.get("editorial_voice") or ""),

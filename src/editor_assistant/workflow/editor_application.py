@@ -54,6 +54,24 @@ ROOT = Path(__file__).resolve().parents[3]
 LOG = logging.getLogger(__name__)
 _COMMAND_LOCK = threading.RLock()
 STORY_FILTERS = ("all", "followed", "developments", "ignored")
+
+#: V1.2-G4.18. The modes an editor may pin on a rewrite. `""` means "keep the
+#: automatic suggestion", which stays the default — but it is a DEFAULT the
+#: editor can now see and override, because the suggestion silently outvoted
+#: the editor's own words: a BRIEF packet told the model "1-2 dense
+#: paragraphs, do not inflate", so "разшири до пълна статия" came back
+#: shorter than the draft it replaced.
+EDITING_MODES = (
+    "MODE_STANDARD_NEWS",
+    "MODE_EVENT_PREVIEW",
+    "MODE_CULTURE_FEATURE",
+    "MODE_BRIEF",
+)
+
+#: The lengths a rewrite may ask for. Kept here beside the modes because the
+#: API validates against this tuple, and an unknown value must be a client
+#: error rather than a quiet fallback.
+REWRITE_LENGTHS = tuple(article_rewrite.REWRITE_LENGTHS)
 ARTICLE_FILTERS = ("all", "preparation", "draft", "ready")
 #: Operation scope for the newsroom-wide «Обнови» action (B4B). It is not a
 #: Story id: it only tells the shared operation registry which editor wording a
@@ -2290,7 +2308,9 @@ def _record_failed_rewrite_feedback(article_id: str, comment: str) -> None:
         pass
 
 
-def _run_rewrite(article_id: str, comment: str, token: str) -> dict:
+def _run_rewrite(
+    article_id: str, comment: str, token: str, *, mode: str = "", length: str = ""
+) -> dict:
     """The one synchronous rewrite execution.
 
     **§E4 - failure preserves everything.** Every refusal path leaves the current
@@ -2317,6 +2337,8 @@ def _run_rewrite(article_id: str, comment: str, token: str) -> dict:
             article=article,
             content=content,
             comment=comment,
+            mode=mode,
+            length=length,
             snapshot=snapshot,
             root=_editorial_root(),
         )
@@ -2346,7 +2368,14 @@ def _run_rewrite(article_id: str, comment: str, token: str) -> dict:
         article_rewrite.release(article_id, token)
 
 
-def start_article_rewrite(article_id: str, comment: str, *, idempotency_key: str = "") -> dict:
+def start_article_rewrite(
+    article_id: str,
+    comment: str,
+    *,
+    idempotency_key: str = "",
+    mode: str = "",
+    length: str = "",
+) -> dict:
     """`Пренапиши` — begin one rewrite of THIS Article from the editor's comment.
 
     Transport only, exactly like `Направи чернова`: the token carries a bounded
@@ -2390,7 +2419,7 @@ def start_article_rewrite(article_id: str, comment: str, *, idempotency_key: str
         _raise_rewrite_refusal(exc)
 
     def work():
-        return _run_rewrite(article_id, text, token)
+        return _run_rewrite(article_id, text, token, mode=mode, length=length)
 
     try:
         operation_token, view = story_operations.start(scope, signature, work, key=key)

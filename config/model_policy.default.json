@@ -200,7 +200,7 @@
         },
         {
           "provider": "openrouter",
-          "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "model": "qwen/qwen3.8-27b:free",
           "enabled": true,
           "billing": "free",
           "public_only": true,
@@ -208,7 +208,7 @@
         },
         {
           "provider": "openrouter",
-          "model": "qwen/qwen3.8-27b:free",
+          "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
           "enabled": true,
           "billing": "free",
           "public_only": true,
