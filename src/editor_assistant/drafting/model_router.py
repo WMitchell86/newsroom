@@ -212,6 +212,54 @@ def route_key(route) -> str:
     return f"{route.get('provider')}:{route.get('model')}"
 
 
+def role_has_usable_route(role, *, policy=None, now=None) -> bool:
+    """Whether `role` currently has at least one route that is worth calling.
+
+    V1.2-G4.6. This is the check the newsroom refresh was missing, and its
+    absence is what made «Обнови» unusable rather than merely slow.
+
+    The router already refuses to call an exhausted or rate-limited route — but
+    it only finds out *by calling it*, and the refusal costs the per-minute wait
+    first. With the story role's daily quota spent, a refresh walked 8 semantic
+    calls × a 60-second deferral each, for a 429 it already had recorded, and
+    the editor's Today list stayed 15 hours old for the whole eight minutes.
+
+    Deciding before spending anything turns that from minutes into a boolean.
+    A 429 is separate from a 503 on purpose: an exhausted quota does not clear
+    in minutes, so there is nothing to retry and nothing to wait for.
+    """
+    if policy is None:
+        policy = model_policy.load_policy()
+    routes = ((policy.get("roles") or {}).get(role) or {}).get("routes") or []
+    if not routes:
+        return False
+    state = read_health()
+    moment = _utc_now(now)
+    for route in routes:
+        if not route.get("eligible"):
+            continue
+        if route.get("provider") != "gemini" and not (policy.get("global") or {}).get(
+            "paid_enabled", True
+        ):
+            continue
+        record = state.get(route_key(route))
+        if not isinstance(record, dict):
+            return True
+        if record.get("status") == STATUS_EXHAUSTED:
+            until = record.get("until") or ""
+            if until and until > _iso(moment):
+                continue
+            # The window the provider gave us has passed: worth one try again.
+            return True
+        if record.get("status") == STATUS_RATE_LIMITED:
+            until = record.get("until") or ""
+            if until and until > _iso(moment):
+                continue
+            return True
+        return True
+    return False
+
+
 def mark_route(route, status, *, reason="", policy_hash="", now=None) -> dict:
     """Persist a route health decision; returns the stored record."""
     state = read_health()

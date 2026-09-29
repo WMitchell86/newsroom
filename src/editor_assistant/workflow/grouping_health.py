@@ -62,7 +62,7 @@ class GroupingHealth:
     reports 1.
     """
 
-    def __init__(self, *, enabled: bool = True):
+    def __init__(self, *, enabled: bool = True, call_budget: int | None = None):
         self.enabled = bool(enabled)
         # Private counters: the public verbs below are methods, and a same-named
         # attribute would shadow them.
@@ -72,6 +72,33 @@ class GroupingHealth:
         self._degraded_budget = 0
         self._degraded_unavailable = 0
         self.last_success_at: str | None = None
+        # V1.2-G4.6. How many model calls ONE run may spend. `None` is
+        # unbounded, which is correct for a CLI/cron run with no deadline and
+        # wrong for the editor's «Обнови» button: a rate-limited provider makes
+        # each call wait out the remaining minute, so 61 anchored publications
+        # meant a refresh that never returned and a Today list that never
+        # gained a row. The budget is per run, not per day — the daily role
+        # budget is a different guardrail with a different failure mode.
+        self._call_budget = None if call_budget is None else max(int(call_budget), 0)
+        self._calls_spent = 0
+
+    def spend_call(self) -> bool:
+        """Reserve one semantic call. False means this run is out of budget.
+
+        Reserving before the call (not after) is what bounds the wall time: a
+        refusal here happens before the provider is contacted, not after it has
+        already slept.
+        """
+        if self._call_budget is None:
+            return True
+        if self._calls_spent >= self._call_budget:
+            return False
+        self._calls_spent += 1
+        return True
+
+    def calls_spent(self) -> int:
+        """Semantic model calls this run actually reserved."""
+        return self._calls_spent
 
     def required_semantic(self) -> None:
         """A publication reached the anchored shortlist and needs a decision."""

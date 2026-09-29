@@ -27,7 +27,14 @@ from __future__ import annotations
 import hashlib
 import threading
 
-from editor_assistant.workflow import newsroom_run, source_health, sources_registry, story_identity
+from editor_assistant.drafting import model_router
+from editor_assistant.workflow import (
+    grouping_health,
+    newsroom_run,
+    source_health,
+    sources_registry,
+    story_identity,
+)
 
 #: A failed configured source is actionable newsroom news up to this many rows;
 #: beyond that the operator belongs in source diagnostics, not in «Днес».
@@ -171,6 +178,25 @@ def capability(*, root=None) -> dict:
     return {"canRefresh": True, "reason": ""}
 
 
+#: V1.2-G4.6. Semantic model calls one «Обнови» may spend.
+#:
+#: Measured, not guessed. Draft-role Gemini is capped at 5 calls/minute, and the
+#: router waits out the remaining window before each one. At that rate 61
+#: anchored publications is 12+ minutes — longer than the editor will wait and
+#: longer than the operation has any deadline for. The observed failure was not
+#: an error: collect had already written its success summary, the story stage
+#: was still running, and Today kept showing a list 15 hours old while the UI
+#: reported a finished refresh.
+#:
+#: 8 is chosen to leave room under 5/minute for a run to finish in roughly two
+#: minutes, and to leave the rest of the corpus for the next scheduled run
+#: rather than spending a whole minute's allowance on one button press. A
+#: publication that does not get classified is kept separate and flagged for
+#: review, which is the existing conservative behaviour — this only changes how
+#: many reach the model, never what a decision is allowed to be.
+REFRESH_SEMANTIC_CALL_BUDGET = 8
+
+
 def refresh_newsroom(
     *,
     root=None,
@@ -179,6 +205,7 @@ def refresh_newsroom(
     news_provider=None,
     semantic=True,
     call_model=None,
+    call_budget=REFRESH_SEMANTIC_CALL_BUDGET,
 ) -> dict:
     """Collect, ingest and group through the existing pipeline, once.
 
@@ -219,14 +246,32 @@ def refresh_newsroom(
         # success would falsely claim the newsroom was refreshed.
         raise RefreshBusy()
 
+    # V1.2-G4.6. Decide whether the semantic stage is worth attempting BEFORE
+    # the call budget is spent, not after. When the story role's quota is
+    # already recorded as spent, every call would cost a full per-minute
+    # deferral to be told the same thing, and the editor waits minutes for a
+    # Today list that cannot change. Deterministic grouping still runs; the run
+    # reports itself degraded so Today can say why, instead of the list simply
+    # looking stale.
+    #
+    # An explicitly injected `call_model` is the caller's own decision about how
+    # classification runs — a test double, an operator override. Skipping the
+    # semantic stage in that case would silently change grouping decisions
+    # because of a routing check the caller had already overridden, which is
+    # how a quota guard becomes a correctness bug.
+    semantic_available = bool(semantic) and (
+        call_model is not None or model_router.role_has_usable_route("story")
+    )
+
     stories = story_identity.update(
         inbox=paths["inbox"],
         stories=paths["stories"],
         dry_run=False,
-        semantic=semantic,
+        semantic=semantic and semantic_available,
         call_model=call_model,
         blocked_path=paths["blocked"],
         now=now,
+        call_budget=call_budget,
     )
     # The collection summary is already on disk by this point; the Story count
     # only exists after the identity stage, so it is merged into that same
@@ -237,7 +282,22 @@ def refresh_newsroom(
     # third of the corpus separate looked exactly like a run where nothing
     # interesting happened, and the problem surfaced days later as duplicates.
     grouping = stories.get("grouping")
-    if isinstance(grouping, dict):
+    if semantic and not semantic_available:
+        # The identity stage never asked the model anything, so its own summary
+        # reports `healthy` — zero required, zero degraded. Recording that would
+        # be a false report: publications WERE left unclassified, we simply chose
+        # not to ask. The deliberate skip is the fact, and it is the one the
+        # editor needs in order to understand a list that grew more slowly.
+        source_health.record_run_grouping(
+            {
+                grouping_health.FIELD_STATUS: grouping_health.GROUPING_UNAVAILABLE,
+                grouping_health.FIELD_REQUIRED: 0,
+                grouping_health.FIELD_ANSWERED: 0,
+                grouping_health.FIELD_DEGRADED: 0,
+            },
+            path=paths["last_run"],
+        )
+    elif isinstance(grouping, dict):
         source_health.record_run_grouping(grouping, path=paths["last_run"])
 
     return {

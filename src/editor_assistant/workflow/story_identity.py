@@ -232,6 +232,39 @@ def _safe_health(fn, **kwargs) -> None:
         _LOG.debug("grouping-health recorder failed: %s", type(exc).__name__)
 
 
+def _spend_semantic_call(health) -> bool:
+    """Reserve one semantic model call for this run.
+
+    A recorder that predates the budget, or a caller that passed no recorder at
+    all, is treated as unbounded. Grouping decisions are the product; a missing
+    observability object must never silently start dropping publications.
+    """
+    if health is None:
+        return True
+    spend = getattr(health, "spend_call", None)
+    if not callable(spend):
+        return True
+    try:
+        return bool(spend())
+    except Exception as exc:  # noqa: BLE001 - a broken budget must not stop grouping
+        _LOG.debug("semantic call budget failed: %s", type(exc).__name__)
+        return True
+
+
+def _calls_spent_text(health) -> str:
+    """`3 of 8` where a budget exists, `no budget` where it does not."""
+    spent = getattr(health, "calls_spent", None)
+    budget = getattr(health, "_call_budget", None)
+    try:
+        if callable(spent):
+            spent = spent()
+    except Exception:  # noqa: BLE001 - reason text must never break the run
+        spent = None
+    if spent is None:
+        return "no budget"
+    return f"{spent} of {budget}" if budget is not None else f"{spent}"
+
+
 def _health_reporter(record):
     """The `classify(on_failure=...)` callback, or `None`."""
     if record is None:
@@ -477,6 +510,22 @@ def process_item(
         if record is not None:
             _safe_health(record.required_semantic)
         for story, detail, _why in anchored:
+            # V1.2-G4.6. The budget is checked HERE, before the provider is
+            # touched. Checking after would bound nothing: the expensive part is
+            # the router waiting out the rate-limit window, which happens during
+            # the call. Refusing first is what makes «Обнови» finish.
+            if not _spend_semantic_call(health):
+                if record is not None:
+                    _safe_health(record.failed, reason=story_relation.FAILURE_BUDGET)
+                outcome.update(
+                    action="REVIEW",
+                    needs_review=True,
+                    reason=(
+                        "semantic call budget spent for this run "
+                        f"({_calls_spent_text(health)}); kept separate"
+                    ),
+                )
+                break
             answer = story_relation.classify(
                 item,
                 story,
@@ -758,13 +807,18 @@ def update(
     call_model=None,
     now=None,
     blocked_path=None,
+    call_budget=None,
 ):
     """One-shot incremental update: assign items not yet in a story.
 
     `dry_run=True` computes the plan and writes nothing. There is no daemon, no
     polling loop and no scheduling here — the caller owns those (cron/CLI/UI).
+
+    `call_budget` bounds the semantic model calls this ONE run may make. It
+    exists for the editor-facing refresh, which has a deadline; the CLI and cron
+    callers leave it `None` and stay unbounded.
     """
-    health = grouping_health.GroupingHealth(enabled=semantic)
+    health = grouping_health.GroupingHealth(enabled=semantic, call_budget=call_budget)
     plan = _plan(
         inbox=inbox,
         stories=stories,
