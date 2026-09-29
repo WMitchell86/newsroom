@@ -72,6 +72,22 @@ _SITE_TAG = re.compile(
     + r")\s+(?:от|за|в|по)\s+\S.*$"
 )
 
+#: V1.2-G4.13. A bare hostname after the dash is publisher decoration by SHAPE,
+#: exactly as a site tag is above — no registry row can name it, because it is
+#: not a name, it is an address. Measured over the live corpus: 155 collected
+#: headlines end in `- DarikNews.bg`, `- burgas.bg`, `- bta.bg`, `- faragency.bg`
+#: and so on, and the editor was reading every one of them with the address
+#: still attached.
+#:
+#: The shape is deliberately narrow: one host, dots and a TLD, no spaces, no
+#: path, no scheme. A sentence never ends in a hostname, so this cannot eat a
+#: real headline the way a general "trailing phrase" rule would — which is why
+#: it does not need the proven-brand-in-the-head guard that phrases do.
+_BARE_DOMAIN = re.compile(
+    r"^(?:[a-z]{2,10}://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$",
+    re.IGNORECASE,
+)
+
 #: A real headline never becomes this short once its decoration is removed.
 _MIN_HEAD_CHARS = 12
 
@@ -250,6 +266,11 @@ def editorial_story_title(raw_title: str | None, *, identity: object = ()) -> st
         if _is_publisher_decoration(tail, known) and (
             not _SITE_TAG.match(tail) or _has_proven_brand(head, known)
         ):
+            current = head
+            continue
+        # A trailing hostname is decoration by shape and needs no proven brand
+        # beside it: a headline simply does not end in an address.
+        if _BARE_DOMAIN.match(tail):
             current = head
             continue
         break
