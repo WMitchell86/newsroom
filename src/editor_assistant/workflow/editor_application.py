@@ -1315,37 +1315,40 @@ def research_story(story_id: str, *, provider=None, page_opener=None, now=None) 
             "status": readiness_mod.RESEARCH_MORE,
             "sufficiency": {"missing_dimensions": [], "research_questions": questions},
         }
-    with _COMMAND_LOCK:
-        try:
-            story_research.execute_story_research(
-                story_id,
-                topic=title,
-                readiness_result=readiness_result,
-                root=_editorial_root(),
-                provider=provider,
-                page_opener=page_opener,
-                canonical_story=story,
-                existing_publication_keys=[
-                    member.get("publication_key")
-                    for member in story.get("members", [])
-                    if member.get("publication_key")
-                ],
-                now=now,
-                story_title=bootstrap_context.get("title", title) if unassessed else title,
-                story_items=bootstrap_context.get("items", ()) if unassessed else (),
-                seed_urls=bootstrap_context.get("seed_urls", ()) if unassessed else (),
-            )
-        except (
-            story_research.StoryResearchError,
-            story_research_store.StoryResearchStoreError,
-        ) as exc:
-            # §R4: the editor must be told which of the real branches produced
-            # this. The owner's real case read "Проучването не можа да завърши."
-            # for a round that had actually completed and simply found no
-            # second publisher, which told the editor nothing about whether to
-            # wait, retry, or look for another source. Every branch now maps to
-            # its own truthful sentence.
-            raise _research_refusal(exc) from exc
+    # NOTE: no global lock across the executor. `execute_story_research`
+    # performs the search/page/model work; holding `_COMMAND_LOCK` here would
+    # serialize every unrelated command behind a slow research round. The
+    # executor owns its own store atomicity.
+    try:
+        story_research.execute_story_research(
+            story_id,
+            topic=title,
+            readiness_result=readiness_result,
+            root=_editorial_root(),
+            provider=provider,
+            page_opener=page_opener,
+            canonical_story=story,
+            existing_publication_keys=[
+                member.get("publication_key")
+                for member in story.get("members", [])
+                if member.get("publication_key")
+            ],
+            now=now,
+            story_title=bootstrap_context.get("title", title) if unassessed else title,
+            story_items=bootstrap_context.get("items", ()) if unassessed else (),
+            seed_urls=bootstrap_context.get("seed_urls", ()) if unassessed else (),
+        )
+    except (
+        story_research.StoryResearchError,
+        story_research_store.StoryResearchStoreError,
+    ) as exc:
+        # §R4: the editor must be told which of the real branches produced
+        # this. The owner's real case read "Проучването не можа да завърши."
+        # for a round that had actually completed and simply found no
+        # second publisher, which told the editor nothing about whether to
+        # wait, retry, or look for another source. Every branch now maps to
+        # its own truthful sentence.
+        raise _research_refusal(exc) from exc
     return _story_detail(story_id)
 
 
@@ -1391,6 +1394,92 @@ def start_story_research(story_id: str, *, idempotency_key: str = "") -> dict:
     return {"operationToken": token, "status": view["status"]}
 
 
+#: G4.5-hardening: the generic operation envelope no longer hardcodes
+#: `SOURCE_UNAVAILABLE`. Research workers raise `StoryResearchError` with a
+#: closed `reason`; refresh workers raise `RefreshUnavailable` / `RefreshBusy`
+#: with their own sentences. Both survive the registry as `error_code` /
+#: `error`; the map below reports each classified branch truthfully, and
+#: anything unclassified stays a neutral technical failure - never a guessed
+#: source, quota or provider cause.
+_GENERIC_OPERATION_ERRORS = {
+    # --- research (story_research.RESEARCH_REASONS) ---
+    "ROUNDS_EXHAUSTED": (
+        "RESEARCH_QUOTA_EXHAUSTED",
+        EditorResearchQuotaExhausted.default_message,
+        False,
+    ),
+    "PROVIDER_UNAVAILABLE": (
+        "RESEARCH_UNAVAILABLE",
+        EditorResearchUnavailable.default_message,
+        True,
+    ),
+    "NOT_RESEARCHABLE": (
+        "RESEARCH_NOT_APPLICABLE",
+        EditorResearchNotApplicable.default_message,
+        False,
+    ),
+    "NOTHING_OPENED": (
+        "RESEARCH_NO_SOURCE",
+        EditorResearchNoSource.default_message,
+        False,
+    ),
+    "INSUFFICIENT_CORROBORATION": (
+        "RESEARCH_NOT_CONFIRMED",
+        EditorResearchNotConfirmed.default_message,
+        False,
+    ),
+    "TECHNICAL_FAILURE": (
+        "RESEARCH_INTERRUPTED",
+        EditorResearchInterrupted.default_message,
+        True,
+    ),
+    # --- refresh (newsroom_refresh) ---
+    "REFRESH_BUSY": (
+        "REFRESH_BUSY",
+        "Обновяването вече тече. Изчакайте да завърши.",
+        True,
+    ),
+    "REFRESH_UNAVAILABLE": (
+        "REFRESH_UNAVAILABLE",
+        (
+            "Обновяването не е налично: няма активни източници или източниците "
+            "не могат да бъдат прочетени."
+        ),
+        False,
+    ),
+}
+_GENERIC_OPERATION_DEFAULT = (
+    "OPERATION_UNAVAILABLE",
+    "Операцията не можа да завърши поради технически проблем. Опитайте отново.",
+    True,
+)
+_GENERIC_REFRESH_DEFAULT = (
+    "REFRESH_UNAVAILABLE",
+    "Обновяването не можа да завърши поради технически проблем. Опитайте отново.",
+    True,
+)
+
+
+def _generic_operation_error(scope: str, code: str, detail: str) -> dict:
+    """Truthful envelope for a failed Research / Refresh operation.
+
+    A classified worker code keeps its own editor sentence. Anything else is a
+    neutral technical failure with its own code: the raw exception text is NOT
+    echoed here (it can carry a provider name, a filesystem path or an echoed
+    credential), and no source/quota/provider cause is invented for it. The raw
+    text stays in the operation log for the operator.
+    """
+    entry = _GENERIC_OPERATION_ERRORS.get(str(code or ""))
+    if entry is not None:
+        name, message, retryable = entry
+        return {"code": name, "message": message, "retryable": retryable}
+    if scope == REFRESH_SCOPE:
+        name, message, retryable = _GENERIC_REFRESH_DEFAULT
+    else:
+        name, message, retryable = _GENERIC_OPERATION_DEFAULT
+    return {"code": str(code or name)[:64] or name, "message": message, "retryable": retryable}
+
+
 def operation_status(token: str) -> dict:
     if not re.fullmatch(r"op_[0-9a-f]{24}", token):
         raise EditorNotFound("Операцията не е намерена.")
@@ -1427,18 +1516,20 @@ def operation_status(token: str) -> dict:
                 "status": row["status"],
                 "error": quick_draft.operation_error(),
             }
+        # G4.5-hardening: the remaining scopes are Research and Refresh. Their
+        # workers raise classified refusals (research reasons, RefreshBusy /
+        # RefreshUnavailable) whose codes survive in `error_code`; the raw
+        # exception text survives in `error`. Anything else keeps the unknown
+        # code and a neutral technical sentence - never a guessed source,
+        # quota or provider cause the system did not observe.
         return {
             "operationToken": token,
             "status": row["status"],
-            "error": {
-                "code": "SOURCE_UNAVAILABLE",
-                "message": (
-                    "Новините не можаха да се обновят."
-                    if row.get("story_id") == REFRESH_SCOPE
-                    else "Проучването не можа да завърши."
-                ),
-                "retryable": True,
-            },
+            "error": _generic_operation_error(
+                row.get("story_id") or "",
+                row.get("error_code") or "",
+                row.get("error") or "",
+            ),
         }
     return {"operationToken": token, "status": row["status"]}
 
@@ -1524,6 +1615,76 @@ def start_newsroom_refresh(*, idempotency_key: str = "") -> dict:
 # ---------------------------------------------------------------- C2 «Направи чернова»
 
 
+def _draft_readiness_basis(article_id: str) -> dict:
+    """The store-only half of the Draft snapshot: canonical reads, no I/O.
+
+    V1.2-G4.4. Every read here is a local store read, so this is the whole of
+    the Draft command that is allowed to run inside the HTTP request. It is
+    deliberately the SAME builder the Article preparation projection uses
+    (V1.1-B), so the button the editor is shown and the refusal the command
+    raises are still one decision computed from one state.
+
+    What is NOT here is the slow half: opening the Story's own publication and
+    the bounded enrichment. Those run in the worker, after the token exists.
+    """
+    article = _active_article(article_id)
+    content = editor_article_store.get_article_content(article_id)
+    story = _story(article["story_id"])
+    facts, missing = _story_evidence_projection(article["story_id"])
+    items_by_id = _story_items()
+    snapshot = article_readiness.build_snapshot(
+        article,
+        content,
+        story,
+        facts,
+        missing,
+        missing.get("openedSources") or (),
+        # The SAME locally-computed "is this worth one read" the projection uses.
+        # Without it the projection and the command reach different conclusions
+        # about the same Article, which is the one thing this file exists to
+        # prevent: the editor would see a button the command then refuses.
+        # `resolve=False` is what keeps this offline: it inspects the URL the
+        # Story already carries and never opens one.
+        readable_publication=bool(
+            _original_publication_is_readable(article["story_id"], story, resolve=False)
+        ),
+    )
+    return {
+        "article": article,
+        "content": content,
+        "story": story,
+        "facts": facts,
+        "missing": missing,
+        "items_by_id": items_by_id,
+        "snapshot": snapshot,
+    }
+
+
+def _draft_preflight(article_id: str) -> None:
+    """The request path's authority to accept a Draft, at store-read cost.
+
+    V1.2-G4.4 made the request return `202` before the slow work, and the first
+    implementation dropped the readiness decision with it. That silently
+    converted four refusals the editor used to get as an immediate, named
+    reason into an accepted operation that failed later: an ignored Story
+    (`STORY_UNAVAILABLE`), a Story with nothing to write from
+    (`NO_DRAFT_MATERIAL` / `STORY_UNASSESSED`) and an Article the editor had
+    already typed into (`ARTICLE_HAS_TEXT`) all became "202, then red".
+
+    This is cheap on purpose - it opens no page, runs no enrichment and calls
+    no model - and it is not the last word: `_run_draft_generation` re-runs the
+    identical decision over the enriched snapshot before any generation, so a
+    Story that becomes workable while the operation is queued still drafts.
+    """
+    readiness = article_readiness.evaluate(_draft_readiness_basis(article_id)["snapshot"])
+    if not readiness.eligible and (
+        readiness.reason_code != article_readiness.DRAFT_FROM_UNREAD_SOURCE
+    ):
+        _raise_draft_refusal(
+            article_generation.DraftRefused(readiness.reason_code, readiness.reason_message)
+        )
+
+
 def _draft_snapshot(article_id: str, *, enrich: bool = True) -> dict:
     """Everything the Draft command is bound to, read from canonical stores.
 
@@ -1545,26 +1706,13 @@ def _draft_snapshot(article_id: str, *, enrich: bool = True) -> dict:
     projection uses. There is exactly one evidence snapshot in the product, and
     the command adds only its own packet metadata (headline, summary) on top.
     """
-    article = _active_article(article_id)
-    content = editor_article_store.get_article_content(article_id)
-    story = _story(article["story_id"])
-    facts, missing = _story_evidence_projection(article["story_id"])
-    items_by_id = _story_items()
-    snapshot = article_readiness.build_snapshot(
-        article,
-        content,
-        story,
-        facts,
-        missing,
-        missing.get("openedSources") or (),
-        # The SAME locally-computed "is this worth one read" the projection uses.
-        # Without it the projection and the command reach different conclusions
-        # about the same Article, which is the one thing this file exists to
-        # prevent: the editor would see a button the command then refuses.
-        readable_publication=bool(
-            _original_publication_is_readable(article["story_id"], story, resolve=False)
-        ),
-    )
+    basis = _draft_readiness_basis(article_id)
+    article = basis["article"]
+    story = basis["story"]
+    facts = basis["facts"]
+    missing = basis["missing"]
+    items_by_id = basis["items_by_id"]
+    snapshot = basis["snapshot"]
     headline = _story_title(story, items_by_id) or article["working_title"]
     representative = items_by_id.get(story.get("representative_item_id")) or {}
     opened = list(missing.get("openedSources") or ())
@@ -1696,7 +1844,12 @@ def _original_publication_is_authoritative(domain: str) -> bool:
 
 
 def _draft_signature(snapshot: dict) -> str:
-    """Canonical state a Draft command is bound to, so a new one gets a new token."""
+    """Canonical state a Draft command is bound to, so a new one gets a new token.
+
+    NOTE: the live request path pins the operation to the Idempotency-Key
+    alone (signature ""), so this stays the binding for keyless callers and
+    for documentation of what "the same Draft" means.
+    """
     gaps = "\0".join(sorted(str(item.get("id") or "") for item in snapshot["gaps"]))
     seed = f"{snapshot['content_version']}\0{snapshot['article']['updated_at']}\0{gaps}"
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
@@ -1802,14 +1955,60 @@ def _ensure_default_focus(article_id: str) -> None:
         # canonical readiness decision then reports WORKING_TITLE_REQUIRED on
         # its own terms; inventing a sentence here would be worse than useless.
         return
-    with _COMMAND_LOCK:
-        try:
-            editor_article_store.update_editor_focus(article_id, focus)
-        except editor_article_store.ArticleStoreError as exc:
-            LOG.warning("could not store the default Focus for %s", article_id)
-            raise article_generation.DraftRefused(
-                "FOCUS_NOT_CONFIRMED", "Фокусът на статията не може да бъде определен."
-            ) from exc
+    # NOTE: a short store write only; the canonical Focus save owns its
+    # atomicity. Never hold the global lock across network/model work - this
+    # runs inside the Draft worker.
+    try:
+        editor_article_store.update_editor_focus(article_id, focus)
+    except editor_article_store.ArticleStoreError as exc:
+        LOG.warning("could not store the default Focus for %s", article_id)
+        raise article_generation.DraftRefused(
+            "FOCUS_NOT_CONFIRMED", "Фокусът на статията не може да бъде определен."
+        ) from exc
+
+
+def _revalidate_before_generation(article_id: str, bound: dict) -> None:
+    """Stop a queued Draft if the editor changed the Article after it was bound.
+
+    V1.2-G4.4. The store's expected-version publish is the last line of defence
+    and it is sufficient for SAFETY, but it fires only after the whole
+    generation has been paid for. This is the cheap check that fires first.
+
+    It asks only about the Article's OWN preconditions, deliberately not
+    re-deciding the evidence: `bound` may legitimately hold material the store
+    basis does not, because the Story's own publication was read for this very
+    command, and re-asking the evidence question would refuse a Draft the
+    command can actually write. What cannot have changed underneath the
+    generation is the editor's own text, version and lineage.
+    """
+    try:
+        content = editor_article_store.get_article_content(article_id)
+    except (editor_article_store.ArticleStoreError, OSError, ValueError, KeyError, TypeError):
+        # An unreadable Article is not evidence of a change. The store's own
+        # publish check remains the authority, exactly as before this existed.
+        return
+    if int(content.get("content_version", 0)) == int(bound.get("content_version", -1)):
+        return
+    # The editor changed something. Re-ask the ONE canonical decision so the
+    # refusal names what is actually wrong now: `ARTICLE_HAS_TEXT` tells the
+    # editor their text is safe, which a bare version conflict does not.
+    readiness = article_readiness.evaluate(_draft_readiness_basis(article_id)["snapshot"])
+    code = (
+        article_readiness.ARTICLE_VERSION_CONFLICT
+        if readiness.eligible
+        else readiness.reason_code
+    )
+    # A `DraftRefused`, not the request path's `_raise_draft_refusal`: this runs
+    # inside the worker, where the code is the operation's own stable reason.
+    # Going through the HTTP mapping would collapse `ARTICLE_HAS_TEXT` into a
+    # generic `INVALID_TRANSITION` and lose the one sentence that tells the
+    # editor their text is safe.
+    raise article_generation.DraftRefused(
+        code,
+        article_readiness.REASON_MESSAGES.get(
+            code, "Статията е променена, преди черновата да се създаде."
+        ),
+    )
 
 
 def _run_draft_generation(article_id: str, token: str) -> dict:
@@ -1850,9 +2049,21 @@ def _run_draft_generation(article_id: str, token: str) -> dict:
         # qualify, and only against the basis this attempt actually used, so a
         # readiness refusal can never open the manual editor.
         attempted_basis = article_draft_failure.basis_digest(current)
+        # V1.2-G4.4: one more short canonical read, immediately before the
+        # generation. The operation is bound to the state at click time, so an
+        # editor edit landing while it is queued must stop the attempt HERE -
+        # before a model call is spent - instead of being discovered by the
+        # store's expected-version publish after the generation is complete.
+        # Without this the editor's text was still safe, but a full Draft was
+        # generated, audited and stored for an Article they had already written.
+        _revalidate_before_generation(article_id, current)
+        # NOTE: no global lock is held across generation. The per-Article
+        # guard (`acquire` in the request path, `release` in `finally`)
+        # already serializes generations for one Article; holding
+        # `_COMMAND_LOCK` here as well would serialize every unrelated
+        # command behind a slow provider call (the measured G4.4 defect).
         try:
-            with _COMMAND_LOCK:
-                article_generation.generate(current, root=_editorial_root())
+            article_generation.generate(current, root=_editorial_root())
         except article_generation.DraftRefused as exc:
             _record_draft_failure(article_id, current, attempted_basis, exc.code)
             raise
@@ -1891,12 +2102,23 @@ def _run_draft_generation(article_id: str, token: str) -> dict:
         assert not isinstance(exc, article_generation.DraftRefused), (
             "a classified refusal must keep its own code, not be relabelled"
         )
-        reason = getattr(exc, "reason", "") or ""
+        # Only text the ROUTER produced may reach the editor. An arbitrary
+        # exception's `str()` is untrusted, and measured, it did exactly that:
+        # "openrouter/gemini-3 failed at /home/test/.config/router.json" was
+        # shown to the editor as the reason, naming a provider and this
+        # machine's filesystem path for a failure nobody had diagnosed. The
+        # router's own `reason` and `trace` are structured and bounded, so the
+        # cause is still named - and the exception TYPE is still reported,
+        # because a class is a fact and a path is not.
+        reason = str(getattr(exc, "reason", "") or "").strip()
         trace = getattr(exc, "trace", None) or []
-        detail = reason or str(exc) or type(exc).__name__
         blocked = [t for t in trace if t.get("event") in {"SKIPPED", "FAILED"}]
+        detail = reason
         if blocked:
-            detail = f"{detail} ({blocked[0].get('route')}: {blocked[0].get('reason')})"
+            skipped = f"{blocked[0].get('route')}: {blocked[0].get('reason')}"
+            detail = f"{detail} ({skipped})" if detail else skipped
+        if not detail:
+            detail = type(exc).__name__
         # No failure marker is recorded here: the preflight marker contract is
         # that it is written only against a basis this attempt actually used,
         # and an unclassified provider failure has no basis digest.
@@ -1910,53 +2132,37 @@ def _run_draft_generation(article_id: str, token: str) -> dict:
 def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
     """Begin the one editor-facing Draft action (C2 «Направи чернова»).
 
-    Transport only: the token carries a bounded poll, nothing else. The backend
-    is the authority - the command is refused unless the server itself currently
-    offers `MAKE_DRAFT` for this Article, and every precondition is re-checked
-    inside the worker before any provider work happens. A repeated request with
-    the same Idempotency-Key returns the still-valid operation instead of
-    generating twice, and a generation already in flight is returned rather than
-    raced.
+    Transport only: the token carries a bounded poll, nothing else. The
+    request path does only cheap validation, Article lookup, idempotency /
+    in-flight reattachment and operation creation, then returns the token.
+    The slow work (canonical snapshot, source opening, bounded enrichment,
+    readiness re-check, generation) runs inside the worker before any
+    provider work happens. A repeated request with the same Idempotency-Key
+    returns the still-valid operation instead of generating twice, and a
+    generation already in flight is returned rather than raced.
     """
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         raise EditorApplicationError("Idempotency key is required.")
     key = idempotency_key.strip()
-    with _COMMAND_LOCK:
-        article = _active_article(article_id)
-        snapshot = _draft_snapshot(article_id)
-        # **V1.1-B:** the command evaluates the ONE canonical readiness decision
-        # and refuses with its exact current reason. Stale frontend eligibility
-        # is never trusted: canonical state is re-read here, so a gap that
-        # appeared after the render refuses instead of generating over it.
-        readiness = article_readiness.evaluate(snapshot)
-        if not readiness.eligible and (
-            readiness.reason_code != article_readiness.DRAFT_FROM_UNREAD_SOURCE
-        ):
-            _raise_draft_refusal(
-                article_generation.DraftRefused(readiness.reason_code, readiness.reason_message)
-            )
-        dto = _article_dto(article, snapshot["content"], _story_reference(article))
-        if "MAKE_DRAFT" not in dto["availableActions"]:
-            # The invariant in code: `MAKE_DRAFT` is derived from the very same
-            # decision evaluated above. If it were ever derived from anything
-            # else, the command fails loudly here instead of the UI silently
-            # diverging from the backend.
-            raise EditorApplicationError("Черновата не е налична в текущото състояние на статията.")
+    # Cheap synchronous preflight: the ONE canonical readiness decision over
+    # the store-only snapshot. This is what makes the request authoritative
+    # WITHOUT making it slow - no page is opened, no enrichment runs and no
+    # model is called, and no global lock is held across any of it. The slow
+    # half (opening the Story's own publication, enrichment, generation) runs in
+    # the worker, and the worker re-runs this same decision before generating,
+    # so nothing is decided by a stale render and nothing is decided twice.
+    _draft_preflight(article_id)
     in_flight = _running_draft(article_id)
     if in_flight is not None:
         return in_flight
     scope = article_generation.scope_for(article_id)
-    signature = _draft_signature(snapshot)
-    if key:
-        # An explicit key pins the operation to that request alone. Binding it to
-        # mutable Article state would hand a repeated request a *new* token and
-        # generate the same Draft twice.
-        signature = ""
-    token = story_operations.token_for(scope, signature, 0, key)
-    if key:
-        accepted = story_operations.get(token)
-        if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
-            return {"operationToken": token, "status": accepted["status"]}
+    # An explicit key pins the operation to that request alone. Binding it to
+    # mutable Article state would hand a repeated request a *new* token and
+    # generate the same Draft twice.
+    token = story_operations.token_for(scope, "", 0, key)
+    accepted = story_operations.get(token)
+    if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
+        return {"operationToken": token, "status": accepted["status"]}
     try:
         article_generation.acquire(article_id, token)
     except article_generation.DraftRefused as exc:
@@ -1970,7 +2176,7 @@ def start_article_draft(article_id: str, *, idempotency_key: str = "") -> dict:
         return _run_draft_generation(article_id, token)
 
     try:
-        operation_token, view = story_operations.start(scope, signature, work, key=key)
+        operation_token, view = story_operations.start(scope, "", work, key=key)
     except story_operations.BusyError as exc:
         article_generation.release(article_id, token)
         raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
@@ -2261,20 +2467,21 @@ def _create_quick_article(story_id: str, story: dict) -> str | None:
     by hand.
     """
     title = _story_title(story, _story_items()) or "Работа за статия"
-    with _COMMAND_LOCK:
-        try:
-            created = editor_article_store.create_editor_article(
-                story_id=story_id,
-                stories_path=_paths()["stories"],
-                working_title=title,
-                editorial_focus="",
-                idempotency_key=f"quick-draft:{story_id}",
-            )
-        except editor_article_store.ArticleStoreError as exc:
-            if "unknown canonical story_id" in str(exc):
-                raise EditorNotFound("Story не е намерена.") from exc
-            LOG.warning("quick draft could not create an Article for %s", story_id)
-            return None
+    # NOTE: short canonical create only; the store owns idempotency via the
+    # `quick-draft:{story}` key. No global lock: this runs inside the worker.
+    try:
+        created = editor_article_store.create_editor_article(
+            story_id=story_id,
+            stories_path=_paths()["stories"],
+            working_title=title,
+            editorial_focus="",
+            idempotency_key=f"quick-draft:{story_id}",
+        )
+    except editor_article_store.ArticleStoreError as exc:
+        if "unknown canonical story_id" in str(exc):
+            raise EditorNotFound("Story не е намерена.") from exc
+        LOG.warning("quick draft could not create an Article for %s", story_id)
+        return None
     return created["article_id"]
 
 
@@ -2298,14 +2505,15 @@ def _confirm_quick_focus(article_id: str, story_id: str) -> str:
         # untouched, and the canonical readiness decision reports the real
         # reason (WORKING_TITLE_REQUIRED) when the command asks it.
         return article_readiness.REASON_MESSAGES[article_readiness.WORKING_TITLE_REQUIRED]
-    with _COMMAND_LOCK:
-        try:
-            editor_article_store.update_editor_focus(article_id, focus)
-        except editor_article_store.ArticleStoreError as exc:
-            if "unknown article_id" in str(exc):
-                raise EditorNotFound("Статията не е намерена.") from exc
-            LOG.warning("quick draft could not confirm the Focus for %s", article_id)
-            return quick_draft.FOCUS_UNCONFIRMABLE_MESSAGE
+    # NOTE: short canonical Focus write only. No global lock: this runs
+    # inside the worker, next to research and generation.
+    try:
+        editor_article_store.update_editor_focus(article_id, focus)
+    except editor_article_store.ArticleStoreError as exc:
+        if "unknown article_id" in str(exc):
+            raise EditorNotFound("Статията не е намерена.") from exc
+        LOG.warning("quick draft could not confirm the Focus for %s", article_id)
+        return quick_draft.FOCUS_UNCONFIRMABLE_MESSAGE
     return ""
 
 
@@ -2504,7 +2712,38 @@ def start_quick_draft(story_id: str, *, idempotency_key: str = "") -> dict:
             # §29: a second click while the same work is in flight reattaches to
             # the running operation instead of starting parallel work.
             return {"operationToken": running, "status": row["status"]}
-    quick_draft.acquire(story_id, token)
+    try:
+        quick_draft.acquire(story_id, token)
+    except quick_draft.GuardBusy as busy:
+        # Two fresh keys raced past the check above. The first operation still
+        # owns the guard and is still running, so this request reattaches to it
+        # instead of overwriting the guard and orphaning the first one.
+        #
+        # The check below is a time-of-check/time-of-use gap: between reading
+        # that row and claiming the guard, the holder can settle and ANOTHER
+        # caller can claim it. A bare second `acquire` would then raise
+        # `GuardBusy` again, and it is a plain RuntimeError, not an
+        # EditorApplicationError - so it would escape the command path and
+        # surface as an unhandled 500 on a legitimate second click. So the claim
+        # is retried briefly, and whatever still holds the guard at the end is
+        # what the caller is told to reattach to.
+        for _attempt in range(3):
+            row = story_operations.get(busy.token)
+            if row is not None and row["status"] in {"pending", "running"}:
+                return {"operationToken": busy.token, "status": row["status"]}
+            try:
+                quick_draft.acquire(story_id, token)
+                break
+            except quick_draft.GuardBusy as again:
+                busy = again
+        else:
+            holder = quick_draft.active_token(story_id)
+            row = story_operations.get(holder) if holder else None
+            if row is not None and row["status"] in {"pending", "running"}:
+                return {"operationToken": holder, "status": row["status"]}
+            raise EditorInvalidTransition(
+                "Операциите са заети; опитайте след малко."
+            ) from busy
 
     def work():
         try:
@@ -2582,7 +2821,58 @@ def _today_grouping_health() -> dict | None:
     }
 
 
-def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
+def read_health() -> dict:
+    """Per-ROLE routing health, the one thing the product never showed.
+
+    V1.2-G4.5. Careful about what is claimed here. The Today screen already
+    carries `groupingHealth` and renders a warning when grouping degrades, so
+    the 2026-09-28 outage was not invisible - but nothing on screen said *why*:
+    no per-route health existed in the product, and no surface connected that
+    warning to the mark which caused it. This fills exactly that gap, and it is
+    the same computation `newsroom doctor` prints, so the screen and the
+    terminal cannot disagree.
+
+    A pure read: the routing plan the router would actually follow, plus no
+    provider call and no spend.
+    """
+    from editor_assistant.drafting import model_policy as policy_mod
+    from editor_assistant.drafting import model_router as router
+
+    policy = policy_mod.load_policy()
+    roles = []
+    for name in sorted(policy.get("roles") or {}):
+        plan = router.plan_routes(name, policy=policy, payload_class="public")
+        routes = plan.get("routes") or []
+        roles.append(
+            {
+                "role": name,
+                "eligible": len([r for r in routes if r.get("eligible")]),
+                "total": len(routes),
+                # What actually happens when a role runs out: it does not fail
+                # loudly, it does less. Naming it is the useful part.
+                "onExhausted": str(plan.get("on_exhausted") or ""),
+            }
+        )
+
+    unroutable = [r["role"] for r in roles if not r["eligible"]]
+    return {
+        "ok": not unroutable,
+        "roles": roles,
+        "unroutableRoles": unroutable,
+        # The one command that fixes a wrong mark, so the editor is never left
+        # holding a diagnosis with no way to act on it.
+        "remedy": "newsroom models validate",
+    }
+
+
+def read_today(scope: str = editor_queries.SCOPE_REGION, *, now=None) -> dict:
+    """Today for the working desk.
+
+    `now` is the projection's clock, and Today is a projection *of* a clock: a
+    Story collected three days ago is no longer current. Production omits it and
+    gets the real time; a test that pins the horizon passes the moment its
+    fixture describes, so the assertion does not depend on the wall clock.
+    """
     result = editor_queries.read_today(
         stories_path=_paths()["stories"],
         inbox_path=_paths()["inbox"],
@@ -2594,6 +2884,7 @@ def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
         # the quiet escape hatch. An unknown value falls back to the default
         # inside `project_today` rather than failing the whole read.
         scope=scope,
+        now=now,
     )
     new_developments = []
     new_stories = []
@@ -2633,6 +2924,14 @@ def read_today(scope: str = editor_queries.SCOPE_REGION) -> dict:
             "timestamp": row["latestChangeAt"],
             "nextAction": "REVIEW",
             "delta": {"unreviewedDevelopmentCount": row["unreviewedDevelopmentCount"]},
+            # V1.2-G4.5: WHO said this, and take me there. Added HERE as well as in
+            # `_story_attention_row`, because a first attempt added it only to the
+            # attention projection — and running the real app showed the field
+            # arriving as `null` on every row, since the desk is built from these
+            # items. The publisher count below says "how many"; these name one
+            # publisher and open their page.
+            "sourceUrl": row.get("sourceUrl", ""),
+            "sourceName": row.get("sourceName", ""),
             # V1.2-G1 §10: the independent-publisher count, surfaced from the one
             # place that already computes it. It lets the editor sort by
             # corroboration without React ever counting a source, and it is

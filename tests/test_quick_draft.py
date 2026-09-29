@@ -549,15 +549,35 @@ def test_an_existing_draft_is_returned_without_regenerating(newsroom, monkeypatc
 # GAP PATH — an honest stop, and nothing left behind
 
 
-def test_research_that_finds_nothing_stops_without_creating_an_article(
+def test_research_that_finds_nothing_stops_when_nothing_can_be_read(
     newsroom, monkeypatch, working_model
 ):
-    """§34/§10 — an insufficient Story leaves no empty Preparation Article."""
+    """§34/§10 — nothing researched *and* nothing readable leaves nothing behind.
+
+    V1.2-G4.3 §4 narrowed this case: a Story whose own publication is still
+    readable is worth one bounded Draft attempt even when the extra research
+    round found nothing, so the honest "stop and leave no empty Article" story is
+    now the Story with neither. The member URL therefore points at a host the
+    safety list really rejects.
+    """
+    blocked_url = "https://flagman.bg/x"
+    assert blocked_domains.is_blocked(blocked_url), "the fixture must use a really blocked host"
+    items = inbox_store.read_items(newsroom / "inbox.jsonl")
+    for item in items:
+        item["url"] = blocked_url
+    inbox_store.save_items(items, newsroom / "inbox.jsonl")
+    # The blocked URL answers "not readable", so the command falls through to
+    # resolving the Story's own publication from its headline - a network edge.
+    # This test asserts the gate, not the resolver, so the resolver answers
+    # locally: nothing was ever recorded for this headline.
+    monkeypatch.setattr(
+        "editor_assistant.workflow.publication_material.publication_urls", lambda title: []
+    )
     substitute_research_network(monkeypatch, results=False)
     _route_research_edges(monkeypatch)
 
     def explode(*_args, **_kwargs):
-        raise AssertionError("no generation may be attempted without sufficient evidence")
+        raise AssertionError("no generation may be attempted without readable material")
 
     monkeypatch.setattr(app, "_run_draft_generation", explode)
     row = run_quick(key="blocked")
@@ -568,10 +588,40 @@ def test_research_that_finds_nothing_stops_without_creating_an_article(
     assert result["storyId"] == "s-one"
     assert result["reasonCode"] in article_readiness.RESEARCH_REMEDY_CODES
     assert result["message"]
-    assert "articleId" not in result, "no Article may exist for an insufficient Story"
+    assert "articleId" not in result, "no Article may exist for an unreadable Story"
     # §10: the preferred ordering is evidence first, Article second.
     assert articles_for() == []
     assert not _rows("cases.jsonl"), "no generation provider call may happen"
+
+
+def test_a_readable_publication_is_attempted_even_when_research_found_nothing(
+    newsroom, monkeypatch, working_model
+):
+    """V1.2-G4.3 §4 — research is an improvement, not a permission to write.
+
+    The research round comes back empty, but the Story's own publication is a
+    readable page, which is bounded material the Draft gate accepts. Refusing
+    here was the defect the owner hit: a red badge over a story they could read.
+    The attempt must happen, and the Preparation Article it works in must
+    survive so the editor always has somewhere to continue.
+    """
+    substitute_research_network(monkeypatch, results=False)
+    _route_research_edges(monkeypatch)
+    attempts = []
+
+    def attempted(article_id, _token):
+        attempts.append(article_id)
+        raise article_generation.DraftRefused("GENERATION_FAILED", "Черновата не успе.")
+
+    monkeypatch.setattr(app, "_run_draft_generation", attempted)
+    row = run_quick(key="readable-only")
+
+    assert attempts, "a readable own publication must earn the attempt"
+    result = row["result"]
+    assert result["status"] == quick_draft.NEEDS_ATTENTION
+    assert result["reasonCode"] == "GENERATION_FAILED", "the real reason, not a research excuse"
+    assert [article["article_id"] for article in articles_for()] == attempts
+    assert not _rows("cases.jsonl"), "a refused generation publishes nothing"
 
 
 def test_a_persisting_blocking_gap_reports_the_real_blocker(newsroom, monkeypatch, working_model):
@@ -667,7 +717,10 @@ def test_a_generation_failure_keeps_the_article_and_earns_manual_continuation(
     assert row["status"] == "succeeded", row
     result = row["result"]
     assert result["status"] == quick_draft.NEEDS_ATTENTION
-    assert result["reasonCode"] == quick_draft.DRAFT_GENERATION_FAILED
+    # V1.2-G4.5: the refusal now carries the classifier's real reason instead of
+    # the catch-all name, so the editor's «Черновата не можа…» says *why*. The
+    # durable marker below is the same fact recorded on the Article.
+    assert result["reasonCode"] == article_draft_failure.PROVIDER_UNAVAILABLE
     article_id = result["articleId"]
     # The Preparation Article survives, carrying V1.1-C's durable marker.
     stored = articles.get_editor_article(article_id)
@@ -752,7 +805,16 @@ def test_a_blocked_source_stops_the_orchestration(newsroom, monkeypatch, working
 
     assert row["result"]["status"] == quick_draft.NEEDS_ATTENTION
     assert row["result"]["reasonCode"] == article_readiness.SAFETY_BLOCKED
-    assert articles_for() == []
+    # The guard stopped the work before the provider: nothing was generated and
+    # nothing was published, which is the `explode` above and the empty store
+    # below. What the canonical ordering does leave behind is the empty
+    # Preparation Article the click created one step before the guard ran - the
+    # same recovery surface V1.1-C grants a failed generation. Asserted empty, so
+    # a blocked source can never quietly be holding text.
+    blocked = articles_for()
+    assert len(blocked) == 1
+    blocked_id = blocked[0]["article_id"]
+    assert quick_draft.is_empty_preparation(blocked[0], articles.get_article_content(blocked_id))
     assert not _rows("cases.jsonl")
 
 
@@ -907,12 +969,21 @@ def test_no_focus_is_written_without_a_clean_story_title(newsroom, monkeypatch, 
 # THE TODAY DTO — the backend is the authority
 
 
+#: The fixture Story and its member items are dated 2026-09-25 (§A1 fixture
+#: shape). Today's horizon retires an untouched Story once the Sofia calendar
+#: moves past the previous day, so reading Today without saying *when* makes the
+#: assertion a function of the wall clock: these four tests passed on 2026-09-26
+#: and failed on 2026-09-28 with nothing in the product changed. A projection of
+#: a clock is tested at a pinned moment.
+TODAY_NOW = "2026-09-25T12:00:00Z"
+
+
 def _today_rows(newsroom) -> list[dict]:
     # V1.2-G4.1 §A4: these tests assert the Today DTO contract (which actions the
     # backend offers), not the regional scope, and this fixture's abstract Story
     # names no Burgas locality. They therefore read the `all` scope explicitly;
     # the regional default is asserted on its own in `test_regional_today.py`.
-    today = app.read_today(scope="all")
+    today = app.read_today(scope="all", now=TODAY_NOW)
     return [*today["newDevelopments"], *today["newStories"]]
 
 
@@ -939,6 +1010,10 @@ def test_today_offers_all_three_triage_intents_for_a_current_story(newsroom):
         "label": "Чернова",
         "articleId": None,
         "reasonCode": None,
+        # V1.2-G4.6: the server owns the in-flight and last-attempt state, so the
+        # row states it even when nothing is running and nothing has failed.
+        "inFlight": False,
+        "lastAttempt": None,
     }
 
 
@@ -961,6 +1036,10 @@ def test_today_withholds_quick_draft_for_an_ambiguous_story(newsroom):
     assert "QUICK_DRAFT" not in row["availableActions"]
     assert row["quickDraft"]["available"] is False
     assert row["quickDraft"]["reasonCode"] == quick_draft.MULTIPLE_ACTIVE_ARTICLES
+    # Nothing is running and nothing has been attempted in this test, and the
+    # row says exactly that rather than leaving the frontend to guess (§43).
+    assert row["quickDraft"]["inFlight"] is False
+    assert row["quickDraft"]["lastAttempt"] is None
 
 
 def test_today_offers_open_draft_when_a_draft_already_exists(newsroom):
@@ -985,6 +1064,8 @@ def test_today_offers_open_draft_when_a_draft_already_exists(newsroom):
     assert row["quickDraft"]["available"] is True
     assert row["quickDraft"]["label"] == quick_draft.LABEL_OPEN_DRAFT
     assert row["quickDraft"]["articleId"] == created["article_id"]
+    assert row["quickDraft"]["inFlight"] is False
+    assert row["quickDraft"]["lastAttempt"] is None
 
 
 def test_today_keeps_article_internals_out_of_the_story_row(newsroom):
@@ -1079,3 +1160,139 @@ def test_a_repeated_http_post_returns_the_same_operation(api_server, monkeypatch
     _await_http(api_server, _data(first)["operationToken"])
     assert len(articles_for()) == 1
     assert len(_rows("cases.jsonl")) == 1
+
+
+# ------------------------------------------------------------------ §44
+# V1.2-G4.4 / G4.6 — the request path never waits on the provider
+
+
+def test_draft_start_returns_while_generation_is_still_running(
+    newsroom, monkeypatch, working_model
+):
+    """«Направи чернова» answers with a token; the provider waits in the worker.
+
+    The measured defect was a request path that held the global command lock
+    across the snapshot, the source reads and the model call: one click tied up
+    every other command for as long as generation took. The contract now is that
+    only cheap validation happens before the token comes back.
+    """
+    created = articles.create_editor_article(
+        story_id="s-one",
+        stories_path=newsroom / "stories.json",
+        working_title="Работа за статия",
+        editorial_focus="Да обясним решението и както променя.",
+        now="2026-09-25T09:00:00Z",
+    )
+    article_id = created["article_id"]
+    gate = threading.Event()
+    entered = []
+
+    def slow_generation(_article_id, _token):
+        entered.append(_article_id)
+        gate.wait(timeout=30)
+        raise article_generation.DraftRefused(
+            article_draft_failure.PROVIDER_UNAVAILABLE, "Моделът не отговаря."
+        )
+
+    monkeypatch.setattr(app, "_run_draft_generation", slow_generation)
+
+    begin = time.monotonic()
+    accepted = app.start_article_draft(article_id, idempotency_key="async-draft")
+    elapsed = time.monotonic() - begin
+
+    token = accepted["operationToken"]
+    assert token.startswith("op_"), accepted
+    # Generous, but nowhere near the 30 s gate: a request path that waited on
+    # the provider would be waiting on that gate right now.
+    assert elapsed < 2.0, f"start_article_draft blocked the request for {elapsed:.1f}s"
+    row = story_operations.get(token)
+    assert row is not None and row["status"] in {"pending", "running"}, row
+    assert entered, "the work really was handed to the worker"
+
+    gate.set()
+    settled = await_operation(token)
+    # The refusal is classified and kept - the async path changed nothing about
+    # what the editor is told when the provider itself is the problem.
+    assert settled["status"] == "failed"
+    assert settled["error_code"] == article_draft_failure.PROVIDER_UNAVAILABLE
+
+
+def test_another_command_is_not_blocked_by_a_draft_in_flight(
+    newsroom, monkeypatch, working_model
+):
+    """V1.2-G4.6 — no global lock is held across generation, so editing continues.
+
+    `save_content` is the control: it takes `_COMMAND_LOCK` on purpose, so under
+    the old structure it queued behind a generation holding that lock. It must
+    now complete while the Draft is still running.
+    """
+    draft = articles.create_editor_article(
+        story_id="s-one",
+        stories_path=newsroom / "stories.json",
+        working_title="Работа за статия",
+        editorial_focus="Да обясним решението и както променя.",
+        now="2026-09-25T09:00:00Z",
+        idempotency_key="lock-draft",
+    )
+    other = articles.create_editor_article(
+        story_id="s-one",
+        stories_path=newsroom / "stories.json",
+        working_title="Друга статия",
+        editorial_focus="Друга задача.",
+        now="2026-09-25T09:01:00Z",
+        idempotency_key="lock-other",
+    )
+    gate = threading.Event()
+
+    def slow_generation(_article_id, _token):
+        gate.wait(timeout=30)
+        raise article_generation.DraftRefused(
+            article_draft_failure.PROVIDER_UNAVAILABLE, "Моделът не отговаря."
+        )
+
+    monkeypatch.setattr(app, "_run_draft_generation", slow_generation)
+    token = app.start_article_draft(draft["article_id"], idempotency_key="lock-draft")[
+        "operationToken"
+    ]
+    assert story_operations.get(token)["status"] in {"pending", "running"}
+
+    begin = time.monotonic()
+    app.save_content(other["article_id"], 0, "Друга статия", "Ръчно написан текст.")
+    elapsed = time.monotonic() - begin
+
+    assert articles.get_article_content(other["article_id"])["body"] == "Ръчно написан текст."
+    assert elapsed < 2.0, f"a Draft in flight blocked another command for {elapsed:.1f}s"
+
+    gate.set()
+    assert await_operation(token)["status"] == "failed"
+
+
+
+def test_a_quick_draft_that_loses_the_guard_race_answers_with_an_editor_error(
+    newsroom, monkeypatch, working_model
+):
+    """V1.2-G4.5 — a guard race must never escape as an unhandled error.
+
+    The guard is claimed, and a second click with a fresh key may lose that claim
+    twice over: the holder's operation row is read BEFORE the guard is
+    re-claimed, so another caller can win in between. `GuardBusy` is a plain
+    `RuntimeError`, so a bare second `acquire` escaped the command path and
+    surfaced as a 500 on a legitimate click.
+
+    Here the guard is permanently unwinnable - every claim raises, and the
+    holder is not a live operation - which is the worst case the retry has to
+    survive. The answer must be a normal editor refusal.
+    """
+    from editor_assistant.workflow import quick_draft as qd
+
+    def always_busy(_story_id, _token):
+        raise qd.GuardBusy("op_" + "d" * 24)
+
+    monkeypatch.setattr(qd, "acquire", always_busy)
+
+    with pytest.raises(app.EditorInvalidTransition) as refusal:
+        app.start_quick_draft("s-one", idempotency_key="loses-every-time")
+
+    assert "заети" in str(refusal.value)
+    # A plain RuntimeError reaching here is exactly the 500 this prevents.
+    assert not isinstance(refusal.value, qd.GuardBusy)

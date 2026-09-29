@@ -823,10 +823,20 @@ def test_models_add_free_openrouter_is_stored_public_only(server):
     assert route["billing"] == "free" and route["public_only"] is True
 
 
-def test_models_add_gemini_uses_operator_declared_with_known_rpd(server):
-    """A4: Gemini additions never ask paid/free and inherit the local RPD."""
-    from editor_assistant.drafting import model_policy as policy_mod
+def test_models_add_gemini_is_never_priced(server):
+    """A4: a Gemini addition never asks paid/free — it is the operator's quota.
 
+    The sibling assertion that a NEWLY added Gemini route inherits
+    `GEMINI_DAILY_LIMITS` was cut on the owner's instruction and is worth
+    recording rather than forgetting. It failed because this test re-adds a model
+    that already exists in the policy, and adding an existing route does not
+    overwrite an operator-set `daily_call_limit`. The two numbers were never the
+    same thing and the test made them the same thing: `daily_call_limit` is a
+    PER-MODEL guardrail, `hard_calls_day` is the ROLE's budget. The owner's ruling
+    is that the per-model guardrail stays at 20/day for every model, and the role
+    budget is set separately — so the two disagreeing is correct, and a test that
+    insists they agree was asserting the bug AGENTS.md rule 3 records.
+    """
     resp = _post(
         f"{server}/models",
         {
@@ -838,13 +848,14 @@ def test_models_add_gemini_uses_operator_declared_with_known_rpd(server):
         },
     )
     assert resp.status == 303
+    from editor_assistant.drafting import model_policy as policy_mod
+
     route = next(
         r
         for r in policy_mod.load_policy()["roles"]["draft"]["routes"]
         if r["model"] == "gemini-3.7-flash" and r["provider"] == "gemini"
     )
     assert route["billing"] == "operator_declared"
-    assert route["daily_call_limit"] == policy_mod.GEMINI_DAILY_LIMITS["gemini-3.7-flash"]
 
 
 def test_models_add_refuses_free_when_the_cached_validation_saw_paid(server, newsroom_dir):

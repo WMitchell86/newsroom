@@ -574,13 +574,18 @@ def test_a_broken_refresh_reports_only_a_sanitized_editor_error(newsroom, monkey
 
     status = app.operation_status(started["operationToken"])
     assert status["status"] == "failed"
+    # V1.2-G4.5: a refresh failure with no classified cause gets the neutral
+    # refresh sentence. The previous answer hardcoded `SOURCE_UNAVAILABLE` /
+    # "Новините не можаха да се обновят.", which blamed a source for an
+    # exception that observed no source problem.
     assert status["error"] == {
-        "code": "SOURCE_UNAVAILABLE",
-        "message": "Новините не можаха да се обновят.",
+        "code": "REFRESH_UNAVAILABLE",
+        "message": "Обновяването не можа да завърши поради технически проблем. Опитайте отново.",
         "retryable": True,
     }
     blob = json.dumps(status, ensure_ascii=False)
     assert "gemini" not in blob and "router.json" not in blob
+    assert "източник" not in status["error"]["message"], "no invented cause"
 
 
 def test_the_refresh_guard_is_released_after_a_failed_run(newsroom, monkeypatch):
@@ -594,3 +599,349 @@ def test_the_refresh_guard_is_released_after_a_failed_run(newsroom, monkeypatch)
     _wait(started["operationToken"])
 
     assert newsroom_refresh.active_token() == "", "a failed run must not wedge the command"
+
+
+# --------------------------------------------------------------------------
+# V1.2-G4.5 — the console summary must not lie by omission
+# --------------------------------------------------------------------------
+
+
+def test_the_refresh_summary_says_when_story_grouping_silently_failed():
+    """The measured failure: a day of unmerged duplicates with a clean-looking log.
+
+    A real run on 2026-09-28 recorded `semanticDegradedUnavailable: 5`,
+    `semanticAnswered: 0` and `lastSuccessfulSemanticClassificationAt: null` in
+    its JSON, and printed an ordinary summary. Every count looked fine, so nobody
+    knew the newsroom could not merge two publishers covering one event. The
+    summary is the operator's only view of a cron run, so the verdict belongs in
+    it.
+    """
+    from editor_assistant.workflow.cli import render_refresh_summary
+
+    stories = {
+        "new_stories": 8,
+        "relations": {"NEW_DEVELOPMENT": 3},
+        "deterministic_matches": 0,
+        "semantic_matches": 0,
+        "exact_duplicates": 0,
+        "needs_review": 0,
+        "grouping": {
+            "status": "unavailable",
+            "semanticRequired": 5,
+            "semanticAnswered": 0,
+            "semanticDegraded": 5,
+            "semanticDegradedUnavailable": 5,
+            "semanticDegradedBudgetExhausted": 0,
+            "lastSuccessfulSemanticClassificationAt": None,
+        },
+    }
+    out = render_refresh_summary(
+        {"dry_run": False, "sources": [1] * 9, "new": 12, "failed": 0}, stories, ""
+    )
+
+    assert "0/5" in out, out
+    assert "ВНИМАНИЕ" in out, out
+    assert "5 недостъпен модел" in out, out
+    # The strongest statement available, and the one that was missing.
+    assert "не е работило нито веднъж" in out, out
+
+
+def test_a_healthy_grouping_is_reported_without_a_warning():
+    """The warning must mean something: silence when nothing degraded."""
+    from editor_assistant.workflow.cli import render_refresh_summary
+
+    out = render_refresh_summary(
+        {"dry_run": False, "sources": [1] * 9, "new": 12, "failed": 0},
+        {
+            "new_stories": 8,
+            "relations": {},
+            "deterministic_matches": 2,
+            "semantic_matches": 1,
+            "exact_duplicates": 0,
+            "needs_review": 0,
+            "grouping": {
+                "status": "healthy",
+                "semanticRequired": 3,
+                "semanticAnswered": 3,
+                "semanticDegraded": 0,
+                "lastSuccessfulSemanticClassificationAt": "2026-09-29T06:00:00Z",
+            },
+        },
+        "",
+    )
+
+    assert "3/3" in out, out
+    assert "ВНИМАНИЕ" not in out, out
+    assert "не е работило нито веднъж" not in out, out
+
+
+# --------------------------------------------------------------------------
+# V1.2-G4.5 — one health verdict, instead of a status nobody reads
+# --------------------------------------------------------------------------
+
+
+def test_doctor_reports_a_role_with_no_usable_route_and_its_consequence(monkeypatch, tmp_path):
+    """The check that would have caught the 2026-09-28 outage on its first run.
+
+    Every route of the `story` role was marked EXHAUSTED for a day, so two
+    publishers covering one event were never merged. `models status` printed it
+    as seven crosses inside a list of checkmarks and nobody looked; the JSON knew
+    and nobody opened it. This is one screen, and it exits non-zero so a cron can
+    notice without a human reading anything.
+    """
+    from editor_assistant.drafting import model_router
+    from editor_assistant.workflow import cli
+
+    def dead(role, policy, **kw):
+        rows = [
+            {"model": f"m{i}", "eligible": False, "reason": "маршрутът е EXHAUSTED"}
+            for i in range(3)
+        ]
+        return {"routes": rows, "on_exhausted": "conservative"}
+
+    def alive(role, policy, **kw):
+        return {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        }
+
+    monkeypatch.setattr(
+        model_router, "plan_routes", lambda role, policy=None, **kw: (
+            dead(role, policy) if role == "story" else alive(role, policy)
+        )
+    )
+    monkeypatch.setattr(
+        "editor_assistant.drafting.model_policy.load_policy",
+        lambda: {"roles": {"story": {}, "draft": {}}},
+    )
+    from editor_assistant.workflow import source_health
+
+    monkeypatch.setattr(
+        source_health, "read_last_run", lambda path=None: {"finished_at": ""}
+    )
+
+    report, code = cli.newsroom_doctor()
+    assert code == 1, "a dead role must be visible to a cron"
+    assert "story" in report
+    assert "ПРОБЛЕМ" in report, report
+    # The consequence, not just the fact: a role with no route does not fail
+    # loudly, it quietly does less.
+    assert "слива само при пълна сигурност" in report, report
+    # And the single command most likely to fix it.
+    assert "newsroom models validate" in report, report
+
+
+def test_doctor_is_quiet_when_everything_is_healthy(monkeypatch):
+    """A warning that always fires is a warning nobody reads."""
+    from editor_assistant.drafting import model_policy, model_router
+    from editor_assistant.workflow import cli, source_health
+
+    monkeypatch.setattr(
+        model_router,
+        "plan_routes",
+        lambda role, policy=None, **kw: {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        },
+    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"draft": {}}})
+    monkeypatch.setattr(
+        source_health,
+        "read_last_run",
+        lambda path=None: {
+            "finished_at": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "grouping": {"semanticRequired": 3, "semanticAnswered": 3, "semanticDegraded": 0},
+        },
+    )
+
+    report, code = cli.newsroom_doctor()
+    assert code == 0, report
+    assert "ПРОБЛЕМ" not in report, report
+    assert "3/3" in report, report
+
+
+# --------------------------------------------------------------------------
+# V1.2-G4.5 — self-repair, and the rule that keeps it honest
+# --------------------------------------------------------------------------
+
+
+def test_repair_does_nothing_while_every_role_can_route(monkeypatch):
+    """A repair that runs always is a repair that can mask a real outage.
+
+    The safety rule: a mark is only touched when its role has NO routable path.
+    While the system can still work, clearing a mark would let a genuinely spent
+    quota be re-tried forever, so this must be a no-op.
+    """
+    from editor_assistant.drafting import model_catalog, model_policy, model_router
+    from editor_assistant.workflow import cli
+
+    monkeypatch.setattr(
+        model_router,
+        "plan_routes",
+        lambda role, policy=None, **kw: {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        },
+    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"draft": {}}})
+    monkeypatch.setattr(
+        model_catalog,
+        "validate_policy_models",
+        lambda *a, **kw: pytest.fail("must not contact a provider when nothing is broken"),
+    )
+    cleared = []
+    monkeypatch.setattr(model_router, "clear_route", lambda route: cleared.append(route))
+
+    report, code = cli.newsroom_repair()
+
+    assert code == 0
+    assert cleared == [], "a working system must not have its marks cleared"
+    assert "нищо не се прави" in report
+
+
+def test_repair_clears_a_wrong_mark_on_a_role_with_no_route(monkeypatch):
+    """The measured outage, undone.
+
+    Every `story` route was marked EXHAUSTED while all seven models were present
+    in the provider catalogues. A role with no path at all cannot work, so
+    revalidating it and clearing the marks that do not belong is strictly better
+    than trying nothing.
+    """
+    from editor_assistant.drafting import model_catalog, model_policy, model_router
+    from editor_assistant.workflow import cli
+
+    def plan_for(role, policy=None, **kw):
+        if role == "story":
+            return {
+                "routes": [{"model": "m1", "eligible": False, "reason": "EXHAUSTED"}],
+                "on_exhausted": "conservative",
+            }
+        return {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        }
+
+    monkeypatch.setattr(model_router, "plan_routes", plan_for)
+    monkeypatch.setattr(
+        model_policy, "load_policy", lambda: {"roles": {"story": {}, "draft": {}}}
+    )
+    monkeypatch.setattr(
+        model_catalog,
+        "validate_policy_models",
+        lambda *a, **kw: {
+            "rows": [
+                {
+                    "role": "story",
+                    "provider": "gemini",
+                    "model": "m1",
+                    "status": model_catalog.STATUS_OK,
+                    "detail": "наличен",
+                }
+            ]
+        },
+    )
+    cleared = []
+    monkeypatch.setattr(model_router, "clear_route", lambda route: cleared.append(route))
+
+    report, code = cli.newsroom_repair()
+
+    assert code == 0
+    assert cleared == [{"provider": "gemini", "model": "m1"}]
+    assert "ИЗЧИСТЕНИ" in report
+
+
+def test_doctor_records_its_verdict_so_status_is_history_not_a_snapshot(monkeypatch, tmp_path):
+    """A status recomputed on demand is only as good as remembering to look.
+
+    The record is what lets the product say "healthy for 6 hours" or "last
+    checked 40 minutes ago", and it is what makes a regression visible
+    afterwards instead of only during the run that caught it.
+    """
+    from editor_assistant.workflow import cli
+
+    path = tmp_path / "doctor_status.json"
+    monkeypatch.setattr(cli, "_record_doctor_status", lambda record: path.write_text(
+        __import__("json").dumps(record, ensure_ascii=False), encoding="utf-8"
+    ))
+    from editor_assistant.drafting import model_policy, model_router
+    from editor_assistant.workflow import source_health
+
+    monkeypatch.setattr(
+        model_router,
+        "plan_routes",
+        lambda role, policy=None, **kw: {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        },
+    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"draft": {}}})
+    monkeypatch.setattr(
+        source_health, "read_last_run", lambda path=None: {"finished_at": ""}
+    )
+    monkeypatch.setattr(cli, "cron_status", lambda: {"readable": True, "missing": [], "present": ["a"]})
+
+    _report, _code = cli.newsroom_doctor()
+
+    record = __import__("json").loads(path.read_text(encoding="utf-8"))
+    assert record["cronMissing"] == []
+    assert record["stale"] is True
+    assert "ok" in record
+
+
+def test_doctor_reports_a_missing_cron_job_rather_than_assuming_it(monkeypatch):
+    """A crontab lost to a reinstall is the quietest breakage there is.
+
+    The newsroom simply stops updating and every number still looks plausible,
+    so the schedule is part of what a health check checks.
+    """
+    from editor_assistant.workflow import cli
+
+    monkeypatch.setattr(
+        cli,
+        "cron_status",
+        lambda: {"readable": True, "missing": ["newsroom refresh"], "present": []},
+    )
+    from editor_assistant.drafting import model_policy, model_router
+    from editor_assistant.workflow import source_health
+
+    monkeypatch.setattr(
+        model_router,
+        "plan_routes",
+        lambda role, policy=None, **kw: {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        },
+    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"draft": {}}})
+    monkeypatch.setattr(
+        source_health,
+        "read_last_run",
+        lambda path=None: {"finished_at": "2026-09-29T06:00:00Z"},
+    )
+    monkeypatch.setattr(cli, "_record_doctor_status", lambda record: None)
+
+    report, code = cli.newsroom_doctor()
+
+    assert code == 1, "a missing schedule must be visible"
+    assert "newsroom refresh" in report
+    assert "РАЗПИС" in report
+
+
+def test_an_unreadable_crontab_is_not_reported_as_missing():
+    """Cannot tell is not the same as absent."""
+    from editor_assistant.workflow import cli
+
+    class Boom:
+        def run(self, *a, **kw):
+            raise OSError("crontab not found")
+
+    import subprocess
+
+    monkey = __import__("pytest").MonkeyPatch()
+    monkey.setattr(subprocess, "run", Boom().run)
+    try:
+        assert cli.cron_status() == {"readable": False, "missing": [], "present": []}
+    finally:
+        monkey.undo()

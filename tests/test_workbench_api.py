@@ -1692,3 +1692,70 @@ def test_story_detail_reports_each_related_articles_canonical_state(api_server, 
     finalized = next(row for row in archived["relatedArticles"] if row["id"] == article_id)
     assert finalized["state"] is None
     assert finalized["finalizedAt"] == "2026-09-25T10:00:00Z"
+
+
+# --------------------------------------------------------------------------
+# V1.2-G4.5 — per-role health, the cause behind the grouping warning
+# --------------------------------------------------------------------------
+
+
+def test_health_names_the_roles_that_cannot_be_routed_at_all(monkeypatch):
+    """The symptom was already on screen; the cause was not.
+
+    Today renders a grouping warning when grouping degrades, which is right. But
+    nothing in the product said that a ROLE had no routable path — and a role
+    with no route does not fail loudly, it silently does less. This is the one
+    surface reporting the route side, and it carries the command that fixes a
+    wrong mark, so the editor is never left holding a diagnosis with no remedy.
+    """
+    from editor_assistant.workflow import editor_application as app
+
+    def plan_for(role, policy=None, **kw):
+        if role == "story":
+            return {
+                "routes": [
+                    {"model": "m1", "eligible": False, "reason": "EXHAUSTED"},
+                    {"model": "m2", "eligible": False, "reason": "EXHAUSTED"},
+                ],
+                "on_exhausted": "conservative",
+            }
+        return {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        }
+
+    from editor_assistant.drafting import model_policy, model_router
+
+    monkeypatch.setattr(model_router, "plan_routes", plan_for)
+    monkeypatch.setattr(
+        model_policy, "load_policy", lambda: {"roles": {"story": {}, "draft": {}}}
+    )
+
+    health = app.read_health()
+
+    assert health["ok"] is False
+    assert health["unroutableRoles"] == ["story"]
+    story = next(r for r in health["roles"] if r["role"] == "story")
+    assert (story["eligible"], story["total"]) == (0, 2)
+    assert story["onExhausted"] == "conservative"
+    assert "validate" in health["remedy"]
+
+
+def test_health_stays_quiet_when_every_role_is_routable(monkeypatch):
+    """A permanent warning is a warning the editor learns to ignore."""
+    from editor_assistant.drafting import model_policy, model_router
+    from editor_assistant.workflow import editor_application as app
+
+    monkeypatch.setattr(
+        model_router,
+        "plan_routes",
+        lambda role, policy=None, **kw: {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        },
+    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"draft": {}}})
+
+    health = app.read_health()
+    assert health["ok"] is True
+    assert health["unroutableRoles"] == []

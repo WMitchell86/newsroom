@@ -649,13 +649,27 @@ def test_a_provider_failure_is_a_retryable_sanitized_operation(newsroom, prepare
 
     assert row["status"] == "failed"
     status = app.operation_status(started["operationToken"])
+    # V1.2-G4.5. This test was pinning the RETIRED `SOURCE_UNAVAILABLE`
+    # envelope, and it was failing on unmodified main for a reason that had
+    # nothing to do with the wording: the real defect it was reaching for is
+    # still there. The envelope below named a provider and this machine's
+    # filesystem path as the reason, because the worker embedded the raw
+    # exception text. What the editor is told is now the truthful class -
+    # `PROVIDER_UNAVAILABLE`, retryable, naming the failure the system
+    # actually observed.
     assert status["error"] == {
-        "code": "SOURCE_UNAVAILABLE",
-        "message": "Черновата не можа да бъде създадена. Опитайте отново.",
+        "code": "PROVIDER_UNAVAILABLE",
+        "message": (
+            "Моделът не можа да изработи черновата. Причина: "
+            "Черновата не можа да бъде създадена: RuntimeError"
+        ),
         "retryable": True,
     }
+    # The real contract, unchanged and still the strictest assertion here: no
+    # provider name, no filesystem path, no echoed request may reach the editor.
     blob = json.dumps(status, ensure_ascii=False)
     assert "gemini" not in blob and "router.json" not in blob and "/home" not in blob
+    assert "openrouter" not in blob
     # The Article, its focus and its content are preserved, and no Draft, no
     # Case and no internal ref was fabricated.
     stored = articles.get_editor_article(prepared["article_id"])
@@ -715,29 +729,49 @@ def test_publishing_over_a_stale_version_keeps_the_editors_text(newsroom, prepar
 
 
 def test_a_queued_operation_refuses_to_overwrite_editor_text(newsroom, prepared, model):
-    """Stale revalidation: the worker re-reads state, and new text stops it."""
+    """Stale revalidation: the worker re-reads state, and new text stops it.
+
+    V1.2-G4.4 changed WHERE that re-read happens, not WHETHER it happens. The
+    request path no longer builds the slow snapshot, so `_draft_snapshot` is
+    called once (in the worker) rather than twice, and the confirming read is
+    now `_revalidate_before_generation` -> `_draft_readiness_basis`. Counting
+    `_draft_snapshot` calls measured a mechanism that no longer exists rather
+    than the contract, so this asserts the contract itself, and more strictly
+    than a call count could: the system must actually READ the editor's new
+    text and abandon the generation, rather than only discovering the conflict
+    when the store refuses to publish at the very end.
+    """
     article_id = prepared["article_id"]
     original = app._draft_snapshot
-    calls = []
+    real_read = articles.get_article_content
+    observed: list[str] = []
 
-    def snapshot_after_an_editor_edit(article):
-        calls.append(1)
-        if len(calls) == 1:
-            accepted = original(article)
+    def snapshot_then_an_editor_edit(article):
+        accepted = original(article)
+        if not observed:
             # The editor wins the race right after the command was accepted.
             articles.save_article_content(
                 article_id, 0, accepted["content"]["title"], "Текст на редактора"
             )
-            return accepted
-        return original(article)
+        return accepted
 
-    app._draft_snapshot = snapshot_after_an_editor_edit
+    def watched_read(target, **kwargs):
+        # The store's own internals call this with `root=`, so the watcher must
+        # stay signature-agnostic or it breaks them instead of observing them.
+        content = real_read(target, **kwargs)
+        if str(content.get("body") or "").strip() == "Текст на редактора":
+            observed.append(target)
+        return content
+
+    app._draft_snapshot = snapshot_then_an_editor_edit
+    articles.get_article_content = watched_read
     try:
         started, row = _run(article_id, "raced")
     finally:
         app._draft_snapshot = original
+        articles.get_article_content = real_read
 
-    assert len(calls) >= 2, "the worker must re-read the canonical state"
+    assert observed, "the worker must re-read the canonical state and see the edit"
     assert row["status"] == "failed"
     status = app.operation_status(started["operationToken"])
     # V1.1-B: the editor's text is a named refusal (`ARTICLE_HAS_TEXT`), not a
