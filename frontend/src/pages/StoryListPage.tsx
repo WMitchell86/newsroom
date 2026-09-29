@@ -64,6 +64,7 @@ export function StoryListPage() {
   }
 
   const items = stories.data?.stories ?? [];
+  const counts = stories.data?.counts;
   const resultMeta = stories.isFetching ? "Обновяване…" : `${items.length} ${items.length === 1 ? "история" : "истории"}`;
 
   return (
@@ -71,7 +72,7 @@ export function StoryListPage() {
       <PageHeader
         kicker="Редакционен контекст"
         title="Истории"
-        lede="Какво се случва в света, следено от редакцията."
+        lede="Всички истории, които редакцията е събрала. Филтрите отгоре отделят само тези, които сте маркирали — те не са разбивка на списъка."
       />
 
       <form className={listStyles.searchForm} role="search" onSubmit={submitSearch}>
@@ -86,21 +87,32 @@ export function StoryListPage() {
             placeholder="Заглавие или обобщение"
             onChange={(event) => updateQuery(event.target.value)}
           />
-          <button className={listStyles.searchButton} type="submit">Търсене</button>
+          {/*
+            V1.2-G4.7. The button was removed, not restyled. Every keystroke
+            already re-queries through onChange, so this did exactly what
+            pressing Enter did, and worse, it implied the list was waiting for
+            a search that was already running.
+          */}
         </div>
       </form>
 
       <nav className={listStyles.filterNav} aria-label="Филтри за истории">
-        {storyFilters.map((option) => (
-          <Link
-            className={`${listStyles.filterLink} ${filter === option.value ? listStyles.filterActive : ""}`}
-            to={storyHref(option.value, query)}
-            aria-current={filter === option.value ? "page" : undefined}
-            key={option.value}
-          >
-            {option.label}
-          </Link>
-        ))}
+        {storyFilters.map((option) => {
+          const count = counts?.[option.value];
+          return (
+            <Link
+              className={`${listStyles.filterLink} ${filter === option.value ? listStyles.filterActive : ""}`}
+              to={storyHref(option.value, query)}
+              aria-current={filter === option.value ? "page" : undefined}
+              key={option.value}
+            >
+              {option.label}
+              {typeof count === "number" ? (
+                <span className={listStyles.filterCount}>{count}</span>
+              ) : null}
+            </Link>
+          );
+        })}
       </nav>
 
       {stories.isPending ? <LoadingState label="Зареждане на истории…" /> : null}

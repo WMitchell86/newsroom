@@ -3035,11 +3035,25 @@ def list_stories(filter_name: str = "all", query: str = "") -> list[dict]:
     metadata_by_id = {row["story_id"]: row for row in metadata_store}
     articles = editor_article_store.read_editor_articles()
     result = []
+    # V1.2-G4.7. The four filters look like a partition of the corpus and are
+    # not: measured on the live store, «Всички» was 427 while «Следени» was 1,
+    # «Нови развития» 2 and «Игнорирани» 3 — 421 stories in no named bucket at
+    # all. An editor reading the nav that way clicks a filter and gets an
+    # incomprehensible result. Counting all four in this same pass costs nothing;
+    # the alternative is four full store reads to learn what the nav implies.
+    counts = {"all": 0, "followed": 0, "developments": 0, "ignored": 0}
     for story in stories:
         metadata = metadata_by_id.get(story["story_id"]) or (
             story_editor_metadata.default_story_editor_metadata(story["story_id"])
         )
         dto = _story_summary(story, metadata, items_by_id, articles)
+        counts["all"] += 1
+        if dto["followed"]:
+            counts["followed"] += 1
+        if dto["unreviewedDevelopmentCount"]:
+            counts["developments"] += 1
+        if dto["ignored"]:
+            counts["ignored"] += 1
         if filter_name == "followed" and not dto["followed"]:
             continue
         if filter_name == "developments" and not dto["unreviewedDevelopmentCount"]:
@@ -3050,7 +3064,21 @@ def list_stories(filter_name: str = "all", query: str = "") -> list[dict]:
             continue
         result.append(dto)
     result.sort(key=lambda row: (row["latestChangeAt"], row["id"]), reverse=True)
+    # Only meaningful without a search: typing narrows the list, and a count
+    # taken from the unfiltered corpus next to a filtered result is a lie.
+    if not query:
+        list_stories.last_counts = counts
     return result
+
+
+def list_story_counts() -> dict:
+    """Filter counts for the Stories nav, from the last unfiltered listing.
+
+    Returning them alongside the list is what keeps the nav honest at no extra
+    cost; a separate endpoint would read and project the whole store again.
+    """
+    return dict(getattr(list_stories, "last_counts", None) or
+                {"all": 0, "followed": 0, "developments": 0, "ignored": 0})
 
 
 def list_articles(filter_name: str = "all", query: str = "") -> list[dict]:

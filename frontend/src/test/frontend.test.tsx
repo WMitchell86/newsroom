@@ -527,6 +527,33 @@ describe("D1 newsroom-local time formatting", () => {
 });
 
 describe("Stories", () => {
+  it("shows each filter's real count, so the row does not read as a partition", async () => {
+    // V1.2-G4.7. Measured on the live store: Всички 427, Следени 1,
+    // Нови развития 2, Игнорирани 3. Those are marked subsets, not four kinds,
+    // and only the counts say so.
+    fetchMock.mockResolvedValue(dataResponse({
+      stories: [],
+      counts: { all: 427, followed: 1, developments: 2, ignored: 3 },
+    }));
+    renderWithProviders(<StoryListPage />);
+
+    const filters = screen.getByRole("navigation", { name: "Филтри за истории" });
+    await waitFor(() => expect(within(filters).getByText("427")).toBeInTheDocument());
+    expect(within(filters).getByText("1")).toBeInTheDocument();
+    expect(within(filters).getByText("2")).toBeInTheDocument();
+    expect(within(filters).getByText("3")).toBeInTheDocument();
+  });
+
+  it("omits the count when the server did not send one, rather than showing zero", async () => {
+    // A missing count is unknown, not empty. Rendering «0» would be a claim.
+    fetchMock.mockResolvedValue(dataResponse({ stories: [] }));
+    renderWithProviders(<StoryListPage />);
+
+    const filters = screen.getByRole("navigation", { name: "Филтри за истории" });
+    await waitFor(() => expect(within(filters).getByText("Всички")).toBeInTheDocument());
+    expect(filters.textContent).not.toMatch(/\b0\b/);
+  });
+
   it("exposes exactly the four filters and sends the selected filter and query to the API", async () => {
     fetchMock.mockResolvedValue(dataResponse({ stories: [] }));
     renderWithProviders(<StoryListPage />, { initialEntries: ["/stories?filter=developments&q=%D0%B1%D1%8E%D0%B4%D0%B6%D0%B5%D1%82%D0%B0"] });

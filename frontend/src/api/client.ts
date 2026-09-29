@@ -654,7 +654,14 @@ export function getRoleHealth(): Promise<{
   return getData("/health");
 }
 
-export function getStories(filter: StoryFilter = "all", query = ""): Promise<{ stories: import("./dto").StorySummary[] }> {
+export function getStories(
+  filter: StoryFilter = "all",
+  query = "",
+): Promise<{
+  stories: import("./dto").StorySummary[];
+  /** V1.2-G4.7 — filter counts, so the nav does not imply a split it lacks. */
+  counts?: Partial<Record<StoryFilter, number>>;
+}> {
   return getData("/stories", new URLSearchParams({ filter, query }));
 }
 

@@ -405,7 +405,13 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         query = _query(handler, {"filter", "query"})
         filter_name = _enum(query.get("filter", "all"), app.STORY_FILTERS, "филтър")
         search = _string(query.get("query", ""), "query", maximum=200, required=False)
-        return 200, {"stories": app.list_stories(filter_name, search)}
+        return 200, {
+            "stories": app.list_stories(filter_name, search),
+            # V1.2-G4.7. The four filters read as a partition of the corpus and
+            # are not one. Sending the counts with the list is what lets the nav
+            # stop implying a split it does not have.
+            "counts": app.list_story_counts(),
+        }
     if len(parts) in (4, 5) and parts[:3] == [*prefix, "stories"]:
         story_id = _identifier(parts[3], STORY_ID_RE, "Story")
         if method == "GET" and len(parts) == 4:
