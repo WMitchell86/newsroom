@@ -17,7 +17,6 @@ from editor_assistant.workflow import editor_application as app
 
 @pytest.fixture(autouse=True)
 def _clear_measurement():
-    app.list_story_counts.__globals__  # touch, keeps the import honest
     if hasattr(app.list_stories, "last_counts"):
         delattr(app.list_stories, "last_counts")
     yield

@@ -625,6 +625,10 @@ def call_role(
 
     attempts = 0
     fallbacks = 0
+    # V1.2-G4.16. Every route the router declined, with the actual reason. Kept
+    # so the failure can NAME them instead of listing every cause it could
+    # imagine. Nothing here is a guess: each entry is a predicate that fired.
+    skipped: list[str] = []
     role_calls = model_usage.role_calls_today(role)
     for index, route in enumerate(routes):
         reasons = _skip_reasons(
@@ -648,6 +652,7 @@ def call_role(
                 }
             )
         if reasons:
+            skipped.append(f"{route_key(route)}: {', '.join(reasons)}")
             # A skipped route still counts as a fallback step: the operator's
             # "how many fallbacks did this answer need" number stays honest.
             # It is NOT a provider call: provider_attempts=0 keeps disabled /
@@ -741,12 +746,21 @@ def call_role(
             {"route_index": index, "route": route_key(route), "event": "FAILED", "reason": category}
         )
 
-    reason = (
-        "няма успешен маршрут"
-        if attempts
-        else "няма достъпен маршрут (липсващ ключ, лимит, изключени платени модели или политика)"
+    # V1.2-G4.16. The editor used to be told "no accessible route (missing key,
+    # limit, disabled paid models or policy)" — a guess listing four causes,
+    # appended to a message that already carried the real one. When the router
+    # never even reached a route it KNOWS why: every skip reason is already
+    # computed above. Naming them is both shorter and true, and it is the
+    # difference between an operator checking the right thing and guessing.
+    if attempts:
+        reason = "няма успешен маршрут"
+    else:
+        reason = "няма достъпен маршрут"
+        if skipped:
+            reason += f" ({'; '.join(skipped)})"
+    raise RoleUnavailable(
+        role, reason, on_exhausted=role_raw["on_exhausted"], trace=trace
     )
-    raise RoleUnavailable(role, reason, on_exhausted=role_raw["on_exhausted"], trace=trace)
 
 
 def _explicit_route(policy, model) -> dict:

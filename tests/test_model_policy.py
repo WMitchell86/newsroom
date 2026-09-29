@@ -620,14 +620,23 @@ def test_judge_unavailable_is_not_a_pass(monkeypatch):
     assert discovery.judge_fact_with_model("Факт.", ["Факт."], api_key="k") is None
 
 
-def test_draft_never_falls_back_to_a_free_unqualified_route():
+def test_draft_free_fallback_is_allowed_but_paid_is_still_gated():
+    """V1.2-G4.17 — the owner's split: free yes, paid no.
+
+    Reversed from `test_draft_never_falls_back_to_a_free_unqualified_route`,
+    which asserted the opposite until the owner decided that free OpenRouter
+    models may back Drafts while paid ones stay off by default. The `fail_visible`
+    half of that original assertion is kept: exhausting the role must still be
+    visible to the editor rather than silently producing nothing.
+    """
     policy = model_policy.load_policy()
     free_or = [
         r["model"]
         for r in policy["roles"]["draft"]["routes"]
-        if r["provider"] == "openrouter" and r["billing"] != "paid"
+        if r["provider"] == "openrouter" and r["billing"] == "free"
     ]
-    assert free_or == [], "draft must not reach an unqualified free OpenRouter route"
+    assert free_or, "the owner asked for a free OpenRouter fallback for drafts"
+    assert policy["global"]["paid_enabled"] is False, "paid routes stay gated"
     assert policy["roles"]["draft"]["on_exhausted"] == "fail_visible"
 
 

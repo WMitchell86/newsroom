@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,8 +71,17 @@ describe("state survives navigation", () => {
     // The desk must come back exactly as it was left. `findBy*` rather than
     // `waitFor(getBy*)`: the earlier version could observe a button mid-render,
     // before its label was attached, and fail intermittently in a full run.
-    const restored = await screen.findByRole("button", { name: /^Нови/ });
-    expect(restored).toHaveAttribute("aria-pressed", "true");
+    // Re-resolve the group on every attempt. `within(node)` binds to THAT dom
+    // node, and React replaced it when the page remounted after the
+    // navigation — so a captured reference queries a detached tree and reports
+    // a button that is plainly on screen.
+    await waitFor(() => {
+      const group = screen.getByRole("group", { name: "Групи днешни истории" });
+      expect(within(group).getByRole("button", { name: /^Нови/ })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
     expect(screen.getByLabelText(/Сортирай/)).toHaveValue("publishers");
   });
 

@@ -430,13 +430,17 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         page = _int(query.get("page", "1"), "page", minimum=1)
         per_page = _int(query.get("per_page", str(app.STORY_PAGE_SIZE)), "per_page",
                         minimum=1, maximum=200)
+        # The page and its total come from ONE call. Reading the total from
+        # shared state after the fact let a threaded server answer page 1 with
+        # a number belonging to a request that started in between.
+        rows, total = app.list_stories_page(filter_name, search, page=page, per_page=per_page)
         return 200, {
-            "stories": app.list_stories(filter_name, search, page=page, per_page=per_page),
+            "stories": rows,
             # V1.2-G4.7. The four filters read as a partition of the corpus and
             # are not one. Sending the counts with the list is what lets the nav
             # stop implying a split it does not have.
             "counts": app.list_story_counts(),
-            "total": app.list_story_total(),
+            "total": total,
             "page": page,
             "perPage": per_page,
         }

@@ -98,12 +98,27 @@ def test_call_model_reaches_openrouter_only_without_gemini_key(monkeypatch):
 
 
 def test_paid_openrouter_model_is_refused_before_any_call(monkeypatch):
+    """An undeclared id must not be called — by name, not by call count.
+
+    The assertion used to be `called == 0`. That is no longer the right shape:
+    V1.2-G4.17 gave the draft role two FREE OpenRouter fallbacks, so a refused
+    paid model now legitimately falls through to them. The invariant this test
+    protects is that the undeclared id itself is never dispatched — a free
+    fallback the policy declares is a different thing entirely.
+    """
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
-    called = {"n": 0}
-    monkeypatch.setattr(
-        gen, "_call_openrouter", lambda *a, **k: called.__setitem__("n", called["n"] + 1)
-    )
-    with pytest.raises(RuntimeError):
-        gen.call_model("ping", model="openai/gpt-oss-20b")
-    assert called["n"] == 0
+    attempted: list[str] = []
+
+    def capture(*a, **k):
+        attempted.append(k.get("model") or (a[1] if len(a) > 1 else ""))
+        return ("ok", {})
+
+    monkeypatch.setattr(gen, "_call_openrouter", capture)
+    # The call may now SUCCEED, because the draft role has free OpenRouter
+    # fallbacks (V1.2-G4.17). That is correct: the role still produced an
+    # answer. The invariant is only that the undeclared paid id was never
+    # dispatched — reaching a declared free route instead is the policy
+    # working, not the gate failing.
+    gen.call_model("ping", model="openai/gpt-oss-20b")
+    assert "openai/gpt-oss-20b" not in attempted, attempted

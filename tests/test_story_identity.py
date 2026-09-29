@@ -868,7 +868,11 @@ def test_openrouter_story_model_does_not_leak_into_the_draft_role(monkeypatch):
     draft_openrouter = [r for r in draft if r["provider"] == "openrouter"]
     assert "deepseek/deepseek-v4-flash-0731:free" in story_models
     assert "deepseek/deepseek-v4-flash-0731:free" not in [r["model"] for r in draft]
-    assert draft_openrouter and all(r["billing"] == "paid" for r in draft_openrouter)
+    # V1.2-G4.17: the owner reversed this. The draft role may now fall back to
+    # FREE OpenRouter models; only PAID ones stay gated behind paid_enabled.
+    # The test still pins that a story's model never reaches the draft role.
+    assert draft_openrouter
+    assert all(r["billing"] in ("paid", "free") for r in draft_openrouter)
 
 
 def test_story_calls_reuse_the_gemini_env_pool_when_configured(monkeypatch):

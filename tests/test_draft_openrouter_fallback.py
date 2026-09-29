@@ -29,12 +29,29 @@ def test_draft_has_a_second_provider():
     assert providers == {"gemini", "openrouter"}, providers
 
 
-def test_no_draft_route_may_be_public_only():
-    """A Draft is private material. A public-only route must never carry it."""
-    offenders = [
-        r for r in _policy()["roles"]["draft"]["routes"] if r.get("public_only")
-    ]
-    assert offenders == [], offenders
+def test_free_openrouter_fallbacks_are_present_and_declared_public_only():
+    """V1.2-G4.17 — REVERSAL, and the reason has to stay in the test.
+
+    This file originally asserted the opposite: that a Draft, being private
+    material, must never carry a `public_only` route. That was the right
+    default while the only working OpenRouter route was a paid one.
+
+    The owner then decided otherwise, explicitly and with the trade-off named:
+    free OpenRouter models are the fallback and only PAID models stay gated.
+    Measured cost of that decision, stated rather than hidden: the ledger
+    shows 59 successful OpenRouter calls today, all `public`, and the first
+    Draft written by a free route is the first `private` payload this system
+    has ever sent off-box.
+
+    The routes stay declared `public_only: true`. That is not decoration — it
+    is what the privacy gate consults, so if the owner ever turns the gate on,
+    these are skipped for private payloads again with no code change.
+    """
+    routes = _policy()["roles"]["draft"]["routes"]
+    free = [r for r in routes if r["provider"] == "openrouter" and r.get("billing") == "free"]
+    assert free, "the owner asked for a free OpenRouter fallback for drafts"
+    # Declared honestly, not quietly downgraded to look private-capable.
+    assert all(r.get("public_only") is True for r in free), free
 
 
 def test_the_gate_default_is_stated_rather_than_assumed():

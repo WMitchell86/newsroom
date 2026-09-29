@@ -3076,6 +3076,22 @@ STORY_PAGE_SIZE = 30
 def list_stories(
     filter_name: str = "all", query: str = "", *, page: int = 1, per_page: int = STORY_PAGE_SIZE
 ) -> list[dict]:
+    """One page of the Stories desk. Prefer `list_stories_page`, which also
+    returns the total this very call measured.
+
+    The split between this and `list_story_total` was a review finding: the
+    total lived on a module attribute, so a threaded server could answer page
+    1 with the total belonging to a request that started in between. A stress
+    run did not reproduce it — the window is one attribute read wide — but two
+    reads of shared state to build one response is a shape that will lose a
+    race eventually, and the fix is to not have it.
+    """
+    return list_stories_page(filter_name, query, page=page, per_page=per_page)[0]
+
+
+def list_stories_page(
+    filter_name: str = "all", query: str = "", *, page: int = 1, per_page: int = STORY_PAGE_SIZE
+) -> tuple[list[dict], int]:
     stories = story_store.read_store(_paths()["stories"])["stories"]
     items_by_id = _story_items()
     metadata_store = story_editor_metadata.read_story_editor_metadata_store(
@@ -3121,12 +3137,7 @@ def list_stories(
     if not query:
         list_stories.last_counts = counts
     start = max(int(page), 1) - 1
-    return result[start * per_page : start * per_page + per_page]
-
-
-def list_story_total() -> int:
-    """How many rows the last listing matched, before paging."""
-    return int(getattr(list_stories, "last_total", 0) or 0)
+    return result[start * per_page : start * per_page + per_page], len(result)
 
 
 def list_story_counts() -> dict:

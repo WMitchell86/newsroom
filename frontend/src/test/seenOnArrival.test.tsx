@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { AppShell } from "../app/AppShell";
 import { StoryWorkspace } from "../pages/StoryWorkspace";
 import { TodayPage } from "../pages/TodayPage";
@@ -103,6 +104,27 @@ describe("the desk can empty", () => {
     );
     await new Promise((r) => setTimeout(r, 200));
     expect(reviews).toBe(1);
+  });
+
+  it("fires once under StrictMode, which the real app runs", async () => {
+    // `main.tsx` wraps the whole app in StrictMode, which double-invokes
+    // effects in development. The test harness does not, so without this the
+    // single-fire guard would be unproven against the configuration the
+    // product actually ships in.
+    const { unmount } = renderWithProviders(
+      <StrictMode>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/stories/:storyId" element={<StoryWorkspace />} />
+          </Route>
+        </Routes>
+      </StrictMode>,
+      { initialEntries: ["/stories/s1?from=today"] },
+    );
+    await waitFor(() => expect(reviews).toBe(1), { timeout: 4000 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(reviews).toBe(1);
+    unmount();
   });
 
   it("Today links carry the marker; the archive does not", async () => {
