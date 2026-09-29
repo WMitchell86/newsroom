@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createIdempotencyKey, getRoleHealth, ignoreStory, quickDraftStory, refreshNewsroom } from "../api/client";
 import type {
   GroupingHealth,
@@ -308,11 +308,70 @@ function useRefreshOperation() {
  * presentation: one header, one toolbar, one list of wire rows, and the
  * Article/Problems tier below.
  */
+/**
+ * One URL parameter, validated against what the product actually supports.
+ *
+ * A hand-edited or stale link must not put the desk in a state the controls
+ * cannot show: an unknown `tab` would render as "no tab selected" with no way
+ * back except editing the address bar. Unknown means the documented default,
+ * and the parameter is dropped from the rendered controls either way.
+ */
+function readParam(
+  params: URLSearchParams,
+  key: string,
+  allowed: string[],
+  fallback: string,
+): string {
+  const raw = params.get(key);
+  return raw !== null && allowed.includes(raw) ? raw : fallback;
+}
+
 export function TodayPage() {
-  // V1.2-G4.1 §A4: `region` is the default Burgas desk. The control is state
-  // here, but the rows are always the server's — the client never filters
-  // Stories by locality itself.
-  const [scope, setScope] = useState<TodayScope>("region");
+  // V1.2-G4.11. Scope, tab, sort and the search term live in the URL, not in
+  // component state. The editor's complaint that going Today -> Stories ->
+  // back "loses everything" was true and the cause was structural: this page
+  // held all four in useState, so unmounting it reset them, while the Stories
+  // page (which already used the URL) kept its state. Same product, two
+  // different memories. The URL makes them agree, and it also makes the
+  // browser's back button and a shared link do the obvious thing.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const scope = readParam(searchParams, "scope", ["region", "all"], "region") as TodayScope;
+  const tab = readParam(searchParams, "tab", ["all", "new", "developments"], "all") as TodayTab;
+  const sort = readParam(searchParams, "sort", ["newest", "publishers"], "newest") as TodaySort;
+  const query = searchParams.get("q") ?? "";
+
+  const setView = (patch: Record<string, string | undefined>) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === undefined || value === "") next.delete(key);
+          else next.set(key, value);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+  // Remember the desk for the rail link. This is the other half of G4.11: the
+  // view lives in the URL while you are here, and the rail has to be able to
+  // carry it when you come back. Session-scoped on purpose — see AppShell.
+  useEffect(() => {
+    try {
+      const view = searchParams.toString();
+      if (view) window.sessionStorage.setItem("newsroom.today.view", `/?${view}`);
+      else window.sessionStorage.removeItem("newsroom.today.view");
+    } catch {
+      // Blocked storage is ordinary; the desk still works, it just will not be
+      // remembered across a navigation.
+    }
+  }, [searchParams]);
+
+  const setScope = (next: TodayScope) => setView({ scope: next === "region" ? undefined : next });
+  const setTab = (next: TodayTab) => setView({ tab: next === "all" ? undefined : next });
+  const setSort = (next: TodaySort) => setView({ sort: next === "newest" ? undefined : next });
+  const setQuery = (next: string) => setView({ q: next || undefined });
+
   const today = useQuery(todayOptions(scope));
   // V1.2-G4.5: the CAUSE behind the grouping notice further down. A pure read
   // with no provider call, refreshed on the same cadence as the desk.
@@ -323,11 +382,6 @@ export function TodayPage() {
   });
   const queryClient = useQueryClient();
   const refresh = useRefreshOperation();
-  // View preferences only (§11). They live in component state, are not
-  // persisted anywhere, and change nothing about the Story itself.
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<TodayTab>("all");
-  const [sort, setSort] = useState<TodaySort>("newest");
   // One timestamp for the whole render, so two rows can never disagree about
   // what "преди 18 мин" means because the clock ticked between them.
   const [now] = useState(() => new Date());
