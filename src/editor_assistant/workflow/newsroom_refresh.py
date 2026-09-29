@@ -37,9 +37,15 @@ MAX_TODAY_PROBLEMS = 5
 class RefreshUnavailable(RuntimeError):
     """Refresh cannot run safely right now; the reason is never invented."""
 
+    #: The stable code the operation registry records, so `operation_status`
+    #: can report this refusal truthfully instead of a generic failure.
+    code = "REFRESH_UNAVAILABLE"
+
 
 class RefreshBusy(RefreshUnavailable):
     """Another refresh already owns the canonical intake/story stores."""
+
+    code = "REFRESH_BUSY"
 
     def __init__(self, active_token: str = "") -> None:
         super().__init__("вече тече обновяване на новините")

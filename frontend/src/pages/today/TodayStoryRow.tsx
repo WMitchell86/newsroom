@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { safeExternalUrl } from "../../shared/safeNavigation";
 import {
   formatRelativeTime,
   isRedundantSummary,
@@ -46,6 +47,11 @@ export function TodayStoryRowView({
   now,
 }: TodayStoryRowProps) {
   const sources = publisherCountLabel(row.publisherCount);
+  // V1.2-G4.5. Validated, never reconstructed: the backend supplies the URL and
+  // `safeExternalUrl` is the same gate the Story workspace uses for
+  // «Отвори оригинала». A row with no usable URL shows no source at all.
+  const sourceUrl = safeExternalUrl(row.sourceUrl);
+  const sourceName = row.sourceName?.trim() || sourceUrl;
   // §14: never print the headline twice. A summary that is the title with
   // different punctuation is not new information and only makes the row look
   // padded, so the line is simply not rendered.
@@ -78,7 +84,7 @@ export function TodayStoryRowView({
             §14: editor-useful metadata only. Locality is deliberately absent —
             it is not canonical yet, and parsing a place name out of a headline
             in React would be inventing data. The source count is corroboration
-            context, never a claim that those pages were opened (§15/§20).
+            context, never a claim that those pages was opened (§15/§20).
           */}
           {row.reason === "NEW_STORY" ? <span>Нова история</span> : null}
           {row.reason === "UNREVIEWED_DEVELOPMENT" ? (
@@ -87,6 +93,26 @@ export function TodayStoryRowView({
           {sources ? <span>{sources}</span> : null}
           <span>{formatRelativeTime(row.timestamp, now)}</span>
         </p>
+        {/*
+          V1.2-G4.5. WHO said this — on its OWN row under the headline, not mixed
+          into the metadata counts, which answer "how many" and open nothing. The
+          owner asked for exactly this placement: the source is the one fact an
+          editor reaches for before trusting a headline, and buried between
+          "2 източника" and "2ч" it read as one more counter.
+        */}
+        {sourceUrl ? (
+          <p className={styles.storySourceRow}>
+            <a
+              className={styles.storySource}
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              data-today-source
+            >
+              {sourceName} <span aria-hidden="true">↗</span>
+            </a>
+          </p>
+        ) : null}
         {summary ? <p className={styles.storySummary}>{summary}</p> : null}
       </div>
 

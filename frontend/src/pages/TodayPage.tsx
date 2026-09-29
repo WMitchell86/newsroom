@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { createIdempotencyKey, ignoreStory, quickDraftStory, refreshNewsroom } from "../api/client";
+import { createIdempotencyKey, getRoleHealth, ignoreStory, quickDraftStory, refreshNewsroom } from "../api/client";
 import type {
   GroupingHealth,
   TodayAttention,
@@ -314,6 +314,13 @@ export function TodayPage() {
   // Stories by locality itself.
   const [scope, setScope] = useState<TodayScope>("region");
   const today = useQuery(todayOptions(scope));
+  // V1.2-G4.5: the CAUSE behind the grouping notice further down. A pure read
+  // with no provider call, refreshed on the same cadence as the desk.
+  const roleHealth = useQuery({
+    queryKey: ["role-health"],
+    queryFn: getRoleHealth,
+    refetchInterval: 60_000,
+  });
   const queryClient = useQueryClient();
   const refresh = useRefreshOperation();
   // View preferences only (§11). They live in component state, are not
@@ -344,6 +351,7 @@ export function TodayPage() {
         refreshError={refresh.error}
         query={query}
         onQueryChange={setQuery}
+        roleHealth={roleHealth.data ?? null}
       />
 
       <GroupingHealthNotice health={projection.groupingHealth} />

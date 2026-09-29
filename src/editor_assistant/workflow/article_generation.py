@@ -51,6 +51,12 @@ from editor_assistant.workflow import (
 )
 from editor_assistant.workflow import ideas as ideas_mod
 from editor_assistant.workflow import research as research_mod
+
+#: V1.2-G4.5. Redaction lives in `workflow.redaction` because the operation
+#: registry needs the SAME rule and cannot import this module (this module
+#: imports the registry). Re-exported here because `article_generation.safe_detail`
+#: is the established, tested name for the Draft layer's error envelope.
+from editor_assistant.workflow.redaction import safe_detail
 from editor_assistant.workflow.workbench import state as pipeline_state
 
 #: Operation scope prefix for this command. It is not a Story id: it only tells
@@ -146,24 +152,6 @@ _DEFAULT_OPERATION_ERROR = (
     "Черновата не можа да бъде създадена. Опитайте отново.",
     True,
 )
-
-#: What a detail may never carry on its way to the editor. A provider error can
-#: echo the request back, and the request carries the key.
-_DETAIL_FORBIDDEN = ("AIza", "x-goog-api-key", "generativelanguage", "openrouter.ai/api")
-
-
-def safe_detail(detail: str) -> str:
-    """Bounded, redacted reason for an editor-visible failure.
-
-    The reason is what makes a failure diagnosable, so it is surfaced - but a
-    provider error is untrusted text that can echo the request, and the request
-    carries the API key. Redaction is the price of saying anything at all.
-    """
-    text = str(detail or "").strip()
-    for secret in _DETAIL_FORBIDDEN:
-        if secret.lower() in text.lower():
-            return ""
-    return text[:160]
 
 #: In-process guard, one canonical generation per Article. It complements the
 #: bounded operation registry, which stops a retried *request* from duplicating

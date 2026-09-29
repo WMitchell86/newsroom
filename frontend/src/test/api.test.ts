@@ -639,3 +639,56 @@ describe("the Draft operation polling budget", () => {
     );
   });
 });
+
+// --------------------------------------------------------------------------
+// V1.2-G4.5 — a reason the editor must be able to read
+// --------------------------------------------------------------------------
+
+describe("a failure the editor has to understand is not flattened", () => {
+  const failure = (status: number, code: unknown, message: unknown, retryable: unknown) => ({
+    ok: false,
+    status,
+    json: async () => ({ error: { code, message, retryable, fieldErrors: [] } }),
+  } as Response);
+
+  it("keeps a readiness reason the type declares but the runtime list dropped", async () => {
+    // `NO_DRAFT_MATERIAL` was declared by `ApiErrorCode` and absent from the
+    // runtime set, so pressing Чернова on a Story with nothing to write from
+    // reported "Вътрешна грешка. Опитайте отново." - discarding the sentence the
+    // refusal exists to deliver.
+    fetchMock.mockResolvedValueOnce(
+      failure(422, "NO_DRAFT_MATERIAL", "Няма достатъчно изходен материал за чернова.", false),
+    );
+
+    const error = await makeArticleDraft("art-one", "k1").catch((e) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("NO_DRAFT_MATERIAL");
+    expect((error as ApiError).message).toBe("Няма достатъчно изходен материал за чернова.");
+    expect((error as ApiError).retryable).toBe(false);
+  });
+
+  it("keeps a code this build has never heard of", async () => {
+    // The point: adding a reason on the server must not require a matching edit
+    // here before the editor is allowed to read it.
+    fetchMock.mockResolvedValueOnce(
+      failure(409, "REFRESH_BUSY", "Обновяването вече тече. Изчакайте да завърши.", true),
+    );
+
+    const error = await refreshNewsroom().catch((e) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("REFRESH_BUSY");
+    expect((error as ApiError).message).toBe("Обновяването вече тече. Изчакайте да завърши.");
+    expect((error as ApiError).retryable).toBe(true);
+  });
+
+  it("still calls a genuinely malformed envelope an internal error", async () => {
+    // The one statement that is true: this is about SHAPE, not vocabulary.
+    fetchMock.mockResolvedValueOnce(failure(500, 7, "няма текст", "не"));
+
+    const error = await refreshNewsroom().catch((e) => e);
+
+    expect((error as ApiError).code).toBe("INTERNAL_ERROR");
+  });
+});

@@ -419,6 +419,20 @@ export type TodayAttention =
        */
       publisherCount?: number;
       /**
+       * V1.2-G4.5: where this Story's material actually came from.
+       *
+       * `publisherCount` answers "how many said it", which names nobody and
+       * opens nothing. These two answer "who, and take me there" — the
+       * representative publication's own URL, and the operator's name for that
+       * source when the registry has one (otherwise its host, which is a fact
+       * rather than a guess about who published it).
+       *
+       * Both are empty when the representative carries no URL, and the row then
+       * prints no source at all rather than a plausible-looking one.
+       */
+      sourceUrl?: string;
+      sourceName?: string;
+      /**
        * V1.2-G1 §13: the reserved editorial-category slot.
        *
        * Current Stories have **no** production category: `category` is not part
@@ -499,6 +513,25 @@ export type GroupingHealthStatus =
   | "budget_exhausted"
   | "unavailable";
 
+/**
+ * V1.2-G4.5. One model's routing health inside a role.
+ *
+ * `eligible < total` is normal — a paid route on a free policy is ineligible
+ * by design. Only `eligible === 0` is a problem, because a role with no
+ * routable path does not fail, it silently does less.
+ */
+export interface RoleHealth {
+  role: string;
+  eligible: number;
+  total: number;
+  /**
+   * What the role does when it cannot route: `fail_visible`, `review_required`,
+   * `degraded`, `conservative`, `deterministic`, `cheap_only`,
+   * `distinguish_zero`. The backend's own word — never derived here.
+   */
+  onExhausted: string;
+}
+
 export interface GroupingHealth {
   status: GroupingHealthStatus;
   /** ISO-8601 UTC instant of the last successful semantic classification. */
@@ -527,6 +560,16 @@ export interface TodayProjection {
   scope: TodayScope;
   /** `null` when the latest run predates grouping-health reporting. */
   groupingHealth: GroupingHealth | null;
+  /**
+   * V1.2-G4.5: per-ROLE routing health — the CAUSE behind the grouping
+   * symptom above, which the product previously showed without explanation.
+   *
+   * A role with `eligible === 0` does not fail loudly; it silently does less
+   * (`onExhausted` names which kind), so this is what connects a warning on
+   * screen to something the editor can act on. `remedy` is the one command that
+   * clears a wrong health mark.
+   */
+  roleHealth?: RoleHealth[];
   /** Every Story that qualifies as current, before the cap. */
   storyAttentionTotal: number;
   /** How many of those the cap actually lets through. */
@@ -564,6 +607,13 @@ export type ApiErrorCode =
   | "WORKING_TITLE_REQUIRED"
   | "SAFETY_BLOCKED"
   | "SOURCE_UNAVAILABLE"
+  // V1.2-G4.5. The server may name a reason this build predates, and that must
+  // survive the trip: dropping it is what turned `NO_DRAFT_MATERIAL` and
+  // `PROVIDER_UNAVAILABLE` into "Вътрешна грешка" for the editor. `string & {}`
+  // keeps every literal above available to autocomplete while admitting the
+  // rest, so adding a reason on the server no longer requires a matching edit
+  // here before it can be read.
+  | (string & {})
   | "INTERNAL_ERROR";
 
 export interface ApiErrorEnvelope {

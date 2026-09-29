@@ -237,7 +237,15 @@ describe("V1.2-G1 — search", () => {
     const search = screen.getByLabelText(/Търсене в днешните истории/);
     expect(search).toHaveAttribute("placeholder", "Търси в истории, източници и заглавия…");
     // Search is a view concern: it must not re-query the API.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    //
+    // Counted as a DELTA rather than an absolute. "Exactly one call" was a
+    // proxy that happened to hold, and it broke the moment the desk legitimately
+    // added a second mount-time read (role health, V1.2-G4.5) — which has
+    // nothing to do with search. The contract is that typing adds none, so this
+    // now measures exactly that.
+    const beforeTyping = fetchMock.mock.calls.length;
+    await userEvent.type(search, "съвет");
+    expect(fetchMock.mock.calls.length).toBe(beforeTyping);
   });
 });
 
@@ -580,3 +588,162 @@ describe("V1.2-G1 — label helpers", () => {
   });
 });
 
+// --------------------------------------------------------------------------
+// V1.2-G4.5 — who said this, and take me there
+// --------------------------------------------------------------------------
+
+/** A one-row desk, so each source case is asserted on its own. */
+function deskWith(row: Record<string, unknown>): TodayProjection {
+  return {
+    ...todayProjection,
+    newDevelopments: [] as never,
+    newStories: [
+      story("s-a", "Общинският съвет прие бюджета", "2026-09-25T08:00:00Z", 1, row),
+    ] as never,
+    storyAttentionTotal: 1,
+    storyAttentionShown: 1,
+    articlesRequiringAction: [] as never,
+    problems: [] as never,
+  } as TodayProjection;
+}
+
+const sourceLink = () => document.querySelector("[data-today-source]") as HTMLAnchorElement | null;
+
+describe("a Today row names its source and links to it", () => {
+  it("prints the operator's name as a real external link under the headline", async () => {
+    fetchMock.mockResolvedValue(
+      dataResponse(deskWith({ sourceUrl: "https://vestnik.bg/a/1", sourceName: "Вестник" })),
+    );
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    const link = sourceLink();
+    expect(link).toBeTruthy();
+    expect(link!.getAttribute("href")).toBe("https://vestnik.bg/a/1");
+    expect(link!.textContent).toContain("Вестник");
+    // It must leave the app rather than navigate the editor off the desk, and
+    // it must not hand the opened page a window.opener.
+    expect(link!.getAttribute("target")).toBe("_blank");
+    expect(link!.getAttribute("rel")).toContain("noreferrer");
+    // Its OWN row under the headline — not mixed into the metadata counters,
+    // where "2 източника · 2ч" made the source look like one more counter, and
+    // not promoted into a second headline either.
+    const row = link!.closest('[class*="storySourceRow"]');
+    expect(row).toBeTruthy();
+    expect(row!.tagName).toBe("P");
+    expect(link!.closest('[class*="storyMeta"]')).toBeNull();
+  });
+
+  it("still links when the name is missing, showing the URL rather than nothing", async () => {
+    // The NAME is the backend's decision - the operator's registry, else the
+    // host, both pinned in `editor_queries._story_source`. React does not
+    // recompute it, so the only fallback here is for a payload with a URL and no
+    // name at all: the link still works and shows something true.
+    fetchMock.mockResolvedValue(
+      dataResponse(deskWith({ sourceUrl: "https://www.dnes.bg/novina/2" })),
+    );
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(sourceLink()!.getAttribute("href")).toBe("https://www.dnes.bg/novina/2");
+    expect(sourceLink()!.textContent).toContain("dnes.bg");
+  });
+
+  it("prints no source at all when the story has no real one", async () => {
+    fetchMock.mockResolvedValue(dataResponse(deskWith({ sourceUrl: "" })));
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(sourceLink()).toBeNull();
+  });
+
+  it("refuses a non-http source rather than linking to it", async () => {
+    fetchMock.mockResolvedValue(
+      dataResponse(deskWith({ sourceUrl: "javascript:alert(1)", sourceName: "Съмнително" })),
+    );
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(sourceLink()).toBeNull();
+  });
+
+  it("leaves a row with no source field alone — an older projection still renders", async () => {
+    // The backend added these fields today. A cached or older payload must not
+    // crash the desk, which is the whole reason the row tolerates a missing
+    // `quickDraft` today.
+    fetchMock.mockResolvedValue(dataResponse(deskWith({})));
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(sourceLink()).toBeNull();
+    expect(screen.getByText("Общинският съвет прие бюджета")).toBeInTheDocument();
+  });
+});
+
+// --------------------------------------------------------------------------
+// V1.2-G4.5 — the CAUSE behind the grouping notice
+// --------------------------------------------------------------------------
+
+describe("the desk says whether the system can actually work", () => {
+  const withRoles = (health: unknown) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/api/v1/health")) {
+        return dataResponse(health);
+      }
+      return dataResponse(deskProjection());
+    });
+  };
+
+  it("names a role with no routable path, and the command that fixes it", async () => {
+    // The grouping notice already says merging is limited. This says WHY, and
+    // what to run — on 2026-09-28 that was a wrong EXHAUSTED mark sitting on
+    // every story route while all seven models were still in the catalogue.
+    withRoles({
+      ok: false,
+      roles: [
+        { role: "draft", eligible: 4, total: 4, onExhausted: "fail_visible" },
+        { role: "story", eligible: 0, total: 7, onExhausted: "conservative" },
+      ],
+      unroutableRoles: ["story"],
+      remedy: "newsroom models validate",
+    });
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    const badge = document.querySelector('[data-role-health="blocked"]');
+    expect(badge).toBeTruthy();
+    expect(badge!.textContent).toContain("story");
+    expect(badge!.textContent).toContain("newsroom models validate");
+  });
+
+  it("stays quiet when every role can route", async () => {
+    // A permanently loud badge is a badge the editor learns to ignore.
+    withRoles({
+      ok: true,
+      roles: [{ role: "draft", eligible: 4, total: 4, onExhausted: "fail_visible" }],
+      unroutableRoles: [],
+      remedy: "newsroom models validate",
+    });
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(document.querySelector('[data-role-health="blocked"]')).toBeNull();
+    expect(document.querySelector('[data-role-health="ok"]')).toBeTruthy();
+  });
+
+  it("shows nothing at all while the health read is unknown", async () => {
+    // An unknown state is not a healthy state and is not a broken one. Saying
+    // anything here would be a claim the data does not support.
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/api/v1/health")) {
+        return { ok: false, status: 503, json: async () => ({}) } as Response;
+      }
+      return dataResponse(deskProjection());
+    });
+    renderWithProviders(<TodayPage />, { route: "/" });
+    await screen.findByRole("heading", { name: "Днес" });
+
+    expect(document.querySelector('[data-role-health="ok"]')).toBeNull();
+    expect(document.querySelector('[data-role-health="blocked"]')).toBeNull();
+  });
+});

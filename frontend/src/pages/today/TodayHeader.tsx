@@ -1,5 +1,46 @@
 import { Link } from "react-router-dom";
+import type { RoleHealth } from "../../api/dto";
 import styles from "./Today.module.css";
+
+/**
+ * V1.2-G4.5: can the system actually work right now?
+ *
+ * The grouping notice below already told the editor that story merging was
+ * limited, and said nothing about WHY. On 2026-09-28 that was because every
+ * route of the `story` role was marked EXHAUSTED while all seven models were
+ * present in their provider catalogues - a wrong mark, sitting there for a day.
+ * This badge names the cause and the one command that clears it.
+ *
+ * It is quiet when everything is fine, on purpose: a permanently visible warning
+ * is a warning the editor learns to ignore, which is how a red badge for a day
+ * became invisible.
+ */
+function RoleHealthBadge({
+  health,
+}: {
+  health: { ok: boolean; roles: RoleHealth[]; unroutableRoles: string[]; remedy: string } | null | undefined;
+}) {
+  // Fail-safe, deliberately. A payload without the field is not a healthy
+  // system and not a broken one — it is an older or unexpected one — and the
+  // desk must still render. `Array.isArray` rather than a truthy check because
+  // `unroutableRoles: undefined` is exactly what a stale cache looks like, and
+  // `.length` on it must never take the whole page down.
+  if (!health || !Array.isArray(health.unroutableRoles)) return null;
+  const dead = health.unroutableRoles;
+  if (!dead.length) {
+    return (
+      <p className={styles.roleHealthOk} data-role-health="ok">
+        ✓ всички роли имат достъпен маршрут
+      </p>
+    );
+  }
+  return (
+    <p className={styles.roleHealthBad} role="status" data-role-health="blocked">
+      ⚠ {dead.join(", ")} няма достъпен маршрут — тези функции работят намалено.{" "}
+      <code>{health.remedy}</code>
+    </p>
+  );
+}
 
 export interface TodayHeaderProps {
   /** The D1 projection, for the refresh context. */
@@ -9,6 +50,11 @@ export interface TodayHeaderProps {
   refreshError: string | null;
   query: string;
   onQueryChange: (value: string) => void;
+  /**
+   * V1.2-G4.5. Whether the system can actually work right now, per role.
+   * `null` while unknown — an unknown state is not a warning.
+   */
+  roleHealth?: { ok: boolean; roles: RoleHealth[]; unroutableRoles: string[]; remedy: string } | null;
 }
 
 /**
@@ -27,6 +73,7 @@ export function TodayHeader({
   refreshError,
   query,
   onQueryChange,
+  roleHealth,
 }: TodayHeaderProps) {
   return (
     <header className={styles.header}>
@@ -45,6 +92,7 @@ export function TodayHeader({
           <Link className={styles.operationsLink} to="/operations">
             Какво става с поръчаните чернови →
           </Link>
+          <RoleHealthBadge health={roleHealth} />
         </div>
         <div className={styles.refreshArea}>
           {/*

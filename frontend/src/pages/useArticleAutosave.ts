@@ -176,9 +176,20 @@ export function useArticleAutosave({
     if (dirtyRef.current) timerRef.current = setTimeout(() => void flush(), AUTOSAVE_DELAY_MS);
   }, [clearTimer, flush]);
 
-  useEffect(() => () => {
-    mountedRef.current = false;
-    clearTimer();
+  useEffect(() => {
+    // V1.2-G4.5. This has to be set on the way IN, not only cleared on the way
+    // out. `src/main.tsx` renders inside <StrictMode>, and React 18 mounts,
+    // unmounts and then REMOUNTS every effect in development - so the cleanup
+    // below used to run while the component stayed alive, and `mountedRef` stayed
+    // false for the rest of the session. Two consequences, both silent: a
+    // successful save never moved the status off "saving", and a version
+    // conflict returned early WITHOUT offering the recovery UI, leaving the
+    // editor typing into text the server had already refused.
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimer();
+    };
   }, [clearTimer]);
 
   // The readiness checkpoint binds to the CONFIRMED canonical version, so the

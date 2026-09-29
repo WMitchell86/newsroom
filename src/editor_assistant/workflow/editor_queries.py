@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from editor_assistant.workflow import (
     editor_article_store,
@@ -185,6 +186,7 @@ def _story_attention_row(
     representative = items_by_id.get(story.get("representative_item_id")) or {}
     developments = editor_projections.meaningful_developments(story, items_by_id)
     latest = developments[0] if developments else {}
+    source_url, source_name = _story_source(representative, registry_rows)
     return {
         "id": story["story_id"],
         "attention": attention,
@@ -193,7 +195,37 @@ def _story_attention_row(
         "latestChangeAt": editor_projections.story_chronology_at(story),
         "unreviewedDevelopmentCount": projected["unreviewed_development_count"],
         "publisherCount": story_store.metrics(story, items_by_id)["publisher_count"],
+        # Where the material came from, and a link that opens it. The editor's
+        # first question about a wire row is "who said this?", and until now the
+        # only answer was a COUNT of publishers, which names nobody and opens
+        # nothing.
+        "sourceUrl": source_url,
+        "sourceName": source_name,
     }
+
+
+def _story_source(representative: dict, registry_rows=()) -> tuple[str, str]:
+    """The (url, name) of the Story's representative publication.
+
+    V1.2-G4.5. Both halves are reported only when they are real. The URL is the
+    one the canonical representative item already carries - the same item the
+    Draft command reads - so the link and the draft are about the same page. The
+    NAME is the operator's own registry entry when there is one, because that is
+    the name the newsroom chose; failing that it is the URL's host, which is a
+    fact rather than a guess about who published it.
+
+    Nothing is invented: a representative with no URL yields no link, and the
+    frontend then prints no source at all rather than a plausible-looking one.
+    """
+    url = str((representative or {}).get("url") or "").strip()
+    if not url:
+        return "", ""
+    source_id = str((representative or {}).get("source_id") or "").strip()
+    for row in registry_rows or ():
+        if str(row.get("source_id") or "") == source_id and str(row.get("name") or "").strip():
+            return url, str(row["name"]).strip()
+    host = urlparse(url).netloc
+    return url, host.removeprefix("www.")
 
 
 def project_today(

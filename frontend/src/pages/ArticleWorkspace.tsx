@@ -85,13 +85,32 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
     flushRef.current = flush;
   }, []);
 
+/**
+ * V1.2-G4.5. A local, not a remote, refusal: the request is never sent.
+ * Its own class so the UI can say what actually happened instead of blaming
+ * the server for the editor's unsaved text.
+ */
+class AutosaveNotConfirmedError extends Error {
+  constructor() {
+    super("autosave-not-confirmed");
+    this.name = "AutosaveNotConfirmedError";
+  }
+}
+
   // «Отбележи като готова». A pending autosave is confirmed first, so the
   // expected version is always the version the server actually holds. The
   // server revalidates anyway: this decides only *which* version to ask about.
   const ready = useMutation({
     mutationFn: async () => {
       const flushed = flushRef.current ? await flushRef.current() : true;
-      if (!flushed) throw new Error("unconfirmed");
+      // V1.2-G4.5. This is NOT the server refusing. The request is never sent:
+      // the editor's own text is not confirmed on the server, so the version
+      // this would mark is a version that does not exist. It used to surface as
+      // the same sentence as a real refusal — "Статията не можа да се отбележи
+      // като готова. Опитайте отново." — which blames the server for something
+      // that happened in the browser, and sends the editor round the retry loop
+      // instead of to the conflict banner that is already on screen.
+      if (!flushed) throw new AutosaveNotConfirmedError();
       const confirmed = queryClient.getQueryData<ArticleDetail>(queryKeys.article(articleId));
       return markArticleReady(articleId, confirmed?.content.version ?? 0);
     },
@@ -102,6 +121,12 @@ function ArticleDesk({ article }: { article: ArticleDetail }) {
       setSavedVersion(projection.content.version);
     },
     onError: async (error) => {
+      if (error instanceof AutosaveNotConfirmedError) {
+        setReadyError(
+          "Първо запазете текста си — сървърът още не потвърждава последните промени. Разрешете конфликта по-горе, ако има такъв.",
+        );
+        return;
+      }
       setReadyError(
         getErrorMessage(error, "Статията не можа да се отбележи като готова. Опитайте отново."),
       );

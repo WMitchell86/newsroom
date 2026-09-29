@@ -1,4 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { queryKeys, storiesOptions, todayOptions } from "../api/queries";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
@@ -22,7 +25,7 @@ import {
   storyDetail,
   todayProjection,
 } from "./fixtures";
-import { renderWithProviders } from "./render";
+import { createTestQueryClient, renderWithProviders } from "./render";
 import { formatLastRefresh, newPublicationsLabel } from "../shared/editorLabels";
 
 import type { ArticleDetail, StoryDetail } from "../api/dto";
@@ -136,7 +139,11 @@ describe("Today", () => {
     const articleLinks = screen.getAllByRole("link", { name: activeDraftArticle.title });
     expect(articleLinks.some((link) => link.getAttribute("href") === `/articles/${activeDraftArticle.id}`)).toBe(true);
     expect(screen.getByRole("link", { name: "Липсва потвърждение" })).toHaveAttribute("href", "/settings/sources");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The contract is "no MUTATION", not "exactly one call". The absolute count
+    // was a weaker duplicate of the assertion below and broke the moment the
+    // desk legitimately added a second mount-time read (role health, G4.5). The
+    // GET check is the real one and says more: it forbids every write, not just
+    // a second read.
     expect(fetchMock.mock.calls.every(([, init]) => !("method" in (init ?? {})) || init.method === "GET")).toBe(true);
   });
 
@@ -2600,5 +2607,80 @@ describe("Today grouping health", () => {
     // Recovery came from canonical latest-run state via a refetch, not a reload.
     expect(screen.getByRole("heading", { name: "Днес" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([url]) => url.startsWith("/api/v1/today?")).length).toBeGreaterThan(1);
+  });
+});
+
+// --------------------------------------------------------------------------
+// V1.2-G4.5 — StrictMode, which is how the editor actually runs
+// --------------------------------------------------------------------------
+
+describe("the autosave survives StrictMode's double mount", () => {
+  it("still reports a successful save, and still surfaces a version conflict", async () => {
+    // `src/main.tsx` renders inside <StrictMode>, and React 18 mounts, unmounts
+    // and REMOUNTS every effect in development. `useArticleAutosave` cleared its
+    // `mountedRef` in the unmount cleanup and never set it back, so after the
+    // simulated remount it stayed false for the rest of the session: a
+    // successful save never moved the status off "saving", and a version
+    // conflict returned early WITHOUT showing the recovery UI - the editor
+    // would keep typing into a text the server had already refused.
+    //
+    // Every other test here renders without StrictMode, which is exactly why
+    // this survived.
+    const user = userEvent.setup();
+    let canonical = activeDraftArticle;
+    let conflicted = false;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT" && url.endsWith("/content")) {
+        if (conflicted) {
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              error: {
+                code: "ARTICLE_VERSION_CONFLICT",
+                message: "Черновата е променена в друга сесия.",
+                retryable: false,
+                fieldErrors: [],
+              },
+            }),
+          } as Response;
+        }
+        const body = JSON.parse(String(init.body)) as { title: string; body: string; expectedVersion: number };
+        canonical = {
+          ...canonical,
+          title: body.title,
+          content: { title: body.title, body: body.body, version: body.expectedVersion + 1 },
+        };
+        return dataResponse(canonical);
+      }
+      return dataResponse(canonical);
+    });
+
+    render(
+      <StrictMode>
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[`/articles/${activeDraftArticle.id}`]}>
+            <Routes>
+              <Route path="/articles/:articleId" element={<ArticleWorkspace />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+
+    const body = await screen.findByRole("textbox", { name: "Текст на статията" });
+    await user.clear(body);
+    await user.type(body, "Редакторски текст");
+    await waitFor(() => expect(screen.getByText("Запазено")).toBeTruthy(), { timeout: 4000 });
+
+    // Now the same hook must still be able to REPORT a refusal rather than
+    // swallowing it into a promise that resolves false.
+    conflicted = true;
+    await user.clear(body);
+    await user.type(body, "Текст, който сървърът ще отхвърли");
+    await waitFor(
+      () => expect(screen.getByRole("alert").textContent).toContain("променена в друга сесия"),
+      { timeout: 4000 },
+    );
   });
 });

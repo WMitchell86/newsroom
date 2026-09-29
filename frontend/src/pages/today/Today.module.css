@@ -234,11 +234,36 @@
 .storyMeta {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 4px 14px;
   margin: var(--space-2) 0 0;
   color: var(--color-text-secondary);
   font-size: 12px;
   line-height: 17px;
+}
+
+/*
+ * V1.2-G4.5: the source link wears the same small, quiet type as the rest of the
+ * metadata line — it is context, not a second headline. The underline is
+ * permanent rather than hover-only, because a link that only looks clickable on
+ * hover is not obviously a link on a touch screen or to a tired editor at 02:00.
+ */
+/* Its own row, directly under the metadata line. */
+.storySourceRow {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.storySource {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.storySource:hover {
+  color: var(--color-text);
 }
 
 /* Restrained by design: the summary is context, not the headline's rival. */
@@ -477,4 +502,31 @@
   font-size: 0.85rem;
   line-height: 1.4;
   max-width: 30rem;
+}
+
+/*
+ * V1.2-G4.5: the health badge wears the same small, quiet type as the rest of
+ * the header context. It is deliberately understated in the healthy state — a
+ * permanently loud status chip is a chip the editor stops reading, which is
+ * exactly how a red badge stayed invisible for a whole day.
+ */
+.roleHealthOk {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.roleHealthBad {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 17px;
+  border-left: 2px solid var(--color-text-secondary);
+  padding-left: 8px;
+}
+
+.roleHealthBad code {
+  font-size: 12px;
+  white-space: nowrap;
 }

@@ -45,27 +45,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-const apiErrorCodes: ReadonlySet<string> = new Set([
-  "VALIDATION_ERROR",
-  "NOT_FOUND",
-  "INVALID_TRANSITION",
-  "ARTICLE_VERSION_CONFLICT",
-  "BLOCKING_GAP",
-  "SAFETY_BLOCKED",
-  "SOURCE_UNAVAILABLE",
-  // V1.2-G2.2 §3: operational research refusals, kept distinct from every
-  // evidence reason so the UI can never render them as missing evidence.
-  "RESEARCH_UNAVAILABLE",
-  "RESEARCH_QUOTA_EXHAUSTED",
-  "INTERNAL_ERROR",
-]);
-
+/**
+ * V1.2-G4.5 — a code this build has never heard of is NOT an internal error.
+ *
+ * This used to be a closed set, and the closed set was wrong twice over. It
+ * listed ten codes while `ApiErrorCode` declares twenty-one, so eleven codes the
+ * product had deliberately introduced — every G4.1/G4.3 readiness reason such as
+ * `NO_DRAFT_MATERIAL`, `FOCUS_NOT_CONFIRMED` and `STORY_UNAVAILABLE` — were
+ * silently discarded on the way in. A refusal whose whole point is that it names
+ * its own reason reached the editor as "Вътрешна грешка. Опитайте отново."
+ *
+ * And the set had no safety value to lose: the envelope is already validated
+ * structurally, and a code is a label, not a shape. So the gate is gone and the
+ * code travels through as the server sent it. A malformed envelope still
+ * becomes an internal error, which is the only thing that statement is true of.
+ */
 function parseFailure(status: number, value: unknown): ApiError {
   if (isRecord(value) && isRecord(value.error)) {
     const candidate = value.error;
     if (
       typeof candidate.code === "string" &&
-      apiErrorCodes.has(candidate.code) &&
       typeof candidate.message === "string" &&
       typeof candidate.retryable === "boolean" &&
       Array.isArray(candidate.fieldErrors) &&
@@ -500,7 +499,10 @@ function operationFailure(value: ResearchOperation): ApiError {
   const raw = isRecord(value.error) ? value.error : undefined;
   return new ApiError(
     0,
-    raw && typeof raw.code === "string" && apiErrorCodes.has(raw.code) ? raw.code as ApiErrorCode : "INTERNAL_ERROR",
+    // The server's own code, for the same reason as `parseFailure`: a code this
+    // build has not seen is a reason the editor has not been shown yet, not an
+    // internal error. Only a missing or non-string code falls back.
+    raw && typeof raw.code === "string" ? (raw.code as ApiErrorCode) : "INTERNAL_ERROR",
     raw && typeof raw.message === "string" ? raw.message : "Проучването не можа да се изпълни. Опитайте отново.",
     raw && typeof raw.retryable === "boolean" ? raw.retryable : true,
   );
@@ -636,6 +638,20 @@ async function getData<T>(path: string, params?: URLSearchParams): Promise<T> {
  */
 export function getToday(scope: TodayScope = "region"): Promise<TodayProjection> {
   return getData("/today", new URLSearchParams({ scope }));
+}
+
+/**
+ * V1.2-G4.5: per-role routing health. A pure read — the routing plan the
+ * backend would follow, no provider call, no spend — so the header can say
+ * whether the system can actually work right now.
+ */
+export function getRoleHealth(): Promise<{
+  ok: boolean;
+  roles: import("./dto").RoleHealth[];
+  unroutableRoles: string[];
+  remedy: string;
+}> {
+  return getData("/health");
 }
 
 export function getStories(filter: StoryFilter = "all", query = ""): Promise<{ stories: import("./dto").StorySummary[] }> {
