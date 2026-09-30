@@ -45,6 +45,13 @@ from editor_assistant.workflow import search as search_mod
 #: material" rather than hang the button.
 NETWORK_TIMEOUT = 12
 
+#: V1.2-G4.35. A hard cap on the Google News feed this module reads directly.
+#: Every other outbound edge goes through `web_fetch`, which already caps; this
+#: one does not, and it runs in a worker the editor is waiting on. A search feed
+#: for one headline is a few kilobytes, so 2 MiB is generous by three orders of
+#: magnitude and still refuses an unbounded read.
+MAX_FEED_BYTES = 2 * 1024 * 1024
+
 #: The identifying words of a title, for matching a discovery record to it.
 _TITLE_NOISE = re.compile(r"[^\w]+", re.UNICODE)
 
@@ -281,6 +288,7 @@ def _news_lookup(title: str, *, limit: int = 8) -> list[str]:
     The returned entries are publisher roots, not articles, so a caller that
     cannot open them must simply move on — which is what the reader loop does.
     """
+    import urllib.parse
     import urllib.request
     import xml.etree.ElementTree as ET
 
@@ -290,7 +298,20 @@ def _news_lookup(title: str, *, limit: int = 8) -> list[str]:
     )
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "chernomorie-editor/1.0"})
-        feed = urllib.request.urlopen(request, timeout=NETWORK_TIMEOUT).read()
+        feed = urllib.request.urlopen(request, timeout=NETWORK_TIMEOUT).read(MAX_FEED_BYTES + 1)
+        # V1.2-G4.35. Two bounds this fetch had none of, both measured.
+        #
+        # A cap: `.read()` with no argument will take whatever the socket gives
+        # it, and this runs in a worker the editor waits on.
+        #
+        # A DOCTYPE rejection: `ET.fromstring` expands internal entities, so a
+        # feed carrying a small declaration can expand into a large string.
+        # Measured here: 128 bytes became 480 characters of text, and the
+        # expansion nests — a three-level declaration is enough. A Google News
+        # RSS search feed has no legitimate reason to carry a DTD, so refusing
+        # one costs nothing real and removes the whole class.
+        if len(feed) > MAX_FEED_BYTES or b"<!DOCTYPE" in feed[:1024].upper():
+            return []
         root = ET.fromstring(feed)
     except (OSError, ValueError, ET.ParseError):
         return []

@@ -19,6 +19,17 @@ import pytest
 
 from editor_assistant.workflow import publication_material
 
+#: V1.2-G4.35. The conftest fixture `no_live_publication_url_resolution`
+#: substitutes these two functions in EVERY test — including this one, so calling
+#: `publication_material._news_lookup` directly tests the stub and returns [] for
+#: everything. These are captured at IMPORT time, which happens before any
+#: autouse fixture runs, so the real implementations are what gets tested.
+#:
+#: A fixture that prevents a test from testing the thing it names is itself a
+#: finding, and this one cost the first two tests in the section below.
+_REAL_NEWS_LOOKUP = publication_material._news_lookup
+_REAL_KEYLESS_LOOKUP = publication_material._keyless_lookup
+
 RECORDED = "https://vestnik.example.test/2026/remont"
 KEYLESS = "https://dnesnik.example.org/2026/remont-na-ulitsata"
 NEWS = "https://vestnik.example.test/2026/remont-detali"
@@ -103,3 +114,90 @@ def test_a_refresh_bypasses_the_cache(monkeypatch):
 
     publication_material.publication_urls("Ремонт на улицата", refresh=True)
     assert len(calls) == 2, "refresh=True must re-resolve despite the cache"
+
+
+# --- the lookups themselves, which a952d69 left with no direct test at all ---
+
+
+def _feed(*sources: str) -> bytes:
+    items = "".join(
+        f"<item><title>t</title><source url=\"{url}\"></source></item>" for url in sources
+    )
+    return f'<?xml version="1.0"?><rss><channel>{items}</channel></rss>'.encode()
+
+
+class _FakeResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def read(self, size: int = -1) -> bytes:
+        return self._payload if size < 0 else self._payload[:size]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def _patch_feed(monkeypatch, payload: bytes) -> None:
+    import urllib.request
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda *a, **k: _FakeResponse(payload)
+    )
+
+
+def test_a_good_feed_yields_its_publisher_roots(monkeypatch):
+    _patch_feed(monkeypatch, _feed("https://vestnik.example.test", "https://dnesnik.example.org"))
+    assert _REAL_NEWS_LOOKUP("Ремонт") == [
+        "https://vestnik.example.test",
+        "https://dnesnik.example.org",
+    ]
+
+
+def test_a_wrapper_inside_the_feed_is_dropped(monkeypatch):
+    _patch_feed(
+        monkeypatch,
+        _feed("https://www.facebook.com/somepage", "https://vestnik.example.test"),
+    )
+    found = _REAL_NEWS_LOOKUP("Ремонт")
+    assert "https://www.facebook.com/somepage" not in found
+    assert found == ["https://vestnik.example.test"]
+
+
+def test_a_malformed_feed_yields_nothing_rather_than_raising(monkeypatch):
+    _patch_feed(monkeypatch, b"<rss><channel><item>")
+    assert _REAL_NEWS_LOOKUP("Ремонт") == []
+
+
+def test_an_entity_expansion_feed_is_refused(monkeypatch):
+    """V1.2-G4.35. `ET.fromstring` expands internal entities; this feed would.
+
+    Measured while writing it: 128 bytes expanded to 480 characters, and the
+    expansion nests, so three declaration levels are enough to turn a tiny
+    response into a large string inside a worker the editor waits on. A search
+    feed has no legitimate reason to carry a DTD, so one is refused outright.
+    """
+    bomb = (
+        b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "1234567890">'
+        b'<!ENTITY b "&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;">]>'
+        b"<rss><channel><item><source url=\"https://vestnik.example.test\"/></item></channel></rss>"
+    )
+    _patch_feed(monkeypatch, bomb)
+    assert _REAL_NEWS_LOOKUP("Ремонт") == []
+
+
+def test_an_oversized_feed_is_refused(monkeypatch):
+    oversized = b"<rss><channel>" + b"x" * (publication_material.MAX_FEED_BYTES + 10) + b"</channel></rss>"
+    _patch_feed(monkeypatch, oversized)
+    assert _REAL_NEWS_LOOKUP("Ремонт") == []
+
+
+def test_a_keyless_lookup_error_yields_nothing(monkeypatch):
+    """A provider outage must move the reader on, never raise through the Draft."""
+    def boom(*_a, **_k):
+        raise OSError("provider is down")
+
+    monkeypatch.setattr(publication_material.search_mod, "DDGSProvider", boom)
+    assert _REAL_KEYLESS_LOOKUP("Ремонт") == []
