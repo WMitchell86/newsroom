@@ -156,6 +156,61 @@ Worth deciding: does the production behaviour the test feared — a durable fail
 marker written on a material refusal — still not occur? Round 1 says
 `NO_DRAFT_MATERIAL` is in the non-qualifying allow-list. Confirm or refute it.
 
+### 5.2a NEW AND URGENT — the suite takes ~20 minutes and about half of it is not testing anything
+
+Measured today, one clean run, nothing else competing:
+
+```
+tests/test_draft_readiness_parity.py --durations=8
+  50.37s call  test_the_readiness_matrix_covers_every_canonical_state[focus=False-...]
+  34.75s call  test_the_readiness_matrix_covers_every_canonical_state[focus=True-...]
+  32.88s call  test_projection_and_command_never_disagree[focus=True-...]
+  15.56s call  test_projection_and_command_never_disagree[...]
+  15.21s call  test_projection_and_command_never_disagree[...]
+  5 failed, 14 passed in 350.23s (0:05:50)
+```
+
+**350 seconds for 19 tests.** And the shape of it is the diagnostic clue: the
+cost is roughly **evenly spread across tests that pass and tests that fail**, so
+this is not the failure — it is a separate defect.
+
+What I have established by measurement:
+
+- Not network. The process holds **zero sockets**, one thread, state `S`, wchan
+  `do_wait` while the run is slow. It is blocked, not waiting on I/O.
+- Not the automatic draft enrichment. `NEWSROOM_DRAFT_ENRICHMENT=off` is set by
+  the autouse fixture in `tests/conftest.py` and `draft_enrichment.is_enabled()`
+  returns `False` in the test environment.
+- Not `is_readable_publication` (no network) and not `model_router`'s
+  `role_has_usable_route` (pure policy read).
+
+What is left, and where I stopped: these tests call `app.start_article_draft`,
+which since V1.2-G4.4 is **transport-only** and runs the real work in a daemon
+thread (`story_operations.py:129`). The test asserts on the synchronous refusal and
+never joins that thread. Meanwhile `drafting/generate.py:255` sleeps
+`max(Retry-After, min_gap)` per attempt inside its 429/503 retry loop, and
+`draft_enrichment.WALL_CLOCK_BUDGET_S` is 30s. The teardown at
+`tests/test_draft_readiness_parity.py:78-84` then calls `story_operations.clear()`
+and walks `article_generation._ACTIVE`.
+
+**This is a hypothesis, not a proven cause.** I ran out of budget before I could
+confirm it, and I am flagging it as such deliberately — see §4.
+
+Two things I want from round 2 here:
+
+1. **Find the actual blocking point.** Do not trust the hypothesis above; it is
+   the last thing I checked, not the confirmed answer. A stack sample of a
+   running slow test would settle it in one command.
+2. **Say whether it is a product defect or a harness defect.** If a real user can
+   make an Article sit in `_ACTIVE` for 15 seconds after a refusal, that is
+   production behaviour and belongs in §5.1, not in the test file. If the thread is
+   only orphaned by a test that does not join it, it is test debt and belongs here.
+
+Either way the fix should make the test **join or explicitly abandon** the worker,
+not make the wait shorter by shortening a production sleep. Changing
+`WALL_CLOCK_BUDGET_S` or the retry `min_gap` to make the suite faster would be
+masking a real product number to save test time — do not do that.
+
 ### 5.3 The runtime-store guard — SOLVED, operationally
 
 Round 1 identified the writer: **the host's own newsroom cron** (`crontab -l`:
@@ -230,3 +285,38 @@ makes it fail, and what you ran. If you ran nothing, say that.
 One standing request: **if you disagree with something above, say so and show the
 measurement.** Round 1's one wrong verdict was worth more than its confirmations,
 because it is the only part that changed what I did.
+
+---
+
+## 8. What I got wrong today, so you do not inherit it
+
+Recording these because a prompt that only lists successes teaches the wrong lesson.
+
+1. **My first "fix" for the prose fallback did not work.** I captured the
+   "pristine" callables lazily, on the fixture's first use — which happens *after*
+   the browser suite has already substituted them, so the capture recorded the
+   substitutes as the baseline and the leak survived. The comment I wrote above
+   the code described exactly this hazard; I then wrote the hazard. The capture is
+   eager now.
+
+2. **My first "baseline" measurement was invalid.** The tree was already clean, so
+   `git stash push` silently created nothing and the run measured my own changes
+   while I believed it measured the baseline. Use `git checkout <old> -- src/ tests/`.
+
+3. **I ran up to eleven concurrent pytest processes** while investigating, which
+   made every timing number I took during that window meaningless and cost more
+   time than it saved. **Kill what is running before you measure anything.**
+
+4. **I patched source files with a generated script** and got the indentation wrong
+   on every line, leaving the file unparseable. I reverted and did it by hand. Edit
+   source with the editor, not with a string-replacing script.
+
+5. **I twice "fixed" a test by patching a flag** and reverted both times, because
+   the test's deeper assumption was still wrong and the green result would have been
+   for the wrong reason. A test that passes for the wrong reason is worse than a red
+   one: it removes the signal without adding the safety.
+
+The through-line: **every one of these was caught by measuring rather than by
+reading**, and in case 1 the measurement came *after* I was confident. Confidence is
+not evidence, and "I already verified that" is the most expensive sentence in this
+repository.
