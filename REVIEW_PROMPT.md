@@ -10,6 +10,50 @@ still unspent.
 
 ---
 
+## 0. State at the time you read this
+
+Round 2's findings have been **acted on and measured**. Do not re-report these.
+
+**F4 — CRITICAL, rule 6, FIXED in `593039a`.** `build_packet` refused only for
+`not facts and opened`. With neither, it built a packet with `source_url = ""` and
+`facts = []`, so `validate_packet` raised a raw `EvidenceError` — not a
+`DraftRefused` — which escaped `generate()` into `_run_draft_generation`'s
+catch-all and recorded `reason_code = PROVIDER_UNAVAILABLE`. A Story with nothing
+to read was told the provider was down, and the projection then offered EDIT.
+Reachable precisely because waiving `DRAFT_FROM_UNREAD_SOURCE` is correct; the
+branch for "that one read returned nothing" was missing. Now classified
+`NO_DRAFT_MATERIAL`, which is already absent from `QUALIFYING_REFUSALS`.
+
+**F1 — FIXED in `c4e1324`.** A collected item is no longer the provenance carrier
+at all. With editor text and no opened page, the packet is attributed to
+`workbench://story/<id>`. `source_type` is now `opened_publication`, not
+`upstream_press_release`.
+
+**F2 — FIXED in `c4e1324`.** Same commit; that was the last false claim in the
+function.
+
+**F3 — FIXED in `796cab5`.** The promote form now carries a `full_text` textarea
+and `http.py:800` passes it, so the control can succeed rather than only refuse.
+
+**§5.2a's slowness — FIXED in `593039a` and `11fe96c`.** Your sever experiment was
+right and my hypothesis was wrong. `test_draft_readiness_parity.py`:
+**391.54s → 0.32s**. `test_manual_continuation.py`: **88.94s → 0.96s**. Same
+failures either way, so the time was never testing anything. No production
+timeout was shortened.
+
+### What I got wrong, for the record
+
+I patched `_try_route` in `test_manual_continuation.py` when the helper actually
+wrapped `call_role`. Ruff caught it as `F821` before the run. I also wrote an
+`if detail and (... or True)` condition that was a no-op pretending to be a
+guard, and shipped a line of malformed Bulgarian in the same commit; I caught
+both by reading the diff back and rewrote them. Neither reached a commit.
+
+The through-line from all of it: **every one of these was caught by measuring or
+reading back, not by reasoning harder up front.**
+
+---
+
 ## 1. What this is
 
 A single-editor newsroom pipeline for the Burgas region of Bulgaria. It finds real
@@ -109,107 +153,86 @@ code" to "delete a reachable defect". **Measure before you classify.**
 
 ## 5. Open items
 
-### 5.1 Is the critical fix COMPLETE? (highest priority)
+### 5.1 Is the snippet fix COMPLETE now that F1-F4 are fixed? (highest priority)
 
-Round 1 proved the snippet reached the packet through `promote_story_to_idea`. It
-named one route. I have **not** established that it was the only route.
+Round 2's answer was "no" and found three more routes in the same function. All
+four are now fixed, but **"fixed" is my claim, not your verification.** The
+interesting question is what round 2 could not see: is there a FIFTH route, in a
+function round 2 did not look at?
 
-- Are there other writers of `body`, `summary`, `what_changed`, or a packet field
-  that a discovery-time value can reach? `workbench/http.py:798` calls the bridge
-  **without** `full_text`, so that live route now always takes the refusal path —
-  confirm nothing else feeds it.
-- Does the legacy «Кандидатвай като идея» button (`workbench/html.py:1694-1703`) now
-  render a button that can only fail? If the story can never be promoted, the button
-  is a lie told by omission. Gate it, or say why not.
-- `source_type` is still `upstream_press_release` for anything that is not a
-  transcript. Now that only opened pages reach here, is that label right, or is it
-  the last surviving false claim from the same function?
-- Are there Stories **already promoted** on a running instance whose packet facts are
-  snippets? That is stored damage, not a code fix, and it needs a decision.
+Specifically:
 
-### 5.2 Open item 7 — the stale test, diagnosed but deliberately not fixed
+- The new `workbench://story/<id>` attribution is deliberately visible and
+  obviously ours. Confirm it cannot be mistaken for a publisher URL downstream,
+  and that `angles.py`'s substring matching on `source_url` and
+  `labels.py:96` behave sensibly against a `workbench://` value. I changed the
+  shape of that field and did not re-audit its readers.
+- The new `source_type = "opened_publication"` is a NEW string. Is it handled
+  everywhere `source_type` is consumed — `modes.py:64`, `angles.py:63`,
+  `labels.py:96`, the HTML renderer? A consumer that only knew the two old
+  values will now silently fall through. **This is the most likely place a new
+  defect is hiding.**
+- `_news_lookup` still performs a raw `urlopen` with no SSRF guard and no seam,
+  unlike every other outbound edge. The conftest fixture now keeps tests off it,
+  which means the test suite no longer covers that path at all. Is the guard
+  missing, or is the URL always a constant?
+
+- **Stored damage.** Round 2 measured and reported: 3 rows in
+  `var/editorial_workflow/live_evidence.jsonl` with wrapper `source_url`, and 2
+  ideas in `ideas.jsonl` whose `what_changed` is an inbox snippet; zero hits in
+  `cases.jsonl` / `live_drafts.jsonl`, so nothing consumed them. I have done
+  nothing about this. Per rule 9 the decision is recorded rather than acted on:
+  annotate, quarantine, or leave. It needs an operator, not a code change.
+
+### 5.2 Open item 7 — the stale test. Still NOT fixed, and round 2 sharpened why
 
 `tests/test_manual_continuation.py::test_a_fact_without_an_opened_source_never_records_a_failure_marker`
-fails on unmodified `main`. Round 1's diagnosis, which I read and agree with:
+fails on unmodified `main`. Round 2's correction to round 1 is the important part
+and I accept it: the test's premise is not merely stale, it is **unreachable**. The
+real worker re-reads canonical state, so a patched `_draft_snapshot` can never
+steer the real command, and the worker's own `evaluate` waives
+`DRAFT_FROM_UNREAD_SOURCE` too. There is no honest patch of that flag that reaches
+production behaviour.
 
-1. **Flag disagreement.** The test patches `app._draft_snapshot`, but the
-   synchronous preflight (`editor_application.py:1762`) calls `_draft_readiness_basis`
-   (`:1717`), which computes `readable_publication` from the canonical inbox. The
-   fixture's URL is readable, so readiness returns `DRAFT_FROM_UNREAD_SOURCE`, which
-   preflight **deliberately waives** per V1.2-G4.3 §A. No raise.
-2. **The test predates the async split.** Since V1.2-G4.4 `start_article_draft` is
-   transport-only: it returns a token and runs the worker in a daemon thread
-   (`story_operations.py:129`). The `NO_DRAFT_MATERIAL` refusal now happens inside
-   the worker as an operation-failure row, so `pytest.raises` around
-   `start_article_draft` can only ever catch preflight refusals.
+Round 2's measured repair: arrange canonically the way
+`test_article_draft_command.py:557-591` does — the `unreadable_publication` seam
+plus the real research store — then run the real command and assert on the
+**operation row's `error_code`**, the store, and the projection. No snapshot
+patching anywhere.
 
-So the test is stale twice over. The honest repair is to arrange the sourceless basis
-canonically (as `_degrade_to` does, not by patching `_draft_snapshot`) and assert on
-the **operation row's** code rather than a synchronous raise.
+I have attempted this twice and reverted both times. The reason is now clear: the
+F4 fix in `593039a` changed what the async path does, so the test's expected value
+has to be re-derived from the current code rather than reasoned about from the old
+failure. That is a sequencing problem, not a difficulty — do it after confirming
+§5.1, not before.
 
-I attempted the narrower fix twice and reverted both times, because fixing the flag
-leaves the async assumption wrong and the result is a test that passes for the wrong
-reason. **This is the clearest place to start, and it is deliberately untouched
-rather than half-done.**
+Note this file now runs in 0.96s, so iterating on it is cheap for the first time.
 
-Worth deciding: does the production behaviour the test feared — a durable failure
-marker written on a material refusal — still not occur? Round 1 says
-`NO_DRAFT_MATERIAL` is in the non-qualifying allow-list. Confirm or refute it.
+### 5.2a RESOLVED — but the numbers are worth checking
 
-### 5.2a NEW AND URGENT — the suite takes ~20 minutes and about half of it is not testing anything
+Round 2 refuted my hypothesis with a sever experiment and was right twice. Both
+slowdowns are fixed, by substituting the transport rather than shortening any
+product number:
 
-Measured today, one clean run, nothing else competing:
+- `test_draft_readiness_parity.py`: **391.54s → 0.32s** (`593039a`). The cause
+  was the publication-URL resolver cascade — a live `DDGSProvider().search` plus a
+  raw `news.google.com` `urlopen`, twice per snapshot, neither covered by the
+  hermetic DNS shim because both bypass `web_fetch`.
+- `test_manual_continuation.py`: **88.94s → 0.96s** (`11fe96c`). A second, separate
+  cause: that file fails the draft role on purpose, so the router's retry backoff
+  `sleep(min(2**attempt, 5))` at `model_router.py:910` ran for real. Caught with
+  faulthandler — a `story-research-` daemon thread sitting on exactly that line.
 
-```
-tests/test_draft_readiness_parity.py --durations=8
-  50.37s call  test_the_readiness_matrix_covers_every_canonical_state[focus=False-...]
-  34.75s call  test_the_readiness_matrix_covers_every_canonical_state[focus=True-...]
-  32.88s call  test_projection_and_command_never_disagree[focus=True-...]
-  15.56s call  test_projection_and_command_never_disagree[...]
-  15.21s call  test_projection_and_command_never_disagree[...]
-  5 failed, 14 passed in 350.23s (0:05:50)
-```
+Two things I want checked rather than believed:
 
-**350 seconds for 19 tests.** And the shape of it is the diagnostic clue: the
-cost is roughly **evenly spread across tests that pass and tests that fail**, so
-this is not the failure — it is a separate defect.
-
-What I have established by measurement:
-
-- Not network. The process holds **zero sockets**, one thread, state `S`, wchan
-  `do_wait` while the run is slow. It is blocked, not waiting on I/O.
-- Not the automatic draft enrichment. `NEWSROOM_DRAFT_ENRICHMENT=off` is set by
-  the autouse fixture in `tests/conftest.py` and `draft_enrichment.is_enabled()`
-  returns `False` in the test environment.
-- Not `is_readable_publication` (no network) and not `model_router`'s
-  `role_has_usable_route` (pure policy read).
-
-What is left, and where I stopped: these tests call `app.start_article_draft`,
-which since V1.2-G4.4 is **transport-only** and runs the real work in a daemon
-thread (`story_operations.py:129`). The test asserts on the synchronous refusal and
-never joins that thread. Meanwhile `drafting/generate.py:255` sleeps
-`max(Retry-After, min_gap)` per attempt inside its 429/503 retry loop, and
-`draft_enrichment.WALL_CLOCK_BUDGET_S` is 30s. The teardown at
-`tests/test_draft_readiness_parity.py:78-84` then calls `story_operations.clear()`
-and walks `article_generation._ACTIVE`.
-
-**This is a hypothesis, not a proven cause.** I ran out of budget before I could
-confirm it, and I am flagging it as such deliberately — see §4.
-
-Two things I want from round 2 here:
-
-1. **Find the actual blocking point.** Do not trust the hypothesis above; it is
-   the last thing I checked, not the confirmed answer. A stack sample of a
-   running slow test would settle it in one command.
-2. **Say whether it is a product defect or a harness defect.** If a real user can
-   make an Article sit in `_ACTIVE` for 15 seconds after a refusal, that is
-   production behaviour and belongs in §5.1, not in the test file. If the thread is
-   only orphaned by a test that does not join it, it is test debt and belongs here.
-
-Either way the fix should make the test **join or explicitly abandon** the worker,
-not make the wait shorter by shortening a production sleep. Changing
-`WALL_CLOCK_BUDGET_S` or the retry `min_gap` to make the suite faster would be
-masking a real product number to save test time — do not do that.
+1. **I have not run a complete suite since either fix.** Every number above is
+   per-file. Establish the real total yourself before drawing any conclusion.
+2. **The conftest fixture may have removed coverage, not just time.** It substitutes
+   `_keyless_lookup` and `_news_lookup` to empty lists in EVERY test, so the
+   publication-URL resolution path is now untested anywhere. Round 2 noted the
+   same thing about `_news_lookup`'s missing SSRF guard; together these mean the
+   whole resolver is now both unguarded and unexercised. Which of those matters
+   more, and what is the smallest test that would put it back?
 
 ### 5.3 The runtime-store guard — SOLVED, operationally
 
