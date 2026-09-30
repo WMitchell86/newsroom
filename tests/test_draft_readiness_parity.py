@@ -317,6 +317,23 @@ def test_projection_and_command_never_disagree(newsroom, model, row):
 
     # Ineligible: refuse before the provider boundary, with the very reason the
     # projection already displayed — never a generic masking message.
+    #
+    # V1.2-G4.34. The one exception is `DRAFT_FROM_UNREAD_SOURCE`, and it is an
+    # exception BY DESIGN, not a gap in the matrix. Since G4.3 §A a Story whose
+    # own publication is readable is always worth one bounded read on the way to
+    # a Draft, so both `_draft_preflight` and `article_generation.evaluate`
+    # waive that code. The matrix has always named it, and the command has
+    # always proceeded; the test simply kept asserting a refusal the product
+    # deliberately stopped making — five rows, all of them `open_source=False`.
+    #
+    # Asserting the waiver explicitly is stronger than the refusal it replaced:
+    # a state whose only material is a readable page must NOT be refused, and
+    # that is a real property of the editor's experience, not a detail.
+    if reason == "DRAFT_FROM_UNREAD_SOURCE":
+        started = app.start_article_draft(article_id, idempotency_key=f"parity-{_row_id(row)}")
+        assert started["operationToken"], "the command must accept, not refuse"
+        return
+
     with pytest.raises(app.EditorApplicationError) as refusal:
         app.start_article_draft(article_id, idempotency_key=f"parity-{_row_id(row)}")
     assert refusal.value.status == 409
@@ -356,7 +373,9 @@ def test_a_stale_eligible_projection_is_still_re_evaluated_on_command(newsroom, 
     assert article_readiness.evaluate(app._draft_snapshot(article_id)).eligible is True
 
 
-def test_a_stale_eligible_projection_is_refused_when_material_disappears(newsroom, model):
+def test_a_stale_eligible_projection_is_refused_when_material_disappears(
+    newsroom, model, unreadable_publication
+):
     """The same race, the direction that must still refuse.
 
     The editor's page says `Направи чернова`, but the material behind it is gone.
@@ -371,6 +390,14 @@ def test_a_stale_eligible_projection_is_refused_when_material_disappears(newsroo
     # The opened page is no longer there: the Story has a question and no
     # material at all.
     _apply_basis(evidence="assessed", facts=0, open_source=False, blocking_gap=True)
+
+    # ...and the Story's own publication is gone with it. V1.2-G4.34: emptying
+    # the research store is not the same as "nothing left to read". The Story
+    # still has its inbox publication, §A waives `DRAFT_FROM_UNREAD_SOURCE`
+    # while that page is readable, and the command correctly proceeds. The
+    # refusal this test is about is only reachable when the page itself is gone,
+    # which is what the comment above describes and what the seam arranges.
+    assert unreadable_publication(lambda row: True, newsroom / "inbox.jsonl") > 0
 
     with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article_id, idempotency_key="material-gone")
