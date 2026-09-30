@@ -94,6 +94,12 @@ IDEA_STATUS_LABELS = {
 SOURCE_TYPE_LABELS = {
     "council_transcript": "Протокол от общинския съвет",
     "upstream_press_release": "Съобщение/публикация",
+    # V1.2-G4.34. New value, introduced with the promote fix. Without an entry
+    # here it fell through the whole mapping and the editor saw a raw
+    # `opened_publication` where every other idea shows a Bulgarian phrase. This
+    # is exactly the "a consumer that only knew the old values now falls through
+    # silently" risk, and it was real.
+    "opened_publication": "Отворена публикация",
     "youtube_intake": "YouTube материал",
     "editor_supplied": "Подадена от редактора",
 }
