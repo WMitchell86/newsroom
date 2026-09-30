@@ -168,6 +168,8 @@ export interface HintSeedResult {
   opened: { title: string; url: string; itemId: string; storyId: string }[];
   openedCount: number;
   considered: number;
+  /** Opened fine, but the newsroom blocks that publisher. */
+  blocked: { url: string; title: string }[];
   unopened: { url: string; status: string; detail: string }[];
   providerChain: string[];
   searchStatus: string;

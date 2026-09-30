@@ -303,3 +303,117 @@ def test_a_story_id_is_never_an_inbox_item_id(tmp_path, monkeypatch):
     assert row["item_id"].startswith("i")
     assert row["story_id"].startswith("s")
     assert row["story_id"] != row["item_id"]
+
+
+def test_a_retry_after_a_failed_grouping_still_surfaces_the_material(tmp_path, monkeypatch):
+    """The retry must not be poisoned by the failure that came before it.
+
+    Measured: with grouping made to fail once, attempt 1 raised and left one
+    stored inbox row. Attempt 2 — with grouping healthy again — returned
+    NOTHING, because `add_items` reported the row as a duplicate and the code
+    reported only the new ones. So the editor was told "0 pages opened" while
+    their material sat in the inbox, and no later hint would ever surface it
+    again. This is the failure the rules call out: the screen stated something
+    the system had not observed, and the material was stranded.
+    """
+    from editor_assistant.workflow.workbench import newsroom as newsroom_mod
+
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+
+    def boom(**_kwargs):
+        raise RuntimeError("stories store is locked by another process")
+
+    monkeypatch.setattr(newsroom_mod, "refresh_stories", boom)
+    with pytest.raises(RuntimeError):
+        editor_hint.materialise_hint_stories(_result(), inbox_path=inbox, stories_path=stories)
+
+    monkeypatch.setattr(
+        newsroom_mod,
+        "refresh_stories",
+        lambda **_kwargs: type("Store", (), {"get": lambda s, k, d=None: {"stories": []}.get(k, d)})(),
+    )
+    again = editor_hint.materialise_hint_stories(_result(), inbox_path=inbox, stories_path=stories)
+    assert len(again) == 1, "a retry reported nothing while the material was sitting in the inbox"
+    assert again[0]["url"] == "https://cik.bg/news/2026/machines"
+
+
+def test_a_blocked_publisher_is_never_written_as_material(tmp_path, monkeypatch):
+    """A blocked page must not become an invisible inbox row.
+
+    Measured before the fix: with `example.org` blocked, the row was written,
+    `story_id` came back empty because grouping skips blocked publishers, and
+    the control said «записана като Story» with nothing to open. The row then
+    sat in the inbox forever — reported as material, visible to no one, and
+    removable by no retry. A search engine is precisely how a blocked domain
+    gets found, so this path cannot skip the check.
+    """
+    import json as json_mod
+
+    from editor_assistant.workflow import inbox_store
+
+    newsroom = tmp_path / "newsroom"
+    newsroom.mkdir()
+    monkeypatch.setenv("WB_NEWSROOM_DIR", str(newsroom))
+    # `blocked_path()` resolves from `NEWSROOM_DIR`, not `WB_NEWSROOM_DIR` like
+    # the inbox does. Without this override the first version of this test read
+    # the REAL var/newsroom/blocked_domains.json and asserted against the
+    # production blocklist while believing it had isolated one.
+    blocked_file = newsroom / "blocked.json"
+    blocked_file.write_text(json_mod.dumps(["example.org"]))
+    monkeypatch.setenv("NEWSROOM_BLOCKED_DOMAINS_PATH", str(blocked_file))
+
+    result = editor_hint.HintResult(hint="тема за проверка")
+    result.opened = [
+        {
+            "title": "Забранен",
+            "url": "https://example.org/a",
+            "bytes": 10,
+            "content_type": "text/html",
+            "text": "b",
+        }
+    ]
+    written = editor_hint.materialise_hint_stories(
+        result, inbox_path=newsroom / "inbox.jsonl", stories_path=newsroom / "stories.json"
+    )
+    assert written == [], "a blocked publisher was written as material"
+    assert inbox_store.read_items(newsroom / "inbox.jsonl") == []
+    # ...and the page is named rather than dropped, so the editor can audit it.
+    assert result.opened[0].get("blocked") is True
+
+
+def test_a_url_with_an_explicit_port_does_not_kill_the_hint(tmp_path, monkeypatch):
+    """`.hostname` strips the port; `.netloc` keeps it and `canonical_host` raises.
+
+    An earlier version passed `.netloc` to `canonical_host`, which rejects a
+    domain containing a port. Any result URL that carried one would have
+    raised out of the whole request instead of being filtered.
+    """
+    import json as json_mod
+
+    newsroom = tmp_path / "newsroom"
+    newsroom.mkdir()
+    monkeypatch.setenv("WB_NEWSROOM_DIR", str(newsroom))
+    # `blocked_path()` resolves from `NEWSROOM_DIR`, not `WB_NEWSROOM_DIR` like
+    # the inbox does. Without this override the first version of this test read
+    # the REAL var/newsroom/blocked_domains.json and asserted against the
+    # production blocklist while believing it had isolated one.
+    blocked_file = newsroom / "blocked.json"
+    blocked_file.write_text(json_mod.dumps(["example.org"]))
+    monkeypatch.setenv("NEWSROOM_BLOCKED_DOMAINS_PATH", str(blocked_file))
+
+    result = editor_hint.HintResult(hint="тема с порт")
+    result.opened = [
+        {
+            "title": "С порт",
+            "url": "https://cik.bg:443/news",
+            "bytes": 10,
+            "content_type": "text/html",
+            "text": "b",
+        }
+    ]
+    written = editor_hint.materialise_hint_stories(
+        result, inbox_path=newsroom / "inbox.jsonl", stories_path=newsroom / "stories.json"
+    )
+    # cik.bg is not blocked, so the port must not have broken anything.
+    assert len(written) == 1
+    assert written[0]["url"] == "https://cik.bg:443/news"

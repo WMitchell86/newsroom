@@ -120,13 +120,33 @@ def materialise_hint_stories(
         return []
     from datetime import datetime, timezone
 
-    from editor_assistant.workflow import inbox_store
+    from editor_assistant.workflow import blocked_domains, inbox_store
 
+    # A blocked publisher is excluded BEFORE anything is written. Writing it and
+    # letting grouping skip it leaves a row in the inbox that is never assigned
+    # to a story: invisible forever, reported to the editor as material, and
+    # unremovable by any retry. Measured with `example.org` blocked — the row
+    # was stored, `story_id` came back empty, and the control would have said
+    # «записана като Story» with nothing to open. A search engine is exactly how
+    # a blocked domain gets found, so this path needs the check.
+    blocked = {
+        blocked_domains.canonical_host(domain)
+        for domain in blocked_domains.effective_domains()
+    }
     discovered = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = []
     for page in result.opened:
         url = (page.get("url") or "").strip()
         if not url.startswith(("http://", "https://")):
+            continue
+        # `.hostname`, not `.netloc`: netloc keeps an explicit port and
+        # `canonical_host` rejects a domain containing one, so `https://x.bg:443`
+        # would have raised and killed the whole hint. Measured, not assumed.
+        host = urlsplit(url).hostname or ""
+        if blocked and host and blocked_domains.canonical_host(host) in blocked:
+            # Kept on the result so the editor is told the real reason, rather
+            # than seeing it silently absent from a list of three.
+            page["blocked"] = True
             continue
         items.append(
             {
@@ -148,10 +168,21 @@ def materialise_hint_stories(
         )
     if not items:
         return []
-    saved = inbox_store.add_items(items, inbox_path) or {}
-    # `add_items` returns {new, duplicate, items}; a page an earlier hint
-    # already collected is counted as a duplicate, never written twice.
-    written = [row for row in saved.get("items", []) if row.get("source_id") == HINT_SOURCE_ID]
+    inbox_store.add_items(items, inbox_path)
+    # `add_items` returns {new, duplicate, items}. We deliberately do NOT report
+    # only the new rows. A page found by an earlier hint is a DUPLICATE, so
+    # reporting `saved["items"]` would tell the editor "0 found" while their
+    # material sits in the inbox — and, worse, would skip grouping entirely,
+    # because the duplicate never reaches the block below. The retry is then
+    # poisoned: the row is there forever and no hint will ever surface it.
+    #
+    # Measured: with grouping made to fail once, attempt 1 crashed leaving one
+    # stored row, and attempt 2 — with grouping healthy — returned []. So the
+    # rows we care about are the ones our URLs point at, new or not.
+    our_ids = {inbox_store.item_id_for(HINT_SOURCE_ID, url, url) for _, url in
+               ((i["source_id"], i["url"]) for i in items)}
+    stored = {row["item_id"]: row for row in inbox_store.read_items(inbox_path)}
+    written = [stored[i] for i in sorted(our_ids) if i in stored]
 
     if written and stories_path is not None:
         # Assign them to Stories through the newsroom's OWN locked refresh,

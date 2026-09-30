@@ -50,6 +50,7 @@ describe("Започни от идея", () => {
       opened: [{ title: "ЦИК", url: "https://cik.bg/news/2026/machines", itemId: "i-1", storyId: "s-1" }],
       openedCount: 1,
       considered: 1,
+      blocked: [],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "SEARCH_COMPLETE",
@@ -69,6 +70,7 @@ describe("Започни от идея", () => {
       opened: [],
       openedCount: 0,
       considered: 0,
+      blocked: [],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "NO_RESULTS",
@@ -82,6 +84,26 @@ describe("Започни от идея", () => {
     // A zero is an answer about the world. It must not borrow the language of
     // a broken system, and it must not show an error banner.
     expect(screen.queryByTestId("hint-seed-error")).toBeNull();
+  });
+
+  it("names a page that opened but whose publisher is blocked", async () => {
+    const user = userEvent.setup();
+    seedStoriesFromHint.mockResolvedValue({
+      hint: "проверка на машините",
+      opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
+      openedCount: 1,
+      considered: 2,
+      blocked: [{ url: "https://flagman.bg/x", title: "Флагман" }],
+      unopened: [],
+      providerChain: ["tinyfish"],
+      searchStatus: "SEARCH_COMPLETE",
+    });
+    renderWithProviders(<HintSeedControl />);
+    await user.click(screen.getByTestId("hint-seed-open"));
+    await user.type(screen.getByLabelText(/темата/i), "проверка на машините");
+    await user.click(screen.getByTestId("hint-seed-run"));
+    // Silently dropping it would read as "found one" when two were seen.
+    expect(await screen.findByTestId("hint-seed-blocked")).toHaveTextContent("забранен");
   });
 
   it("names a page that would not open with its own category", async () => {
@@ -115,6 +137,7 @@ describe("Започни от идея", () => {
       opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
       openedCount: 1,
       considered: 1,
+      blocked: [],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "SEARCH_COMPLETE",

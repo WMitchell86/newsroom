@@ -140,7 +140,17 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
                 : " — търсенето не върна резултати."}
             </p>
           )}
-          {result.unopened.length > 0 ? (
+          {/* Defensive on purpose: this field was added after the report was
+              written, and `result.unopened.length` beside it had the same
+              assumption. A response that predates it — an older server, a
+              cached body — must not blank the whole report with a TypeError. */}
+          {(result.blocked ?? []).length > 0 ? (
+            <p data-testid="hint-seed-blocked">
+              Още {result.blocked.length} страници са от забранен за редакцията
+              издател и не са записани.
+            </p>
+          ) : null}
+          {(result.unopened ?? []).length > 0 ? (
             <ul className="styles.missingList" data-testid="hint-seed-failures">
               {result.unopened.map((item) => (
                 <li key={item.url}>
