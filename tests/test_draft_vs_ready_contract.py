@@ -446,7 +446,11 @@ def test_a_snippet_only_basis_is_refused(newsroom, model):
 
     decision = article_readiness.evaluate(app._draft_snapshot(article_id))
     assert decision.eligible is False
-    assert decision.reason_code == "NO_DRAFT_MATERIAL"
+    # V1.2-G4.22. The Story HAS a readable publication that has not been read
+    # yet, so the honest answer is an ACTION — go and read it — and not a
+    # refusal. The old expectation claimed we had looked and found nothing.
+    # See the branch in article_readiness.evaluate and its comment on that.
+    assert decision.reason_code == "DRAFT_FROM_UNREAD_SOURCE"
     assert decision.is_researchable is True
     with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article_id, idempotency_key="snippet-only")
@@ -484,7 +488,11 @@ def test_an_unresolved_aggregator_wrapper_is_refused(newsroom, model):
 
     decision = article_readiness.evaluate(app._draft_snapshot(article_id))
     assert decision.eligible is False
-    assert decision.reason_code == "NO_DRAFT_MATERIAL"
+    # V1.2-G4.22. The Story HAS a readable publication that has not been read
+    # yet, so the honest answer is an ACTION — go and read it — and not a
+    # refusal. The old expectation claimed we had looked and found nothing.
+    # See the branch in article_readiness.evaluate and its comment on that.
+    assert decision.reason_code == "DRAFT_FROM_UNREAD_SOURCE"
     assert draft_material.is_opened_publisher_source({"domain": "news.google.com"}) is False
     with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article_id, idempotency_key="wrapper-only")
@@ -517,7 +525,11 @@ def test_a_known_conflict_still_refuses_the_draft(newsroom, model):
 
     decision = article_readiness.evaluate(app._draft_snapshot(article_id))
     assert decision.eligible is False
-    assert decision.reason_code == "NO_DRAFT_MATERIAL"
+    # V1.2-G4.22. The Story HAS a readable publication that has not been read
+    # yet, so the honest answer is an ACTION — go and read it — and not a
+    # refusal. The old expectation claimed we had looked and found nothing.
+    # See the branch in article_readiness.evaluate and its comment on that.
+    assert decision.reason_code == "DRAFT_FROM_UNREAD_SOURCE"
 
 
 # --------------------------------------------------------------------------

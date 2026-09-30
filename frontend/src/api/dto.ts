@@ -569,7 +569,17 @@ export interface TodayProjection {
    * screen to something the editor can act on. `remedy` is the one command that
    * clears a wrong health mark.
    */
-  roleHealth?: RoleHealth[];
+   * V1.2-G4.22. This field was REMOVED from the projection. Role health
+   * comes from its own endpoint (`getRoleHealth`, query key ["role-health"])
+   * and TodayHeader renders from that query, not from here.
+   *
+   * It was also declared with the wrong shape even for the value that does
+   * exist: the header expects
+   *   { ok, roles, unroutableRoles, remedy } | null
+   * and this said `RoleHealth[]` — an array. The server has never sent it.
+   * A field that is never returned, carrying a type that contradicts its
+   * only real consumer, is what the next person wires up by mistake.
+   */
   /** Every Story that qualifies as current, before the cap. */
   storyAttentionTotal: number;
   /** How many of those the cap actually lets through. */
