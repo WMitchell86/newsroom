@@ -44,8 +44,15 @@ import urllib.request
 
 import pytest
 
+#: The fields `TodayProjection` actually declares, read from the live response.
+#:
+#: `roleHealth` is NOT here, and that is the point. The scan in this module's
+#: docstring found it declared-but-never-sent, and the DTO has since had it
+#: removed; this set was left holding the old value, so the contract check went
+#: on failing against a field no longer declared anywhere. A contract test whose
+#: expected side is hand-maintained drifts exactly like the code it guards.
 TODAY_DECLARED = {
-    "lastRefresh", "scope", "groupingHealth", "roleHealth", "storyAttentionTotal",
+    "lastRefresh", "scope", "groupingHealth", "storyAttentionTotal",
     "storyAttentionShown", "newDevelopments", "newStories", "articlesRequiringAction",
     "problems",
 }
