@@ -1,18 +1,25 @@
-# Code review prompt — round 5
+# Code review prompt — round 6
 
 Copy everything below into a fresh agent with the repository at `/home/test/media`.
 Give it read access to the working tree. Do **not** give it any earlier round's
 report; tell it only what is true of the code now.
 
-Four rounds have run, and round 4 is the one that changed the shape of the job.
-Rounds 1-2 found real defects. Round 3 verified and corrected. Round 4 stopped
-finding defects and started finding the **cost of my fixes** — and every one of
-its four findings was correct, including one where I had written a test pinning a
-bug as intended behaviour.
+Five rounds have run. Rounds 1-2 found defects. Round 3 verified and corrected
+one of mine. Round 4 found the **cost of my fixes** — all four of its findings
+correct, including one where I had pinned a bug as intended behaviour. Round 5
+answered the five things I left undecided, and **corrected my framing on all of
+them**: the one-line guard is the wrong unit, the full `fetch_page` route is the
+wrong shape, and the allow-list I was hesitating over is a bad idea.
 
-**Everything below is fixed and measured.** Round 5's question is the same one
-round 4 answered well: what has this work cost, and what have I stopped seeing
-because I am close to it?
+**Everything below is fixed, measured, or explicitly decided.** Round 6's question
+is the same one rounds 4 and 5 answered well: what has this work cost, and what
+have I stopped seeing because I am close to it?
+
+A pattern worth naming, because it is the one thing five rounds have consistently
+produced: **almost every finding has been something I had already written down as
+"handled", "by design", or "the operator's decision".** Every one of those was
+wrong or unexamined. Treat any such sentence in this file as a lead, not a
+conclusion.
 
 One standing note before you start: three of the four things round 4 found were
 things I had already written down as "handled" or "by design". Round 4's own
@@ -51,53 +58,54 @@ is a stronger claim). Both files are clean for the first time this session.
 that a refusal test was paying for. No production timeout was shortened. The
 coverage that fix removed is restored in `a952d69`.
 
-### The question round 5 is actually for
+### The question round 6 is actually for
 
 Not "what is broken" — **what has this work cost, and what have I stopped seeing
 because I am close to it?** Round 4 answered that question well and all four of
 its findings were correct. The places below are where I have already been
 wrong, so they are where I am most likely to be wrong again.
 
-**Fixed since round 4 (`1e651d1`, `b4532aa`, `6e1fd3f`):**
+**Fixed since round 5 (`7d749ac`) — the `transcript` substring.** Both call sites
+used `"transcript" in url.lower()`, so `https://example.bg/transcriptome-study`
+made a biology article look like a council transcript. `source_type` is now
+matched by equality and `source_url` by whole word tokens. The promote bridge
+was the higher-stakes of the two: it set `source_type`, which `_transcript_trust`
+reads to grant AUTO_CAPTION trust, so the mislabel ELEVATED trust rather than
+merely adding a review gate. The transliteration gap (`obshtinski-svet`) is
+recorded as unchanged, not closed.
 
-- **Three more unlabelled `source_type` values**, found by scanning the operator's
-  own `ideas.jsonl` rather than by reading code: `story_research_basis`,
-  `municipality_press`, `organizer_and_ticket_platform`, plus a fourth producer
-  `chernomorie_archive`. All four were rendering raw in «Статии». Now labelled,
-  with `test_source_type_labels.py` walking every producer in `src/` and asserting
-  coverage — a COVERAGE check, not a legality check, because the legal set is an
-  operator's decision.
-- **The merge now refilters.** `publication_urls` filters its union with
-  `is_readable_publication`. I had written a test pinning the opposite as "by
-  design" in `a952d69`; that pin was wrong and it is now flipped, with the
-  reasoning recorded.
-- **`_news_lookup` is bounded**: capped read, DTD refused, explicit
-  `urllib.parse` import, and six direct tests for a function that had none.
+**Verified by round 5, not re-reportable:** the label table (9 keys, producer scan
+clean), the merge refilter, and the `_news_lookup` bounds.
 
-**Open, and genuinely undecided:**
+**Open, and genuinely undecided — all five of round 5's items, with its verdicts:**
 
-1. **`_news_lookup` still has no `web_fetch` guard.** It is a raw `urlopen` to a
-   constant host, bypassing the DNS-rebinding pin every other outbound edge has.
-   I bounded the read and refused entity expansion; I did **not** add the guard,
-   because routing this through `web_fetch` is a larger change to a function the
-   Draft path depends on and deserves its own review. Round 4 agreed the constant
-   host makes the SSRF exposure narrow. Is it still worth doing, and is the
-   one-line-guard version adequate, or does it need the full `web_fetch` route?
-2. **`needs_angle_review` matches `"transcript"` anywhere in a URL.** Measured:
-   `https://example.bg/transcriptome-study` fires it. Fail-closed, so harmless in
-   effect, but a biology article should not need a council gate. Round 4 called
-   this a pre-existing pattern that my `workbench://` change gives one more
-   producer. Worth tightening, or is substring matching deliberate?
-3. **A `source_type` allow-list in `ideas.validate_idea`.** Round 4 and I both
-   reached this and both stopped: it needs a decision about which types are legal,
-   and that is not ours to take unilaterally. It is the strict version of what
-   `test_source_type_labels.py` now does loosely. What would you propose, and is
-   the strict version worth the coupling?
-4. **The `SOURCE:` line reaches the model prompt verbatim** (`drafting/prompt.py:176`),
-   and it can now be `workbench://story/<id>`. Whether the model cites it back is
-   **unverified** — round 4 said so and I have not run it. Worth running?
-5. **`Source: workbench://` was never checked end to end.** Four reviews in, the
-   editor-facing rendering is verified and the prompt line is not.
+1. **`_news_lookup` still has no `web_fetch` guard**, and round 5 showed BOTH
+   options I offered are wrong. A bare `guard_target(url)` is the wrong unit: its
+   own docstring says discarding the address and letting urllib resolve again IS
+   the DNS-rebinding hole. And routing through `fetch_page` as-is would break the
+   function rather than harden it, because `ALLOWED_CONTENT_TYPES` is
+   `('text/html', 'application/xhtml+xml', 'text/plain')` and an RSS feed is
+   `application/rss+xml` — it would raise `FETCH_UNSUPPORTED_CONTENT` every time.
+   The residual is DNS-rebinding on the redirect chain plus TOCTOU, on the Draft
+   path, not SSRF-via-host: the host is constant and the query is quoted.
+   Round 5's candidate shapes: a pinned raw-bytes helper (guard + pin + capped
+   read, ~10 lines), or `fetch_page` gaining an explicit `allowed_content_types`
+   for this one caller. It warns explicitly against extending the GLOBAL
+   allow-list for RSS, which would weaken every research fetch. **This is the
+   single most substantive open item and I have not started it.**
+2. **`Source: workbench://story/<id>` reaches the model prompt verbatim**
+   (`drafting/prompt.py:176`). Editor-facing rendering is verified across four
+   reviews; whether the model cites it back is **unverified** — round 4 said so,
+   round 5 recommended a cheap offline run, and I still have not run it.
+3. **That `workbench://` path has never been checked end to end.** Five reviews
+   in. Rendering, label, angle gate, transcript trust and the safety guard are
+   all individually verified; the whole path in one run is not.
+4. **The transliteration gap in transcript matching** is recorded, not closed. A
+   slug like `obshtinski-svet` matches nothing — as it did before. Worth closing
+   deliberately, or is substring matching on transliterated Bulgarian out of scope?
+5. **`needs_angle_review` now matches `{съвет, общински}` as whole tokens in a
+   URL.** Round 5 asked for this and I implemented it, but the cue list is mine
+   and unexamined: is it right, too broad, or missing shapes?
 
 ## 1. What this is
 
@@ -196,85 +204,38 @@ code" to "delete a reachable defect". **Measure before you classify.**
 
 ---
 
-## 5. Open items
+## 5. Product decisions that are not mine to take
 
-### 5.1 and 5.2 — CLOSED, verified
+These are real and unaddressed. None is a bug, and none has been silently dropped.
 
-Both are recorded in §0 with their commits. The stored-damage question below is
-the only part of 5.1 that is not code, and it needs a person.
-
-**Stored damage, operator decision.** Measured twice, most recently by round 3:
-`var/editorial_workflow/live_evidence.jsonl` has 3 rows with a news.google.com
-wrapper `source_url` (1 fact each), and `ideas.jsonl` has 61 rows with no
-`workbench://` and only pre-fix `source_type` values. Zero hits in `cases.jsonl`
-and `live_drafts.jsonl`, so nothing ever consumed them. Per rule 9: annotate,
-quarantine, or leave — and say what you decided and why.
-
-### 5.2a The slowness — RESOLVED, but the coverage question is open
-
-Round 2 refuted my hypothesis with a sever experiment and was right twice. Both
-slowdowns are fixed, by substituting the transport rather than shortening any
-product number:
-
-- `test_draft_readiness_parity.py`: **391.54s → 0.32s** (`593039a`). The cause
-  was the publication-URL resolver cascade — a live `DDGSProvider().search` plus a
-  raw `news.google.com` `urlopen`, twice per snapshot, neither covered by the
-  hermetic DNS shim because both bypass `web_fetch`.
-- `test_manual_continuation.py`: **88.94s → 0.96s** (`11fe96c`). A second, separate
-  cause: that file fails the draft role on purpose, so the router's retry backoff
-  `sleep(min(2**attempt, 5))` at `model_router.py:910` ran for real. Caught with
-  faulthandler — a `story-research-` daemon thread sitting on exactly that line.
-
-Two things I want checked rather than believed:
-
-1. **I have not run a complete suite since either fix.** Every number above is
-   per-file. Establish the real total yourself before drawing any conclusion.
-2. **The conftest fixture may have removed coverage, not just time.** It substitutes
-   `_keyless_lookup` and `_news_lookup` to empty lists in EVERY test, so the
-   publication-URL resolution path is now untested anywhere. Round 2 noted the
-   same thing about `_news_lookup`'s missing SSRF guard; together these mean the
-   whole resolver is now both unguarded and unexercised. Which of those matters
-   more, and what is the smallest test that would put it back?
-
-### 5.3 The runtime-store guard — SOLVED, operationally
-
-Round 1 identified the writer: **the host's own newsroom cron** (`crontab -l`:
-`17 */2 * * * /home/test/media/scripts/newsroom_cron.sh newsroom refresh`), declared
-verbatim in `cli.py:1564-1569`. A full suite spanning an even-hour `:17` catches the
-atomic write of `story_identity.update`. It did not reproduce on a later run only
-because that run started at a different offset.
-
-**This is a cron collision, not a test defect.** Do not "fix" it by relaxing
-`assert_runtime_stores_untouched` (`tests/browser/conftest.py:64`) — that guard is
-correct and is the point of rule 9. If you want a robust gate, make it
-schedule-aware or document the timing constraint. Worth checking whether the cron
-script and the test invocation should coordinate at all; right now they can fight,
-and only by luck of timing.
-
-### 5.4 Everything else, still open
-
-- **Telegram not implemented.** Legacy code is bound to a SQLite/state pipeline the
-  newsroom no longer uses. Two decisions unmade: new Stories only, or new Stories
-  plus tracked developments; bot/channel configuration unconfirmed.
-- **Official sources are mislabelled.** Many `official` entries are Google News
-  *searches*, not direct feeds. CIK is not registered as a real source. A wrong
-  `site:` domain is worse than none, which is why this was left conservative.
+- **Telegram is not implemented.** Legacy Telegram/outbox code is bound to a
+  SQLite/state pipeline the newsroom no longer uses. A Story-level bridge is
+  needed. Two decisions are still unmade: new Stories only, or new Stories plus
+  tracked developments; and bot/channel configuration is unconfirmed.
+- **Official sources are mislabelled.** Many entries marked `official` are Google
+  News *searches*, not direct feeds. CIK is not registered as a real source. A
+  wrong `site:` domain is worse than none, which is why this was left conservative
+  and needs corpus verification.
 - **No verified gazetteer of villages** for regional coverage.
 - **UI Bulgarian strings** (`html.py`, `labels.py`) have not had the corpus-backed
-  review the sources and search terms received.
-- **The G4.28 prose verdict is advisory-only.** Round 1 established the two call
-  sites are the same deterministic call on the same bytes, so no disagreement is
-  possible — but neither reads `page["prose"]`. Round 3 added that after `6380aa9`
-  the `blocks` argument is load-bearing rather than decorative. Is the verdict
-  itself earning its keep, or should both consumers consume it?
-- **Nothing asserts `SOURCE_TYPE_LABELS` is complete.** `d909a37` fixed the one
-  known hole; the gap that let it through is still open. A table-driven
-  completeness test is the fix, and the legal-value decision is an operator's.
-- **`_news_lookup` has no SSRF guard** and bypasses `web_fetch`, unlike every other
-  outbound edge. Round 3 judged the constant host to make the exposure narrow but
-  rated the missing guard the larger defect. Unresolved by choice, not oversight.
-
----
+  review the sources and search terms received. This is the largest unreviewed
+  surface in the project.
+- **The G4.28 prose verdict is advisory-only.** Round 3 established the two call
+  sites are the same deterministic call on the same bytes, and that after
+  `6380aa9` the `blocks` argument is load-bearing rather than decorative. But
+  neither site reads `page["prose"]`. Is the verdict earning its keep, or should
+  both consume it?
+- **Stored damage, operator decision.** Measured twice: 3 rows in
+  `live_evidence.jsonl` carry a news.google.com wrapper `source_url` (1 fact
+  each), and `ideas.jsonl` holds 61 rows with pre-fix `source_type` values. Zero
+  hits in `cases.jsonl` / `live_drafts.jsonl`, so nothing consumed them. Per rule
+  9: annotate, quarantine, or leave — and say what you decided and why. I have
+  deliberately done nothing to `var/`.
+- **The store guard stays as-is** (`tests/browser/conftest.py`), per round 3. The
+  collision is real: `crontab -l` has `:17 */2 refresh` plus `:41 validate`,
+  `:13`/`:43 repair, `:47 doctor` — four writers through the same script. Making
+  the guard schedule-aware couples the suite to host cron and still races.
+  Document the constraint: do not start full runs across an even-hour `:17`.
 
 ## 6. Test-suite facts that will mislead you
 
