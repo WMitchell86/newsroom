@@ -71,6 +71,28 @@ class HintResult:
         return bool(self.opened)
 
 
+#: `inbox_store.validate_item` caps `summary` at 2000 characters and caps
+#: nothing else. A page title is attacker-controlled the moment the hint path
+#: can fetch any URL a search engine returns: measured, a 9,009-character title
+#: was stored whole and became a Story title, which then feeds the list UI and
+#: the Draft prompt. A headline is short; anything past this is a page
+#: padding its title to win attention, and it is truncated rather than trusted.
+TITLE_MAX_CHARS = 300
+
+
+def _clean_title(raw: str, fallback: str) -> str:
+    """A page's own title, bounded, falling back to the editor's hint.
+
+    The fallback matters: a page with no title still yields a Story, and the
+    editor's own words are a truthful label for it in a way that an empty
+    string is not.
+    """
+    text = " ".join(str(raw or "").split())
+    if not text:
+        text = " ".join(str(fallback or "").split())
+    return text[:TITLE_MAX_CHARS]
+
+
 def materialise_hint_stories(
     result: HintResult,
     *,
@@ -161,7 +183,7 @@ def materialise_hint_stories(
             {
                 "source_id": HINT_SOURCE_ID,
                 "source_item_id": url,
-                "title": (page.get("title") or "").strip() or result.hint,
+                "title": _clean_title(page.get("title"), result.hint),
                 "url": url,
                 "published_at": "",
                 "event_at": "",

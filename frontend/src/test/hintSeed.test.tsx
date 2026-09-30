@@ -86,6 +86,35 @@ describe("Започни от идея", () => {
     expect(screen.queryByTestId("hint-seed-error")).toBeNull();
   });
 
+  it("does not claim nothing opened when the pages opened and were excluded", async () => {
+    // The bug: `openedCount` is how many were WRITTEN. A hint that finds only
+    // our own article writes nothing, and the report then said "не се отвори
+    // нито една страница" about a page that opened fine and was excluded on
+    // purpose — a false statement about our own work, with the list naming
+    // that same page directly beneath it.
+    const user = userEvent.setup();
+    seedStoriesFromHint.mockResolvedValue({
+      hint: "статии на chernomorie-bg.com",
+      opened: [],
+      openedCount: 0,
+      considered: 2,
+      skipped: [
+        { url: "https://chernomorie-bg.com/a", title: "Наша статия", reason: "circular" },
+        { url: "https://chernomorie-bg.com/b", title: "Наша друга", reason: "circular" },
+      ],
+      unopened: [],
+      providerChain: ["tinyfish"],
+      searchStatus: "SEARCH_COMPLETE",
+    });
+    renderWithProviders(<HintSeedControl />);
+    await user.click(screen.getByTestId("hint-seed-open"));
+    await user.type(screen.getByLabelText(/темата/i), "статии на нашия сайт");
+    await user.click(screen.getByTestId("hint-seed-run"));
+
+    expect(await screen.findByTestId("hint-seed-excluded")).toHaveTextContent("Отворени са 2");
+    expect(screen.queryByText(/Не се отвори нито една/)).toBeNull();
+  });
+
   it("names a page that is our own published article, not just blocked ones", async () => {
     const user = userEvent.setup();
     seedStoriesFromHint.mockResolvedValue({

@@ -131,7 +131,20 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
                 ))}
               </ul>
             </>
-          ) : (
+          ) : null}
+          {/* Three outcomes, never collapsed into one sentence. `openedCount` is
+              how many were WRITTEN, and when it is 0 the pages may still have
+              opened and been dropped on purpose. Saying "not a single page was
+              opened" about a page that opened, and that we excluded because it
+              is our own article, is a false statement about our own work — and
+              the list directly beneath it would contradict it. */}
+          {result.openedCount === 0 && (result.skipped ?? []).length > 0 ? (
+            <p data-testid="hint-seed-excluded">
+              Отворени са {result.skipped.length} страници, но нито една не е
+              записана като материал.
+            </p>
+          ) : null}
+          {result.openedCount === 0 && (result.skipped ?? []).length === 0 ? (
             // Said plainly, and not dressed up as a broken system.
             <p>
               Не се отвори нито една страница по тази подсказка
@@ -139,7 +152,7 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
                 ? ` — ${result.considered} бяха намерени, но не се отвориха.`
                 : " — търсенето не върна резултати."}
             </p>
-          )}
+          ) : null}
           {/* Defensive on purpose: these fields were added after the report was
               written, and the unguarded `.length` beside them had the same
               shape. A response that predates one must not blank the whole

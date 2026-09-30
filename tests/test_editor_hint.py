@@ -414,3 +414,38 @@ def test_our_own_published_article_is_never_material(tmp_path, monkeypatch):
     assert inbox_store.read_items(inbox) == []
     # Named, with the reason the editor would need to act on.
     assert result.opened[0].get("skipped") == "circular"
+
+
+def test_a_page_title_cannot_arrive_unbounded(tmp_path, monkeypatch):
+    """A page title is attacker-controlled the moment any URL can be fetched.
+
+    Measured before the fix: a 9,009-character title was stored whole and
+    became a Story title, which then feeds the Stories list and the Draft
+    prompt. `inbox_store.validate_item` caps `summary` at 2000 and caps
+    nothing else, so nothing downstream would have caught it. The hint path is
+    where this is reachable, because it fetches whatever a search returns.
+    """
+    from editor_assistant.workflow import inbox_store
+
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+    hostile = "ЗАГЛАВИЕ " + ("х" * 9000)
+    result = editor_hint.HintResult(hint="тема")
+    result.opened = [
+        {"title": hostile, "url": "https://hostile.example/a", "bytes": 9, "content_type": "text/html"}
+    ]
+    editor_hint.materialise_hint_stories(result, inbox_path=inbox, stories_path=stories)
+
+    stored = inbox_store.read_items(inbox)[0]["title"]
+    assert len(stored) <= editor_hint.TITLE_MAX_CHARS
+    assert stored.startswith("ЗАГЛАВИЕ")
+
+
+def test_a_page_with_no_title_falls_back_to_the_editors_own_words(tmp_path, monkeypatch):
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+    result = editor_hint.HintResult(hint="срок за кандидатурите")
+    result.opened = [{"title": "   ", "url": "https://hostile.example/b", "bytes": 9, "content_type": "text/html"}]
+    saved = editor_hint.materialise_hint_stories(result, inbox_path=inbox, stories_path=stories)
+    from editor_assistant.workflow import inbox_store
+
+    assert inbox_store.read_items(inbox)[0]["title"] == "срок за кандидатурите"
+    assert saved and saved[0]["story_id"]
