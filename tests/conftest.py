@@ -275,3 +275,80 @@ def unreadable_publication():
         return changed
 
     return _apply
+
+
+# ----------------------------------------------------------------------
+# Containing the browser suite's session-scoped boundary substitutes.
+#
+# V1.2-G4.32. `tests/browser/conftest.py::boundary_substitutes` is
+# `scope="session"` and replaces the three outbound edges IN PLACE on the
+# imported modules: `search.provider_chain`, `web_fetch.fetch_page`,
+# `fetcher.fetch_bytes`, `newsroom_run._now` and the two drafting transports.
+# It is a session fixture because the server it feeds is one, and a fresh
+# server per test would be a different suite.
+#
+# The cost is that those patches outlive the server. Session fixtures tear
+# down at the end of the SESSION, not at the end of the browser suite, and
+# pytest collects `tests/browser/` BEFORE `tests/test_*.py`, so the real
+# modules stayed substituted for every non-browser test that ran after it.
+#
+# Measured, both directions, on unmodified code:
+#
+#   tests/test_search_foundation.py alone                 30 passed
+#   tests/test_search_foundation.py, then browser/        40 passed
+#   tests/browser/, then tests/test_search_foundation.py   5 failed, 35 passed
+#
+# The failures were not about search. `provider_chain` returned a provider
+# named "d2a_deterministic", so tests asserting the real chain's first rung
+# failed with a message that named the substitute, and the browser fixture
+# data leaked into files that never asked for it. A 53-failure full-suite run
+# was mostly this one ordering effect.
+#
+# Restoring per test is wrong: the server needs the patch for its lifetime.
+# What is restored is the boundary BETWEEN the two suites, so each non-browser
+# test observes the real modules regardless of collection order.
+
+_REAL_BOUNDARY_ATTRS = (
+    ("editor_assistant.sources.web_fetch", "fetch_page"),
+    ("editor_assistant.sources.fetcher", "fetch_bytes"),
+    ("editor_assistant.workflow.search", "provider_chain"),
+    ("editor_assistant.workflow.newsroom_run", "_now"),
+    ("editor_assistant.drafting.generate", "_call_gemini"),
+    ("editor_assistant.drafting.generate", "_call_openrouter"),
+)
+
+
+def _capture_pristine_boundary() -> dict:
+    """The real boundary callables, captured before any browser fixture runs.
+
+    Captured HERE, at conftest import, and not lazily on first use. The lazy
+    version was wrong and was measured to be wrong: this fixture's first
+    non-browser test runs AFTER the browser suite has already substituted
+    these attributes, so a lazy capture records the substitutes as "pristine"
+    and restores the leak it was written to remove. `tests/conftest.py` is
+    imported before any `tests/browser/` fixture executes, which is the only
+    moment at which the real values are observable.
+    """
+    import importlib
+
+    return {
+        (module_name, attr): getattr(importlib.import_module(module_name), attr)
+        for module_name, attr in _REAL_BOUNDARY_ATTRS
+    }
+
+
+_PRISTINE_BOUNDARY: dict = _capture_pristine_boundary()
+
+
+@pytest.fixture(autouse=True)
+def real_boundaries_outside_browser(request):
+    """Non-browser tests get the real boundary, whatever ran before them."""
+    if "browser" in request.node.path.parts:
+        yield
+        return
+    import importlib
+
+    modules = {name: importlib.import_module(name) for name, _ in _REAL_BOUNDARY_ATTRS}
+    for (module_name, attr), original in _PRISTINE_BOUNDARY.items():
+        setattr(modules[module_name], attr, original)
+    yield
