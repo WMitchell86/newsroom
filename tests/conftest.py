@@ -48,6 +48,23 @@ from editor_assistant.sources import web_fetch
 #: publication. Fixing that belongs in that test - substitute the publication
 #: read, as `_no_automatic_draft_enrichment` already does for enrichment - and
 #: NOT here, where the address is a security-relevant input.
+#:
+#: V1.2-G4.34 — the 961 s number above was attributed to the WRONG fetch, and the
+#: note was itself part of the problem because it told the next reader where NOT
+#: to look. Measured by severing the two seams: with `_keyless_lookup` and
+#: `_news_lookup` replaced, the whole file runs in **0.30 s instead of 391 s**, same
+#: 5 failures. The read of the Story's own publication was never the cost; it fails
+#: fast through the resolver below. The cost is the RESOLVER CASCADE — a live
+#: `DDGSProvider().search` plus a raw `urlopen` of news.google.com, run twice per
+#: snapshot, at 12-20 s each.
+#:
+#: Both bypass `web_fetch`, so both also bypass the hermetic resolver: the shim
+#: patches `web_fetch._REAL_GETADDRINFO`, not `socket` globally. That is why this
+#: suite reaches the real internet while every other one does not.
+#:
+#: The real defect is still in `publication_material` — `_news_lookup` has no SSRF
+#: guard and no test seam — and it is NOT fixed here. This fixture only stops the
+#: harness from making live calls it did not intend to make.
 TEST_PUBLIC_IP = "93.184.216.34"
 
 #: Test-only hostnames that must resolve to a public address. Suffixes cover the
@@ -352,3 +369,35 @@ def real_boundaries_outside_browser(request):
     for (module_name, attr), original in _PRISTINE_BOUNDARY.items():
         setattr(modules[module_name], attr, original)
     yield
+
+
+@pytest.fixture(autouse=True)
+def no_live_publication_url_resolution(monkeypatch):
+    """Keep the publication-URL resolver cascade out of every test.
+
+    V1.2-G4.34. `_draft_snapshot` resolves candidate publication URLs twice, and
+    each resolution went to the real internet: `_keyless_lookup` runs a live
+    `DDGSProvider().search`, and `_news_lookup` opens `news.google.com` with a raw
+    `urllib.request.urlopen` that bypasses `web_fetch` entirely. Neither is covered
+    by the hermetic resolver, which patches `web_fetch._REAL_GETADDRINFO` and so
+    does not apply to either call.
+
+    Measured: the parity file took 391.54s unmodified and **0.30s** with these two
+    seams severed, with the same 5 failures either way. The suite was spending
+    thirteen minutes making network calls it was not testing.
+
+    This is the same shape as `_no_automatic_draft_enrichment` above: substitute
+    the transport, keep the product code path real. Nothing about the seam the
+    tests actually exercise is removed — a test that wants the resolver to find
+    something overrides these.
+
+    The product defect this exposed is NOT fixed here: `_news_lookup` performs a
+    real fetch with no SSRF guard and no seam, while every other outbound edge in
+    this codebase goes through `web_fetch`. That belongs in
+    `publication_material`, and it is recorded in the review prompt rather than
+    silently patched in a conftest.
+    """
+    from editor_assistant.workflow import publication_material
+
+    monkeypatch.setattr(publication_material, "_keyless_lookup", lambda *a, **k: [])
+    monkeypatch.setattr(publication_material, "_news_lookup", lambda *a, **k: [])

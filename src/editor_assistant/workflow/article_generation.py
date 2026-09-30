@@ -392,6 +392,24 @@ def build_packet(snapshot: dict, evidence_id: str) -> dict:
             )
             made["source_refs"] = [research_mod.make_fact_ref(source_id, locator)]
             facts.append(made)
+    if not facts and not opened:
+        # V1.2-G4.34. Neither a promoted fact nor an opened page. Falling through
+        # built a packet with `source_url = ""` and `facts = []`, so
+        # `validate_packet` raised a RAW `EvidenceError("evidence_id and
+        # source_url required")` -- not a `DraftRefused` -- and that exception
+        # escaped `generate()` verbatim into `_run_draft_generation`'s catch-all,
+        # which recorded `reason_code = PROVIDER_UNAVAILABLE`. So a Story with
+        # nothing to read told the editor the PROVIDER was down, and the
+        # projection then offered EDIT, "write it yourself". Rule 6: the system
+        # reported a cause it had not observed.
+        #
+        # It is reachable because readiness WAIVES `DRAFT_FROM_UNREAD_SOURCE` on
+        # purpose (V1.2-G4.3 §A: a readable publication is worth one bounded
+        # read). The waiver is right; what was missing is this branch, for the
+        # case where that one read yields nothing.
+        raise DraftRefused(
+            "NO_DRAFT_MATERIAL", "Няма достатъчно изходен материал за чернова."
+        )
     packet = {
         "evidence_id": evidence_id,
         "source_url": source_url,
