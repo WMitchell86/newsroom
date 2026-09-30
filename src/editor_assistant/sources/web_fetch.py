@@ -22,6 +22,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from editor_assistant.sources import html_desc
+
 MAX_BYTES = 1_000_000  # bounded response size (audit A3)
 DEFAULT_TIMEOUT = 20
 USER_AGENT = (
@@ -238,4 +240,12 @@ def _fetch_with(request, url, *, timeout, max_bytes, opener):
         "content_type": content_type,
         "bytes": len(body),
         "text": text,
+        # V1.2-G4.28. What the page actually yielded as an ARTICLE, measured
+        # once here and carried on the record. Without it a social wrapper, a
+        # results table and a broken extractor all arrived as a successful
+        # fetch with an almost-empty body, and no caller could tell them
+        # apart. Extraction lives in `html_desc`; the fetch layer only reports
+        # what the page turned out to be, because every consumer of this record
+        # needs that and none of them should re-derive it.
+        "prose": html_desc.article_prose(html_desc.normalize_blocks(text)),
     }

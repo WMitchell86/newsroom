@@ -290,3 +290,62 @@ def normalize_blocks(raw: str | None) -> tuple[dict, ...]:
     parser.close()
     parser._flush()
     return tuple(parser.blocks)
+
+
+# ---------------------------------------------------------------------------
+# V1.2-G4.28 — is this page an ARTICLE, and how much of one?
+#
+# Measured on 32 real URLs from the newsroom's own corpus. Fetching succeeds on
+# essentially all of them, and extraction yields usable article prose on 27:
+#
+#     burgas.bg / cik.bg / bnr.bg / bta.bg / dariknews.bg / vesti.bg
+#     flagman.bg / gramofona.com / burgascouncil.org / bdz.bg / baem.bg ...
+#     -> 1,013 to 11,625 characters of real prose
+#
+#     facebook.com/chernomoriebg.news   978,016 bytes ->  31 characters
+#     facebook.com/capitalbg/posts      862,836 bytes ->  49 characters
+#     results.cik.bg/.../index.html        1,449 bytes ->   0 characters
+#
+# None of the three is an article, and that is not a bug in the extraction —
+# but it left the caller unable to tell "this page has no article" from "the
+# extractor failed". Both arrived as a successful fetch carrying almost
+# nothing, and the only way to notice was to measure the body afterwards and
+# infer.
+#
+# So the measurement is made where the extraction happens and travels on the
+# page record, rather than being re-derived by each caller. `fetch_page` calls
+# this once; research, enrichment and the hint path read the verdict instead of
+# re-deriving it.
+ARTICLE = "article"
+THIN = "thin"
+NONE = "none"
+
+#: Below this a page is a wrapper, a login wall or an error page rather than a
+#: short article. Set from the measurement above, not chosen to look tidy: the
+#: genuine failures sat at 31 and 49 characters, two orders of magnitude under
+#: the smallest real article in the sample.
+THRESHOLD_ARTICLE_CHARS = 200
+
+
+def article_prose(blocks) -> dict:
+    """The PROSE blocks of a page, and a verdict on whether it is an article.
+
+    `blocks` is what `normalize_blocks` returns. The three-way verdict exists
+    because "no article here" and "the extraction broke" look identical from
+    the outside, and a caller that cannot tell them will either trust an empty
+    page or retry something that will never work.
+    """
+    prose = " ".join(
+        str(block.get("text") or "").strip()
+        for block in (blocks or ())
+        if str(block.get("kind") or "") == PROSE and str(block.get("text") or "").strip()
+    )
+    prose = " ".join(prose.split())
+    chars = len(prose)
+    if chars >= THRESHOLD_ARTICLE_CHARS:
+        verdict = ARTICLE
+    elif chars:
+        verdict = THIN
+    else:
+        verdict = NONE
+    return {"text": prose, "chars": chars, "verdict": verdict}
