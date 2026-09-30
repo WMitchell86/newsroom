@@ -370,7 +370,7 @@ def test_a_fact_without_an_opened_source_never_records_a_failure_marker(
         snapshot["sources"] = []
         return snapshot
 
-monkeypatch.setattr(app, "_draft_snapshot", without_open_source)
+    monkeypatch.setattr(app, "_draft_snapshot", without_open_source)
     try:
         assert (
             article_readiness.evaluate(without_open_source(article_id)).reason_code
