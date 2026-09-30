@@ -136,6 +136,79 @@ _DECISION_CUES = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Naming the right SOURCE, not the right WORDS.
+#
+# Measured before this existed. For the title «Общински съвет прие бюджета на
+# Община Бургас за 2027 година» the pipeline planned:
+#
+#   1. Общински съвет прие бюджета на Община Бургас за 2027 година Бургас
+#   2. Общински съвет прие бюджета ... Какво точно се променя. От кога влиза
+#      решението в сила.
+#
+# The editorial questions are pasted in as keyword soup — a search engine is
+# handed «Какво точно се променя», which matches nothing, while the words that
+# would actually reach the authority are never named. For a municipal decision
+# the source that settles it is the municipality's own site; that domain is in
+# the registry, 32 of 35 entries having a usable one, and nothing looked there.
+#
+# So: if the Story names a REGISTERED source, say so with a `site:` query. The
+# registry is the whole point — it is the editor's own list, and a domain is
+# used only when the editor has already put that publisher in it. Nothing is
+# guessed from the title.
+_OFFICIAL_QUERY_SLOTS = 1
+
+
+def _registered_official_domain(title: str) -> str | None:
+    """The domain of a registered source this Story names, if any.
+
+    Matching is on the registry's own name, longest first, so «Община Бургас»
+    wins over a shorter entry that also appears in the title. A bare `kind`
+    check is not enough: the registry distinguishes official from media, and
+    only the former is the authority a reader would go to for the decision
+    itself.
+    """
+    if not title:
+        return None
+    from editor_assistant.workflow import sources_registry
+
+    try:
+        rows = sources_registry.describe_all()
+    except Exception:  # noqa: BLE001 - a missing registry is not a reason to refuse
+        return None
+    haystack = title.casefold()
+    best: tuple[int, str] | None = None
+    for row in rows:
+        if (row.get("kind") or "") != "official":
+            continue
+        domain = (row.get("domain") or "").strip()
+        name = (row.get("name") or "").strip()
+        if not domain or not name:
+            continue
+        # Match on the HEAD of the registered name. Entries carry qualifiers
+        # the Story will not have — «Летище Бургас / Fraport», «БТА — област
+        # Бургас» — so requiring the full string missed a registered official
+        # source for «Летище Бургас откри нов терминал».
+        #
+        # Deliberately NOT a loose token match. «Бургас» appears in a dozen
+        # entries, and `site:` EXCLUDES everything else: matching it would aim
+        # the query at burgas-os.justice.bg for a budget story and lock out the
+        # municipality. Precision matters more than recall here, because a wrong
+        # domain is worse than no domain.
+        needle = name.casefold().split("—")[0].split("/")[0].strip()
+        if len(needle) >= 6 and needle in haystack and (best is None or len(needle) > best[0]):
+            best = (len(needle), domain)
+    return best[1] if best else None
+
+
+def official_source_query(title: str) -> str | None:
+    """A `site:` query aimed at the publisher that can settle the Story."""
+    domain = _registered_official_domain(title)
+    if not domain:
+        return None
+    return f"site:{domain}"
+
+
 def plan_questions(title: str, *, limit: int = 3) -> tuple[str, ...]:
     """The SMALL number of useful editorial questions for this Story (A4).
 

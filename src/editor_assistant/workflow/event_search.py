@@ -218,6 +218,46 @@ def event_anchors(topic: str) -> dict:
     }
 
 
+def _registered_official_domain(title: str) -> str | None:
+    """The domain of a registered OFFICIAL source this Story names, if any.
+
+    Deliberately conservative, because `site:` excludes everything else: a
+    wrong domain is worse than no domain, because it locks the authority out.
+
+    * Only entries the editor registered as `official`. A media source is
+      coverage, not the authority a reader would go to for the decision.
+    * Matched on the HEAD of the registered name. Entries carry qualifiers the
+      Story will not have — «Летище Бургас / Fraport», «БТА — област Бургас»
+      — and requiring the full string missed a registered official source.
+    * A loose token match is NOT used. «Бургас» appears in a dozen entries and
+      would aim a budget story at burgas-os.justice.bg. The full head
+      required for a match keeps «Окръжен съд Бургас» precise.
+    * A missing or unreadable registry is not a reason to fail the round; it
+      simply contributes nothing.
+    """
+    text = (title or "").casefold()
+    if not text:
+        return None
+    try:
+        from editor_assistant.workflow import sources_registry
+
+        rows = sources_registry.describe_all()
+    except Exception:  # noqa: BLE001 - the registry is configuration, not a dependency
+        return None
+    best: tuple[int, str] | None = None
+    for row in rows:
+        if (row.get("kind") or "") != "official":
+            continue
+        domain = (row.get("domain") or "").strip()
+        name = (row.get("name") or "").strip()
+        if not domain or not name:
+            continue
+        needle = name.casefold().split("\u2014")[0].split("/")[0].strip()
+        if len(needle) >= 6 and needle in text and (best is None or len(needle) > best[0]):
+            best = (len(needle), domain)
+    return best[1] if best else None
+
+
 def event_queries(
     anchors: dict, *, missing_dimensions=(), limit: int = MAX_TOTAL_QUERIES
 ) -> list[str]:
@@ -267,6 +307,24 @@ def event_queries(
         push(f'"{subject}"')
     else:
         push(subject)
+    # Tier 1b — the authority itself, when the Story names a REGISTERED
+    # official publisher.
+    #
+    # Measured before this existed. For «Общински съвет прие бюджета на
+    # Община Бургас за 2027 година» the ladder was:
+    #
+    #   1. "Общински съвет прие бюджета на Община Бургас за 2027 година"
+    #   2. "Общински съвет прие бюджета на Община Бургас за 2027 година"
+    #      Какво точно се променя.
+    #
+    # Both ask for COVERAGE. Neither names the one source that settles a
+    # municipal decision — the municipality's own site — even though the editor
+    # has already registered it and 32 of 35 entries carry a usable domain.
+    # The other rung stays, because corroboration needs other publishers; this
+    # one adds the authority the ladder was structurally unable to reach.
+    official = _registered_official_domain(subject)
+    if official:
+        push(f'"{subject}" site:{official}')
     # The road/route pair is the strongest locality signal, BUT measured alone it
     # is too generic: `"Бургас-Созопол"` on its own returns bus timetables. It is
     # therefore only useful WITH the event's own action words, which is exactly
