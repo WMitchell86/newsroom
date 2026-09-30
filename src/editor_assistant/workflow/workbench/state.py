@@ -1303,19 +1303,35 @@ def promote_story_to_idea(
                 break
             if not editor_text:
                 continue
-            candidate = item
-            break
+            # V1.2-G4.34. A collected item is NEVER the provenance carrier. The
+            # editor's own text is the material, and taking this item as the
+            # source would put its news.google.com WRAPPER url into the packet's
+            # `source_url` and its RSS snippet into `what_changed` — both of which
+            # are shown to the editor and read by the drafting prompt. The body
+            # was already correct; the record around it was not.
+            #
+            # So the item may be SKIPPED for provenance, and a later opened item
+            # is preferred. The wrapper still appears in the Story's own timeline,
+            # where a discovery record belongs.
+            continue
         if candidate is None:
-            if editor_text or opened_item is not None:
-                # Fall through to the live builder so it refuses in its own terms
-                # ("facts must be a non-empty list"): the material is missing, not
-                # the provenance. A real url is carried through so the refusal is
-                # about the missing facts rather than a missing source.
-                candidate = opened_item or {
-                    "url": "",
+            if editor_text and opened_item is None:
+                # The editor supplied the text and no page was ever opened. There
+                # is no publisher URL to cite, and a wrapper item's URL must never
+                # be borrowed for one, so the packet is attributed to the
+                # newsroom's own Story. That is TRUE — the editor wrote this text
+                # into this Story — and it is visibly ours rather than a
+                # news.google.com redirect dressed up as a source.
+                candidate = {
+                    "url": f"workbench://story/{story_id}",
                     "title": detail["title"],
                     "summary": "",
                 }
+            elif opened_item is not None:
+                # The page WAS opened and yielded no prose. Fall through to the
+                # live builder so it refuses in its own terms ("facts must be a
+                # non-empty list"): the material is missing, not the provenance.
+                candidate = opened_item
             else:
                 raise WorkbenchError(
                     "историята е събрана само от търсене: парчето не е отворена "
@@ -1323,7 +1339,11 @@ def promote_story_to_idea(
                     "промотирайте оттам."
                 )
         url = candidate["url"]
-        source_type = "upstream_press_release"
+        # V1.2-G4.34. A press release is a specific thing, and this was not one.
+        # The only material that reaches here is opened publisher prose or the
+        # editor's own text; calling that an "upstream press release" was the last
+        # false claim left in this function.
+        source_type = "opened_publication"
         if "transcript" in url.lower():
             source_type = "council_transcript"
         try:
@@ -1331,7 +1351,11 @@ def promote_story_to_idea(
                 source_type=source_type,
                 source_url=url,
                 title=detail["title"] or candidate.get("title") or "(без заглавие)",
-                what_changed=(candidate.get("summary") or candidate.get("title") or "")[:600],
+                # The editor's own words when the editor supplied them; never a
+                # discovery snippet.
+                what_changed=(
+                    editor_text or candidate.get("summary") or candidate.get("title") or ""
+                )[:600],
                 why_now=why_now.strip(),
                 possible_angle=angle.strip(),
             )
