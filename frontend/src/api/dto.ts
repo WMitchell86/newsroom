@@ -561,24 +561,20 @@ export interface TodayProjection {
   /** `null` when the latest run predates grouping-health reporting. */
   groupingHealth: GroupingHealth | null;
   /**
-   * V1.2-G4.5: per-ROLE routing health — the CAUSE behind the grouping
-   * symptom above, which the product previously showed without explanation.
+   * V1.2-G4.22 — the per-ROLE `roleHealth` field that used to sit here was
+   * REMOVED from this projection, and the note replaces it so nobody re-adds
+   * it by assumption.
    *
-   * A role with `eligible === 0` does not fail loudly; it silently does less
-   * (`onExhausted` names which kind), so this is what connects a warning on
-   * screen to something the editor can act on. `remedy` is the one command that
-   * clears a wrong health mark.
-   */
-   * V1.2-G4.22. This field was REMOVED from the projection. Role health
-   * comes from its own endpoint (`getRoleHealth`, query key ["role-health"])
-   * and TodayHeader renders from that query, not from here.
+   * Role health comes from its own endpoint (`getRoleHealth`, query key
+   * ["role-health"]) and `TodayHeader` renders from that query, not from the
+   * projection. The server has never sent the field here.
    *
    * It was also declared with the wrong shape even for the value that does
    * exist: the header expects
    *   { ok, roles, unroutableRoles, remedy } | null
-   * and this said `RoleHealth[]` — an array. The server has never sent it.
-   * A field that is never returned, carrying a type that contradicts its
-   * only real consumer, is what the next person wires up by mistake.
+   * and this said `RoleHealth[]` — an array. A field that is never returned,
+   * carrying a type that contradicts its only real consumer, is what the next
+   * person wires up by mistake.
    */
   /** Every Story that qualifies as current, before the cap. */
   storyAttentionTotal: number;
