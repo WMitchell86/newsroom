@@ -161,6 +161,25 @@ def story_is_followed_with_development(story: dict, metadata: dict) -> bool:
     return any(row["id"] not in reviewed for row in developments)
 
 
+def _has_self_scoping_publication(story: dict, items_by_id: dict, registry_rows) -> bool:
+    for member in story.get("members") or []:
+        item = items_by_id.get(member.get("item_id")) or {}
+        if source_is_self_scoping(item.get("source_id"), registry_rows):
+            return True
+    return False
+
+
+def _any_member_mentions_region(story: dict, items_by_id: dict, *, title: str) -> bool:
+    if mentions_region(title):
+        return True
+    for member in story.get("members") or []:
+        item = items_by_id.get(member.get("item_id")) or {}
+        for field in ("title", "summary"):
+            if mentions_region(str(item.get(field) or "")):
+                return True
+    return False
+
+
 def story_is_regional(
     story: dict,
     metadata: dict,
@@ -181,9 +200,55 @@ def story_is_regional(
         return True
     if story_is_followed_with_development(story, metadata):
         return True
-    if story_has_local_publication(story, items_by_id, registry_rows):
+    if _has_self_scoping_publication(story, items_by_id, registry_rows):
         return True
-    return story_text_mentions_region(story, items_by_id, title=title)
+    if story_text_mentions_region(story, items_by_id, title=title):
+        return True
+    # A merely regional outlet is the last resort, and only together with
+    # regional text. On its own it is a republication, which is precisely what
+    # this predicate was written to keep off the desk.
+    return story_has_local_publication(story, items_by_id, registry_rows) and bool(
+        _any_member_mentions_region(story, items_by_id, title=title)
+    )
 
 #: query, which is exactly what dragged national copy onto the desk).
+#: Sources whose own publication is EVIDENCE of locality, because they only
+#: ever speak about themselves: a municipality, a court, a hospital, an airport.
+#:
+#: Measured on the live regional desk. `kind="regional"` was treated as equally
+#: strong, and six Stories qualified on that alone with no regional word in the
+#: title or the body — three of them national:
+#:
+#:   "Петрова: България трябва ясно да определи своята роля"
+#:   "Акция срещу „Хелс Ейнджълс" и в България: Над 1000 полицаи"
+#:   "България сменя регионалната карта"
+#:
+#: All three came from `darik-burgas` (kind=regional, domain=dariknews.bg) — a
+#: NATIONAL outlet's Burgas channel. Being a local source does not make a
+#: Story regional; a republication of national wire is not regional news just
+#: because a Burgas desk put it on its site.
+#:
+#: A `regional` source is therefore no longer sufficient on its own. It still
+#: counts when the Story's text carries regional substance, which the existing
+#: `story_text_mentions_region` already decides.
 LOCAL_SOURCE_KINDS = frozenset({"official", "regional"})
+
+#: The subset that speaks only for itself.
+SELF_SCOPING_SOURCE_KINDS = frozenset({"official"})
+
+
+def source_is_self_scoping(source_id: str, registry_rows) -> bool:
+    """True when this source's own publication is evidence of locality.
+
+    An institution — municipality, court, hospital, airport — publishes about
+    itself and about nothing else, so its carrying a Story places that Story
+    in the region. A news outlet does not, however regional its name: it
+    republishes the national wire, and that is what the regional desk is for.
+    """
+    wanted = str(source_id or "")
+    if not wanted:
+        return False
+    for row in registry_rows or ():
+        if str((row or {}).get("source_id") or "") == wanted:
+            return str(row.get("kind") or "") in SELF_SCOPING_SOURCE_KINDS
+    return False

@@ -260,7 +260,14 @@ def test_a_national_coast_word_is_not_a_burgas_locality():
 
 @pytest.mark.parametrize(
     "source_id",
-    ["burgas-municipality", "pomorie-municipality", "odmvr-burgas", "chernomorski-far"],
+    # V1.2-G4.26: `chernomorski-far` was in this list and is removed. It is
+    # `kind="regional"` on `faragency.bg` — a NATIONAL directorate of lighthouses,
+    # not a Burgas institution — and the row is a regional outlet, so under the
+    # sharpened rule it no longer qualifies without regional text. The three
+    # that remain are genuine self-scoping institutions: two municipalities and
+    # the district police. The original rationale still holds for all of them; it
+    # never held for a national agency wearing a local name.
+    ["burgas-municipality", "pomorie-municipality", "odmvr-burgas"],
 )
 def test_a_local_source_qualifies_its_story_without_a_locality_in_the_text(newsroom, source_id):
     """Rule 1: the registry, not the headline.
