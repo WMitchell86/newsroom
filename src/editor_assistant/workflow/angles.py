@@ -59,9 +59,44 @@ NOVELTY_CUE = re.compile(
 )
 
 
+#: V1.2-G4.36. A URL "is a transcript" when one of these is a WHOLE TOKEN in it,
+#: not when the letters happen to appear inside a word.
+#:
+#: Measured: `https://example.bg/transcriptome-study` matched the old
+#: `"transcript" in url.lower()` test, so a biology article was labelled a council
+#: transcript. At `angles.needs_angle_review` that only adds a review gate; here
+#: at the promote bridge it sets `source_type`, which `_transcript_trust` then
+#: reads to grant AUTO_CAPTION trust. A mislabel here ELEVATES trust, which is the
+#: higher-stakes of the two, so both now use this.
+#:
+#: The council cues stay as they were, and the `source_type` equality check is
+#: what makes them meaningful: `council_transcript` and `transcript` are declared
+#: types, and the round-2 deliberate-heuristic defence is unaffected because it
+#: keys off those types, not off arbitrary publisher URL substrings.
+TRANSCRIPT_TOKENS = frozenset({"transcript", "транскрипт"})
+
+
+def url_is_transcript(url: str) -> bool:
+    """Whether a URL names a transcript as a word, rather than containing one."""
+    text = str(url or "").lower()
+    return any(
+        token in frozenset(re.findall(r"[a-zа-я]+", text)) for token in TRANSCRIPT_TOKENS
+    )
+
+
 def needs_angle_review(packet):
-    text = " ".join(str(packet.get(k, "")) for k in ("source_type", "source_url"))
-    return any(cue in text.lower() for cue in ("transcript", "council", "транскрипт", "съвет"))
+    # V1.2-G4.36. `source_type` is matched by EQUALITY — a declared type is a
+    # fact about the material. `source_url` is matched by TOKEN, so a publisher
+    # URL that merely contains the letters is not evidence of anything.
+    if str(packet.get("source_type") or "") in {"council_transcript", "transcript"}:
+        return True
+    url = str(packet.get("source_url") or "")
+    tokens = frozenset(re.findall(r"[a-zа-я]+", url.lower()))
+    if tokens & TRANSCRIPT_TOKENS:
+        return True
+    # «съвет» is a common word and appears in the type names above; kept for the
+    # remaining council-page shapes, again as whole tokens.
+    return bool(tokens & {"съвет", "общински"})
 
 
 def _validate_candidate(candidate, facts, seen, titles):

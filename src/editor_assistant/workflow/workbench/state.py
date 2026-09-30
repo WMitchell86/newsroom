@@ -1344,7 +1344,15 @@ def promote_story_to_idea(
         # editor's own text; calling that an "upstream press release" was the last
         # false claim left in this function.
         source_type = "opened_publication"
-        if "transcript" in url.lower():
+        # V1.2-G4.36. Whole-token match, not substring. A mislabel here is not
+        # cosmetic: `_transcript_trust` reads `source_type` to grant AUTO_CAPTION
+        # trust, so a biology article whose URL contains "transcriptome" would
+        # otherwise be granted a council transcript's authority. The helper lives
+        # in `angles` so the promote bridge and `needs_angle_review` cannot drift
+        # into disagreeing about what a transcript is.
+        from editor_assistant.workflow import angles as angles_mod
+
+        if angles_mod.url_is_transcript(url):
             source_type = "council_transcript"
         try:
             idea = live.new_idea(
