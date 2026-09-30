@@ -1,4 +1,4 @@
-# Code review prompt — round 6
+# Code review prompt — round 6 (REVISED: the question changed)
 
 Copy everything below into a fresh agent with the repository at `/home/test/media`.
 Give it read access to the working tree. Do **not** give it any earlier round's
@@ -11,15 +11,40 @@ answered the five things I left undecided, and **corrected my framing on all of
 them**: the one-line guard is the wrong unit, the full `fetch_page` route is the
 wrong shape, and the allow-list I was hesitating over is a bad idea.
 
-**Everything below is fixed, measured, or explicitly decided.** Round 6's question
-is the same one rounds 4 and 5 answered well: what has this work cost, and what
-have I stopped seeing because I am close to it?
+**READ THIS BEFORE THE REST.** I measured the running application while writing
+this prompt, and the result reframes the whole job:
+
+```
+inbox items: 140
+items that come from an OPENED page: 0
+```
+
+Not one Story on the entire desk has publisher prose. Every `summary` is an RSS
+snippet concatenated with the source name; every `sourceUrl` is a
+`news.google.com` redirect wrapper. The hint path was exercised once, just now,
+and it works: it opened `burgas.bg/bg/byudzhet/`, took 620 characters of real
+prose, and refused our own site and one publisher by name.
+
+So: **the application is now honest and empty.** Five rounds made it stop
+reporting causes it had not observed. None of them made it produce anything.
+
+The consequence is concrete. The promote path correctly refuses a collected Story,
+because a snippet may not become a fact. That means the «Чернова» button on Today
+can now only refuse — for all 140. Before the fix it looked like a working
+pipeline, because it was inventing material.
+
+**Round 6's question is therefore NOT "what did your fixes cost".** It is:
+**what would it take for this application to produce one real draft from its own
+desk?** The bug-hunting below still matters, and everything marked fixed is still
+fixed. But a seventh round that finds three more labelling holes while the desk
+has no readable material has not helped anybody.
 
 A pattern worth naming, because it is the one thing five rounds have consistently
 produced: **almost every finding has been something I had already written down as
 "handled", "by design", or "the operator's decision".** Every one of those was
 wrong or unexamined. Treat any such sentence in this file as a lead, not a
-conclusion.
+conclusion — and treat the five rounds of defect-hunting themselves as the same
+kind of lead.
 
 One standing note before you start: three of the four things round 4 found were
 things I had already written down as "handled" or "by design". Round 4's own
@@ -58,12 +83,11 @@ is a stronger claim). Both files are clean for the first time this session.
 that a refusal test was paying for. No production timeout was shortened. The
 coverage that fix removed is restored in `a952d69`.
 
-### The question round 6 is actually for
+### What round 5 and round 4 fixed
 
-Not "what is broken" — **what has this work cost, and what have I stopped seeing
-because I am close to it?** Round 4 answered that question well and all four of
-its findings were correct. The places below are where I have already been
-wrong, so they are where I am most likely to be wrong again.
+The places below are where I have already been wrong, so they are where I am most
+likely to be wrong again. They are listed for completeness, not as round 6's
+agenda — §7 puts the product question first.
 
 **Fixed since round 5 (`7d749ac`) — the `transcript` substring.** Both call sites
 used `"transcript" in url.lower()`, so `https://example.bg/transcriptome-study`
@@ -77,7 +101,9 @@ recorded as unchanged, not closed.
 **Verified by round 5, not re-reportable:** the label table (9 keys, producer scan
 clean), the merge refilter, and the `_news_lookup` bounds.
 
-**Open, and genuinely undecided — all five of round 5's items, with its verdicts:**
+**Open, and genuinely undecided — all five of round 5's items, with its verdicts.**
+Note that none of these is the most important thing about the project right now;
+§7 explains what is.
 
 1. **`_news_lookup` still has no `web_fetch` guard**, and round 5 showed BOTH
    options I offered are wrong. A bare `guard_target(url)` is the wrong unit: its
@@ -264,24 +290,51 @@ effect instantly.
 
 ## 7. What I want back
 
-1. **§0 points 1-3.** The missing SSRF guard, the merge-does-not-refilter
-   contract, and what the global conftest override now hides. These are the three
-   places a fix of mine may have cost something.
-2. **§0 points 4-5.** Every remaining consumer of `source_type` and
-   `source_url` reached by enumeration or substring, and the shape of the
-   completeness assertion that would have caught the one I already shipped broken.
-3. **Anything violating rules 6, 1 or 3**, with the exact line and the exact failure.
-4. Whether the store guard should stay as-is or become schedule-aware (§5.3).
-5. Everything else, marked confirmed or suspected.
+**1. The product question, and it comes first.**
+
+> What would it take for this application to produce one real draft from its own
+> desk, today, with no further review rounds?
+
+Concretely, and please be specific rather than encouraging:
+
+- The 140 collected Stories each have a real publisher URL in the timeline. The
+  machinery to open them exists — `_draft_snapshot` already calls
+  `read_publication` on the Story's own items, and `publication_urls` resolves
+  candidates. **Why has it never run over the whole desk?** Is there a gate that
+  stops it, or has nobody simply never asked for it? If the answer is "nobody
+  asked", say so plainly — that is the most useful thing in this report.
+- What is the smallest change that turns the hint path's working machinery into
+  something the collected desk uses, and what is the risk of doing that?
+- Is the honest answer that the collected desk is *discovery only by design*, and
+  the editor is meant to hint rather than to promote? If so, then the «Чернова»
+  button on Today is still a lie by omission — it is offered on 140 Stories and
+  can refuse on all of them. That is a product decision, and it needs someone to
+  make it.
+
+**2. Then the open technical item.** `_news_lookup` still has no `web_fetch`
+guard, and round 5 showed both shapes I offered are wrong: a bare `guard_target`
+is the wrong unit (its own docstring says the discarded-address pattern IS the
+DNS-rebinding hole), and routing through `fetch_page` as-is would break the
+function, because `ALLOWED_CONTENT_TYPES` excludes RSS. Round 5's candidates were
+a pinned raw-bytes helper, or `fetch_page` gaining an explicit
+`allowed_content_types` for this one caller.
+
+**3. Then the two verifications nobody has run in five rounds:** whether the model
+cites `workbench://story/<id>` back, and whether that path works end to end in a
+single run.
+
+**4. Then defects, and only these:** anything violating rules 6, 1 or 3 with the
+exact line and the exact failure; and the open items in §5. Genuine labelling
+holes or swallowed exceptions still matter — but they are fourth, not first.
 
 For each finding: file and line, what is wrong, the concrete input or sequence that
 makes it fail, and what you ran. If you ran nothing, say that.
 
-**A standing request, and it is the reason three rounds were worth running:** if you
+**A standing request, and it is the reason five rounds were worth running:** if you
 disagree with something above, say so and show the measurement. Round 1's one wrong
-verdict changed what I did. Round 3's one correction was accepted and saved me
-repeating a mistake. I would rather be corrected than agreed with, and so should
-the next person to read this file.
+verdict changed what I did. Round 3's one correction saved me repeating a mistake.
+Round 5 told me both of my proposed fixes were the wrong shape. I would rather be
+corrected than agreed with, and so should the next person to read this file.
 
 ## 8. What I got wrong today, so you do not inherit it
 
