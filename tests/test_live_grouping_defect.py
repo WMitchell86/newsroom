@@ -10,9 +10,19 @@ path for a sixth time. They are NOT all stale bookkeeping. Grouped by cause:
        source comment says the old one was a false claim about a Story with
        zero opened sources. The code is right; the tests are behind it.
 
-  ~13  A REAL, STILL-LIVE DEFECT. This file.
+  ~14  A REAL, STILL-LIVE DEFECT. This file.
 
-  ~5   not yet classified.
+  ~3   STALE FIXTURES AFTER A DELIBERATE PRECISION CHANGE. The claim
+       filter's `_GENERIC_NEWS_WORDS` deliberately lists
+       съобщение/съобщения/съобщи as vocabulary that can occur in any two
+       unrelated stories and must never produce agreement. git log dates
+       that list to 6a095c3, "coverage, cost routing, fast focus, and the
+       official-source fix". The research fixtures lean on "съобщение" as
+       the word that distinguishes their question, and that repair
+       neutralised exactly it. The code is right; the fixtures no longer
+       satisfy it.
+
+  ~6   not yet classified.
 
 THE DEFECT. `test_near_identical_titles_are_merged_deterministically` seeds
 two items with the same title and different URLs, and expects one Story. It
