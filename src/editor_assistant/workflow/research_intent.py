@@ -54,7 +54,12 @@ _INTENTS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "EFFECTIVE_DATE",
         (r"от\s+кога\s+влиза", r"кога\s+влиза\s+в\s+сила", r"в\s+сила"),
-        ("влиза в сила", "обярвам", "от дата"),
+        # V1.2-G4.29. Was `обярвам`, which is grammatically correct Bulgarian and
+        # useless as a search term: it is the first person singular, and news
+        # copy does not say "I announce". Measured over the corpus:
+        #   обярвам 0 · обявява 4 · обявяват 2
+        # The stem `обявява` covers every person a publisher actually writes.
+        ("влиза в сила", "обявява", "влиза в сила от"),
     ),
     (
         "OFFICIAL_REGISTER",
