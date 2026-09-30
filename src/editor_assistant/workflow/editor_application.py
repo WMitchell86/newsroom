@@ -1325,11 +1325,22 @@ def seed_stories_from_hint(hint: str, *, provider=None, page_opener=None, max_op
     except editor_hint.HintRejected as exc:
         raise EditorHintRejected(str(exc)) from exc
 
-    stories = editor_hint.materialise_hint_stories(result, inbox_path=_paths()["inbox"])
+    stories = editor_hint.materialise_hint_stories(
+        result,
+        inbox_path=_paths()["inbox"],
+        stories_path=_paths()["stories"],
+    )
     return {
         "hint": result.hint,
         "opened": [
-            {"title": s.get("title") or "", "url": s.get("url") or "", "itemId": s.get("item_id") or ""}
+            {
+                "title": s.get("title") or "",
+                "url": s.get("url") or "",
+                "itemId": s.get("item_id") or "",
+                # The story, not the raw item: `/stories/:id` validates the id
+                # and answers "Невалиден Story." for an item id.
+                "storyId": s.get("story_id") or "",
+            }
             for s in stories
         ],
         "openedCount": len(stories),

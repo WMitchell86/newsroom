@@ -47,7 +47,7 @@ describe("Започни от идея", () => {
     const user = userEvent.setup();
     seedStoriesFromHint.mockResolvedValue({
       hint: "проверка на машините",
-      opened: [{ title: "ЦИК", url: "https://cik.bg/news/2026/machines", itemId: "i-1" }],
+      opened: [{ title: "ЦИК", url: "https://cik.bg/news/2026/machines", itemId: "i-1", storyId: "s-1" }],
       openedCount: 1,
       considered: 1,
       unopened: [],
@@ -106,6 +106,33 @@ describe("Започни от идея", () => {
     // perfectly findable.
     const failures = await screen.findByTestId("hint-seed-failures");
     expect(failures).toHaveTextContent("FETCH_TIMEOUT");
+  });
+
+  it("keeps the report on screen and links the new story from it", async () => {
+    const user = userEvent.setup();
+    seedStoriesFromHint.mockResolvedValue({
+      hint: "проверка на машините",
+      opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
+      openedCount: 1,
+      considered: 1,
+      unopened: [],
+      providerChain: ["tinyfish"],
+      searchStatus: "SEARCH_COMPLETE",
+    });
+    renderWithProviders(<HintSeedControl />);
+    await user.click(screen.getByTestId("hint-seed-open"));
+    await user.type(screen.getByLabelText(/темата/i), "проверка на машините");
+    await user.click(screen.getByTestId("hint-seed-run"));
+
+    // The report must survive the request. An earlier version navigated to the
+    // new story on success, which unmounted this component before the sentence
+    // could be read: the editor was told pages were found by code that then
+    // removed the news of it.
+    expect(await screen.findByTestId("hint-seed-report")).toBeTruthy();
+    // And the link must carry a STORY id, not the raw inbox item id, because
+    // /stories/:id answers «Невалиден Story.» for the latter.
+    const link = screen.getByRole("link", { name: "ЦИК" });
+    expect(link.getAttribute("href")).toBe("/stories/s-9");
   });
 
   it("shows the server's own refusal rather than a generic one", async () => {

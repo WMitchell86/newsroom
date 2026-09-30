@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import { seedStoriesFromHint, type HintSeedResult } from "../api/client";
 import styles from "./ArticleWorkspace.module.css";
 
@@ -27,7 +26,6 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
   const [hint, setHint] = useState("");
   const [result, setResult] = useState<HintSeedResult | null>(null);
   const [error, setError] = useState("");
-  const navigate = useNavigate();
 
   const seed = useMutation({
     mutationFn: () => seedStoriesFromHint(hint.trim()),
@@ -38,8 +36,12 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
     onSuccess: (data) => {
       setResult(data);
       onSeeded?.();
-      const first = data.opened[0];
-      if (first) navigate(`/stories/${encodeURIComponent(first.itemId)}`);
+      // Deliberately NOT navigating away. An earlier version jumped to the new
+      // story the moment the request returned, which unmounted this component
+      // and made the report below unreadable — the editor was told "3 pages
+      // opened" by code that then removed the sentence before it could be
+      // read. The report is the part that carries the promise, so it stays,
+      // and the story is one click away inside it.
     },
     onError: (exc: Error) => {
       setError(exc.message || "Подсказката не можа да бъде използвана.");
@@ -104,10 +106,31 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
       {result ? (
         <div className="styles.searchNote" data-testid="hint-seed-report">
           {result.openedCount > 0 ? (
-            <p>
-              Отворени са {result.openedCount} страници. Всяка е записана като Story
-              {result.opened.length > 1 ? " и може да се проучи отделно" : ""}.
-            </p>
+            <>
+              <p>
+                Отворени са {result.openedCount} страници. Всяка е записана като Story
+                {result.opened.length > 1 ? " и може да се проучи отделно" : ""}.
+              </p>
+              {/* Only a real story id is a route. `/stories/:id` answers
+                  «Невалиден Story.» for a raw inbox item id, so the link is
+                  rendered from the story id or not at all. */}
+              <ul className={styles.missingList}>
+                {result.opened.map((page) => (
+                  <li key={page.storyId || page.url}>
+                    {page.storyId ? (
+                      <a
+                        className={styles.sourceLink}
+                        href={`/stories/${encodeURIComponent(page.storyId)}`}
+                      >
+                        {page.title || page.url}
+                      </a>
+                    ) : (
+                      page.title || page.url
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : (
             // Said plainly, and not dressed up as a broken system.
             <p>

@@ -247,3 +247,59 @@ def test_a_hint_that_opened_nothing_writes_nothing(tmp_path):
     empty = editor_hint.HintResult(hint="тема без резултат")
     assert editor_hint.materialise_hint_stories(empty, inbox_path=tmp_path / "inbox.json") == []
     assert not (tmp_path / "inbox.json").exists() or inbox_store.read_items(tmp_path / "inbox.json") == []
+
+
+# --- the bug this file's history earned -----------------------------------
+#
+# Measured on a live run: three inbox rows were written, the endpoint reported
+# three opened pages, and NOTHING was visible to the editor. Writing inbox
+# rows is only half of becoming a Story — `story_identity` is what assigns
+# items to stories, and an unassigned item sits in the inbox forever. The
+# editor was told material had been found, and the Stories list did not grow.
+
+
+def _isolate_newsroom(tmp_path, monkeypatch):
+    """Point the newsroom at tmp_path, the way production points it at var/.
+
+    Grouping runs through the newsroom's own `refresh_stories`, which reads the
+    newsroom directory from the environment rather than from an argument. A
+    test that passed a tmp inbox but left the environment pointing at the live
+    corpus would group against the WRONG store — and would still have passed
+    the old assertions, because nothing was grouping at all.
+    """
+    newsroom = tmp_path / "newsroom"
+    newsroom.mkdir()
+    monkeypatch.setenv("WB_NEWSROOM_DIR", str(newsroom))
+    return newsroom / "inbox.jsonl", newsroom / "stories.json"
+
+
+def test_material_actually_joins_a_story_and_not_just_the_inbox(tmp_path, monkeypatch):
+    from editor_assistant.workflow import story_store
+
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+    saved = editor_hint.materialise_hint_stories(
+        _result(), inbox_path=inbox, stories_path=stories
+    )
+    assert len(saved) == 1
+    # The row knows which story it landed in...
+    assert saved[0]["story_id"], "material was written but attached to no story"
+    # ...and that story really exists on disk.
+    assert story_store.story_by_id(story_store.read_store(stories), saved[0]["story_id"])
+
+
+def test_a_story_id_is_never_an_inbox_item_id(tmp_path, monkeypatch):
+    """`/stories/:id` rejects an item id, so the two must not be confused.
+
+    The endpoint used to return `item_id` as the thing to navigate to. Every
+    click landed on 400 «Невалиден Story.» — verified against the live server,
+    where GET /api/v1/stories/ia1ca72ccba86788 answered 400 while a real
+    story id answered 200.
+    """
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+    saved = editor_hint.materialise_hint_stories(
+        _result(), inbox_path=inbox, stories_path=stories
+    )
+    row = saved[0]
+    assert row["item_id"].startswith("i")
+    assert row["story_id"].startswith("s")
+    assert row["story_id"] != row["item_id"]

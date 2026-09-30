@@ -160,7 +160,12 @@ export function startArticle(storyId: string, idempotencyKey: string): Promise<A
  */
 export interface HintSeedResult {
   hint: string;
-  opened: { title: string; url: string; itemId: string }[];
+  /**
+   * `storyId` is what the editor is navigated to. `itemId` is the raw inbox
+   * row and is NOT a route id — `/stories/:id` answers "Невалиден Story." for
+   * it. Sending the item id produced a dead link on the very first click.
+   */
+  opened: { title: string; url: string; itemId: string; storyId: string }[];
   openedCount: number;
   considered: number;
   unopened: { url: string; status: string; detail: string }[];

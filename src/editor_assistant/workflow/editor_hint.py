@@ -75,6 +75,7 @@ def materialise_hint_stories(
     result: HintResult,
     *,
     inbox_path,
+    stories_path=None,
     now: str = "",
 ) -> list[dict]:
     """Turn the pages a hint opened into ordinary Stories in the inbox.
@@ -83,6 +84,17 @@ def materialise_hint_stories(
     so everything downstream — promotion, research, the readiness gates — is
     exercised exactly as it is for collected material. There is no "hint" kind
     downstream and no branch that knows an editor typed something.
+
+    `stories_path` is not optional in practice. Writing inbox rows is only
+    HALF of becoming a Story: `story_identity` is what assigns items to
+    stories, and an item that nobody assigned is invisible to the editor —
+    it sits in the inbox forever and the Stories list never shows it. This
+    was found by measuring a live run, not by reading the code: three rows
+    were written, all three were attached to no story, and the feature
+    looked like it had worked. So the same incremental `update()` the
+    newsroom refresh uses runs here, which also means a page the newsroom
+    had already collected joins its existing Story instead of forming a
+    duplicate.
 
     Two values are chosen for honesty rather than convenience:
 
@@ -139,7 +151,44 @@ def materialise_hint_stories(
     saved = inbox_store.add_items(items, inbox_path) or {}
     # `add_items` returns {new, duplicate, items}; a page an earlier hint
     # already collected is counted as a duplicate, never written twice.
-    return [row for row in saved.get("items", []) if row.get("source_id") == HINT_SOURCE_ID]
+    written = [row for row in saved.get("items", []) if row.get("source_id") == HINT_SOURCE_ID]
+
+    if written and stories_path is not None:
+        # Assign them to Stories through the newsroom's OWN locked refresh,
+        # not by calling `story_identity.update` directly. That function holds
+        # the mutation lock the other stories-store writers hold; calling it
+        # raw added a third, unlocked writer to a store that two existing
+        # writers already protect with two *different* locks. Reusing the
+        # public entry point keeps this path no less safe than the refresh,
+        # and it is the same code the newsroom uses, so grouping cannot drift.
+        from editor_assistant.workflow.workbench import newsroom as newsroom_mod
+
+        newsroom_mod.refresh_stories(dry_run=False, semantic=False)
+        written = _with_story_ids(written, inbox_path, stories_path)
+    return written
+
+
+def _with_story_ids(rows: list[dict], inbox_path, stories_path) -> list[dict]:
+    """Attach the story each row actually landed in.
+
+    The editor is sent to a story, not to a raw inbox item: `/stories/:id`
+    validates the id and answers "Невалиден Story." for an item id, so
+    returning `item_id` here produced a dead link the moment it was clicked.
+    """
+    from editor_assistant.workflow import story_store
+
+    store = story_store.read_store(stories_path)
+    story_of = {
+        member["item_id"]: story["story_id"]
+        for story in store.get("stories", [])
+        for member in story.get("members", [])
+    }
+    out = []
+    for row in rows:
+        enriched = dict(row)
+        enriched["story_id"] = story_of.get(row["item_id"], "")
+        out.append(enriched)
+    return out
 
 
 def _clean_hint(raw: str) -> str:
