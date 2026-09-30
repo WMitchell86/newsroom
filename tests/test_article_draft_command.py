@@ -41,6 +41,33 @@ BODY = "Общинският съвет одобри 1,2 милиона лева
 HEADLINE = "Съветът одобри графика за ремонта"
 
 
+# V1.2-G4.22 — how a refusal is reached at all.
+#
+# Since V1.2-G4.3 §A a Story whose own publication CAN BE READ is always worth
+# a Draft: the command reads that page on the way there and reports
+# DRAFT_FROM_UNREAD_SOURCE — an action, not a refusal. "Never opened" is
+# therefore no longer enough to make a refusal reachable; the publication has
+# to be one that cannot be read.
+#
+# These tests mean something precise and are worth keeping — "when there is
+# genuinely nothing to read, the system refuses with an honest reason and does
+# not pretend it has material" — so the fix is to arrange the precondition
+# rather than to weaken the assertion. Changing what they expect would have
+# deleted the guarantee; this keeps it and makes it reachable.
+def _make_publication_unreadable(root) -> None:
+    """Point the Story's Publications at a social wrapper, which is never evidence.
+
+    Same seam and same reason as the helper in `test_manual_continuation.py`.
+    """
+    from editor_assistant.workflow import inbox_store
+
+    path = root / "inbox.jsonl"
+    items = inbox_store.read_items(path)
+    for row in items:
+        row["url"] = "https://www.facebook.com/news-search/videos/-%D1%86%D0%B8%D0%BA"
+    inbox_store.save_items(items, path)
+
+
 def _item(item_id: str, title: str, *, summary: str = "Обобщение"):
     return {
         "item_id": item_id,
@@ -394,6 +421,7 @@ def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, model):
     V1.1-B: an unconfirmed Focus is its own semantic reason
     (`FOCUS_NOT_CONFIRMED`), no longer folded into a generic invalid transition.
     """
+    _make_publication_unreadable(newsroom)
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -403,10 +431,13 @@ def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, model):
     projection = app.read_article(article["article_id"])
     assert "MAKE_DRAFT" not in projection["availableActions"]
     assert projection["preparation"]["draftEligible"] is False
-    assert projection["preparation"]["draftReadiness"]["code"] == "FOCUS_NOT_CONFIRMED"
+    # V1.2-G4.22. The Focus gate is gone (§C): a Story the editor chose to
+    # write about is never blocked for want of a Focus. With the publication
+    # unreadable the honest reason is that the Story was never assessed.
+    assert projection["preparation"]["draftReadiness"]["code"] == "STORY_UNASSESSED"
     with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article["article_id"], idempotency_key="no-focus")
-    assert refusal.value.code == "FOCUS_NOT_CONFIRMED"
+    assert refusal.value.code == "STORY_UNASSESSED"
     assert not _drafts() and not _cases()
     assert model == [], "a refused command must not reach the model"
 
@@ -420,6 +451,7 @@ def test_a_blocking_gap_alone_no_longer_refuses_but_no_material_does(newsroom, m
     distinction the owner cares about is "nothing to write from", not "some
     question is unanswered".
     """
+    _make_publication_unreadable(newsroom)
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -438,13 +470,9 @@ def test_a_blocking_gap_alone_no_longer_refuses_but_no_material_does(newsroom, m
     )
     projection = app.read_article(article["article_id"])
     assert projection["preparation"]["draftEligible"] is False
-    # V1.2-G4.22. The Story HAS a readable publication that has not been read
-    # yet, so the honest answer is an ACTION — go and read it — and not a
-    # refusal. The old expectation claimed we had looked and found nothing.
-    # See the branch in article_readiness.evaluate and its comment on that.
-    assert projection["preparation"]["draftReadiness"]["code"] == "DRAFT_FROM_UNREAD_SOURCE"
+    assert projection["preparation"]["draftReadiness"]["code"] == "NO_DRAFT_MATERIAL"
     assert projection["preparation"]["draftReadiness"]["message"] == (
-        "Източникът още не е прочетен — черновата ще бъде написана от него."
+        "Няма достатъчно изходен материал за чернова."
     )
     # The real question is still visible, so the editor is never left guessing.
     assert [gap["question"] for gap in projection["preparation"]["blockingGaps"]] == [
@@ -515,6 +543,7 @@ def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
     Before V1.1-B this state was reported as a blocking gap, which told the
     editor to research a Story for a gap that did not exist.
     """
+    _make_publication_unreadable(newsroom)
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -525,12 +554,8 @@ def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
     projection = app.read_article(article["article_id"])
     preparation = projection["preparation"]
     assert preparation["draftEligible"] is False
-    # V1.2-G4.22. The Story HAS a readable publication that has not been read
-    # yet, so the honest answer is an ACTION — go and read it — and not a
-    # refusal. The old expectation claimed we had looked and found nothing.
-    # See the branch in article_readiness.evaluate and its comment on that.
-    assert preparation["draftReadiness"]["code"] == "DRAFT_FROM_UNREAD_SOURCE"
-    assert preparation["draftReadiness"]["message"] == "Източникът още не е прочетен — черновата ще бъде написана от него."
+    assert preparation["draftReadiness"]["code"] == "STORY_UNASSESSED"
+    assert preparation["draftReadiness"]["message"] == "За чернова първо е нужно проучване на историята."
     # No Article-level fake gap is displayed, and MAKE_DRAFT is absent.
     assert preparation["blockingGaps"] == []
     assert "MAKE_DRAFT" not in projection["availableActions"]
@@ -553,6 +578,7 @@ def test_facts_without_an_opened_source_are_not_draft_material(newsroom, prepare
     separate `NO_OPEN_SOURCE` code, and §B6 collapses it into the single honest
     "nothing to write from" refusal.
     """
+    _make_publication_unreadable(newsroom)
     snapshot = app._draft_snapshot(prepared["article_id"])
     # A fact whose source carries no URL: the fact exists, the source does not
     # reach generation.
@@ -572,11 +598,7 @@ def test_facts_without_an_opened_source_are_not_draft_material(newsroom, prepare
 
     readiness = article_readiness.evaluate(snapshot)
     assert readiness.eligible is False
-    # V1.2-G4.22. The Story HAS a readable publication that has not been read
-    # yet, so the honest answer is an ACTION — go and read it — and not a
-    # refusal. The old expectation claimed we had looked and found nothing.
-    # See the branch in article_readiness.evaluate and its comment on that.
-    assert readiness.reason_code == "DRAFT_FROM_UNREAD_SOURCE"
+    assert readiness.reason_code == "NO_DRAFT_MATERIAL"
     assert readiness.fact_count == 1 and readiness.has_open_source is False
     with pytest.raises(article_generation.DraftRefused) as refusal:
         article_generation.evaluate(snapshot)
@@ -593,6 +615,7 @@ def test_without_any_opened_material_the_command_names_that_one_reason(newsroom,
     forbids the false clean state `assessed + 0 facts + 0 gaps`, so the honest
     form here carries a non-blocking gap and still has no material.
     """
+    _make_publication_unreadable(newsroom)
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -617,11 +640,7 @@ def test_without_any_opened_material_the_command_names_that_one_reason(newsroom,
     )
     projection = app.read_article(article["article_id"])
     assert projection["preparation"]["draftEligible"] is False
-    # V1.2-G4.22. The Story HAS a readable publication that has not been read
-    # yet, so the honest answer is an ACTION — go and read it — and not a
-    # refusal. The old expectation claimed we had looked and found nothing.
-    # See the branch in article_readiness.evaluate and its comment on that.
-    assert projection["preparation"]["draftReadiness"]["code"] == "DRAFT_FROM_UNREAD_SOURCE"
+    assert projection["preparation"]["draftReadiness"]["code"] == "NO_DRAFT_MATERIAL"
     assert projection["preparation"]["blockingGaps"] == []
     with pytest.raises(app.EditorDraftNotReady) as refusal:
         app.start_article_draft(article["article_id"], idempotency_key="no-facts")
