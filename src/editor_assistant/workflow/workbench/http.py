@@ -803,6 +803,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     stories_path=wb_newsroom.stories_store(),
                     why_now=_first(form, "why_now", ""),
                     angle=_first(form, "angle", ""),
+                    # V1.2-G4.34. The editor's own text is the one basis that is
+                    # not a snippet, and this form is the only promote surface
+                    # there is. Without it, every collected Story could only ever
+                    # be refused, because nothing but an opened page may become a
+                    # fact.
+                    full_text=_first(form, "full_text", ""),
                 )
                 message = (
                     f"Историята стана идея «{result['title'][:60]}» "

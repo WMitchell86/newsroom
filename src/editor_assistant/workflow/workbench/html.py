@@ -1692,6 +1692,16 @@ def _story_actions(story, *, detail=False):
         else '<a class="btn" href="/inbox?status=all">Материали</a>'
     )
     promote = ""
+    # V1.2-G4.34. The form used to render unconditionally, so for every collected
+    # Story -- the whole desk -- the button could only ever produce the refusal
+    # "историята е събрана само от търсене", because only an opened page or the
+    # editor's own text may become a fact.
+    #
+    # It is still rendered, because it now carries a field that makes it work:
+    # the editor may well have the article in front of them, and pasting what
+    # they read is a legitimate basis, attributed to the Story rather than to a
+    # publisher it was not taken from. A control that can only fail is not
+    # offered, and this one can now succeed.
     if detail:
         promote = (
             '<form method="post" action="/articles" class="promote-form">'
@@ -1700,7 +1710,14 @@ def _story_actions(story, *, detail=False):
             '<label for="angle-' + esc(story["story_id"]) + '">Ъгъл (по избор)</label> '
             '<input type="text" id="angle-' + esc(story["story_id"]) + '" name="angle" '
             'placeholder="напр. какво се променя за читателя">'
-            '<button class="btn primary" type="submit">Кандидатвай като идея</button></form>'
+            '<label for="fulltext-' + esc(story["story_id"]) + '">'
+            "Текстът от статията, ако сте я прочели</label> "
+            '<textarea id="fulltext-' + esc(story["story_id"]) + '" name="full_text" rows="4" '
+            'placeholder="поставете текста, по който пишете"></textarea>'
+            '<button class="btn primary" type="submit">Кандидатвай като идея</button>'
+            '<p class="muted">Празното поле означава, че историята няма отворена '
+            "страница и не може да стане факт.</p>"
+            "</form>"
         )
     return f"<p>{' '.join(forms)} {link}</p>{promote}"
 
