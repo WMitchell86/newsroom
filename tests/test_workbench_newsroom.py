@@ -84,7 +84,7 @@ def seeded(newsroom_dir):
                 "source_id": "council-feed",
                 "title": "Общинският съвет прие бюджета",
                 "url": "https://feed.example/budget",
-                "discovered_at": "2026-09-20T07:00:00Z",
+                "discovered_at": _ago(hours=7),
                 "source_kind": "official",
                 "priority": "high",
             }
@@ -347,7 +347,7 @@ def test_inbox_defaults_to_new_and_filters(server):
                 "source_id": "news-search",
                 "title": "Игнорирана новина",
                 "url": "https://media.example/ignored",
-                "discovered_at": "2026-09-20T09:00:00Z",
+                "discovered_at": _ago(hours=9),
                 "source_kind": "aggregator",
                 "priority": "normal",
                 "status": "IGNORED",
@@ -356,7 +356,7 @@ def test_inbox_defaults_to_new_and_filters(server):
                 "source_id": "news-search",
                 "title": "Прегледана новина",
                 "url": "https://media.example/seen",
-                "discovered_at": "2026-09-20T08:00:00Z",
+                "discovered_at": _ago(hours=8),
                 "source_kind": "aggregator",
                 "priority": "normal",
                 "status": "SEEN",
@@ -432,8 +432,8 @@ def _add_pair():
                 "source_id": "news-search",
                 "title": PAIR_TITLE,
                 "url": "https://media.example/crash",
-                "published_at": "2026-09-20T08:00:00Z",
-                "discovered_at": "2026-09-20T08:00:00Z",
+                "published_at": _ago(hours=8),
+                "discovered_at": _ago(hours=8),
                 "source_kind": "aggregator",
                 "priority": "normal",
                 "publisher_domain": "bta.bg",
@@ -452,6 +452,19 @@ def _add_pair():
             },
         ],
         path=newsroom.inbox_store_path(),
+    )
+
+
+# V1.2-G4.23. `newsroom.refresh_stories` takes no `now`, so the shortlist
+# window is measured against the wall clock and a fixed fixture date rots:
+# `STORY_SHORTLIST_DAYS` is 7, and once the clock passed 2026-09-27 these
+# pairs fell out of the shortlist before any comparison, so no Story ever
+# gained a second member and `next(...)` raised StopIteration. The grouping
+# was correct; the calendar moved. Dates are now relative.
+def _ago(days=1, hours=0):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=days, hours=hours)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
     )
 
 
@@ -598,7 +611,7 @@ def test_inbox_shows_source_problems_and_last_run(seeded):
         path=newsroom.health_store(),
     )
     source_health.record_run(
-        {"finished_at": "2026-09-20T07:00:00Z", "new": 3, "failed": 1},
+        {"finished_at": _ago(hours=7), "new": 3, "failed": 1},
         path=newsroom.last_run_store(),
     )
     view = newsroom.inbox_view(status="NEW")
@@ -616,7 +629,7 @@ def test_inbox_authority_filter_uses_the_publisher_not_the_discovery_source(seed
                 "source_id": "council-feed",  # official, but the publisher is a blog
                 "title": "Блог публикация",
                 "url": "https://unknown-blog.example/a",
-                "discovered_at": "2026-09-20T09:00:00Z",
+                "discovered_at": _ago(hours=9),
                 "source_kind": "official",
                 "priority": "high",
                 "publisher_domain": "unknown-blog.example",
@@ -627,7 +640,7 @@ def test_inbox_authority_filter_uses_the_publisher_not_the_discovery_source(seed
                 "source_id": "news-search",
                 "title": "Общинско съобщение",
                 "url": "https://news.google.com/rss/articles/x",
-                "discovered_at": "2026-09-20T10:00:00Z",
+                "discovered_at": _ago(hours=10),
                 "source_kind": "aggregator",
                 "priority": "normal",
                 "publisher_domain": "burgas.bg",

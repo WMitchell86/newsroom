@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 
+from datetime import datetime, timezone
+
 import pytest
 
 from editor_assistant.drafting import generate, model_policy
@@ -37,6 +39,23 @@ def stores(tmp_path, monkeypatch):
     monkeypatch.setenv("NEWSROOM_STORIES_PATH", str(tmp_path / "stories.json"))
     monkeypatch.setenv("NEWSROOM_BLOCKED_DOMAINS_PATH", str(tmp_path / "blocked.json"))
     return tmp_path
+
+
+# V1.2-G4.23. The fixtures are dated 2026-09-20. `STORY_SHORTLIST_DAYS` is 7,
+# and `shortlist` drops any story older than the floor BEFORE any similarity
+# work happens. So once the wall clock passed 2026-09-27 these fourteen tests
+# began failing for no reason connected to grouping: the story had left the
+# shortlist, `deterministic_relation` was never called, and two identical
+# headlines were correctly kept as two Stories.
+#
+# Measured, not inferred. With `now` pinned to the fixture date:
+#   deterministic_matches=1, new_stories=1
+# With the wall clock (2026-09-30, fixture 9 days old):
+#   deterministic_matches=0, new_stories=2
+#
+# The logic was never wrong. Pinning `now` makes the tests describe grouping
+# again instead of the calendar.
+_NOW = datetime(2026, 9, 20, 9, 0, 0, tzinfo=timezone.utc)
 
 
 def _item(**over):
@@ -207,7 +226,7 @@ def test_exact_duplicate_joins_the_existing_story_without_a_model_call():
     def explode(*_a, **_k):
         raise AssertionError("exact publication identity must never call a model")
 
-    summary = story_identity.update(dry_run=False, call_model=explode)
+    summary = story_identity.update(now=_NOW, dry_run=False, call_model=explode)
     assert summary["exact_duplicates"] == 1
     assert summary["new_stories"] == 1
     assert summary["semantic_calls"] == 0
@@ -224,7 +243,7 @@ def test_source_items_are_preserved_by_story_processing():
         ]
     )
     before = [i["item_id"] for i in inbox_store.read_items()]
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     after = [i["item_id"] for i in inbox_store.read_items()]
     assert before == after
     assert {i["status"] for i in inbox_store.read_items()} == {"NEW"}
@@ -243,7 +262,7 @@ def test_near_identical_titles_are_merged_deterministically():
     def explode(*_a, **_k):
         raise AssertionError("a strong deterministic match must not call a model")
 
-    summary = story_identity.update(dry_run=False, call_model=explode)
+    summary = story_identity.update(now=_NOW, dry_run=False, call_model=explode)
     assert summary["deterministic_matches"] == 1
     assert summary["semantic_calls"] == 0
     assert len(story_store.read_stories()) == 1
@@ -263,7 +282,7 @@ def test_uncertain_titles_stay_separate_by_default():
             ),
         ]
     )
-    summary = story_identity.update(dry_run=False, semantic=False)
+    summary = story_identity.update(now=_NOW, dry_run=False, semantic=False)
     assert summary["new_stories"] == 2
     assert summary["needs_review"] == 1  # the second item had a shortlist but no answer
     stories = story_store.read_stories()
@@ -308,7 +327,7 @@ def test_semantic_answer_can_join_the_shortlisted_story():
             role,
         )
 
-    summary = story_identity.update(dry_run=False, call_model=fake)
+    summary = story_identity.update(now=_NOW, dry_run=False, call_model=fake)
     assert summary["semantic_matches"] == 1
     assert summary["semantic_calls"] == 1
     assert len(story_store.read_stories()) == 1
@@ -362,7 +381,7 @@ def test_weak_candidates_no_longer_reach_the_semantic_model():
     def explode(*_args, **_kwargs):
         pytest.fail("a weak candidate must not reach the model")
 
-    summary = story_identity.update(dry_run=False, semantic=True, call_model=explode)
+    summary = story_identity.update(now=_NOW, dry_run=False, semantic=True, call_model=explode)
     assert summary["semantic_calls"] == 0
     assert summary["anchor_skipped"] == 1
     assert summary["new_stories"] == 2
@@ -387,7 +406,7 @@ def test_anchored_candidates_still_reach_the_model_and_are_accounted():
             role,
         )
 
-    summary = story_identity.update(dry_run=False, semantic=True, call_model=different)
+    summary = story_identity.update(now=_NOW, dry_run=False, semantic=True, call_model=different)
     assert summary["semantic_eligible"] == 1
     assert summary["semantic_calls"] == 1
     assert summary["anchor_skipped"] == 0
@@ -402,7 +421,7 @@ def test_invalid_semantic_output_never_merges():
     def garbage(_prompt, role="story"):
         return "не е JSON", {"role": role}
 
-    summary = story_identity.update(dry_run=False, call_model=garbage)
+    summary = story_identity.update(now=_NOW, dry_run=False, call_model=garbage)
     assert summary["semantic_matches"] == 0
     assert summary["semantic_failures"] == 1
     stories = story_store.read_stories()
@@ -450,7 +469,7 @@ def test_provider_unavailable_never_merges():
     def down(_prompt, role="story"):
         raise RuntimeError("429 rate limited")
 
-    summary = story_identity.update(dry_run=False, call_model=down)
+    summary = story_identity.update(now=_NOW, dry_run=False, call_model=down)
     assert summary["semantic_matches"] == 0
     assert summary["semantic_failures"] == 1
     assert summary["new_stories"] == 2
@@ -473,7 +492,7 @@ def test_the_relation_model_never_modifies_publisher_authority():
             role,
         )
 
-    story_identity.update(dry_run=False, call_model=fake)
+    story_identity.update(now=_NOW, dry_run=False, call_model=fake)
     for item in inbox_store.read_items():
         assert item["publisher_domain"] in ("a.example", "media.example", "b.example")
         assert isinstance(item["factual_authority"], bool)
@@ -518,7 +537,7 @@ def test_the_classifier_only_sees_the_shortlisted_story():
             role,
         )
 
-    story_identity.update(dry_run=False, call_model=fake)
+    story_identity.update(now=_NOW, dry_run=False, call_model=fake)
     assert calls, "the ambiguous pair must reach the semantic step"
     assert all("Созопол" not in prompt for prompt in calls)
 
@@ -536,7 +555,7 @@ def test_the_prompt_carries_no_article_bodies_and_at_most_three_publications():
             )
         )
     _seed(stories)
-    story_identity.update(dry_run=False, semantic=False)
+    story_identity.update(now=_NOW, dry_run=False, semantic=False)
     store = story_store.read_stories()
     target = store[0]
     context = story_relation.build_context(
@@ -574,7 +593,7 @@ def test_relation_output_has_no_scoring_or_authority_surface():
 
 def _one_story_with_status(status):
     _seed([_item(source_id="monitor-a", title="А", url="https://a.example/1")])
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     story_id = story_store.read_stories()[0]["story_id"]
     if status != "NEW":
         story_identity.set_story_status(story_id, status)
@@ -584,7 +603,7 @@ def _one_story_with_status(status):
 def test_same_story_does_not_reopen_a_seen_story():
     story_id = _one_story_with_status("SEEN")
     _seed([_item(source_id="monitor-b", title="Б", url="https://a.example/1")])
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     assert story_store.read_stories()[0]["story_id"] == story_id
     assert story_store.read_stories()[0]["status"] == "SEEN"
     # the story-level status propagates to the raw material view
@@ -594,7 +613,7 @@ def test_same_story_does_not_reopen_a_seen_story():
 def test_related_background_does_not_reopen_a_seen_story():
     story_id = _one_story_with_status("SEEN")
     _shortlist_pair()
-    story_identity.update(dry_run=False, semantic=False)
+    story_identity.update(now=_NOW, dry_run=False, semantic=False)
     story = story_store.story_by_id(story_store.read_store(), story_id)
     story_store.add_member(
         story,
@@ -626,7 +645,7 @@ def test_new_development_reopens_a_seen_story():
 def test_an_ignored_story_stays_ignored():
     story_id = _one_story_with_status("IGNORED")
     _seed([_item(source_id="monitor-b", title="Б", url="https://a.example/1")])
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     store = story_store.read_store()
     assert story_store.story_by_id(store, story_id)["status"] == "IGNORED"
     assert {i["status"] for i in inbox_store.read_items()} == {"IGNORED"}
@@ -651,7 +670,7 @@ def test_editor_split_persists_and_blocks_a_later_remerge():
             _item(source_id="monitor-b", title="Б", url="https://a.example/1"),
         ]
     )
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     story = story_store.read_stories()[0]
     other = [m for m in story["members"]][1]
     result = story_identity.split_item(story["story_id"], other["item_id"])
@@ -661,7 +680,7 @@ def test_editor_split_persists_and_blocks_a_later_remerge():
     assert store["overrides"][-1]["action"] == "SPLIT"
     assert story_store.is_editor_locked(store, other["item_id"]) is True
     # the split is not undone by a later incremental pass
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     assert len(story_store.read_stories()) == 2
 
 
@@ -677,7 +696,7 @@ def test_editor_merge_moves_members_and_records_an_override():
             ),
         ]
     )
-    story_identity.update(dry_run=False, semantic=False)
+    story_identity.update(now=_NOW, dry_run=False, semantic=False)
     store = story_store.read_store()
     target, source = store["stories"][0], store["stories"][1]
     result = story_identity.merge_stories(target["story_id"], source["story_id"])
@@ -695,7 +714,7 @@ def test_rebuild_refuses_to_discard_editor_corrections():
             _item(source_id="monitor-b", title="Б", url="https://a.example/1"),
         ]
     )
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     story = story_store.read_stories()[0]
     story_identity.split_item(story["story_id"], story["members"][1]["item_id"])
     before = len(story_store.read_stories())
@@ -714,7 +733,7 @@ def test_rebuild_preview_writes_nothing():
 
 def test_a_story_with_a_single_origin_cannot_be_split():
     _seed([_item(source_id="monitor-a", title="А", url="https://a.example/1")])
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     story = story_store.read_stories()[0]
     with pytest.raises(story_store.StoryStoreError):
         story_store.split_member(
@@ -744,7 +763,7 @@ def test_a_blocked_publisher_never_creates_a_story_but_its_row_survives():
             ),
         ]
     )
-    summary = story_identity.update(dry_run=False)
+    summary = story_identity.update(now=_NOW, dry_run=False)
     assert summary["blocked_publisher"] == 1
     assert len(story_store.read_stories()) == 1
     # the raw rows are untouched (audit) — only grouping is refused
@@ -786,7 +805,7 @@ def test_counts_separate_discoveries_publications_and_publishers():
             ),
         ]
     )
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     cards = story_identity.story_cards()["stories"]
     assert len(cards) == 1
     metrics = cards[0]["metrics"]
@@ -798,7 +817,7 @@ def test_counts_separate_discoveries_publications_and_publishers():
 
 def test_the_editor_list_never_exposes_internal_ids_as_text():
     _seed([_item(source_id="monitor-a", title="Заглавие", url="https://a.example/1")])
-    story_identity.update(dry_run=False)
+    story_identity.update(now=_NOW, dry_run=False)
     card = story_identity.story_cards()["stories"][0]
     assert card["title"] == "Заглавие"
     assert "confidence" not in card and "jaccard" not in card
