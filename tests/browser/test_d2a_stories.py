@@ -8,6 +8,8 @@ against the Python-served production bundle.
 
 from __future__ import annotations
 
+import re
+
 from .helpers import (
     STORY_FILTERS,
     assert_spa_shell,
@@ -47,15 +49,37 @@ def test_stories_list_renders_search_and_four_frozen_filters(page):
     search.wait_for(state="visible")
 
     filters = probe.page.get_by_role("navigation", name="Филтри за истории")
-    labels = [
-        filters.get_by_role("link").nth(index).inner_text().strip()
-        for index in range(filters.get_by_role("link").count())
-    ]
+    links = filters.get_by_role("link")
+
+    # The label and its count are separate nodes: `StoryListPage` renders the
+    # label as a bare text node and the count in a sibling <span>. Reading
+    # `inner_text()` on the link therefore returns "Всички\n5", and comparing
+    # that to STORY_FILTERS compared the concatenation of a label and a feature
+    # against a list of labels. The count is a real, separately-tested part of
+    # this control, so both are read from the nodes they actually live in
+    # rather than by stripping digits out of a string.
+    labels, counts = [], []
+    for index in range(links.count()):
+        link = links.nth(index)
+        labels.append(
+            link.evaluate(
+                "el => [...el.childNodes]"
+                ".filter(n => n.nodeType === Node.TEXT_NODE)"
+                ".map(n => n.textContent).join('').trim()"
+            )
+        )
+        spans = link.locator("span")
+        counts.append(spans.first.inner_text().strip() if spans.count() else "")
     assert tuple(labels) == STORY_FILTERS, f"unexpected Story filters: {labels}"
+    # Every frozen filter states how much it holds, so a count that silently
+    # stopped rendering would not be caught by the label assertion above.
+    assert all(count.isdigit() for count in counts), f"a filter lost its count: {counts}"
 
     # Every filter is a real link, so the state is in the URL.
     for label, value in zip(STORY_FILTERS, ("all", "followed", "developments", "ignored")):
-        filters.get_by_role("link", name=label, exact=True).click()
+        # `name=` matches the accessible name, which includes the count, so the
+        # label is anchored rather than exact.
+        filters.get_by_role("link", name=re.compile(f"^{label}")).click()
         probe.page.wait_for_load_state("load")
         if value == "all":
             assert "filter=" not in probe.page.url
