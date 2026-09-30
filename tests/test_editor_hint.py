@@ -149,41 +149,9 @@ def test_a_pasted_article_is_refused_not_treated_as_a_topic():
     assert "дълга" in str(long.value)
 
 
-def test_the_opened_pages_text_travels_with_the_result():
-    """A URL with no body is an empty lead, not material.
-
-    `run_search_operation` records only metadata for an opened candidate, so
-    the text has to be kept on the way past by the opener we supply. Without
-    this the module would return a perfectly verified link and nothing to
-    write from — which is the exact shape of the failure this feature exists
-    to prevent.
-    """
-    body = "ЦИК започна проверката на машините за изборите в цялата страница."
-    real = "https://cik.bg/news/2026/machines"
-    result = _run(
-        "проверка на машините за изборите",
-        results=[{"url": real, "title": "ЦИК", "snippet": "..."}],
-        opener=lambda url: {
-            "final_url": real,
-            "content_type": "text/html",
-            "bytes": len(body),
-            "text": body,
-        },
-    )
-    assert result.opened[0]["text"] == body
-    assert "ЦИК" in result.opened[0]["text"]
-
-
-# --- materialising into the real inbox -------------------------------------
-#
-# These write to a temp inbox with the real `inbox_store`, because the point
-# of the feature is that the output is an ORDINARY story. A fake store would
-# prove nothing about the one thing that matters here.
-
-
 def _result(url="https://cik.bg/news/2026/machines", title="ЦИК"):
     r = editor_hint.HintResult(hint="проверка на машините")
-    r.opened = [{"title": title, "url": url, "bytes": 4200, "content_type": "text/html", "text": "body"}]
+    r.opened = [{"title": title, "url": url, "bytes": 4200, "content_type": "text/html"}]
     return r
 
 
@@ -225,7 +193,7 @@ def test_a_discovery_only_snippet_never_reaches_the_summary(tmp_path):
     r = editor_hint.HintResult(hint="проверка на машините")
     r.opened = [{
         "title": "ЦИК", "url": "https://cik.bg/x", "bytes": 10,
-        "content_type": "text/html", "text": "b", "snippet": "ЦИК обяви много неща",
+        "content_type": "text/html", "snippet": "ЦИК обяви много неща",
     }]
     saved = editor_hint.materialise_hint_stories(r, inbox_path=tmp_path / "inbox.json")
     assert saved[0]["summary"] == ""
@@ -369,7 +337,6 @@ def test_a_blocked_publisher_is_never_written_as_material(tmp_path, monkeypatch)
             "url": "https://example.org/a",
             "bytes": 10,
             "content_type": "text/html",
-            "text": "b",
         }
     ]
     written = editor_hint.materialise_hint_stories(
@@ -408,7 +375,6 @@ def test_a_url_with_an_explicit_port_does_not_kill_the_hint(tmp_path, monkeypatc
             "url": "https://cik.bg:443/news",
             "bytes": 10,
             "content_type": "text/html",
-            "text": "b",
         }
     ]
     written = editor_hint.materialise_hint_stories(
@@ -439,7 +405,6 @@ def test_our_own_published_article_is_never_material(tmp_path, monkeypatch):
             "url": "https://chernomorie-bg.com/novini/статия-123",
             "bytes": 10,
             "content_type": "text/html",
-            "text": "b",
         }
     ]
     written = editor_hint.materialise_hint_stories(

@@ -247,29 +247,6 @@ def _clean_hint(raw: str) -> str:
     return text
 
 
-class _RecordingOpener:
-    """Wraps the fetcher so the opened page's TEXT is kept, not just its URL.
-
-    `run_search_operation` records only metadata for a candidate — url, bytes,
-    content type. That is enough to prove a page was OPENED, and useless for
-    writing: a Story with a URL and no body is an empty lead. Since we supply
-    the opener, we see the page on its way past, and keep the text so the
-    material that leaves this module is the real article rather than a link.
-    """
-
-    def __init__(self, inner):
-        self._inner = inner
-        self.pages: dict[str, dict] = {}
-
-    def __call__(self, url):
-        page = self._inner(url)
-        if isinstance(page, dict):
-            key = page.get("final_url") or url
-            self.pages[key] = page
-            self.pages.setdefault(url, page)
-        return page
-
-
 def run_hint_search(
     hint: str,
     *,
@@ -291,12 +268,11 @@ def run_hint_search(
     constraints = search_mod.make_constraints(
         description=f"материали по редакторска подсказка: {text}"
     )
-    recorder = _RecordingOpener(page_opener or web_fetch.fetch_page)
     operation = search_mod.run_search_operation(
         topic=text,
         constraints=constraints,
         provider=provider,
-        page_opener=recorder,
+        page_opener=page_opener,
         max_open=max_open,
         capability=capability,
         env=env,
@@ -311,15 +287,12 @@ def run_hint_search(
     for candidate in operation.get("candidates") or []:
         opened = candidate.get("opened") or {}
         if opened.get("status") == web_fetch.FETCH_OK:
-            final_url = opened.get("final_url") or candidate.get("url") or ""
-            page = recorder.pages.get(final_url) or recorder.pages.get(candidate.get("url")) or {}
             result.opened.append(
                 {
                     "title": candidate.get("title") or "",
-                    "url": final_url,
+                    "url": opened.get("final_url") or candidate.get("url") or "",
                     "bytes": opened.get("bytes") or 0,
                     "content_type": opened.get("content_type") or "",
-                    "text": page.get("text") or "",
                 }
             )
         else:
