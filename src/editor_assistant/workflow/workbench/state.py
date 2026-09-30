@@ -1265,24 +1265,63 @@ def promote_story_to_idea(
         if detail is None:
             raise WorkbenchError(f"unknown story_id: {story_id}")
         items = {i["item_id"]: i for i in inbox_store.read_items(inbox_path)}
+        # V1.2-G4.33. A collected Story's `summary` is the RSS SNIPPET, which
+        # `newsroom_run` labels DISCOVERY_ONLY and `search.py` forbids promoting
+        # into material. This bridge used to read it anyway, because the
+        # `candidate.get("body")` rung above it never matched: `inbox_store.FIELDS`
+        # has no `body` field at all, so the chain always fell through to
+        # `summary`. Measured through this code path, a single news.google.com
+        # item yielded `fact_count = 2` — two snippet sentences promoted to
+        # verbatim packet facts, with the wrapper URL as the packet's
+        # `source_url`. The dead first pass of the selector below was inert for
+        # the same reason, so "prefer a material long enough to carry facts"
+        # never preferred anything.
+        #
+        # Only two things are material: text the editor supplied (`full_text`),
+        # and a summary that is the publisher's OWN opened prose. A hint-created
+        # Story carries `source_kind == "editor-hint"` precisely because
+        # `editor_hint` opened the page and segmented it; everything else is a
+        # discovery-time snippet and is refused by name.
+        editor_text = full_text.strip()
         candidate = None
-        # Prefer a material long enough to carry facts, then any clean material.
-        for need_body in (True, False):
-            for entry in detail["timeline"]:
-                if entry.get("blocked_publisher"):
-                    continue
-                item = items.get(entry["item_id"]) or {}
-                url = str(item.get("url") or "")
-                if not url.startswith("http"):
-                    continue
-                if need_body and len((item.get("body") or "").strip()) < 200:
+        opened_item = None
+        for entry in detail["timeline"]:
+            if entry.get("blocked_publisher"):
+                continue
+            item = items.get(entry["item_id"]) or {}
+            url = str(item.get("url") or "")
+            if not url.startswith("http"):
+                continue
+            if item.get("source_kind") == "editor-hint":
+                # The page WAS opened. Yielding no prose is a different situation
+                # from never having opened it, so the item is kept as the record to
+                # report on rather than silently skipped.
+                opened_item = item
+                if not (item.get("summary") or "").strip():
                     continue
                 candidate = item
                 break
-            if candidate is not None:
-                break
+            if not editor_text:
+                continue
+            candidate = item
+            break
         if candidate is None:
-            raise WorkbenchError("историята няма подходящ незаблокиран материал за запис")
+            if editor_text or opened_item is not None:
+                # Fall through to the live builder so it refuses in its own terms
+                # ("facts must be a non-empty list"): the material is missing, not
+                # the provenance. A real url is carried through so the refusal is
+                # about the missing facts rather than a missing source.
+                candidate = opened_item or {
+                    "url": "",
+                    "title": detail["title"],
+                    "summary": "",
+                }
+            else:
+                raise WorkbenchError(
+                    "историята е събрана само от търсене: парчето не е отворена "
+                    "статия и не може да стане факт. Отворете страницата и "
+                    "промотирайте оттам."
+                )
         url = candidate["url"]
         source_type = "upstream_press_release"
         if "transcript" in url.lower():
@@ -1299,10 +1338,11 @@ def promote_story_to_idea(
             record = {
                 "url": url,
                 "headline": candidate.get("title") or "",
-                "body": full_text.strip()
-                or candidate.get("body")
-                or candidate.get("summary")
-                or "",
+                # No `candidate.get("body")` rung: `inbox_store.FIELDS` has no
+                # `body`, so it was always None and only ever fell through to
+                # the snippet. `editor_text` is the editor's own text, or an
+                # opened hint Story's segmented prose.
+                "body": editor_text or candidate.get("summary") or "",
                 "quotes": [],
             }
             evidence_id = f"{idea['idea_id']}-EVIDENCE"
