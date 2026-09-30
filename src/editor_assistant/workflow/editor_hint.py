@@ -122,13 +122,19 @@ def materialise_hint_stories(
 
     from editor_assistant.workflow import blocked_domains, inbox_store
 
-    # A blocked publisher is excluded BEFORE anything is written. Writing it and
-    # letting grouping skip it leaves a row in the inbox that is never assigned
-    # to a story: invisible forever, reported to the editor as material, and
-    # unremovable by any retry. Measured with `example.org` blocked — the row
-    # was stored, `story_id` came back empty, and the control would have said
-    # «записана като Story» with nothing to open. A search engine is exactly how
-    # a blocked domain gets found, so this path needs the check.
+    # Two classes of source are excluded BEFORE anything is written, because
+    # grouping will not save us later and the editor is told a lie either way:
+    #
+    #  * a publisher the newsroom has blocked — the row is stored, never
+    #    assigned, and reported as material forever (measured);
+    #  * our OWN published article — `new_idea` and the packet builder do
+    #    refuse it, but only at promotion time, long after the control has
+    #    told the editor "saved as a Story". Searching your own beat is
+    #    ordinary and our own site is frequently the top hit, so this is not
+    #    a corner case. Measured: a chernomorie-bg.com page came back with a
+    #    real story id and the editor was told it was usable material.
+    from editor_assistant.workflow import cases as cases_mod
+
     blocked = {
         blocked_domains.canonical_host(domain)
         for domain in blocked_domains.effective_domains()
@@ -146,7 +152,10 @@ def materialise_hint_stories(
         if blocked and host and blocked_domains.canonical_host(host) in blocked:
             # Kept on the result so the editor is told the real reason, rather
             # than seeing it silently absent from a list of three.
-            page["blocked"] = True
+            page["skipped"] = "blocked"
+            continue
+        if cases_mod.is_chernomorie_source(url):
+            page["skipped"] = "circular"
             continue
         items.append(
             {

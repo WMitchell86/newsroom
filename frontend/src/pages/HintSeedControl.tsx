@@ -140,15 +140,21 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
                 : " — търсенето не върна резултати."}
             </p>
           )}
-          {/* Defensive on purpose: this field was added after the report was
-              written, and `result.unopened.length` beside it had the same
-              assumption. A response that predates it — an older server, a
-              cached body — must not blank the whole report with a TypeError. */}
-          {(result.blocked ?? []).length > 0 ? (
-            <p data-testid="hint-seed-blocked">
-              Още {result.blocked.length} страници са от забранен за редакцията
-              издател и не са записани.
-            </p>
+          {/* Defensive on purpose: these fields were added after the report was
+              written, and the unguarded `.length` beside them had the same
+              shape. A response that predates one must not blank the whole
+              report with a TypeError. */}
+          {(result.skipped ?? []).length > 0 ? (
+            <ul className={styles.missingList} data-testid="hint-seed-skipped">
+              {result.skipped.map((page) => (
+                <li key={page.url}>
+                  {page.title || page.url} —{" "}
+                  {page.reason === "circular"
+                    ? "собствена публикувана статия, не е материал"
+                    : "издателът е забранен за редакцията"}
+                </li>
+              ))}
+            </ul>
           ) : null}
           {(result.unopened ?? []).length > 0 ? (
             <ul className="styles.missingList" data-testid="hint-seed-failures">

@@ -378,7 +378,7 @@ def test_a_blocked_publisher_is_never_written_as_material(tmp_path, monkeypatch)
     assert written == [], "a blocked publisher was written as material"
     assert inbox_store.read_items(newsroom / "inbox.jsonl") == []
     # ...and the page is named rather than dropped, so the editor can audit it.
-    assert result.opened[0].get("blocked") is True
+    assert result.opened[0].get("skipped") == "blocked"
 
 
 def test_a_url_with_an_explicit_port_does_not_kill_the_hint(tmp_path, monkeypatch):
@@ -417,3 +417,35 @@ def test_a_url_with_an_explicit_port_does_not_kill_the_hint(tmp_path, monkeypatc
     # cik.bg is not blocked, so the port must not have broken anything.
     assert len(written) == 1
     assert written[0]["url"] == "https://cik.bg:443/news"
+
+
+def test_our_own_published_article_is_never_material(tmp_path, monkeypatch):
+    """Circularity is refused everywhere else; the hint path had no guard.
+
+    `new_idea` and the packet builder both raise on a chernomorie-bg.com
+    source, so the policy exists — but it fires at promotion, long after the
+    control has told the editor the page was «записана като Story». Measured
+    before the fix: a chernomorie-bg.com URL came back with a real story id
+    and was reported as usable material. Searching your own beat is ordinary
+    and our own site is often the top hit, so this is not a corner case.
+    """
+    from editor_assistant.workflow import inbox_store
+
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+    result = editor_hint.HintResult(hint="статия за нашия сайт")
+    result.opened = [
+        {
+            "title": "Наша статия",
+            "url": "https://chernomorie-bg.com/novini/статия-123",
+            "bytes": 10,
+            "content_type": "text/html",
+            "text": "b",
+        }
+    ]
+    written = editor_hint.materialise_hint_stories(
+        result, inbox_path=inbox, stories_path=stories
+    )
+    assert written == [], "our own published article was accepted as material"
+    assert inbox_store.read_items(inbox) == []
+    # Named, with the reason the editor would need to act on.
+    assert result.opened[0].get("skipped") == "circular"

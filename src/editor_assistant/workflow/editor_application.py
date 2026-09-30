@@ -1345,13 +1345,13 @@ def seed_stories_from_hint(hint: str, *, provider=None, page_opener=None, max_op
         ],
         "openedCount": len(stories),
         "considered": result.considered,
-        # Pages that opened but whose publisher the newsroom blocks. They are
-        # named rather than dropped: silence would read as "found two" when
-        # three were seen, which is the kind of quiet the editor cannot audit.
-        "blocked": [
-            {"url": p.get("url") or "", "title": p.get("title") or ""}
+        # Pages that opened but were not kept, each with the real reason. One
+        # list rather than a growing set of flags: the editor can only act on
+        # a reason, and silence reads as "found two" when three were seen.
+        "skipped": [
+            {"url": p.get("url") or "", "title": p.get("title") or "", "reason": p.get("skipped") or ""}
             for p in result.opened
-            if p.get("blocked")
+            if p.get("skipped")
         ],
         # Real categories, so a timeout is visible as a timeout and never
         # softened into "such material does not exist".

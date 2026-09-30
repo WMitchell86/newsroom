@@ -50,7 +50,7 @@ describe("Започни от идея", () => {
       opened: [{ title: "ЦИК", url: "https://cik.bg/news/2026/machines", itemId: "i-1", storyId: "s-1" }],
       openedCount: 1,
       considered: 1,
-      blocked: [],
+      skipped: [],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "SEARCH_COMPLETE",
@@ -70,7 +70,7 @@ describe("Започни от идея", () => {
       opened: [],
       openedCount: 0,
       considered: 0,
-      blocked: [],
+      skipped: [],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "NO_RESULTS",
@@ -86,6 +86,30 @@ describe("Започни от идея", () => {
     expect(screen.queryByTestId("hint-seed-error")).toBeNull();
   });
 
+  it("names a page that is our own published article, not just blocked ones", async () => {
+    const user = userEvent.setup();
+    seedStoriesFromHint.mockResolvedValue({
+      hint: "нашата тема",
+      opened: [],
+      openedCount: 0,
+      considered: 1,
+      skipped: [
+        { url: "https://chernomorie-bg.com/novini/x", title: "Наша статия", reason: "circular" },
+      ],
+      unopened: [],
+      providerChain: ["tinyfish"],
+      searchStatus: "SEARCH_COMPLETE",
+    });
+    renderWithProviders(<HintSeedControl />);
+    await user.click(screen.getByTestId("hint-seed-open"));
+    await user.type(screen.getByLabelText(/темата/i), "нашата тема");
+    await user.click(screen.getByTestId("hint-seed-run"));
+    // Circularity and blocking need different reactions, so the reason is
+    // shown rather than lumping them under one silent omission.
+    const skipped = await screen.findByTestId("hint-seed-skipped");
+    expect(skipped).toHaveTextContent("собствена публикувана статия");
+  });
+
   it("names a page that opened but whose publisher is blocked", async () => {
     const user = userEvent.setup();
     seedStoriesFromHint.mockResolvedValue({
@@ -93,7 +117,7 @@ describe("Започни от идея", () => {
       opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
       openedCount: 1,
       considered: 2,
-      blocked: [{ url: "https://flagman.bg/x", title: "Флагман" }],
+      skipped: [{ url: "https://flagman.bg/x", title: "Флагман", reason: "blocked" }],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "SEARCH_COMPLETE",
@@ -103,7 +127,7 @@ describe("Започни от идея", () => {
     await user.type(screen.getByLabelText(/темата/i), "проверка на машините");
     await user.click(screen.getByTestId("hint-seed-run"));
     // Silently dropping it would read as "found one" when two were seen.
-    expect(await screen.findByTestId("hint-seed-blocked")).toHaveTextContent("забранен");
+    expect(await screen.findByTestId("hint-seed-skipped")).toHaveTextContent("забранен");
   });
 
   it("names a page that would not open with its own category", async () => {
@@ -137,7 +161,7 @@ describe("Започни от идея", () => {
       opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
       openedCount: 1,
       considered: 1,
-      blocked: [],
+      skipped: [],
       unopened: [],
       providerChain: ["tinyfish"],
       searchStatus: "SEARCH_COMPLETE",

@@ -301,8 +301,21 @@ class AutosaveNotConfirmedError extends Error {
                   no sixth destination to the frozen rail. It is a secondary
                   action for the whole time: §29 allows at most ONE emphasised
                   forward action, and starting a new topic is not the forward
-                  motion of the Article already open. */}
-              <HintSeedControl onSeeded={() => void queryClient.invalidateQueries({ queryKey: ["stories"] })} />
+                  motion of the Article already open.
+
+                  Both list projections are invalidated, not just the Stories
+                  list. A hint creates a Story, and Today is a projection over
+                  the same store — invalidating only `["stories"]` left the
+                  editor returning to a desk that did not yet contain the
+                  topic they had just named. Both scopes are cleared, because
+                  `queryKeys.today` is keyed by scope and an unknown current
+                  scope must not be left stale behind a guess. */}
+              <HintSeedControl
+                onSeeded={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["stories"] });
+                  void queryClient.invalidateQueries({ queryKey: ["today"] });
+                }}
+              />
               {/* V1.2-G4.3: a Draft is DIRECTLY editable. The old «Редактирай»
                   toggle added a step between the editor and their own text on a
                   page that already autosaves, already negotiates a version, and

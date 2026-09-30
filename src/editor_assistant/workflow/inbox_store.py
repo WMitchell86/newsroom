@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 
 from editor_assistant.workflow import live_store
@@ -154,18 +155,53 @@ def save_items(items, path=None):
     return normalized
 
 
+#: Per-path locks for `add_items`, and the lock that guards the registry.
+_LOCK_REGISTRY_LOCK = threading.Lock()
+_MUTATION_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _lock_for(key: str) -> threading.RLock:
+    """One reentrant lock per inbox path.
+
+    Per-path rather than one global lock so a test store and the live store
+    never block each other. The registry itself is guarded, because two
+    threads racing to create the first lock for a path could each return a
+    different one and defeat the whole point. The registry is keyed by path and
+    this process opens a handful of them, so it is not expected to grow.
+    """
+    with _LOCK_REGISTRY_LOCK:
+        lock = _MUTATION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _MUTATION_LOCKS[key] = lock
+        return lock
+
+
 def add_items(items, path=None):
-    """Add candidate items. An already-known `item_id` is a duplicate, not an error."""
-    existing = {item["item_id"]: item for item in read_items(path)}
-    added, duplicates = [], []
-    for raw in items:
-        item = validate_item(raw)
-        if item["item_id"] in existing:
-            duplicates.append(item["item_id"])
-            continue
-        existing[item["item_id"]] = item
-        added.append(item)
-    save_items(list(existing.values()), path)
+    """Add candidate items. An already-known `item_id` is a duplicate, not an error.
+
+    The read-modify-write below is serialised for the whole store. The
+    workbench serves on a `ThreadingHTTPServer`, and two writers interleaving
+    between `read_items` and `save_items` would each write a file derived from
+    the same stale snapshot — one silently discarding the other's rows. The
+    window is wide: the whole file is re-serialised, not appended to.
+
+    The lock is per-path, so unrelated stores still proceed in parallel, and it
+    is module-local in the same shape the other store writers in this codebase
+    already use.
+    """
+    key = str(path or inbox_path())
+    with _lock_for(key):
+        existing = {item["item_id"]: item for item in read_items(path)}
+        added, duplicates = [], []
+        for raw in items:
+            item = validate_item(raw)
+            if item["item_id"] in existing:
+                duplicates.append(item["item_id"])
+                continue
+            existing[item["item_id"]] = item
+            added.append(item)
+        save_items(list(existing.values()), path)
     return {"new": len(added), "duplicate": len(duplicates), "items": added}
 
 

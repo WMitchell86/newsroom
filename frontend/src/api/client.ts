@@ -168,8 +168,12 @@ export interface HintSeedResult {
   opened: { title: string; url: string; itemId: string; storyId: string }[];
   openedCount: number;
   considered: number;
-  /** Opened fine, but the newsroom blocks that publisher. */
-  blocked: { url: string; title: string }[];
+  /**
+   * Opened fine, but not kept — the publisher is blocked, or it is our own
+   * published article. Each entry carries which, because the two need
+   * different reactions from the editor.
+   */
+  skipped: { url: string; title: string; reason: "blocked" | "circular" | "" }[];
   unopened: { url: string; status: string; detail: string }[];
   providerChain: string[];
   searchStatus: string;
