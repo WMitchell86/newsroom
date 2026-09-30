@@ -1,18 +1,24 @@
-# Code review prompt — round 4
+# Code review prompt — round 5
 
 Copy everything below into a fresh agent with the repository at `/home/test/media`.
 Give it read access to the working tree. Do **not** give it any earlier round's
 report; tell it only what is true of the code now.
 
-Three rounds have run. Round 1 found the critical snippet leak and one wrong
-verdict. Round 2 found three residual routes in the same function plus a critical
-rule-6 failure, and refuted my slowness hypothesis with a sever experiment. Round
-3 verified the function complete, corrected a sequencing claim of mine, and rated
-one open issue as a larger defect than the other.
+Four rounds have run, and round 4 is the one that changed the shape of the job.
+Rounds 1-2 found real defects. Round 3 verified and corrected. Round 4 stopped
+finding defects and started finding the **cost of my fixes** — and every one of
+its four findings was correct, including one where I had written a test pinning a
+bug as intended behaviour.
 
-**Everything below is fixed and measured.** The point of this prompt is no longer
-to find what is broken — it is to find what my fixes broke, and what I have
-stopped seeing because I am close to it.
+**Everything below is fixed and measured.** Round 5's question is the same one
+round 4 answered well: what has this work cost, and what have I stopped seeing
+because I am close to it?
+
+One standing note before you start: three of the four things round 4 found were
+things I had already written down as "handled" or "by design". Round 4's own
+disagreement with me was a sentence I had overstated. Treat every claim in this
+file — including the ones about what is fixed — as a claim to check, not a
+premise to accept.
 
 ---
 
@@ -45,34 +51,53 @@ is a stronger claim). Both files are clean for the first time this session.
 that a refusal test was paying for. No production timeout was shortened. The
 coverage that fix removed is restored in `a952d69`.
 
-### The question round 4 is actually for
+### The question round 5 is actually for
 
-Not "what is broken" — **what did my fixes break, and what have I stopped seeing?**
+Not "what is broken" — **what has this work cost, and what have I stopped seeing
+because I am close to it?** Round 4 answered that question well and all four of
+its findings were correct. The places below are where I have already been
+wrong, so they are where I am most likely to be wrong again.
 
-Specifically, these are the places where a fix of mine may have created a problem
-or removed a property, and I have not looked at any of them:
+**Fixed since round 4 (`1e651d1`, `b4532aa`, `6e1fd3f`):**
 
-1. **`_news_lookup` has no SSRF guard and no seam** (`publication_material.py:271`).
-   It is a raw `urlopen` to a constant host that bypasses `web_fetch`, so unlike
-   every other outbound edge it is unguarded. Round 3 judged the constant host to
-   make the exposure narrow but rated the missing guard the **larger** defect. I
-   have left it, and the conftest fixture now means no test exercises it at all.
-2. **`publication_urls` does not refilter what it merges.** It trusts that each
-   lookup filtered its own results. Found by a test I wrote asserting the
-   opposite; the failure was the finding. Pinned as expected behaviour in
-   `a952d69` — so a future source added without a filter can smuggle a social
-   wrapper in. Is that the right contract, or should the merge enforce it?
-3. **The conftest fixture substitutes two seams in EVERY test.** That is a
-   global behavioural override. What does it now prevent a test from noticing —
-   beyond the two functions it stubs?
-4. **`source_type = "opened_publication"` and `workbench://story/<id>`** are new
-   values in fields with existing consumers. `labels.py` was fixed after it
-   already broke; what else reads those fields by enumeration or substring?
-5. **Nothing asserts `SOURCE_TYPE_LABELS` is complete.** That gap is how point 4
-   happened. The fix needs a decision about which values are legal, which is an
-   operator's, so I did not make it unilaterally.
+- **Three more unlabelled `source_type` values**, found by scanning the operator's
+  own `ideas.jsonl` rather than by reading code: `story_research_basis`,
+  `municipality_press`, `organizer_and_ticket_platform`, plus a fourth producer
+  `chernomorie_archive`. All four were rendering raw in «Статии». Now labelled,
+  with `test_source_type_labels.py` walking every producer in `src/` and asserting
+  coverage — a COVERAGE check, not a legality check, because the legal set is an
+  operator's decision.
+- **The merge now refilters.** `publication_urls` filters its union with
+  `is_readable_publication`. I had written a test pinning the opposite as "by
+  design" in `a952d69`; that pin was wrong and it is now flipped, with the
+  reasoning recorded.
+- **`_news_lookup` is bounded**: capped read, DTD refused, explicit
+  `urllib.parse` import, and six direct tests for a function that had none.
 
----
+**Open, and genuinely undecided:**
+
+1. **`_news_lookup` still has no `web_fetch` guard.** It is a raw `urlopen` to a
+   constant host, bypassing the DNS-rebinding pin every other outbound edge has.
+   I bounded the read and refused entity expansion; I did **not** add the guard,
+   because routing this through `web_fetch` is a larger change to a function the
+   Draft path depends on and deserves its own review. Round 4 agreed the constant
+   host makes the SSRF exposure narrow. Is it still worth doing, and is the
+   one-line-guard version adequate, or does it need the full `web_fetch` route?
+2. **`needs_angle_review` matches `"transcript"` anywhere in a URL.** Measured:
+   `https://example.bg/transcriptome-study` fires it. Fail-closed, so harmless in
+   effect, but a biology article should not need a council gate. Round 4 called
+   this a pre-existing pattern that my `workbench://` change gives one more
+   producer. Worth tightening, or is substring matching deliberate?
+3. **A `source_type` allow-list in `ideas.validate_idea`.** Round 4 and I both
+   reached this and both stopped: it needs a decision about which types are legal,
+   and that is not ours to take unilaterally. It is the strict version of what
+   `test_source_type_labels.py` now does loosely. What would you propose, and is
+   the strict version worth the coupling?
+4. **The `SOURCE:` line reaches the model prompt verbatim** (`drafting/prompt.py:176`),
+   and it can now be `workbench://story/<id>`. Whether the model cites it back is
+   **unverified** — round 4 said so and I have not run it. Worth running?
+5. **`Source: workbench://` was never checked end to end.** Four reviews in, the
+   editor-facing rendering is verified and the prompt line is not.
 
 ## 1. What this is
 
@@ -336,6 +361,17 @@ Recording these because a prompt that only lists successes teaches the wrong les
    grepping for my own new string afterwards** — `source_type =
    "opened_publication"` had no entry in `SOURCE_TYPE_LABELS`. I had written the
    prediction into the review prompt, which is not the same as having checked it.
+   It was worse than predicted: three more values were already broken in the
+   operator's own store and I found them only when round 4 read the store.
+8. **I found a real gap and pinned it as intended behaviour.** `publication_urls`
+   not refiltering its merge was a genuine smuggling hazard; I wrote a test
+   asserting that was "by design" and moved on. A test that pins a discovered gap
+   as correct is worse than no test: it stops the next person fixing it and
+   records the bug as a decision. Round 4 caught it; I did not.
+9. **My own speed fix disabled the tests for the code it made fast.** The conftest
+   fixture that removed 391s substitutes `_keyless_lookup` and `_news_lookup` in
+   EVERY test, so the first two tests I wrote against those functions exercised
+   the stub and passed vacuously. I did not notice for two test runs.
 
 The through-line: **every one of these was caught by measuring, by grepping, or by
 being contradicted — never by reasoning harder up front.** In cases 1 and 7 the
