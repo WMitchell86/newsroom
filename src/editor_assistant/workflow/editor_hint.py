@@ -93,6 +93,56 @@ def _clean_title(raw: str, fallback: str) -> str:
     return text[:TITLE_MAX_CHARS]
 
 
+#: A Story must carry a body or it can never become a Draft. Measured: with an
+#: empty `summary`, `promote_story_to_idea` refused every hint-created Story
+#: with "facts must be a non-empty list", while a collected Story — which
+#: carries a snippet — promoted fine. The whole feature was a lead the editor
+#: could open and not write from.
+#:
+#: The generic extractor already existed and I failed to find it. Having
+#: concluded it did not, I blamed the site-specific `style/extract.py` — which
+#: is an extractor for this newsroom's own `entry-content` markup and raises
+#: ArticleParseError on a real external page. `sources/html_desc.normalize_blocks`
+#: is the segmentation research already uses, and on a live fetch it returned
+#: 5,525 characters of real PROSE from cik.bg and 2,113 from burgas.bg.
+SUMMARY_MAX_CHARS = 2000
+
+#: Below this a page yielded navigation, a cookie notice or an error page, and
+#: promoting a Story on one of those produces a Draft built on chrome.
+MIN_BODY_CHARS = 200
+
+
+def _opened_summary(html: str) -> str:
+    """The publisher's own prose, read off the page we actually opened.
+
+    This is the step that makes the pipeline whole. A snippet is
+    DISCOVERY_ONLY and must never be promoted to material, so the honest
+    alternative was an empty summary — and an empty summary makes the Story
+    unpromotable. Reading the page is the only way to have both.
+
+    Returns "" rather than a guess. A page that yields no real prose stays a
+    lead the editor can see, which is the truthful state, and promotion then
+    refuses it with a reason the editor can act on.
+    """
+    if not html:
+        return ""
+    from editor_assistant.sources import html_desc
+
+    try:
+        blocks = html_desc.normalize_blocks(html)
+    except Exception:  # noqa: BLE001 - a page we cannot segment is a page we do not quote
+        return ""
+    prose = " ".join(
+        str(block.get("text") or "").strip()
+        for block in blocks
+        if block.get("kind") == html_desc.PROSE and str(block.get("text") or "").strip()
+    )
+    prose = " ".join(prose.split())
+    if len(prose) < MIN_BODY_CHARS:
+        return ""
+    return prose[:SUMMARY_MAX_CHARS]
+
+
 def materialise_hint_stories(
     result: HintResult,
     *,
@@ -129,14 +179,15 @@ def materialise_hint_stories(
       above an official source. Authority is earned by registration, exactly
       as the sources registry already decides it.
 
-    `summary` is left empty on purpose. The only text this path holds for a
-    candidate is the provider snippet, which `search.py` marks DISCOVERY_ONLY;
-    writing it into the lead's summary would move a discovery-only string into
-    a field every other reader treats as collected material. The real article
-    body is re-opened downstream, so nothing is actually lost by leaving it out.
+    `summary` carries the PUBLISHER'S OWN WORDS, segmented off the page this
+    call opened, and never the provider snippet. The snippet is DISCOVERY_ONLY
+    and promoting it to material is exactly the move `search.py` forbids; the
+    page was opened anyway, so the real text is available and there is no
+    reason to launder the snippet into a Story. Without it the Story is
+    unpromotable — see `_opened_summary`.
 
     No body is written: the inbox record has no body field at all (verified
-    against `inbox_store.FIELDS`), and the drafting path re-opens the page.
+    against `inbox_store.FIELDS`), and `summary` is what promotion reads.
     """
     if not result.usable:
         return []
@@ -189,7 +240,7 @@ def materialise_hint_stories(
                 "event_at": "",
                 "event_end_at": "",
                 "discovered_at": discovered,
-                "summary": "",
+                "summary": _opened_summary(page.get("html") or ""),
                 "source_kind": "editor-hint",
                 "priority": "normal",
                 "publisher_domain": urlsplit(url).netloc,
@@ -269,6 +320,32 @@ def _clean_hint(raw: str) -> str:
     return text
 
 
+class _OpenedPageRecorder:
+    """Keeps the HTML of each page that opened, keyed by its final URL.
+
+    `run_search_operation` records only metadata for a candidate. We supply the
+    opener, so we see the page on its way past. The key is the FINAL url
+    because that is what the record is built against — a redirect would
+    otherwise leave the capture under a name nothing looks up.
+
+    Removed once as dead weight, and that was true then: nothing read it. It
+    reads it now. The mistake was removing it as "unused" rather than asking
+    what the Story would have to carry to be promotable at all.
+    """
+
+    def __init__(self) -> None:
+        self.html: dict[str, str] = {}
+
+    def wrap(self, inner):
+        def opener(url):
+            page = inner(url)
+            if isinstance(page, dict) and page.get("text"):
+                self.html[page.get("final_url") or url] = page["text"]
+            return page
+
+        return opener
+
+
 def run_hint_search(
     hint: str,
     *,
@@ -290,11 +367,12 @@ def run_hint_search(
     constraints = search_mod.make_constraints(
         description=f"материали по редакторска подсказка: {text}"
     )
+    recorder = _OpenedPageRecorder()
     operation = search_mod.run_search_operation(
         topic=text,
         constraints=constraints,
         provider=provider,
-        page_opener=page_opener,
+        page_opener=recorder.wrap(page_opener or web_fetch.fetch_page),
         max_open=max_open,
         capability=capability,
         env=env,
@@ -315,6 +393,9 @@ def run_hint_search(
                     "url": opened.get("final_url") or candidate.get("url") or "",
                     "bytes": opened.get("bytes") or 0,
                     "content_type": opened.get("content_type") or "",
+                    "html": recorder.html.get(
+                        opened.get("final_url") or candidate.get("url") or "", ""
+                    ),
                 }
             )
         else:
