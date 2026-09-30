@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from editor_assistant.drafting import generate as gen
+from editor_assistant.drafting import model_router
 from editor_assistant.workflow import (
     article_draft_failure,
     article_generation,
@@ -177,7 +178,31 @@ def break_provider(monkeypatch, error: Exception | None = None) -> list[str]:
         return working(prompt_text, api_key=api_key, timeout=timeout, role=role, **kwargs)
 
     monkeypatch.setattr(gen, "_call_gemini", call)
+
+    # V1.2-G4.34. `call_role` takes a `sleep` seam (model_router.py:595) and uses
+    # it for its retry backoff, `sleep(min(2**attempt, 5))` at :910. This test
+    # fails the draft role ON PURPOSE, so the router correctly backs off between
+    # attempts — 1s, then 2s, then 4s — and the file measured 89s for 15 tests.
+    #
+    # Measured, not assumed: faulthandler caught a `story-research-` daemon thread
+    # at `model_router.py:910`, which is that sleep line and no other.
+    #
+    # The backoff is a real product number and is deliberately NOT changed. The
+    # seam exists so a test that is about the REFUSAL does not also pay for the
+    # router's pacing.
+    monkeypatch.setattr(model_router, "call_role", _call_role_without_sleep())
     return entered
+
+
+def _call_role_without_sleep():
+    """`call_role` with a zero-wait `sleep`, every other decision untouched."""
+    original = model_router.call_role
+
+    def call_role(role, prompt, **kwargs):
+        kwargs.setdefault("sleep", lambda _seconds: None)
+        return original(role, prompt, **kwargs)
+
+    return call_role
 
 
 def run_draft(article_id: str, key: str) -> dict:
