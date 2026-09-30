@@ -1,73 +1,76 @@
-# Code review prompt — round 2
+# Code review prompt — round 4
 
 Copy everything below into a fresh agent with the repository at `/home/test/media`.
-Give it read access to the working tree. Do **not** give it round 1's report; tell
-it only what is true of the code now.
+Give it read access to the working tree. Do **not** give it any earlier round's
+report; tell it only what is true of the code now.
 
-Round 1 produced one critical finding, one wrong verdict, and one thing neither of
-us closed. This prompt reflects all three, so round 2 spends its effort where it is
-still unspent.
+Three rounds have run. Round 1 found the critical snippet leak and one wrong
+verdict. Round 2 found three residual routes in the same function plus a critical
+rule-6 failure, and refuted my slowness hypothesis with a sever experiment. Round
+3 verified the function complete, corrected a sequencing claim of mine, and rated
+one open issue as a larger defect than the other.
+
+**Everything below is fixed and measured.** The point of this prompt is no longer
+to find what is broken — it is to find what my fixes broke, and what I have
+stopped seeing because I am close to it.
 
 ---
 
 ## 0. State at the time you read this
 
-Round 2's findings have been **acted on and measured**. Do not re-report these.
+Everything below is **fixed and measured**. Do not re-report any of it.
 
-**F4 — CRITICAL, rule 6, FIXED in `593039a`.** `build_packet` refused only for
-`not facts and opened`. With neither, it built a packet with `source_url = ""` and
-`facts = []`, so `validate_packet` raised a raw `EvidenceError` — not a
-`DraftRefused` — which escaped `generate()` into `_run_draft_generation`'s
-catch-all and recorded `reason_code = PROVIDER_UNAVAILABLE`. A Story with nothing
-to read was told the provider was down, and the projection then offered EDIT.
-Reachable precisely because waiving `DRAFT_FROM_UNREAD_SOURCE` is correct; the
-branch for "that one read returned nothing" was missing. Now classified
-`NO_DRAFT_MATERIAL`, which is already absent from `QUALIFYING_REFUSALS`.
+**The snippet leak and its three residuals — all closed.** Round 1 found a Google
+News snippet becoming packet facts via `promote_story_to_idea`; round 2 found the
+body fix was insufficient and that a wrapper URL and the same snippet still
+reached `source_url` and `what_changed`; round 3 enumerated the function and
+confirmed **no fifth route**, and that `workbench://story/<id>` is safe in every
+consumer (`_safe_href` is http(s)-only so it renders as text; `needs_angle_review`
+returns False; `_transcript_trust` falls through; the frontend has zero
+`source_type` consumers).
 
-**F1 — FIXED in `c4e1324`.** A collected item is no longer the provenance carrier
-at all. With editor text and no opened page, the packet is attributed to
-`workbench://story/<id>`. `source_type` is now `opened_publication`, not
-`upstream_press_release`.
+**F4, critical, rule 6 — fixed in `593039a`.** With neither a fact nor an opened
+page, `build_packet` produced an empty `source_url`, `validate_packet` raised a
+raw `EvidenceError` instead of a `DraftRefused`, and `_run_draft_generation`'s
+catch-all recorded `PROVIDER_UNAVAILABLE` — a Story with nothing to read telling
+the editor the provider was down.
 
-**F2 — FIXED in `c4e1324`.** Same commit; that was the last false claim in the
-function.
+**Two stale tests — fixed canonically, no patching.** `04b8374` (the refusal test
+that patched a flag the command never reads) and `193ce21` (a parity matrix that
+asserted a refusal §A deliberately abolished — it now asserts the *waiver*, which
+is a stronger claim). Both files are clean for the first time this session.
 
-**F3 — FIXED in `796cab5`.** The promote form now carries a `full_text` textarea
-and `http.py:800` passes it, so the control can succeed rather than only refuse.
+**The suite was spending 8 minutes testing nothing — now 0.3s.** `593039a` and
+`11fe96c`: the publication-URL resolver cascade, and the router's retry backoff
+that a refusal test was paying for. No production timeout was shortened. The
+coverage that fix removed is restored in `a952d69`.
 
-**§5.2a's slowness — FIXED in `593039a` and `11fe96c`.** Your sever experiment was
-right and my hypothesis was wrong. `test_draft_readiness_parity.py`:
-**391.54s → 0.32s**. `test_manual_continuation.py`: **88.94s → 0.96s**. Same
-failures either way, so the time was never testing anything. No production
-timeout was shortened.
+### The question round 4 is actually for
 
-**The coverage that fix removed — RESTORED in `a952d69`.** You pointed out the
-conftest fixture left the resolver cascade with no exercise at all. That is now
-`tests/test_publication_url_resolution.py`: the real function, canned lookups, no
-network. Writing it surfaced a real contract — **`publication_urls` does not
-refilter what it merges**, it trusts that each lookup filtered its own results. My
-first version of that test asserted the opposite and failed; the failure was the
-finding. It is now pinned as expected behaviour with a comment naming the trap,
-because "fixing" it by adding a filter would change which candidates a source may
-contribute.
+Not "what is broken" — **what did my fixes break, and what have I stopped seeing?**
 
-**§5.2, the stale refusal test — CLOSED in `04b8374`.** Arranged canonically, real
-command, no snapshot patching. `test_manual_continuation.py` is 15 passed / 0
-failed for the first time this session.
+Specifically, these are the places where a fix of mine may have created a problem
+or removed a property, and I have not looked at any of them:
 
-**§5.1 — CLOSED.** Round 3 enumerated the function and found no fifth route, and
-confirmed `workbench://story/<id>` is safe in every consumer.
-
-### What I got wrong, for the record
-
-I patched `_try_route` in `test_manual_continuation.py` when the helper actually
-wrapped `call_role`. Ruff caught it as `F821` before the run. I also wrote an
-`if detail and (... or True)` condition that was a no-op pretending to be a
-guard, and shipped a line of malformed Bulgarian in the same commit; I caught
-both by reading the diff back and rewrote them. Neither reached a commit.
-
-The through-line from all of it: **every one of these was caught by measuring or
-reading back, not by reasoning harder up front.**
+1. **`_news_lookup` has no SSRF guard and no seam** (`publication_material.py:271`).
+   It is a raw `urlopen` to a constant host that bypasses `web_fetch`, so unlike
+   every other outbound edge it is unguarded. Round 3 judged the constant host to
+   make the exposure narrow but rated the missing guard the **larger** defect. I
+   have left it, and the conftest fixture now means no test exercises it at all.
+2. **`publication_urls` does not refilter what it merges.** It trusts that each
+   lookup filtered its own results. Found by a test I wrote asserting the
+   opposite; the failure was the finding. Pinned as expected behaviour in
+   `a952d69` — so a future source added without a filter can smuggle a social
+   wrapper in. Is that the right contract, or should the merge enforce it?
+3. **The conftest fixture substitutes two seams in EVERY test.** That is a
+   global behavioural override. What does it now prevent a test from noticing —
+   beyond the two functions it stubs?
+4. **`source_type = "opened_publication"` and `workbench://story/<id>`** are new
+   values in fields with existing consumers. `labels.py` was fixed after it
+   already broke; what else reads those fields by enumeration or substring?
+5. **Nothing asserts `SOURCE_TYPE_LABELS` is complete.** That gap is how point 4
+   happened. The fix needs a decision about which values are legal, which is an
+   operator's, so I did not make it unilaterally.
 
 ---
 
@@ -124,7 +127,7 @@ something, **mark it unverified** — an unmarked guess is worse than no finding
 
 ---
 
-## 3. What round 2 must NOT re-litigate
+## 3. What must NOT be re-litigate
 
 **Fixed in `fdbe938` — the critical one.** `promote_story_to_idea` read `summary`
 unconditionally, because the `candidate.get("body")` rung above it never matched:
@@ -149,7 +152,7 @@ verdict (27/32 corpus URLs, ~85%).
 
 ---
 
-## 4. One round-1 verdict was WRONG — do not inherit it
+## 4. One early verdict was WRONG — do not inherit it
 
 Round 1 concluded the prose fallback was "unreachable dead code". **It is reachable.**
 Measured:
@@ -170,47 +173,19 @@ code" to "delete a reachable defect". **Measure before you classify.**
 
 ## 5. Open items
 
-### 5.1 CLOSED — verified complete by round 3
+### 5.1 and 5.2 — CLOSED, verified
 
-Round 3 enumerated every discovery-time value in `promote_story_to_idea` and found
-**no fifth route**, and confirmed `workbench://story/<id>` is safe downstream
-(`_safe_href` allow-lists http(s) only, so it renders as text, never a link;
-`needs_angle_review` returns False for it; `_transcript_trust` correctly falls
-through; frontend has zero `source_type` consumers). The label gap I predicted
-in `d909a37` was real and is fixed. I accept all of it.
+Both are recorded in §0 with their commits. The stored-damage question below is
+the only part of 5.1 that is not code, and it needs a person.
 
-Nothing here is open. The one thing that is, and is deliberately not code:
+**Stored damage, operator decision.** Measured twice, most recently by round 3:
+`var/editorial_workflow/live_evidence.jsonl` has 3 rows with a news.google.com
+wrapper `source_url` (1 fact each), and `ideas.jsonl` has 61 rows with no
+`workbench://` and only pre-fix `source_type` values. Zero hits in `cases.jsonl`
+and `live_drafts.jsonl`, so nothing ever consumed them. Per rule 9: annotate,
+quarantine, or leave — and say what you decided and why.
 
-- **Stored damage, operator decision.** Measured again by round 3: 3 rows in
-  `var/editorial_workflow/live_evidence.jsonl` carry a news.google.com wrapper
-  `source_url` (1 fact each), and `ideas.jsonl` has 61 rows with no `workbench://`
-  and only pre-fix `source_type` values. Zero hits in `cases.jsonl` /
-  `live_drafts.jsonl`, so nothing consumed them. Per rule 9 this is annotate,
-  quarantine, or leave — and it needs a person, not a diff.
-
-### 5.2 CLOSED — repaired canonically in `04b8374`
-
-Round 3's precondition ("do §5.2 after §5.1 is verified") was what unblocked it.
-The test is now arranged through the REAL research store and the REAL inbox, the
-way `test_article_draft_command.py:557` arranges the same state, and the real
-`start_article_draft` runs. No `_draft_snapshot` patching anywhere.
-
-`test_manual_continuation.py`: **15 passed, 0 failed** — the first clean run of
-that file in the session. It is faster too, 0.90s, so it is cheap to re-verify.
-
-Two things worth carrying into round 4 rather than treating as closed:
-
-- **The seam's row count is asserted (`> 0`).** A seam that matched nothing would
-  leave the Story readable, §A's waiver would fire, and the test would assert a
-  refusal the product deliberately does not make — a green test for a false
-  reason. That is the exact failure mode I hit twice. Worth checking whether other
-  tests arrange state with an unasserted seam.
-- **Round 3 corrected my sequencing note and I accepted it:** the F4 fix did NOT
-  move this test's expected value, because F4 lives in `build_packet` (post-gate)
-  while this refusal is decided at the readiness gate (pre-gate). I told round 3
-  the opposite. The repair was not affected, but the reasoning was wrong.
-
-### 5.2a RESOLVED — but the numbers are worth checking
+### 5.2a The slowness — RESOLVED, but the coverage question is open
 
 Round 2 refuted my hypothesis with a sever experiment and was right twice. Both
 slowdowns are fixed, by substituting the transport rather than shortening any
@@ -303,23 +278,24 @@ effect instantly.
 
 ## 7. What I want back
 
-1. **§5.1 — is the snippet fix complete?** This is the one that matters. Enumerate
-   every remaining route by which a discovery-time value can reach a fact, a packet
-   field, or an editor-visible claim, and say plainly whether the function is clean.
-2. **§5.2** — the correct shape of that test, and whether the marker invariant it was
-   protecting still holds.
-3. Anything violating rules 6, 1 or 3, with the exact line and the exact failure.
+1. **§0 points 1-3.** The missing SSRF guard, the merge-does-not-refilter
+   contract, and what the global conftest override now hides. These are the three
+   places a fix of mine may have cost something.
+2. **§0 points 4-5.** Every remaining consumer of `source_type` and
+   `source_url` reached by enumeration or substring, and the shape of the
+   completeness assertion that would have caught the one I already shipped broken.
+3. **Anything violating rules 6, 1 or 3**, with the exact line and the exact failure.
 4. Whether the store guard should stay as-is or become schedule-aware (§5.3).
 5. Everything else, marked confirmed or suspected.
 
 For each finding: file and line, what is wrong, the concrete input or sequence that
 makes it fail, and what you ran. If you ran nothing, say that.
 
-One standing request: **if you disagree with something above, say so and show the
-measurement.** Round 1's one wrong verdict was worth more than its confirmations,
-because it is the only part that changed what I did.
-
----
+**A standing request, and it is the reason three rounds were worth running:** if you
+disagree with something above, say so and show the measurement. Round 1's one wrong
+verdict changed what I did. Round 3's one correction was accepted and saved me
+repeating a mistake. I would rather be corrected than agreed with, and so should
+the next person to read this file.
 
 ## 8. What I got wrong today, so you do not inherit it
 
@@ -331,6 +307,9 @@ Recording these because a prompt that only lists successes teaches the wrong les
    substitutes as the baseline and the leak survived. The comment I wrote above
    the code described exactly this hazard; I then wrote the hazard. The capture is
    eager now.
+1b. **A later script-based patch of `test_manual_continuation.py` produced 203
+   ruff errors** — I used a string-replacing script on a source file again. Caught
+   by ruff immediately, reverted, redone by hand.
 
 2. **My first "baseline" measurement was invalid.** The tree was already clean, so
    `git stash push` silently created nothing and the run measured my own changes
@@ -349,7 +328,17 @@ Recording these because a prompt that only lists successes teaches the wrong les
    for the wrong reason. A test that passes for the wrong reason is worse than a red
    one: it removes the signal without adding the safety.
 
-The through-line: **every one of these was caught by measuring rather than by
-reading**, and in case 1 the measurement came *after* I was confident. Confidence is
-not evidence, and "I already verified that" is the most expensive sentence in this
-repository.
+6. **I claimed the F4 fix changed what the stale test should expect.** Round 3
+   corrected it: F4 lives in `build_packet` (post-gate) and the refusal is decided
+   at the readiness gate (pre-gate), so it did not move the expected value at all.
+   I had reasoned about the failure instead of tracing the two paths.
+7. **I shipped a fix I had predicted would break a consumer, and only noticed by
+   grepping for my own new string afterwards** — `source_type =
+   "opened_publication"` had no entry in `SOURCE_TYPE_LABELS`. I had written the
+   prediction into the review prompt, which is not the same as having checked it.
+
+The through-line: **every one of these was caught by measuring, by grepping, or by
+being contradicted — never by reasoning harder up front.** In cases 1 and 7 the
+measurement and the grep both came *after* I was confident. "I already verified
+that" is the most expensive sentence in this repository, and I have now said it
+wrongly enough times for that to be a real warning rather than a slogan.
