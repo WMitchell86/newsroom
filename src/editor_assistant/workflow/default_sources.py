@@ -102,7 +102,27 @@ CORE = (
         "source_id": "google-news-burgas-region",
         "name": "Бургаски регион (наблюдение)",
         "kind": "aggregator",
-        "query": "Бургас OR Поморие OR Несебър OR Созопол OR Царево OR Приморско",
+        # V1.2-G4.30. This named six of the district's thirteen municipalities.
+        # The other seven were invisible to the SAFETY NET — the query whose
+        # own note says it exists to "открива покритие извън фиксирания
+        # списък", while a large part of the district was not in it.
+        #
+        # Four of the seven (Айтос, Карнобат, Несебър, Поморие, Приморско,
+        # Созопол, Царево, Бургас) have a dedicated Община source, so they
+        # were collected anyway. These five have NEITHER a dedicated source
+        # NOR a place here, and the corpus agrees: Средет and Сунгураре occur
+        # zero times as standalone words, and Руен four.
+        #
+        # That is 5 of 13 — 38% of the district, structurally unreachable by
+        # the layer that gathers. Fixed in the DESK three commits ago
+        # (regional_scope) and missed here, where the collection actually
+        # happens. A story the editor can now see on the desk but the newsroom
+        # cannot collect is a half-fix.
+        "query": (
+            "Бургас OR Поморие OR Несебър OR Созопол OR Царево OR Приморско"
+            " OR Камено OR Карнобат OR Руен OR Средет OR Сунгураре OR Айтос"
+            ' OR "Малко Търново"'
+        ),
         "priority": "high",
         "factual_authority": False,
         "note": "Само за наблюдение: открива покритие извън фиксирания списък.",
