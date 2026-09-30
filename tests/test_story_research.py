@@ -1,3 +1,10 @@
+# V1.2-G4.22. The fixture asked "Кога?" and answered "Съобщението е на 25
+# септември" — one generic word meeting another. `_GENERIC_NEWS_WORDS`
+# deliberately neutralises съобщение as vocabulary that can occur in any two
+# unrelated stories, so the two shared no identifying anchor and the filter
+# correctly kept nothing. That is the feature working. The fixture was
+# leaning on a word the precision repair in 6a095c3 had deliberately
+# neutralised. The question now carries a real anchor the answer contains.
 """Focused B4A Story-owned research backend tests (V1.1-A evidence bootstrap)."""
 
 from __future__ import annotations
@@ -14,7 +21,7 @@ def _row():
         "story_id": "s-one",
         "sources": [{"id": "src_old", "name": "Old", "url": "https://old.test/a"}],
         "facts": [],
-        "gaps": [{"id": "gap_q", "question": "Кога?", "blocking": True}],
+        "gaps": [{"id": "gap_q", "question": "Кога изтича срокът за кандидатурите?", "blocking": True}],
         "assessed_at": "2026-09-25T08:00:00Z",
         "research_rounds": 0,
         "operation_ids": [],
@@ -70,23 +77,23 @@ def test_executor_uses_opened_source_and_claim_provenance(tmp_path):
             "final_url": "https://official.test/a",
             "content_type": "text/html",
             "bytes": 20,
-            "text": "Кога започва официалното съобщение? Съобщението е на 25 септември 2026 г.",
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
         },
         "https://second.test/b": {
             "final_url": "https://second.test/b",
             "content_type": "text/html",
             "bytes": 20,
-            "text": "Кога започва официалното съобщение? Съобщението е на 25 септември 2026 г.",
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
         },
     }
     row = story_research.execute_story_research(
         "s-one",
-        topic="Съвет",
+        topic="Срок за кандидатурите изтича през септември",
         canonical_story={"story_id": "s-one"},
         authority_resolver=dict,
         readiness_result={
             "status": "RESEARCH_MORE",
-            "sufficiency": {"research_questions": ["Кога?"]},
+            "sufficiency": {"research_questions": ["Кога изтича срокът за кандидатурите?"]},
         },
         root=root,
         provider=_Provider(),
@@ -104,10 +111,10 @@ def test_executor_uses_opened_source_and_claim_provenance(tmp_path):
     )
     again = story_research.execute_story_research(
         "s-one",
-        topic="Съвет",
+        topic="Срок за кандидатурите изтича през септември",
         readiness_result={
             "status": "RESEARCH_MORE",
-            "sufficiency": {"research_questions": ["Кога?"]},
+            "sufficiency": {"research_questions": ["Кога изтича срокът за кандидатурите?"]},
         },
         root=root,
         provider=_Provider(),
@@ -177,7 +184,7 @@ def test_failed_open_does_not_mutate_story_basis(tmp_path):
             topic="x",
             readiness_result={
                 "status": "RESEARCH_MORE",
-                "sufficiency": {"research_questions": ["Кога?"]},
+                "sufficiency": {"research_questions": ["Кога изтича срокът за кандидатурите?"]},
             },
             root=root,
             canonical_story={"story_id": "s-one"},
@@ -191,7 +198,7 @@ def test_failed_open_does_not_mutate_story_basis(tmp_path):
 
 def test_bootstrap_questions_come_from_story_context():
     questions = story_research.bootstrap_research_questions(
-        title="Тест история", items=[{"item_id": "i1"}]
+        title="Срок за кандидатурите изтича през септември", items=[{"item_id": "i1"}]
     )
     assert 1 <= len(questions) <= 6
     assert any("отворен" in question for question in questions)
@@ -204,24 +211,24 @@ def test_first_research_round_starts_without_preexisting_gaps(tmp_path):
             "final_url": "https://official.test/a",
             "content_type": "text/html",
             "bytes": 20,
-            "text": "Кога започва официалното съобщение? Съобщението е на 25 септември 2026 г.",
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
         },
         "https://second.test/b": {
             "final_url": "https://second.test/b",
             "content_type": "text/html",
             "bytes": 20,
-            "text": "Кога започва официалното съобщение? Съобщението е на 25 септември 2026 г.",
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
         },
     }
     row = story_research.execute_story_research(
         "s-boot",
-        topic="Тест история",
+        topic="Срок за кандидатурите изтича през септември",
         canonical_story={"story_id": "s-boot"},
         root=root,
         provider=_Provider(),
         page_opener=pages.__getitem__,
         authority_resolver=lambda domain=None: {"kind": "media", "factual_authority": True},
-        story_title="Тест история",
+        story_title="Срок за кандидатурите изтича през септември",
         story_items=[{"item_id": "i1"}],
         now="2026-09-25T09:00:00Z",
     )
@@ -239,12 +246,12 @@ def test_insufficient_evidence_persists_assessed_gap(tmp_path):
 
     row = story_research.execute_story_research(
         "s-empty-proof",
-        topic="Тест история",
+        topic="Срок за кандидатурите изтича през септември",
         canonical_story={"story_id": "s-empty-proof"},
         root=root,
         provider=EmptyProvider(),
         page_opener=lambda _url: {},
-        story_title="Тест история",
+        story_title="Срок за кандидатурите изтича през септември",
         story_items=[{"item_id": "i1"}],
         now="2026-09-25T09:00:00Z",
     )
@@ -289,12 +296,12 @@ def test_provider_failure_before_assessment_writes_nothing(tmp_path, monkeypatch
     with pytest.raises(story_research.StoryResearchError):
         story_research.execute_story_research(
             "s-fail",
-            topic="Тест история",
+            topic="Срок за кандидатурите изтича през септември",
             canonical_story={"story_id": "s-fail"},
             root=root,
             provider=_Provider(),
             page_opener=lambda _url: (_ for _ in ()).throw(AssertionError("no fetch")),
-            story_title="Тест история",
+            story_title="Срок за кандидатурите изтича през септември",
             story_items=[{"item_id": "i1"}],
             now="2026-09-25T09:00:00Z",
         )
