@@ -68,12 +68,38 @@ REGIONAL_LOCALITY_STEMS = (
     "черноморец",
     "ахтопол",
     "лозенец",
+    # V1.2-G4.27. Four of the district's thirteen municipalities were missing
+    # entirely: Камено, Малко Търново, Средет, Сунгураре. A regional newsroom
+    # that drops 4 of 13 municipalities is not regional — a fire in Камено or a
+    # council decision in Сунгураре was being filtered OFF the regional desk by
+    # the very rule that exists to make it regional. Measured: 9/13 covered.
+    "средет",
+    "сунгураре",
 )
+
+# Two of those four needed a sharper pattern than a bare stem, and both were
+# caught by probing for false positives before the change was finished. Both
+# stemmed from adding a municipality that is a PREFIX of something common:
+#
+#   "търново"  -> "Велико Търново" is a different city, and "Търново офис
+#                 затвори счетоводство" is a national story. The Burgas
+#                 municipality is МАЛКО Търново, so the whole phrase is matched
+#                 and the bare stem is never used.
+#   "камено"   -> "Каменол" is a medicine, and it binds at a word start. A
+#                 word-end anchor keeps the municipality and drops the drug.
+#
+# Entries here are REGEX FRAGMENTS, not display names. The tuple above is what
+# is shown; this is what binds.
+_REGIONAL_LOCALITY_PATTERNS = (*REGIONAL_LOCALITY_STEMS, r"малко\s+търново", r"камено\b")
 
 #: Pre-compiled once. A stem matches at a word start, so `бург` binds to
 #: `Бургас` but can never bind to an unrelated suffix inside a longer word.
+#:
+#: Built from the PATTERN tuple, not the display stems, because two
+#: municipalities need something sharper than a prefix — see
+#: `_REGIONAL_LOCALITY_PATTERNS`.
 _LOCALITY_RX = re.compile(
-    r"(?<![\w-])(?:" + "|".join(REGIONAL_LOCALITY_STEMS) + r")",
+    r"(?<![\w-])(?:" + "|".join(_REGIONAL_LOCALITY_PATTERNS) + r")",
     re.IGNORECASE | re.UNICODE,
 )
 
