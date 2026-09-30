@@ -70,3 +70,33 @@ def test_the_four_new_ones_work_inside_a_sentence():
         "Малко Търново празнува през уикенда",
     ):
         assert rs.mentions_region(story), story
+
+
+# --- caught by re-probing, after the first version looked finished ----------
+
+def test_the_definite_form_of_a_two_word_municipality_counts():
+    """Bulgarian writes «Малкото Търново» routinely.
+
+    Measured before the fix: the definite form did not match, so a story
+    headlined «Малкото Търново празнува 100 години» was filtered OFF the
+    regional desk by the rule that makes the desk regional. The four new
+    municipalities were added and the first verification only checked that the
+    four now MATCH — which passed, because the probes used the indefinite
+    form. Re-probing is what found it.
+    """
+    for form in ("Малко Търново празнува", "Малкото Търново празнува", "с. Малко Търново"):
+        assert rs.mentions_region(form), form
+
+
+def test_the_reported_vocabulary_is_not_shorter_than_the_rule():
+    """A public function that reports less than the rule uses is worse than none.
+
+    `regional_localities()` returned the bare stems, which no longer described
+    what is matched: a two-word municipality and a word-end-anchored one are
+    both in the patterns and neither was in the list. A settings screen built
+    on it would show fewer municipalities than the desk recognises.
+    """
+    reported = rs.regional_localities()
+    for name in ("малко търново", "камено"):
+        assert name in reported, name
+    assert len(reported) >= 17

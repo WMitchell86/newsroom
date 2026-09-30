@@ -90,7 +90,16 @@ REGIONAL_LOCALITY_STEMS = (
 #
 # Entries here are REGEX FRAGMENTS, not display names. The tuple above is what
 # is shown; this is what binds.
-_REGIONAL_LOCALITY_PATTERNS = (*REGIONAL_LOCALITY_STEMS, r"малко\s+търново", r"камено\b")
+_REGIONAL_LOCALITY_PATTERNS = (
+    *REGIONAL_LOCALITY_STEMS,
+    # `(?:то)?` because Bulgarian writes the definite form routinely and a
+    # story headlined «Малкото Търново празнува» is exactly as local as one
+    # headlined «Малко Търново празнува». Measured before the fix: the
+    # definite form did not match, so that story was filtered OFF the
+    # regional desk by the rule that makes it regional.
+    r"малко(?:то)?\s+търново",
+    r"камено\b",
+)
 
 #: Pre-compiled once. A stem matches at a word start, so `бург` binds to
 #: `Бургас` but can never bind to an unrelated suffix inside a longer word.
@@ -105,8 +114,23 @@ _LOCALITY_RX = re.compile(
 
 
 def regional_localities() -> tuple[str, ...]:
-    """The closed locality vocabulary, for the settings/report surface."""
-    return REGIONAL_LOCALITY_STEMS
+    """The locality vocabulary, for the settings/report surface.
+
+    V1.2-G4.27. This returned the bare stems, which had stopped describing
+    what the rule actually recognises: the matching patterns include a
+    two-word municipality and a word-end-anchored one, and neither appears in
+    the stem list. A public function that reports a shorter vocabulary than
+    the rule uses is worse than none — a settings screen built on it would
+    show four municipalities fewer than the desk recognises.
+
+    Nothing calls it today, which is its own answer about how much it is
+    trusted. It is kept because it is a public name, and it now derives from
+    the same tuple the regex is built from, so the two cannot drift again.
+    """
+    return tuple(REGIONAL_LOCALITY_STEMS) + (
+        "малко търново",
+        "камено",
+    )
 
 
 def is_local_source(source_id: str, registry_rows) -> bool:
