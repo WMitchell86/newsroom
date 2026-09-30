@@ -222,3 +222,56 @@ def _no_automatic_draft_enrichment(monkeypatch) -> Iterator[None]:
     """
     monkeypatch.setenv("NEWSROOM_DRAFT_ENRICHMENT", "off")
     yield
+
+
+# ----------------------------------------------------------------------
+# Shared test seam: make a Story's own publication unreadable.
+#
+# V1.2-G4.32. This existed as two functions of the same name in two files, and
+# they did NOT do the same thing:
+#
+#   test_manual_continuation  took an UNUSED `story_id`, resolved the path
+#                             through `app._paths()`, and rewrote only rows
+#                             whose source_item_id is "origin" or whose url
+#                             mentions "vestnik".
+#   test_article_draft_command took a `root`, and rewrote EVERY row.
+#
+# One name, one intent, two behaviours — so a reader who saw the helper in one
+# file and assumed the other did the same would be wrong, and one of them
+# reached further than it looked. The comment in the copy even claimed "same
+# seam and same reason as the helper in test_manual_continuation.py".
+#
+# Why the seam exists at all: since V1.2-G4.3 §A a Story whose publication CAN
+# be read is always worth a Draft — the command reads that page on the way
+# there — so "never opened" no longer makes a refusal reachable. A test that
+# means to exercise a REFUSAL has to arrange something genuinely unreadable.
+#
+# The matcher is the CALLER's, because the two suites genuinely select
+# different rows. A shared helper that guessed was tried and broke five tests,
+# which is how this ended up parameterised rather than narrowed.
+
+
+@pytest.fixture
+def unreadable_publication():
+    """Call as `unreadable_publication(matcher, path)`; returns the rows changed.
+
+    A fixture rather than a shared module function because a test module cannot
+    `import conftest` — that was measured, not assumed. Returns the number of
+    rows rewritten so a test can assert the arrangement actually happened,
+    rather than discovering later that it silently matched nothing.
+    """
+
+    def _apply(matcher, inbox_path):
+        from editor_assistant.workflow import inbox_store
+
+        items = inbox_store.read_items(inbox_path)
+        changed = 0
+        for row in items:
+            if matcher(row):
+                row["url"] = "https://www.facebook.com/somepage/posts/1"
+                changed += 1
+        if changed:
+            inbox_store.save_items(items, inbox_path)
+        return changed
+
+    return _apply

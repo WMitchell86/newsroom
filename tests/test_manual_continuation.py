@@ -208,7 +208,9 @@ def _cases() -> list[dict]:
 # ------------------------------------------------- the recovery path is earned
 
 
-def test_a_fresh_eligible_preparation_article_offers_no_manual_continuation(eligible):
+def test_a_fresh_eligible_preparation_article_offers_no_manual_continuation(
+    eligible, unreadable_publication
+):
     """§22 — the permanent lock on the intended behavior.
 
     Focus confirmed, fully eligible, no previous generation failure. The editor
@@ -229,27 +231,16 @@ def test_a_fresh_eligible_preparation_article_offers_no_manual_continuation(elig
     assert articles.get_editor_article(article_id)["draft_generation_failure"] is None
 
 
-def _make_publication_unreadable(story_id: str) -> None:
-    """Point the Story's Publications at a URL that is not worth a bounded read.
-
-    V1.2-G4.3 §A: an unassessed Story is DRAFT_ELIGIBLE whenever its own
-    publication could be read, because the command reads it on the way to the
-    Draft. To reach the `STORY_UNASSESSED` refusal at all, the fixture has to
-    have nothing readable — so this replaces the member URL with a social
-    wrapper, which `publication_material.is_readable_publication` refuses for
-    exactly the reason a wrapper is never evidence.
-    """
-    # The application's own resolver, so this can only ever touch the fixture's
-    # store and never the real `var/newsroom`.
-    path = app._paths()["inbox"]
-    items = inbox_store.read_items(path)
-    for row in items:
-        if row.get("source_item_id") == "origin" or "vestnik" in str(row.get("url") or ""):
-            row["url"] = "https://www.facebook.com/somepage/posts/1"
-    inbox_store.save_items(items, path)
+#: This file's row selector. The seam itself lives in conftest, because it
+#: existed here AND in test_article_draft_command under the same name while
+#: doing different things: this one rewrote only the rows matching the rule
+#: below, the other rewrote every row. The two suites genuinely select
+#: different rows, so the shared implementation takes a predicate.
+def _this_file_rows(row) -> bool:
+    return row.get("source_item_id") == "origin" or "vestnik" in str(row.get("url") or "")
 
 
-def _degrade_to(reason: str, article_id: str) -> None:
+def _degrade_to(reason: str, article_id: str, unreadable_publication) -> None:
     """Put the canonical Story basis into one specific ineligible state.
 
     Each state is produced through the real research store, never by patching a
@@ -278,7 +269,7 @@ def _degrade_to(reason: str, article_id: str) -> None:
         # only reachable when there is nothing to read either, and the fixture
         # is arranged to be exactly that. Without this the test would be
         # asserting a refusal the product has deliberately stopped making.
-        _make_publication_unreadable("s-one")
+        unreadable_publication(_this_file_rows, app._paths()["inbox"])
         return
     if reason == "NO_DRAFT_MATERIAL":
         # V1.2-G4.1 §B6: assessed, but there is genuinely nothing to write from.
@@ -314,7 +305,9 @@ def _degrade_to(reason: str, article_id: str) -> None:
         # is produced with no editor-written Focus.
     ],
 )
-def test_a_readiness_refusal_never_records_a_failure_marker(eligible, reason, working_model):
+def test_a_readiness_refusal_never_records_a_failure_marker(
+    eligible, reason, working_model, unreadable_publication
+):
     """§23 — a preflight refusal is not a generation failure.
 
     Each state is arranged canonically, the Draft command is invoked for real,
@@ -328,8 +321,8 @@ def test_a_readiness_refusal_never_records_a_failure_marker(eligible, reason, wo
     # the Draft — that is the entire point of the automatic gathering. So the
     # precondition is arranged once, for all three states, instead of each
     # branch having to remember it.
-    _make_publication_unreadable("s-one")
-    _degrade_to(reason, article_id)
+    unreadable_publication(_this_file_rows, app._paths()["inbox"])
+    _degrade_to(reason, article_id, unreadable_publication)
     before = app.read_article(article_id)
     assert before["preparation"]["draftReadiness"]["code"] == reason
 
@@ -377,7 +370,7 @@ def test_a_fact_without_an_opened_source_never_records_a_failure_marker(
         snapshot["sources"] = []
         return snapshot
 
-    monkeypatch.setattr(app, "_draft_snapshot", without_open_source)
+monkeypatch.setattr(app, "_draft_snapshot", without_open_source)
     try:
         assert (
             article_readiness.evaluate(without_open_source(article_id)).reason_code

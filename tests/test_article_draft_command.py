@@ -54,20 +54,6 @@ HEADLINE = "Съветът одобри графика за ремонта"
 # not pretend it has material" — so the fix is to arrange the precondition
 # rather than to weaken the assertion. Changing what they expect would have
 # deleted the guarantee; this keeps it and makes it reachable.
-def _make_publication_unreadable(root) -> None:
-    """Point the Story's Publications at a social wrapper, which is never evidence.
-
-    Same seam and same reason as the helper in `test_manual_continuation.py`.
-    """
-    from editor_assistant.workflow import inbox_store
-
-    path = root / "inbox.jsonl"
-    items = inbox_store.read_items(path)
-    for row in items:
-        row["url"] = "https://www.facebook.com/news-search/videos/-%D1%86%D0%B8%D0%BA"
-    inbox_store.save_items(items, path)
-
-
 def _item(item_id: str, title: str, *, summary: str = "Обобщение"):
     return {
         "item_id": item_id,
@@ -415,13 +401,13 @@ def test_a_second_request_with_the_same_key_returns_the_same_operation(newsroom,
 # ------------------------------------------------------ the backend is authority
 
 
-def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, model):
+def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, unreadable_publication, model):
     """A valid key is not enough: the server's own action list decides.
 
     V1.1-B: an unconfirmed Focus is its own semantic reason
     (`FOCUS_NOT_CONFIRMED`), no longer folded into a generic invalid transition.
     """
-    _make_publication_unreadable(newsroom)
+    unreadable_publication(lambda row: True, newsroom / "inbox.jsonl")
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -442,7 +428,7 @@ def test_draft_is_refused_unless_the_backend_offers_make_draft(newsroom, model):
     assert model == [], "a refused command must not reach the model"
 
 
-def test_a_blocking_gap_alone_no_longer_refuses_but_no_material_does(newsroom, model):
+def test_a_blocking_gap_alone_no_longer_refuses_but_no_material_does(newsroom, unreadable_publication, model):
     """V1.2-G4.1 §B6 — the one real Draft blocker is the absence of material.
 
     A fresh Article on a Story that has no opened page at all is refused under
@@ -451,7 +437,7 @@ def test_a_blocking_gap_alone_no_longer_refuses_but_no_material_does(newsroom, m
     distinction the owner cares about is "nothing to write from", not "some
     question is unanswered".
     """
-    _make_publication_unreadable(newsroom)
+    unreadable_publication(lambda row: True, newsroom / "inbox.jsonl")
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -537,13 +523,13 @@ def test_a_blocking_gap_with_usable_facts_now_allows_the_draft(newsroom, prepare
     assert model, "the generation actually ran"
 
 
-def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
+def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, unreadable_publication, model):
     """V1.1-B §3: no evidence yet means `STORY_UNASSESSED`, not "no facts".
 
     Before V1.1-B this state was reported as a blocking gap, which told the
     editor to research a Story for a gap that did not exist.
     """
-    _make_publication_unreadable(newsroom)
+    unreadable_publication(lambda row: True, newsroom / "inbox.jsonl")
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
@@ -568,7 +554,7 @@ def test_an_unassessed_story_is_its_own_reason_not_a_fake_gap(newsroom, model):
     assert model == []
 
 
-def test_facts_without_an_opened_source_are_not_draft_material(newsroom, prepared, model):
+def test_facts_without_an_opened_source_are_not_draft_material(newsroom, unreadable_publication, prepared, model):
     """V1.2-G4.1 §B4: a fact whose source was never opened licenses nothing.
 
     The canonical research store refuses a source with an empty URL, so this
@@ -578,7 +564,7 @@ def test_facts_without_an_opened_source_are_not_draft_material(newsroom, prepare
     separate `NO_OPEN_SOURCE` code, and §B6 collapses it into the single honest
     "nothing to write from" refusal.
     """
-    _make_publication_unreadable(newsroom)
+    unreadable_publication(lambda row: True, newsroom / "inbox.jsonl")
     snapshot = app._draft_snapshot(prepared["article_id"])
     # A fact whose source carries no URL: the fact exists, the source does not
     # reach generation.
@@ -606,7 +592,7 @@ def test_facts_without_an_opened_source_are_not_draft_material(newsroom, prepare
     assert model == []
 
 
-def test_without_any_opened_material_the_command_names_that_one_reason(newsroom, model):
+def test_without_any_opened_material_the_command_names_that_one_reason(newsroom, unreadable_publication, model):
     """An assessed Story with no opened page at all is `NO_DRAFT_MATERIAL`.
 
     V1.2-G4.1 §B6: one refusal, one sentence. The old four-way split
@@ -615,7 +601,7 @@ def test_without_any_opened_material_the_command_names_that_one_reason(newsroom,
     forbids the false clean state `assessed + 0 facts + 0 gaps`, so the honest
     form here carries a non-blocking gap and still has no material.
     """
-    _make_publication_unreadable(newsroom)
+    unreadable_publication(lambda row: True, newsroom / "inbox.jsonl")
     article = articles.create_editor_article(
         story_id="s-one",
         stories_path=newsroom / "stories.json",
