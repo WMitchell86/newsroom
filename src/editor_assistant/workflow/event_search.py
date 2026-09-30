@@ -351,10 +351,23 @@ def event_queries(
 
     # A missing dimension sharpens an existing query rather than inventing a new
     # one, so the ladder never grows a tier the anchors cannot justify.
-    for dimension in list(missing_dimensions or [])[:1]:
-        cue = str(dimension).replace("_", " ").strip()
-        if cue and queries:
-            push(f"{queries[0]} {cue}")
+    #
+    # V1.2-G4.25. What gets appended is the INTENT's searchable terms, not the
+    # question. Measured: this used to push the question itself, handing a
+    # search engine «Какво точно се променя.» — an interrogative nobody writes,
+    # which matches nothing and costs the round a query. The question is now
+    # consumed as a signal: its kind decides which terms to search for, and
+    # whether the answer is expected on an authority's own site.
+    from editor_assistant.workflow import research_intent
+
+    intents = research_intent.classify_all(missing_dimensions)
+    if intents and queries:
+        intent = intents[0]
+        terms = " ".join(intent.terms[:2])
+        rung = f"{queries[0]} {terms}".strip()
+        if intent.prefers_authority and official:
+            rung = f'{subject} site:{official} {terms}'.strip()
+        push(rung)
 
     return queries[: max(1, int(limit))]
 
