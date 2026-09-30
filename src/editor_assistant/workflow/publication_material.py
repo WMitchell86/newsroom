@@ -379,8 +379,16 @@ def read_publication(url: str, *, topic: str = "", opener=None) -> dict | None:
     if not page_is_about(text, topic):
         return None
     blocks = html_desc.normalize_blocks(text)
-    if not blocks and text.strip():
-        blocks = ({"kind": html_desc.PROSE, "text": text},)
+    # V1.2-G4.33. The `if not blocks and text.strip():` rung that used to sit
+    # here is REMOVED, for the same reason and with the same measurement as the
+    # one removed in `story_research.py`: `normalize_blocks` returns an empty list
+    # for a page whose only content is <script>/<style> while `text` is still
+    # non-empty, so the rung was reachable and could hand raw script and CSS to
+    # the claim selector as though it were publisher prose.
+    #
+    # Keeping the two sites identical matters. They are the same call on the same
+    # bytes, so they must not be allowed to drift into disagreeing about what
+    # counts as a block.
     sentences = claim_quality.SENTENCE_SPLIT.split(text)
     claims = claim_quality.select_candidate_claims(
         sentences,

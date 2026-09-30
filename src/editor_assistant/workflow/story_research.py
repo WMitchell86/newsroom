@@ -669,8 +669,15 @@ def execute_story_research(
         # A plain-text page (no markup) segments as a single PROSE block, so the
         # historical behaviour is preserved for it.
         blocks = html_desc.normalize_blocks(text)
-        if not blocks and text.strip():
-            blocks = ({"kind": html_desc.PROSE, "text": text},)
+        # V1.2-G4.33. The `if not blocks and text.strip():` rung that used to sit
+        # here is REMOVED. It manufactured a PROSE block out of whatever
+        # `normalize_blocks` declined to classify, and it was reachable: measured,
+        # a page whose only content is <script>/<style> yields an EMPTY block list
+        # while `text` is non-empty. So raw script and CSS could become a PROSE
+        # block, which is exactly the "publisher prose" this module is supposed to
+        # be reading. Nothing is lost: a plain-text page already segments as a
+        # single PROSE block without it, and a page with no usable prose should
+        # produce no candidates rather than a fabricated one.
         # §9/§10/§11/§12: a small, ordered candidate set instead of the first
         # matching sentence. Navigation chrome and non-propositional text are
         # rejected here, before anything can be promoted, and each surviving
