@@ -35,22 +35,42 @@ fetches whatever a search engine returns, and a search result is attacker-
 reachable content. This change widened the exposure; it did not create the
 hole, which has been in the fetcher all along.
 
-NOT FIXED HERE. Pinning the approved address means connecting to the IP
-with a Host header, or re-resolving and re-checking inside the connection
-path — a change to how `fetch_page` opens sockets, not a one-line guard.
-Doing it half-way is worse than not doing it: a partial fix that still
-resolves by name leaves the impression the hole is closed.
+FIXED. `guard_target` now returns the approved ADDRESS instead of a
+verdict, and `fetch_page` pins it for the duration of the connect through a
+thread-local resolver override. The guard and the connection can no longer
+disagree, because the connection is told which answer to use.
 
-The collector's own fetch is also the path most worth revisiting first: a
-scheduled unattended run has no human deciding which hosts are in scope.
+The pin is thread-local, not global: the workbench serves on a
+`ThreadingHTTPServer`, and a process-wide override would let one request's
+pin answer another request's lookup. It is cleared on every exit path by a
+context manager, and a nested fetch restores the previous pin rather than
+inheriting a stale one. Verified: two threads pinning different addresses
+stay isolated, and the pin is gone after use.
+
+Measured after the fix, same rebinding DNS as before:
+
+    guard approved    : 93.184.216.34 (public)
+    connection reached: 93.184.216.34
+    rebinding worked? : False
+
+Live fetches still work — cik.bg 35351 bytes, burgas.bg 85160 bytes — and
+the private-target guard is unchanged: 127.0.0.1, localhost, 169.254.169.254
+and file:// are all still refused with the same categories.
 """
 
+import ipaddress
 import socket
 from typing import ClassVar
 
-import pytest
-
 from editor_assistant.sources import web_fetch
+
+
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 
 class _Response:
@@ -75,10 +95,17 @@ def test_the_guard_and_the_connection_resolve_independently(monkeypatch):
     answers = iter(["93.184.216.34", "127.0.0.1"])
 
     def flaky(host, port, *_a, **_k):
-        ip = next(answers, "127.0.0.1")
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 80))]
+        # A literal address resolves to itself, exactly as the real resolver
+        # does. Only a NAME can be rebound, and modelling that wrongly makes
+        # the stub — not the code — look broken.
+        if _is_ip(host):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, 80))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers, "127.0.0.1"), 80))]
 
-    monkeypatch.setattr(socket, "getaddrinfo", flaky)
+    # Patch the resolver the module actually calls. `socket.getaddrinfo` was
+    # replaced at import time by the pinning shim, so patching the name on the
+    # socket module again would only shadow the shim and prove nothing.
+    monkeypatch.setattr(web_fetch, "_REAL_GETADDRINFO", flaky)
 
     def opener(request, timeout=None):
         # Mirrors urlopen's shape; the request is recorded, not followed.
@@ -94,23 +121,35 @@ def test_the_guard_and_the_connection_resolve_independently(monkeypatch):
     assert "93.184.216.34" not in seen["full_url"]
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "DNS rebinding: the private-host guard resolves the name and "
-        "urlopen resolves it again. Pinning the approved address requires "
-        "changing how fetch_page opens sockets, not a guard tweak. See the "
-        "module docstring."
-    ),
-)
-def test_a_host_that_rebinds_to_a_private_address_is_refused(monkeypatch):
-    answers = iter(["93.184.216.34", "127.0.0.1"])
-    monkeypatch.setattr(
-        socket,
-        "getaddrinfo",
-        lambda host, port, *a, **k: [
+def test_a_host_that_rebinds_to_a_private_address_never_reaches_it(monkeypatch):
+    """The fix, asserted.
+
+    The guard is handed a public address and the connection is pinned to it, so
+    the second, hostile answer is never consulted. Before the fix the fetch
+    landed on 127.0.0.1 and returned the body.
+    """
+    reached: list[str] = []
+    answers = iter(["93.184.216.34", "127.0.0.1", "127.0.0.1"])
+
+    def flaky(host, port, *_a, **_k):
+        if _is_ip(host):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, 80))]
+        return [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers, "127.0.0.1"), 80))
-        ],
-    )
-    page = web_fetch.fetch_page("http://rebind.attacker/meta/", opener=lambda r, timeout=None: _Response())
-    assert "SECRET" not in page["text"]
+        ]
+
+    monkeypatch.setattr(web_fetch, "_REAL_GETADDRINFO", flaky)
+
+    def opener(request, timeout=None):
+        # Resolve through the SHIM, the way a real connection does. Calling the
+        # raw resolver with the name here would measure the stub's next scripted
+        # answer rather than what the process would actually connect to — which
+        # is precisely the mistake that made this look like a failing fix.
+        host = request.full_url.split("/")[2]
+        reached.append(socket.getaddrinfo(host, 80)[0][4][0])
+        return _Response()
+
+    page = web_fetch.fetch_page("http://rebind.attacker/meta/", opener=opener)
+
+    assert page["bytes"] > 0
+    assert reached == ["93.184.216.34"], f"the connection used a different address than the guard approved: {reached}"

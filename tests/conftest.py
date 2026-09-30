@@ -102,8 +102,20 @@ def make_test_resolver(host, port=None, family=0, type=0, proto=0, flags=0):
 
 @pytest.fixture(autouse=True)
 def _hermetic_dns(monkeypatch) -> Iterator[None]:
-    """Route every `socket.getaddrinfo` call through the deterministic resolver."""
-    monkeypatch.setattr(web_fetch.socket, "getaddrinfo", make_test_resolver)
+    """Route every `socket.getaddrinfo` call through the deterministic resolver.
+
+    V1.2-G4.22. This patched `web_fetch.socket.getaddrinfo`, which is the name
+    the pinning shim REPLACES at import. Patching it again put the hermetic
+    resolver ahead of the shim, so `web_fetch`'s DNS-rebinding pin was silently
+    out of the chain in every single test — the security behaviour could not be
+    exercised at all, and a test asserting either outcome would have been
+    asserting the fixture instead of the code.
+
+    Patching `_REAL_GETADDRINFO` keeps the shim installed and puts the
+    deterministic resolver exactly where the shim delegates to, which is what
+    the fixture meant in the first place.
+    """
+    monkeypatch.setattr(web_fetch, "_REAL_GETADDRINFO", make_test_resolver)
     yield
 
 

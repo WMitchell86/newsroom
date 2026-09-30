@@ -14,8 +14,10 @@ touches Radar behavior. Safety posture (harness A6):
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import socket
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -48,17 +50,26 @@ class WebFetchError(ValueError):
         self.retry_after = retry_after
 
 
-def _is_private_host(host):
+def _approved_addresses(host):
+    """Every address the host resolves to, or [] when any of them is unsafe.
+
+    Returns the ADDRESSES, not a verdict. The caller must connect to one of
+    these exact values: a boolean check and a later name-based lookup are two
+    separate resolutions, and a host whose DNS answers the first with a public
+    address and the second with a private one walks straight through a boolean
+    guard. See `_PinnedResolver` for how the connection is pinned.
+    """
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
-        return True  # unresolvable hosts are not fetchable targets
+        return []  # unresolvable hosts are not fetchable targets
+    addresses = []
     for info in infos:
         address = info[4][0]
         try:
             ip = ipaddress.ip_address(address)
         except ValueError:
-            return True
+            return []
         if (
             ip.is_private
             or ip.is_loopback
@@ -67,20 +78,47 @@ def _is_private_host(host):
             or ip.is_multicast
             or ip.is_unspecified
         ):
-            return True
-    return False
+            return []
+        addresses.append(address)
+    return addresses
+
+
+#: Per-thread pin. Resolver state has to be per-thread rather than global
+#: because the workbench serves on a `ThreadingHTTPServer`: a process-wide
+#: override would let one request's pin answer another request's lookup.
+_PIN = threading.local()
+
+
+def _pinned_getaddrinfo(host, port, *args, **kwargs):
+    """Resolve to the address the guard already approved, for this thread only."""
+    if getattr(_PIN, "host", None) == host:
+        return socket.getaddrinfo(_PIN.address, port, *args, **kwargs)
+    return _REAL_GETADDRINFO(host, port, *args, **kwargs)
+
+
+_REAL_GETADDRINFO = socket.getaddrinfo
+if not getattr(socket.getaddrinfo, "_newsroom_pinned", False):
+    socket.getaddrinfo = _pinned_getaddrinfo
+    socket.getaddrinfo._newsroom_pinned = True  # type: ignore[attr-defined]
 
 
 def guard_target(url):
-    """Reject non-HTTP(S) and localhost/private-network targets up front."""
+    """Reject non-HTTP(S) and localhost/private-network targets up front.
+
+    Returns the approved address, which the caller must then pin. Discarding
+    it and letting urllib resolve the name again is the DNS-rebinding hole
+    this closes.
+    """
     parsed = urllib.parse.urlparse(url or "")
     if parsed.scheme not in ("http", "https"):
         raise WebFetchError(FETCH_BLOCKED_TARGET, f"scheme not allowed: {parsed.scheme!r}")
     host = parsed.hostname or ""
     if not host or host.lower() in ("localhost",) or host.endswith(".localhost"):
         raise WebFetchError(FETCH_BLOCKED_TARGET, f"host not allowed: {host!r}")
-    if _is_private_host(host):
+    addresses = _approved_addresses(host)
+    if not addresses:
         raise WebFetchError(FETCH_BLOCKED_TARGET, "target resolves to a private/loopback address")
+    return addresses[0]
 
 
 def _ascii_url(url):
@@ -114,7 +152,7 @@ def fetch_page(
     opener: injection point for tests (a callable (Request) -> response-like
     with .status/.headers/.read()); defaults to a real urlopen.
     """
-    guard_target(url)
+    address = guard_target(url)
     ascii_url = _ascii_url(url)
     if ascii_url is None:
         raise WebFetchError(FETCH_UNREACHABLE, f"unusable URL: {url}")
@@ -127,6 +165,32 @@ def fetch_page(
             "Accept-Language": "bg, en;q=0.5",
         },
     )
+    # Pin the approved address for this thread for the duration of the connect.
+    # Without this the guard resolves one address and urllib resolves the NAME
+    # again, which is a DNS-rebinding window: the guard can approve a public
+    # address and the connection can land on a private one. The pin is
+    # thread-local because the workbench serves on a ThreadingHTTPServer.
+    with _pinned_host(urllib.parse.urlparse(ascii_url).hostname or "", address):
+        return _fetch_with(request, url, timeout=timeout, max_bytes=max_bytes, opener=opener)
+
+
+@contextlib.contextmanager
+def _pinned_host(host, address):
+    """Force this thread's resolution of `host` to the approved `address`.
+
+    Restores whatever was pinned before, so a nested or repeated fetch cannot
+    inherit a stale pin, and clears it on every exit path including exceptions.
+    """
+    previous = (getattr(_PIN, "host", None), getattr(_PIN, "address", None))
+    _PIN.host = host
+    _PIN.address = address
+    try:
+        yield
+    finally:
+        _PIN.host, _PIN.address = previous
+
+
+def _fetch_with(request, url, *, timeout, max_bytes, opener):
     try:
         response = (opener or urllib.request.urlopen)(request, timeout=timeout)
         try:
