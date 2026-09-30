@@ -102,6 +102,15 @@ SOURCE_TYPE_LABELS = {
     "opened_publication": "Отворена публикация",
     "youtube_intake": "YouTube материал",
     "editor_supplied": "Подадена от редактора",
+    # V1.2-G4.35. The NEXT three holes, found by scanning the operator's own
+    # `ideas.jsonl` rather than by reading this file: every one of these was in
+    # the live store and rendering as a raw enum in the «Статии» list. They were
+    # missed because nothing connected the producers to this table — fixed by
+    # `test_source_type_labels.py`, which walks the producers.
+    "story_research_basis": "Материал от проучването",
+    "municipality_press": "Съобщение на община",
+    "organizer_and_ticket_platform": "Организатор и билети",
+    "chernomorie_archive": "Архив на Чиноморие",
 }
 
 VOICE_LABELS = {
