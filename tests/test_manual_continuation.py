@@ -363,52 +363,56 @@ def test_a_readiness_refusal_never_records_a_failure_marker(
 
 
 def test_a_fact_without_an_opened_source_never_records_a_failure_marker(
-    eligible, monkeypatch, working_model
+    eligible, working_model, unreadable_publication
 ):
     """§23 — a confirmed fact that carries no opened source URL.
 
-    V1.2-G4.1 §B4: a fact whose source was never opened licenses nothing, so
-    this is now the same `NO_DRAFT_MATERIAL` refusal as having no basis at all.
-    The canonical store refuses to persist a source without a URL, so the state
-    is reached by substituting the *evidence basis* the command reads, the same
-    seam the C2 test uses; the command path itself, and therefore the ordering
-    that decides whether a marker is written, is entirely real.
+    V1.2-G4.1 §B4: a fact whose source was never opened licenses nothing, so this
+    is the same `NO_DRAFT_MATERIAL` refusal as having no basis at all.
+
+    V1.2-G4.34. This test used to patch `app._draft_snapshot` and then assert on
+    `start_article_draft`. That could not work, and the reason is structural
+    rather than a stale constant: the synchronous preflight reads
+    `_draft_readiness_basis`, not `_draft_snapshot`, and since V1.2-G4.4
+    `start_article_draft` is transport-only, so the worker re-reads canonical
+    state and never sees a patched snapshot.
+
+    I twice "fixed" it by patching that flag anyway. Both times it went green for
+    the wrong reason — the patched snapshot satisfied an assertion while the real
+    path went unexercised — and I reverted both. It is now arranged through the
+    REAL research store and the REAL inbox, exactly as
+    `test_article_draft_command.py:557` arranges the same state.
     """
     article_id = eligible["article_id"]
-    real_snapshot = app._draft_snapshot
 
-    def without_open_source(article: str) -> dict:
-        snapshot = real_snapshot(article)
-        snapshot["facts"] = [
-            {
-                "id": "legacy_fact_1",
-                "text": "Съветът е насрочил гласуване за вторник.",
-                "source": {"id": "src_1", "name": "Вестник", "url": ""},
-                "locator": "Протокол, т. 1",
-                "scope": "current",
-            }
-        ]
-        snapshot["source_url"] = ""
-        # The Story's opened publications must go too, or the §B3 single-source
-        # fallback legitimately finds real material on another page and the
-        # refusal this test is about cannot be reached.
-        snapshot["sources"] = []
-        return snapshot
+    # Canonical, not patched: an assessed Story with one non-blocking gap, no
+    # promotable fact and no source, plus a publication nobody can read. Both
+    # through the real stores. The seam is called here rather than left to
+    # `_degrade_to`, which applies it only on its STORY_UNASSESSED branch.
+    _degrade_to("NO_DRAFT_MATERIAL", article_id, unreadable_publication)
+    # Asserted, not assumed: a seam that matched nothing would leave the
+    # Story readable, §A's waiver would fire, and this test would be asserting
+    # a refusal the product deliberately does not make.
+    assert unreadable_publication(_this_file_rows, app._paths()["inbox"]) > 0
 
-    monkeypatch.setattr(app, "_draft_snapshot", without_open_source)
-    try:
-        assert (
-            article_readiness.evaluate(without_open_source(article_id)).reason_code
-            == "NO_DRAFT_MATERIAL"
-        )
-        with pytest.raises(app.EditorApplicationError) as refusal:
-            app.start_article_draft(article_id, idempotency_key="no-open-source")
-        assert refusal.value.code == "NO_DRAFT_MATERIAL"
-    finally:
-        # Restore the real reader directly: `monkeypatch.undo()` would also undo
-        # the environment this fixture depends on.
-        app._draft_snapshot = real_snapshot
+    # The decision the editor is shown and the decision the command makes read
+    # the same snapshot. That parity is what this test is actually about.
+    snapshot = app._draft_snapshot(article_id)
+    readiness = article_readiness.evaluate(snapshot)
+    assert readiness.eligible is False
+    assert readiness.reason_code == "NO_DRAFT_MATERIAL"
 
+    with pytest.raises(article_generation.DraftRefused) as refusal:
+        article_generation.evaluate(snapshot)
+    assert refusal.value.code == "NO_DRAFT_MATERIAL"
+
+    # The real command, on canonical state, must refuse before the provider.
+    with pytest.raises(app.EditorApplicationError) as command_refusal:
+        app.start_article_draft(article_id, idempotency_key="no-open-source")
+    assert command_refusal.value.code == "NO_DRAFT_MATERIAL"
+
+    # The invariant this test has always protected: a material refusal records no
+    # durable failure marker, and the editor's own option stays open.
     assert articles.get_editor_article(article_id)["draft_generation_failure"] is None
     after = app.read_article(article_id)
     assert "EDIT" not in after["availableActions"]
