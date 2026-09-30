@@ -108,8 +108,18 @@ export function HintSeedControl({ onSeeded }: { onSeeded?: () => void }) {
           {result.openedCount > 0 ? (
             <>
               <p>
-                Отворени са {result.openedCount} страници. Всяка е записана като Story
-                {result.opened.length > 1 ? " и може да се проучи отделно" : ""}.
+                {/* A second identical hint writes nothing, and saying "each is
+                    recorded as a Story" for it tells the editor material
+                    arrived when it was already there. */}
+                {(result.newCount ?? 0) < result.openedCount ? (
+                  <>
+                    {result.openedCount} страници вече са записани като Stories
+                    (нова: {result.newCount}).{" "}
+                  </>
+                ) : (
+                  <>Отворени са {result.openedCount} страници. Всяка е записана като Story. </>
+                )}
+                {result.opened.length > 1 ? " Всяка може да се проучи отделно." : ""}
               </p>
               {/* Only a real story id is a route. `/stories/:id` answers
                   «Невалиден Story.» for a raw inbox item id, so the link is

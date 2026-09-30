@@ -250,7 +250,7 @@ def materialise_hint_stories(
         )
     if not items:
         return []
-    inbox_store.add_items(items, inbox_path)
+    saved = inbox_store.add_items(items, inbox_path) or {}
     # `add_items` returns {new, duplicate, items}. We deliberately do NOT report
     # only the new rows. A page found by an earlier hint is a DUPLICATE, so
     # reporting `saved["items"]` would tell the editor "0 found" while their
@@ -263,8 +263,13 @@ def materialise_hint_stories(
     # rows we care about are the ones our URLs point at, new or not.
     our_ids = {inbox_store.item_id_for(HINT_SOURCE_ID, url, url) for _, url in
                ((i["source_id"], i["url"]) for i in items)}
+    fresh_ids = {row["item_id"] for row in (saved.get("items") or ())}
     stored = {row["item_id"]: row for row in inbox_store.read_items(inbox_path)}
     written = [stored[i] for i in sorted(our_ids) if i in stored]
+    # How many of these were actually new. Without it the reply says "each is
+    # recorded as a Story" for a second identical hint, where nothing was
+    # written at all — the editor is told material arrived when it was already
+    # there. `add_items` already counted it; the count was being discarded.
 
     if written and stories_path is not None:
         # Assign them to Stories through the newsroom's OWN locked refresh,
@@ -278,6 +283,8 @@ def materialise_hint_stories(
 
         newsroom_mod.refresh_stories(dry_run=False, semantic=False)
         written = _with_story_ids(written, inbox_path, stories_path)
+    for row in written:
+        row["is_new"] = row["item_id"] in fresh_ids
     return written
 
 

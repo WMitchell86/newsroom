@@ -47,8 +47,9 @@ describe("Започни от идея", () => {
     const user = userEvent.setup();
     seedStoriesFromHint.mockResolvedValue({
       hint: "проверка на машините",
-      opened: [{ title: "ЦИК", url: "https://cik.bg/news/2026/machines", itemId: "i-1", storyId: "s-1" }],
+      opened: [{ title: "ЦИК", url: "https://cik.bg/news/2026/machines", itemId: "i-1", storyId: "s-1", isNew: true }],
       openedCount: 1,
+      newCount: 1,
       considered: 1,
       skipped: [],
       unopened: [],
@@ -69,6 +70,7 @@ describe("Започни от идея", () => {
       hint: "тема без резултат",
       opened: [],
       openedCount: 0,
+      newCount: 0,
       considered: 0,
       skipped: [],
       unopened: [],
@@ -97,6 +99,7 @@ describe("Започни от идея", () => {
       hint: "статии на chernomorie-bg.com",
       opened: [],
       openedCount: 0,
+      newCount: 0,
       considered: 2,
       skipped: [
         { url: "https://chernomorie-bg.com/a", title: "Наша статия", reason: "circular" },
@@ -121,6 +124,7 @@ describe("Започни от идея", () => {
       hint: "нашата тема",
       opened: [],
       openedCount: 0,
+      newCount: 0,
       considered: 1,
       skipped: [
         { url: "https://chernomorie-bg.com/novini/x", title: "Наша статия", reason: "circular" },
@@ -143,8 +147,9 @@ describe("Започни от идея", () => {
     const user = userEvent.setup();
     seedStoriesFromHint.mockResolvedValue({
       hint: "проверка на машините",
-      opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
+      opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9", isNew: true }],
       openedCount: 1,
+      newCount: 1,
       considered: 2,
       skipped: [{ url: "https://flagman.bg/x", title: "Флагман", reason: "blocked" }],
       unopened: [],
@@ -165,6 +170,7 @@ describe("Започни от идея", () => {
       hint: "проверка на машините",
       opened: [],
       openedCount: 0,
+      newCount: 0,
       considered: 1,
       unopened: [
         { url: "https://example.org/a", status: "FETCH_TIMEOUT", detail: "connected but no body" },
@@ -187,8 +193,9 @@ describe("Започни от идея", () => {
     const user = userEvent.setup();
     seedStoriesFromHint.mockResolvedValue({
       hint: "проверка на машините",
-      opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9" }],
+      opened: [{ title: "ЦИК", url: "https://cik.bg/", itemId: "i-1", storyId: "s-9", isNew: true }],
       openedCount: 1,
+      newCount: 1,
       considered: 1,
       skipped: [],
       unopened: [],

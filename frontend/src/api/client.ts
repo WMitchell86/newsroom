@@ -165,8 +165,11 @@ export interface HintSeedResult {
    * row and is NOT a route id — `/stories/:id` answers "Невалиден Story." for
    * it. Sending the item id produced a dead link on the very first click.
    */
-  opened: { title: string; url: string; itemId: string; storyId: string }[];
+  opened: { title: string; url: string; itemId: string; storyId: string; isNew: boolean }[];
   openedCount: number;
+  /** How many of `opened` this call actually wrote, as opposed to finding
+   *  already recorded by an earlier hint. */
+  newCount: number;
   considered: number;
   /**
    * Opened fine, but not kept — the publisher is blocked, or it is our own

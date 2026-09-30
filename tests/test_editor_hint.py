@@ -449,3 +449,28 @@ def test_a_page_with_no_title_falls_back_to_the_editors_own_words(tmp_path, monk
 
     assert inbox_store.read_items(inbox)[0]["title"] == "срок за кандидатурите"
     assert saved and saved[0]["story_id"]
+
+
+def test_a_repeated_hint_says_so_instead_of_claiming_a_write(tmp_path, monkeypatch):
+    """A second identical hint writes nothing, and must not say it did.
+
+    Measured on the running server: repeating the same hint returned three
+    Story ids and the control said «Отворени са 3 страници. Всяка е записана
+    като Story» — for material that was already there, recorded by the first
+    call. `add_items` had counted new versus duplicate the whole time; the
+    count was being discarded, so the editor was told material arrived when
+    it had not.
+    """
+    inbox, stories = _isolate_newsroom(tmp_path, monkeypatch)
+
+    first = editor_hint.materialise_hint_stories(
+        _result(), inbox_path=inbox, stories_path=stories
+    )
+    second = editor_hint.materialise_hint_stories(
+        _result(), inbox_path=inbox, stories_path=stories
+    )
+
+    assert [r["is_new"] for r in first] == [True]
+    assert [r["is_new"] for r in second] == [False]
+    # Same Story both times — the retry is idempotent, not a duplicate.
+    assert first[0]["story_id"] == second[0]["story_id"]

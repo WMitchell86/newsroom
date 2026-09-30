@@ -1340,10 +1340,15 @@ def seed_stories_from_hint(hint: str, *, provider=None, page_opener=None, max_op
                 # The story, not the raw item: `/stories/:id` validates the id
                 # and answers "Невалиден Story." for an item id.
                 "storyId": s.get("story_id") or "",
+                # False when a previous hint already recorded this page. The
+                # report must not say "each is recorded as a Story" for a
+                # second identical hint where nothing was written.
+                "isNew": bool(s.get("is_new")),
             }
             for s in stories
         ],
         "openedCount": len(stories),
+        "newCount": sum(1 for s in stories if s.get("is_new")),
         "considered": result.considered,
         # Pages that opened but were not kept, each with the real reason. One
         # list rather than a growing set of flags: the editor can only act on
