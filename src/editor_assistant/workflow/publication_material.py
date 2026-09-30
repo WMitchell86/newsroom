@@ -328,6 +328,21 @@ def publication_urls(title: str, *, runs_dir=None, refresh: bool = False) -> lis
     for root in _news_lookup(title):
         if root not in found:
             found.append(root)
+    # V1.2-G4.35. The merge now enforces the gate itself. It previously trusted
+    # that every source had filtered its own results, and a test I wrote in
+    # a952d69 PINNED that trust as "by design" — which was wrong, and I was the
+    # one who wrote it.
+    #
+    # Measured consequence of trusting it: `_original_publication_is_readable`
+    # is `bool(publication_urls(title))` (editor_application.py:2606). A wrapper
+    # smuggled in by any source that forgot its own filter flips that to True for
+    # a Story with nothing readable, and the quick-draft gate then believes the
+    # Story has material. One line here removes the trap for the next source.
+    #
+    # The individual lookups keep their own filters; this is the second line of
+    # defence at the point where all three are merged, which is the only place
+    # that sees the union.
+    found = [url for url in found if is_readable_publication(url)]
     # Most story-like first, so the read is deterministic and does not depend on
     # whichever order the provider happened to return.
     ordered = sorted(found, key=lambda url: -_relevance(url, title))

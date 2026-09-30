@@ -50,34 +50,34 @@ def test_merges_all_three_sources_and_ranks_the_story_first(monkeypatch):
     assert found[0] == RECORDED, f"most Story-like URL must lead: {found}"
 
 
-def test_the_merge_trusts_its_sources_rather_than_refiltering(monkeypatch):
-    """A wrapper entering the merge is carried through — by design, and riskily.
+def test_the_merge_itself_refilters_so_a_new_source_cannot_smuggle_a_wrapper(monkeypatch):
+    """The union is filtered at the merge, not merely in each source.
 
-    Measured while writing this: `publication_urls` does NOT call
-    `is_readable_publication` on what it merges. Each LOOKUP filters its own
-    results (see `_keyless_lookup` / `_news_lookup`), and the merge trusts that.
+    V1.2-G4.35. This test originally asserted the OPPOSITE — that a wrapper
+    reaching the merge is carried through "by design" — and it passed, and it was
+    wrong. I wrote that pin after finding that `publication_urls` does not
+    refilter, and concluded the absence was intentional. It was not defended
+    anywhere; it was just unexercised.
 
-    That is a real contract with a real hazard, so it is pinned here rather than
-    left implicit: a source added later without its own filter would smuggle a
-    social wrapper straight into the candidate list, and the wrapper is exactly
-    what `is_readable_publication` exists to keep out. The single gate is
-    asserted directly, so the safety net it represents is at least covered.
+    The cost was concrete: `_original_publication_is_readable` is
+    `bool(publication_urls(title))`, so a wrapper smuggled in by a source that
+    forgot its own filter makes the quick-draft gate believe a Story with nothing
+    readable has material. The merge now filters, and this asserts it.
+
+    A test that pins a discovered gap as correct is worse than no test: it stops
+    the next person from fixing it and records the gap as a decision.
     """
     wrapper = "https://www.facebook.com/somepage/posts/1"
     monkeypatch.setattr(publication_material, "resolve_publication_urls", lambda *a, **k: [RECORDED])
+    # A source that forgets to filter, which is the only way this can happen.
     monkeypatch.setattr(publication_material, "_keyless_lookup", lambda *a, **k: [wrapper])
     monkeypatch.setattr(publication_material, "_news_lookup", lambda *a, **k: [NEWS])
 
     found = publication_material.publication_urls("Ремонт на улицата")
 
-    # The merge does not refilter: documented, not accidental, and a trap for the
-    # next source anyone adds.
-    assert wrapper in found
-
-    # The gate itself is the defence, and it is asserted here so that if it is
-    # ever weakened this file notices.
-    assert publication_material.is_readable_publication(wrapper) is False
-    assert publication_material.is_readable_publication(RECORDED) is True
+    assert wrapper not in found
+    assert set(found) == {RECORDED, NEWS}
+    assert all(publication_material.is_readable_publication(url) for url in found)
 
 
 def test_a_refresh_bypasses_the_cache(monkeypatch):
