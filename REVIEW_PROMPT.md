@@ -41,6 +41,23 @@ right and my hypothesis was wrong. `test_draft_readiness_parity.py`:
 failures either way, so the time was never testing anything. No production
 timeout was shortened.
 
+**The coverage that fix removed — RESTORED in `a952d69`.** You pointed out the
+conftest fixture left the resolver cascade with no exercise at all. That is now
+`tests/test_publication_url_resolution.py`: the real function, canned lookups, no
+network. Writing it surfaced a real contract — **`publication_urls` does not
+refilter what it merges**, it trusts that each lookup filtered its own results. My
+first version of that test asserted the opposite and failed; the failure was the
+finding. It is now pinned as expected behaviour with a comment naming the trap,
+because "fixing" it by adding a filter would change which candidates a source may
+contribute.
+
+**§5.2, the stale refusal test — CLOSED in `04b8374`.** Arranged canonically, real
+command, no snapshot patching. `test_manual_continuation.py` is 15 passed / 0
+failed for the first time this session.
+
+**§5.1 — CLOSED.** Round 3 enumerated the function and found no fifth route, and
+confirmed `workbench://story/<id>` is safe in every consumer.
+
 ### What I got wrong, for the record
 
 I patched `_try_route` in `test_manual_continuation.py` when the helper actually
@@ -153,60 +170,45 @@ code" to "delete a reachable defect". **Measure before you classify.**
 
 ## 5. Open items
 
-### 5.1 Is the snippet fix COMPLETE now that F1-F4 are fixed? (highest priority)
+### 5.1 CLOSED — verified complete by round 3
 
-Round 2's answer was "no" and found three more routes in the same function. All
-four are now fixed, but **"fixed" is my claim, not your verification.** The
-interesting question is what round 2 could not see: is there a FIFTH route, in a
-function round 2 did not look at?
+Round 3 enumerated every discovery-time value in `promote_story_to_idea` and found
+**no fifth route**, and confirmed `workbench://story/<id>` is safe downstream
+(`_safe_href` allow-lists http(s) only, so it renders as text, never a link;
+`needs_angle_review` returns False for it; `_transcript_trust` correctly falls
+through; frontend has zero `source_type` consumers). The label gap I predicted
+in `d909a37` was real and is fixed. I accept all of it.
 
-Specifically:
+Nothing here is open. The one thing that is, and is deliberately not code:
 
-- The new `workbench://story/<id>` attribution is deliberately visible and
-  obviously ours. Confirm it cannot be mistaken for a publisher URL downstream,
-  and that `angles.py`'s substring matching on `source_url` and
-  `labels.py:96` behave sensibly against a `workbench://` value. I changed the
-  shape of that field and did not re-audit its readers.
-- The new `source_type = "opened_publication"` is a NEW string. Is it handled
-  everywhere `source_type` is consumed — `modes.py:64`, `angles.py:63`,
-  `labels.py:96`, the HTML renderer? A consumer that only knew the two old
-  values will now silently fall through. **This is the most likely place a new
-  defect is hiding.**
-- `_news_lookup` still performs a raw `urlopen` with no SSRF guard and no seam,
-  unlike every other outbound edge. The conftest fixture now keeps tests off it,
-  which means the test suite no longer covers that path at all. Is the guard
-  missing, or is the URL always a constant?
+- **Stored damage, operator decision.** Measured again by round 3: 3 rows in
+  `var/editorial_workflow/live_evidence.jsonl` carry a news.google.com wrapper
+  `source_url` (1 fact each), and `ideas.jsonl` has 61 rows with no `workbench://`
+  and only pre-fix `source_type` values. Zero hits in `cases.jsonl` /
+  `live_drafts.jsonl`, so nothing consumed them. Per rule 9 this is annotate,
+  quarantine, or leave — and it needs a person, not a diff.
 
-- **Stored damage.** Round 2 measured and reported: 3 rows in
-  `var/editorial_workflow/live_evidence.jsonl` with wrapper `source_url`, and 2
-  ideas in `ideas.jsonl` whose `what_changed` is an inbox snippet; zero hits in
-  `cases.jsonl` / `live_drafts.jsonl`, so nothing consumed them. I have done
-  nothing about this. Per rule 9 the decision is recorded rather than acted on:
-  annotate, quarantine, or leave. It needs an operator, not a code change.
+### 5.2 CLOSED — repaired canonically in `04b8374`
 
-### 5.2 Open item 7 — the stale test. Still NOT fixed, and round 2 sharpened why
+Round 3's precondition ("do §5.2 after §5.1 is verified") was what unblocked it.
+The test is now arranged through the REAL research store and the REAL inbox, the
+way `test_article_draft_command.py:557` arranges the same state, and the real
+`start_article_draft` runs. No `_draft_snapshot` patching anywhere.
 
-`tests/test_manual_continuation.py::test_a_fact_without_an_opened_source_never_records_a_failure_marker`
-fails on unmodified `main`. Round 2's correction to round 1 is the important part
-and I accept it: the test's premise is not merely stale, it is **unreachable**. The
-real worker re-reads canonical state, so a patched `_draft_snapshot` can never
-steer the real command, and the worker's own `evaluate` waives
-`DRAFT_FROM_UNREAD_SOURCE` too. There is no honest patch of that flag that reaches
-production behaviour.
+`test_manual_continuation.py`: **15 passed, 0 failed** — the first clean run of
+that file in the session. It is faster too, 0.90s, so it is cheap to re-verify.
 
-Round 2's measured repair: arrange canonically the way
-`test_article_draft_command.py:557-591` does — the `unreadable_publication` seam
-plus the real research store — then run the real command and assert on the
-**operation row's `error_code`**, the store, and the projection. No snapshot
-patching anywhere.
+Two things worth carrying into round 4 rather than treating as closed:
 
-I have attempted this twice and reverted both times. The reason is now clear: the
-F4 fix in `593039a` changed what the async path does, so the test's expected value
-has to be re-derived from the current code rather than reasoned about from the old
-failure. That is a sequencing problem, not a difficulty — do it after confirming
-§5.1, not before.
-
-Note this file now runs in 0.96s, so iterating on it is cheap for the first time.
+- **The seam's row count is asserted (`> 0`).** A seam that matched nothing would
+  leave the Story readable, §A's waiver would fire, and the test would assert a
+  refusal the product deliberately does not make — a green test for a false
+  reason. That is the exact failure mode I hit twice. Worth checking whether other
+  tests arrange state with an unasserted seam.
+- **Round 3 corrected my sequencing note and I accepted it:** the F4 fix did NOT
+  move this test's expected value, because F4 lives in `build_packet` (post-gate)
+  while this refusal is decided at the readiness gate (pre-gate). I told round 3
+  the opposite. The repair was not affected, but the reasoning was wrong.
 
 ### 5.2a RESOLVED — but the numbers are worth checking
 
@@ -262,7 +264,15 @@ and only by luck of timing.
   review the sources and search terms received.
 - **The G4.28 prose verdict is advisory-only.** Round 1 established the two call
   sites are the same deterministic call on the same bytes, so no disagreement is
-  possible — but neither reads `page["prose"]`. Is the verdict earning its keep?
+  possible — but neither reads `page["prose"]`. Round 3 added that after `6380aa9`
+  the `blocks` argument is load-bearing rather than decorative. Is the verdict
+  itself earning its keep, or should both consumers consume it?
+- **Nothing asserts `SOURCE_TYPE_LABELS` is complete.** `d909a37` fixed the one
+  known hole; the gap that let it through is still open. A table-driven
+  completeness test is the fix, and the legal-value decision is an operator's.
+- **`_news_lookup` has no SSRF guard** and bypasses `web_fetch`, unlike every other
+  outbound edge. Round 3 judged the constant host to make the exposure narrow but
+  rated the missing guard the larger defect. Unresolved by choice, not oversight.
 
 ---
 
