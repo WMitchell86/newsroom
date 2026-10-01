@@ -1,3 +1,60 @@
+## Handoff — Cron self-healing + the two debugging trails (2026-10-01, later session)
+
+Report: `m4/review/V1_2_G4_19_CRON_AND_DEBUG_TRAILS_REPORT.md` · Commits
+`66d4cf1`, `21c59ea`. Operations + observability; no new editorial capability.
+
+Owner question was *"check the cron job behavior, fix it"*. It surfaced four
+defects and two missing audit trails. Three were found by **measuring**, not
+reading.
+
+- **The cron jobs were dead on any fresh checkout.** `newsroom_cron.sh` had
+  `mkdir -p var/cron`, but a shell opens a crontab's `>> file.log` redirect
+  *before* it runs the command, so that line was too late. `var/` is gitignored,
+  so a fresh checkout has no `var/cron/`: all four jobs died at the redirect with
+  exit 2 and wrote nothing — while `cron_status()` string-matched the crontab and
+  `doctor` answered "РАЗПИС: на място (4 задачи)". Fixed by generating each line
+  with `mkdir -p` before the redirect (one `cron_line()`, so installer and matcher
+  cannot drift) and by making `cron_status` *measure* the directory (`logDirOk`).
+  Verified both directions: old shape still dies, new shape self-heals, live cron
+  fired at 14:43 and logged.
+- **`angle` had no free substitute.** Its chain went Gemini → two **paid**
+  OpenRouter routes, and a paid route is *skipped* when `paid_enabled: false`, so
+  once Gemini was spent the role had nothing and quietly degraded. Added two free
+  routes: `doctor` **0/5 → 3/7**, exit 1 → 0. OpenRouter is the provider, not a
+  billing class (owner's correction) — the fix was a free route, not a looser
+  paid gate, which held all day (11 rows, all `PAID_DISABLED`, $0.00). Live proof:
+  the 16:17 cron refresh ran entirely on `nemotron-3-ultra:free` with all three
+  Gemini routes spent or 429'd, grouping 10/6 with **zero degraded**.
+- **`newsroom models prompts`** — the sent-prompt log. `lineage.model` already
+  said which model wrote a draft; the prompt text was stored nowhere. New `0600`
+  store, written at the transport boundary (pre-trim vs sent text differs inside
+  `_call_gemini`), before the call (failed attempts are the interesting ones).
+  Verified on a real rewrite: 13 024-char prompt verbatim, answering model
+  `gemini-3.6-flash` matching `lineage.model`.
+- **`newsroom stories research-trace`** — which pages research tried and why each
+  was kept or dropped. `story_research.json` holds only survivors and the round has
+  five silent `continue`s. **My own test caught that I instrumented the wrong
+  place**: `publisher_opened` filters wrapper/social hosts *before* the reading
+  loop, so most pages never reach any in-loop point. Live round at 17:28 shows 3
+  `news.google.com` wrappers dropped there and a story that produced 0 facts
+  because `bnrnews.bg` was uncorroborated.
+- **Two measured corrections.** (a) "34 drafts today" was **2** — the other 32 rows
+  had `in=0/out=0` and persisted nothing; they are one `request_id` walking its
+  fallback chain. (b) `daily_call_limit` is **per model per day, shared by every
+  role** (`model_calls_today` has no role filter), so `story`'s spend cuts off
+  `draft`'s route to the same model, and the `дневен лимит (20)` message is *our*
+  guardrail, not a provider quota. Documented; **not** changed (owner decision).
+
+Gates: **27 failed / 2019 passed**, failure set **identical** to the pre-change 27
+(`diff` empty), 0 errors. `ruff check` clean on everything touched. `doctor` exit 0,
+all 7 roles routable. Server 200 on all main routes. Both new operator stores
+verified untouched by a full suite run.
+
+**Recorded, not fixed (open):** the cron path never calls `record_run_grouping`, so
+`groupingHealth` stays `null` for cron-refreshed runs and a degraded grouping is
+silent to the editor — rule-6 shape again, awaiting the owner's go-ahead.
+`qwen/qwen3.8-27b:free` is eligible but 0-for-14 today.
+
 ## Handoff — Chain audit + Settings learning loop (2026-10-01)
 
 Owner priority: the **core loop** (see news → sources → research → real draft)
