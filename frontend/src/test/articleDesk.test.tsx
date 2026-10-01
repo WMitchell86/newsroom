@@ -401,6 +401,52 @@ describe("V1.2-G3 §36 — the Draft is the centre of the screen", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("prints one warning sentence once, with its questions listed under it", async () => {
+    // V1.2-G4.42. Measured on the editor's own draft: ten warnings, seven of
+    // them carrying ONE identical sentence, which the panel printed seven times.
+    // The editor saw a wall of the same paragraph and had to hunt for the seven
+    // different questions buried inside it.
+    const shared = "Остава информация за проверка. Страницата не може да бъде отбелязана като готова.";
+    const questions = [
+      "Кой орган/отговорник е източникът на информацията?",
+      "Кога и къде?",
+      "Каква е сумата/финансирането и за какво точно?",
+      "Кои хора са засегнати и как?",
+      "Какъв е обхватът (числа, брой участници/ползватели)?",
+      "Защо това има значение за читателя тук и сега?",
+      "Каква е практическата последица за читателя?",
+    ];
+    renderArticle({
+      ...activeDraftArticle,
+      warnings: [
+        ...questions.map((question, index) => ({
+          id: `warn_${index}`,
+          severity: "blocking" as const,
+          message: shared,
+          affectedText: question,
+          blocking: true,
+        })),
+        {
+          id: "warn_unsupported",
+          severity: "blocking" as const,
+          message: "Изречение без директна опора в източника.",
+          affectedText: "В двора имаше много хора.",
+          blocking: true,
+        },
+      ],
+    });
+
+    await screen.findByRole("heading", { name: "Какво да прегледаш" });
+    // The shared sentence appears ONCE, not once per question.
+    expect(screen.getAllByText(shared)).toHaveLength(1);
+    // Every question is still shown, exactly once each.
+    for (const question of questions) {
+      expect(screen.getAllByText(question)).toHaveLength(1);
+    }
+    // And a DIFFERENT sentence is still its own block.
+    expect(screen.getByText("Изречение без директна опора в източника.")).toBeVisible();
+  });
+
   it("offers the Mark Ready decision only from the backend's own action", async () => {
     // §25: readiness is never automatic and never granted by React.
     renderArticle({ ...activeDraftArticle, availableActions: ["EDIT"] });

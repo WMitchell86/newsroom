@@ -461,6 +461,23 @@
   line-height: 20px;
 }
 
+/*
+ * V1.2-G4.42: the questions one warning sentence carries, listed under it.
+ * They read as a list of things to find, not as seven more paragraphs saying
+ * the same thing — which is exactly how the panel used to look.
+ */
+.warningQuestions {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.15rem;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.warningQuestion {
+  margin: 0 0 var(--space-1);
+}
+
 .warningStale {
   margin: var(--space-3) 0 0;
   color: var(--color-error);

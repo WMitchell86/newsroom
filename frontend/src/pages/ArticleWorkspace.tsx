@@ -45,6 +45,53 @@ function warningClass(warning: Warning) {
   return `${base} ${styles.warningReview}`;
 }
 
+/**
+ * V1.2-G4.42 — one warning SENTENCE, however many questions it carries.
+ *
+ * Measured on the editor's own draft: ten warnings, of which seven shared one
+ * identical sentence. The panel rendered `warning.message` per warning, so the
+ * same paragraph appeared seven times and the only new information each row
+ * carried was one short question underneath it. A wall of identical text is
+ * worse than no panel — the editor cannot see the seven questions, and cannot
+ * tell which of the seven repetitions is the one that matters.
+ *
+ * So warnings are grouped by their message, the sentence is printed once, and
+ * the distinct questions are listed under it. Grouping is by the sentence, not
+ * by severity, because the sentence is what the editor reads; the first warning
+ * of a group decides the styling, and every warning in one group carries the
+ * same sentence and therefore the same severity.
+ */
+interface WarningGroup {
+  message: string;
+  questions: string[];
+  first: Warning;
+}
+
+function groupWarnings(warnings: Warning[]): WarningGroup[] {
+  const order: string[] = [];
+  const byMessage = new Map<string, Warning[]>();
+  for (const warning of warnings) {
+    const message = (warning.message || "").trim();
+    const bucket = byMessage.get(message);
+    if (bucket) {
+      bucket.push(warning);
+    } else {
+      byMessage.set(message, [warning]);
+      order.push(message);
+    }
+  }
+  return order.map((message) => {
+    const group = byMessage.get(message) ?? [];
+    // A question already equal to the sentence adds nothing under it.
+    const questions = group
+      .map((warning) => (warning.affectedText || "").trim())
+      .filter((text) => text && text !== message);
+    // Every group has at least one member by construction, so this is not a
+    // fallback that hides an empty group - it is the indexer being typed.
+    return { message, questions: Array.from(new Set(questions)), first: group[0] as Warning };
+  });
+}
+
 
 
 /**
@@ -376,12 +423,16 @@ class AutosaveNotConfirmedError extends Error {
             Проверката на текущия текст не е налична. Прегледайте черновата, преди да я отбележите.
           </p> : null}
           {article.validation.current && article.warnings.length > 0 ? <ul className={styles.warningList}>
-            {article.warnings.map((warning) => <li
-              className={warningClass(warning)}
-              key={warning.id}
+            {groupWarnings(article.warnings).map((group) => <li
+              className={warningClass(group.first)}
+              key={group.message || "warning"}
             >
-              <p className={styles.warningMessage}>{warning.message}</p>
-              {warning.affectedText ? <p className={styles.affectedText}>{warning.affectedText}</p> : null}
+              <p className={styles.warningMessage}>{group.message}</p>
+              {group.questions.length > 0 ? <ul className={styles.warningQuestions}>
+                {group.questions.map((question) => (
+                  <li className={styles.warningQuestion} key={question}>{question}</li>
+                ))}
+              </ul> : null}
             </li>)}
           </ul> : null}
           {/*
