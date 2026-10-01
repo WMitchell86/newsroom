@@ -13,6 +13,15 @@
 .status[data-status="failed"] { color: #a3261a; }
 .status[data-status="succeeded"] { color: #2c6e49; }
 .kind { color: #555; display: flex; gap: 0.5rem; align-items: baseline; }
-.kind a { font-family: ui-monospace, monospace; font-size: 0.85em; }
+/*
+ * V1.2-G4.38. The topic is the headline, not an identifier, so it takes the
+ * text role and the id styling that used to sit here (`.kind a`, monospace)
+ * is gone with it.
+ */
+.topic { color: #1a1a1a; font-weight: 500; }
+.topic:hover { text-decoration: underline; }
+/* Pushed to the end of the row: it is a fact about the operation, not its
+   subject, and it should not pull the eye away from what the work was. */
+.when { margin-left: auto; color: #777; font-size: 0.85em; white-space: nowrap; }
 .reason { margin: 0.5rem 0 0; color: #333; line-height: 1.45; }
 .reason[data-status="failed"] { color: #7a2016; }

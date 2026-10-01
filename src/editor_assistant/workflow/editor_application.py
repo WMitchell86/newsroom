@@ -419,6 +419,23 @@ def _story_title(story: dict, items_by_id: dict) -> str:
 _UNSET = object()
 
 
+#: V1.2-G4.38. The scope prefixes the application actually creates, with the
+#: editor's word for each. It lives here, next to the scope constants it
+#: describes, because the Operations page previously kept a SECOND, partial
+#: copy of this list in TypeScript — and that copy is what left `Проучване`
+#: unlinked and `desk-quick-drafts` nameless.
+_OPERATION_KINDS = (
+    (article_generation.SCOPE_PREFIX, "Чернова"),
+    (article_rewrite.SCOPE_PREFIX, "Пренапиши"),
+    (quick_draft.SCOPE_PREFIX, "Чернова по история"),
+)
+
+#: A scope carrying none of the prefixes above, and not one of the two
+#: newsroom-wide actions, is a bare Story id: that is exactly what
+#: `start_story_research` hands to `story_operations.start()`.
+_STORY_SCOPE = re.compile(r"\As[a-zA-Z0-9_-]+\Z")
+
+
 def _maybe_story(story_id: str) -> dict | None:
     """The canonical Story, or `None` when its lineage is no longer readable."""
     try:
@@ -1598,6 +1615,133 @@ def _generic_operation_error(scope: str, code: str, detail: str) -> dict:
     else:
         name, message, retryable = _GENERIC_OPERATION_DEFAULT
     return {"code": str(code or name)[:64] or name, "message": message, "retryable": retryable}
+
+
+def _operation_topic_context() -> dict:
+    """Read every store a topic needs ONCE, tolerating any of them failing.
+
+    V1.2-G4.38, review fix. The first version resolved each row's subject
+    independently, so a 12-row page read the Story store 12 times and the whole
+    inbox 12 times: **134 ms measured**, on the one surface that re-polls every
+    5 seconds. The stores are read here, once, and handed down.
+
+    Every read is best-effort. `story_store.read_store` raises `StoryStoreError`
+    on an unreadable store, and before this change `/operations` could not fail
+    that way — it read only the in-memory registry. Letting a store problem
+    take this page down is backwards: «Операции» is the surface an editor opens
+    precisely BECAUSE something else is broken. A store that cannot be read
+    yields no topics, and the rows still say what kind of work they were.
+    """
+    context: dict = {"stories": {}, "items": {}, "articles": {}}
+    try:
+        context["stories"] = {
+            row["story_id"]: row for row in story_store.read_store(_paths()["stories"])["stories"]
+        }
+    except (story_store.StoryStoreError, OSError, ValueError, KeyError) as exc:
+        LOG.warning("operations: story store unreadable, topics omitted: %s", exc)
+    try:
+        context["items"] = _story_items()
+    except (OSError, ValueError) as exc:
+        LOG.warning("operations: inbox unreadable, story topics omitted: %s", exc)
+    try:
+        context["articles"] = {
+            row["article_id"]: row for row in editor_article_store.read_editor_articles()
+        }
+    except (editor_article_store.ArticleStoreError, OSError, ValueError) as exc:
+        LOG.warning("operations: article index unreadable, article topics omitted: %s", exc)
+    return context
+
+
+def _operation_topic_fields(scope: str, context: dict) -> dict:
+    """`topic` / `topicHref` / `kind` for one scope, from preloaded stores.
+
+    Never raises. A subject that cannot be resolved yields an empty topic and no
+    link, which is the honest answer: an id is not a headline, and printing one
+    where a headline belongs is the defect this replaced.
+    """
+    raw = str(scope or "")
+    kind = ""
+    subject = ""
+    for prefix, label in _OPERATION_KINDS:
+        if raw.startswith(prefix):
+            kind, subject = label, raw[len(prefix) :]
+            break
+    else:
+        if _STORY_SCOPE.match(raw):
+            # Research on a Story. The scope IS the Story id, and there is a
+            # Story page to send the editor to — which is what the page's own
+            # comment ("the Quick Draft scope carries the STORY id, which is
+            # not a link") got wrong: the id was there, the link was not made.
+            kind, subject = "Проучване", raw
+        elif raw == REFRESH_SCOPE:
+            kind = "Обновяване на новините"
+        elif raw == DESK_DRAFT_SCOPE:
+            kind = "Чернови по всички истории"
+
+    if not subject:
+        return {"topic": "", "topicHref": "", "kind": kind}
+
+    if article_generation.is_draft_scope(raw) or article_rewrite.is_rewrite_scope(raw):
+        record = context["articles"].get(subject)
+        if record is None:
+            return {"topic": "", "topicHref": "", "kind": kind}
+        title = str(record.get("working_title") or "").strip()
+        if not title:
+            # Only for an Article that genuinely has no working title, so this
+            # per-Article read is bounded by the rare case rather than by the
+            # number of rows.
+            try:
+                content = editor_article_store.get_article_content(subject)
+            except editor_article_store.ArticleStoreError:
+                content = {}
+            title = str(content.get("title") or "").strip()
+        return {"topic": title, "topicHref": f"/articles/{subject}", "kind": kind}
+
+    story = context["stories"].get(subject)
+    if story is None:
+        return {"topic": "", "topicHref": "", "kind": kind}
+    try:
+        topic = _story_title(story, context["items"])
+    except Exception:
+        # Logged with the real type and reason rather than swallowed: the row
+        # degrades to "no topic", and the log says why it did (§6).
+        LOG.exception("operations: title resolution failed for story %s", subject)
+        topic = ""
+    return {"topic": topic, "topicHref": f"/stories/{subject}", "kind": kind}
+
+
+def operation_topic(scope: str) -> dict:
+    """What one operation was about, in the editor's words.
+
+    V1.2-G4.38. Measured on the editor's own desk: every row read
+    «Чернова · art_85e69497b45cdbe» — an internal identifier where a headline
+    belongs. The id was all the row carried, because
+    `story_operations.recent()` is a registry, and a registry does not know
+    what a Story is called. Resolving it here, beside the other editor
+    projections, keeps the registry dependency-free and keeps one title funnel
+    (`_story_title`, §A5) in charge of Story wording.
+
+    Single-scope convenience over the same projection `list_operations` uses.
+    Prefer that for a list: it reads each store once instead of once per row.
+    """
+    return _operation_topic_fields(scope, _operation_topic_context())
+
+
+def list_operations(limit: int = 40) -> dict:
+    """The Operations index, with every row naming what it was about.
+
+    V1.2-G4.38. The registry stays the authority on status, error and outcome;
+    it is not asked to guess a headline. `topicHref` is computed HERE and not in
+    the client, because "where does this row go" is a question about what
+    exists, and the server is what knows that.
+    """
+    rows = story_operations.recent(limit=limit)
+    context = _operation_topic_context()
+    return {
+        "operations": [
+            {**row, **_operation_topic_fields(row.get("storyId", ""), context)} for row in rows
+        ]
+    }
 
 
 def operation_status(token: str) -> dict:

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getOperations } from "../api/client";
 import type { OperationSummary } from "../api/dto";
+import { formatOperationWhen } from "../shared/editorLabels";
 import styles from "./OperationsPage.module.css";
 
 /**
@@ -35,23 +36,24 @@ const STATUS_LABELS: Record<OperationSummary["status"], string> = {
 const REFUSED_OUTCOME = "needs_attention";
 const REFUSED_LABEL = "Не се получи";
 
-const ARTICLE_ID = /(art_[a-z0-9]+(?:_[0-9]+)?)$/;
-
-function scopeLabel(scope: string): { articleId: string | null; kind: string } {
-  // Every scope the application actually creates, in the editor's own words.
-  // A Quick Draft and a Rewrite used to fall through to the generic "Операция",
-  // so the page that exists to answer "what happened to what I asked for" could
-  // not even name them — and the Quick Draft scope string carries the STORY id,
-  // which is not a link.
-  const draftId = /^article-draft:(.+)$/.exec(scope)?.[1];
-  if (draftId && ARTICLE_ID.test(draftId)) return { articleId: draftId, kind: "Чернова" };
-  const rewriteId = /^article-rewrite:(.+)$/.exec(scope)?.[1];
-  if (rewriteId && ARTICLE_ID.test(rewriteId))
-    return { articleId: rewriteId, kind: "Пренапиши" };
-  if (/^quick-draft:.+$/.test(scope)) return { articleId: null, kind: "Чернова по история" };
-  if (scope === "today-refresh") return { articleId: null, kind: "Обновяване на новините" };
-  if (/^s[a-zA-Z0-9_-]+$/.test(scope)) return { articleId: null, kind: "Проучване" };
-  return { articleId: null, kind: "Операция" };
+/**
+ * V1.2-G4.38: the row's wording comes from the SERVER now.
+ *
+ * This function used to reverse-engineer the kind from the scope string and
+ * build the link itself. That second copy of the scope list was the defect:
+ * measured on the six scope shapes the application actually creates, only 2
+ * produced a link — `quick-draft:s…` and the bare Story id used by research
+ * both rendered nothing clickable, and `desk-quick-drafts` fell through every
+ * branch to the generic «Операция». The Story id was in the string the whole
+ * time; the link simply was not made, on the strength of a comment claiming a
+ * Story id "is not a link". `stories/:storyId` has existed the entire time.
+ *
+ * So the client no longer decides. `topicHref` is empty exactly when the server
+ * has no single subject to open — a newsroom-wide action — and that is the one
+ * case where a missing link is the honest answer rather than a bug.
+ */
+function rowKind(op: OperationSummary): string {
+  return op.kind?.trim() || "Операция";
 }
 
 export function OperationsPage() {
@@ -93,25 +95,48 @@ export function OperationsPage() {
       {operations.length > 0 && (
         <ul className={styles.list}>
           {operations.map((op) => {
-            const { articleId, kind } = scopeLabel(op.storyId);
             // V1.2-G4.36: a refusal is what the editor needs to see, and it is
             // the COMMAND's answer, not the worker's. The existing `failed`
             // styling carries it, so no new design token is invented here.
             const refused = op.outcome === REFUSED_OUTCOME;
             const state = refused ? "failed" : op.status;
             const reason = op.error || (refused ? op.outcomeMessage ?? "" : "");
+            // V1.2-G4.38. `finishedAt` is the honest "when this stopped" for
+            // finished work and is empty for a job still running — so a pending
+            // row shows when it STARTED and never a finish time it does not
+            // have. Using the start time everywhere would misdate every row by
+            // however long the work took.
+            const when = formatOperationWhen(
+              op.status === "pending" || op.status === "running" ? op.startedAt : op.finishedAt || op.startedAt,
+            );
             return (
               <li key={op.operationToken} className={styles.row} data-status={state}>
                 <div className={styles.head}>
                   <span className={styles.status} data-status={state}>
                     {refused ? REFUSED_LABEL : STATUS_LABELS[op.status]}
                   </span>
-                  <span className={styles.kind}>
-                    {kind}
-                    {articleId ? (
-                      <a href={`/articles/${articleId}`}>{articleId}</a>
-                    ) : null}
-                  </span>
+                  <span className={styles.kind}>{rowKind(op)}</span>
+                  {/*
+                    V1.2-G4.38: the topic is the link, and its text is the real
+                    headline. Before this the anchor text was the internal id
+                    (`art_85e69497b45cdbe`), which told the editor nothing they
+                    could act on.
+                  */}
+                  {op.topic ? (
+                    op.topicHref ? (
+                      <a className={styles.topic} href={op.topicHref}>
+                        {op.topic}
+                      </a>
+                    ) : (
+                      <span className={styles.topic}>{op.topic}</span>
+                    )
+                  ) : null}
+                  {/*
+                    An explicit "няма дата", not a dash: a row the server never
+                    stamped is a different fact from a row that is merely old,
+                    and only one of them should look unusual.
+                  */}
+                  <span className={styles.when}>{when ?? "няма дата"}</span>
                 </div>
                 {reason ? (
                   <p className={styles.reason} data-status={state}>

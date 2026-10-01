@@ -53,6 +53,25 @@ function sofiaDayKey(value: string | Date): string | null {
 }
 
 /**
+ * The one "when did this happen" grammar, shared by every surface that shows a
+ * past instant: today is a time, yesterday is named, anything older states its
+ * date. Returns `null` for an unusable value so each caller decides what an
+ * absent time means for it.
+ */
+function relativeWhen(value: string, now: Date): string | null {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return null;
+  const day = sofiaDayKey(instant);
+  const today = sofiaDayKey(now);
+  if (!day || !today) return null;
+  const time = timeFormatter.format(instant);
+  if (day === today) return time;
+  const yesterday = new Date(now.getTime() - 86_400_000);
+  if (day === sofiaDayKey(yesterday)) return `вчера, ${time}`;
+  return `${shortDateFormatter.format(instant)}, ${time}`;
+}
+
+/**
  * D1: when the newsroom was last refreshed, in words the editor can act on.
  *
  * A run from earlier today is just a time. Yesterday is named, because
@@ -66,16 +85,27 @@ export function formatLastRefresh(
   now: Date = new Date(),
 ): string | null {
   if (!refresh) return null;
-  const finished = new Date(refresh.finishedAt);
-  if (Number.isNaN(finished.getTime())) return null;
-  const finishedDay = sofiaDayKey(finished);
-  const today = sofiaDayKey(now);
-  if (!finishedDay || !today) return null;
-  const time = timeFormatter.format(finished);
-  if (finishedDay === today) return time;
-  const yesterday = new Date(now.getTime() - 86_400_000);
-  if (finishedDay === sofiaDayKey(yesterday)) return `вчера, ${time}`;
-  return `${shortDateFormatter.format(finished)}, ${time}`;
+  return relativeWhen(refresh.finishedAt, now);
+}
+
+/**
+ * V1.2-G4.38: when an operation was asked for, in the newsroom's own words.
+ *
+ * Deliberately the SAME grammar as `formatLastRefresh`: an editor asking "when
+ * did I ask for this" is asking the question the refresh line already answers,
+ * and two ways to say one answer is one too many.
+ *
+ * `null` when there is no usable instant. The caller renders an explicit
+ * "няма дата" rather than a dash, for the reason the other formatters do: a
+ * missing time is a fact about what the server recorded, and hiding it behind
+ * a placeholder would make an unstamped row look merely old.
+ */
+export function formatOperationWhen(
+  value: string | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!value) return null;
+  return relativeWhen(value, now);
 }
 
 /** `37 нови публикации` / `1 нова публикация` — the count the run really produced. */

@@ -54,6 +54,26 @@ class BusyError(RuntimeError):
     """All operation slots are occupied by active work."""
 
 
+def _now() -> str:
+    """The wall clock, as an ISO-8601 UTC string.
+
+    V1.2-G4.38. The registry already stamped every row with `updated_at`, but
+    that value is `time.monotonic()` — a duration since the PROCESS started,
+    not a time of day. It orders rows correctly inside one run and is
+    meaningless to a person: `1234.5` is not an answer to "when did this
+    happen". So it stays, for ordering and eviction, and this is what the
+    editor sees.
+
+    The Operations page could not show a time at all before this, and the
+    reason was not a missing label: no wall-clock value existed anywhere on
+    the row. `var/operations.json` carried a `saved_at`, but that is when the
+    FILE was written, which for a batch of operations is the time of the last
+    one — reporting it per row would have dated every operation to the same
+    moment, which is exactly the kind of confident wrong sentence §6 forbids.
+    """
+    return datetime.now(timezone.utc).isoformat()
+
+
 def token_for(story_id, gap_signature, generation=0, key=""):
     seed = f"{story_id}\0{gap_signature}\0{generation}\0{key or ''}"
     return "op_" + hashlib.sha256(seed.encode()).hexdigest()[:24]
@@ -111,6 +131,7 @@ def _evict_finished(keep: int) -> None:
 def start(story_id, gap_signature, work, generation=0, key=""):
     token = token_for(story_id, gap_signature, generation, key)
     now = time.monotonic()
+    started_at = _now()
     with _LOCK:
         existing = _ROWS.get(token)
         if existing is not None and existing["status"] == "failed":
@@ -123,6 +144,11 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                 outcome_code="",
                 outcome_message="",
                 updated_at=now,
+                # V1.2-G4.38: a retry is a NEW attempt, so it is re-stamped. The
+                # finished time of the failed run is dropped with it: leaving it
+                # would date the retry to the moment the previous one died.
+                started_at=started_at,
+                finished_at="",
             )
             existing["view"] = {"status": "pending"}
             row = existing
@@ -148,6 +174,9 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                 "outcome_code": "",
                 "outcome_message": "",
                 "updated_at": now,
+                # V1.2-G4.38: when it was asked for, and (below) when it stopped.
+                "started_at": started_at,
+                "finished_at": "",
                 "view": {"status": "pending"},
             }
             _ROWS[token] = row
@@ -176,6 +205,7 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                         outcome_code=outcome_code,
                         outcome_message=outcome_message,
                         updated_at=time.monotonic(),
+                        finished_at=_now(),
                     )
             _write_ledger()
         except Exception as exc:  # noqa: BLE001 - worker must become a sanitized failed operation
@@ -198,6 +228,7 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                         # the empty code to a neutral technical sentence.
                         error_code=str(getattr(exc, "code", "") or "")[:64],
                         updated_at=time.monotonic(),
+                        finished_at=_now(),
                     )
             _write_ledger()
 
@@ -249,6 +280,12 @@ def _write_ledger() -> None:
                         "outcome": row.get("outcome", ""),
                         "outcome_code": row.get("outcome_code", ""),
                         "outcome_message": row.get("outcome_message", ""),
+                        # V1.2-G4.38: the wall clock survives the restart. Without
+                        # it a restored row would be the ONLY row on the page
+                        # with no time on it, which reads as "this one is
+                        # special" rather than "we lost it".
+                        "started_at": row.get("started_at", ""),
+                        "finished_at": row.get("finished_at", ""),
                     }
                     for token, row in _ROWS.items()
                 ]
@@ -304,6 +341,11 @@ def load_ledger() -> int:
                 "error": error,
                 "error_code": code,
                 "updated_at": time.monotonic(),
+                # V1.2-G4.38: restored with the time the work ACTUALLY ran, not
+                # with the restart time. Re-stamping it here would date every
+                # recovered operation to the moment the server came back.
+                "started_at": item.get("started_at", ""),
+                "finished_at": item.get("finished_at", ""),
                 "view": {"status": status},
             }
             restored += 1
@@ -415,8 +457,30 @@ def recent(limit=40):
                     "outcome": row.get("outcome", ""),
                     "outcomeCode": row.get("outcome_code", ""),
                     "outcomeMessage": row.get("outcome_message", ""),
+                    # V1.2-G4.38: when it was asked for and when it stopped, as
+                    # wall-clock UTC. Empty for work still in flight, which is
+                    # the truth: there is no finish time for a running job.
+                    "startedAt": row.get("started_at", ""),
+                    "finishedAt": row.get("finished_at", ""),
                 }
             )
+        # V1.2-G4.38, review fix. The order used to be insertion order, which is
+        # not the same thing once a row can be re-stamped: a RETRY reuses its
+        # token and its slot in `_ROWS` but gets a fresh `started_at`, so the
+        # newest work on the desk — the retry, the one an editor most wants to
+        # see — sorted to the BOTTOM. Measured: `['s-second', 's-first']` where
+        # `s-first` was the later of the two.
+        #
+        # Before this slice the page could not show a time at all, so insertion
+        # order was merely imprecise. Now that every row carries an instant, an
+        # order that contradicts the timestamps printed beside it is a visible
+        # lie, so the list is sorted by the same clock it displays.
+        #
+        # Sorted on `startedAt` alone, stably: rows written by an older ledger
+        # carry no `started_at`, compare equal, and keep their insertion order
+        # among themselves rather than being pushed around by a value they do
+        # not have.
+        rows.sort(key=lambda item: item["startedAt"], reverse=True)
         return rows[:limit]
 
 

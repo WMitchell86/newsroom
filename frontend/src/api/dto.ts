@@ -420,6 +420,33 @@ export interface OperationSummary {
   outcomeCode?: string;
   /** The command's own editor sentence for that refusal. */
   outcomeMessage?: string;
+  /**
+   * V1.2-G4.38 — when the work was asked for, as an ISO-8601 UTC instant.
+   *
+   * The registry's own `updated_at` is a monotonic duration since the process
+   * started and is meaningless to a person, so the server stamps the wall
+   * clock separately. Empty only if a row predates this field.
+   */
+  startedAt?: string;
+  /** When it stopped, in the same format. Empty while it is still running. */
+  finishedAt?: string;
+  /**
+   * V1.2-G4.38 — what the work was ABOUT, in the editor's words.
+   *
+   * Resolved server-side from canonical stores. Before this, a row showed the
+   * raw scope, which meant the internal id `art_85e69497b45cdbe` stood in for a
+   * headline. Empty when the subject no longer exists — an id is never dressed
+   * up as a title.
+   */
+  topic?: string;
+  /**
+   * Where this row leads, decided by the server because the server is what
+   * knows what exists. Empty for a newsroom-wide action, which has no single
+   * subject to open.
+   */
+  topicHref?: string;
+  /** The editor's word for the kind of work: `Чернова`, `Пренапиши`, … */
+  kind?: string;
 }
 
 export type TodayAttention =

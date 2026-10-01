@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import pytest
@@ -17,6 +18,7 @@ from editor_assistant.workflow import editor_projections as projections
 from editor_assistant.workflow import (
     inbox_store,
     live_store,
+    story_operations,
     story_research_store,
     story_store,
 )
@@ -581,8 +583,7 @@ def test_draft_endpoint_requires_an_idempotency_key_and_accepts_no_fields(api_se
     assert unconfirmed[0] == 409
     assert unconfirmed[1]["error"]["code"] == "FOCUS_NOT_CONFIRMED"
     assert (
-        unconfirmed[1]["error"]["message"]
-        == "Добавете редакционен фокус, за да създадете чернова."
+        unconfirmed[1]["error"]["message"] == "Добавете редакционен фокус, за да създадете чернова."
     )
     assert (
         request(
@@ -1169,9 +1170,7 @@ def test_draft_returns_202_and_polls_to_the_canonical_article(api_server, api_st
     assert current["warnings"] == article["warnings"]
 
 
-def test_an_open_gap_no_longer_refuses_the_draft_command(
-    api_server, api_store, monkeypatch
-):
+def test_an_open_gap_no_longer_refuses_the_draft_command(api_server, api_store, monkeypatch):
     article_id = _ready_article(api_store, monkeypatch)
     # V1.2-G4.1 §B1: an open question on a Story that already has real promoted
     # facts is NO LONGER a refusal — this is the owner's exact screen. The Draft
@@ -1727,9 +1726,7 @@ def test_health_names_the_roles_that_cannot_be_routed_at_all(monkeypatch):
     from editor_assistant.drafting import model_policy, model_router
 
     monkeypatch.setattr(model_router, "plan_routes", plan_for)
-    monkeypatch.setattr(
-        model_policy, "load_policy", lambda: {"roles": {"story": {}, "draft": {}}}
-    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"story": {}, "draft": {}}})
 
     health = app.read_health()
 
@@ -1759,3 +1756,344 @@ def test_health_stays_quiet_when_every_role_is_routable(monkeypatch):
     health = app.read_health()
     assert health["ok"] is True
     assert health["unroutableRoles"] == []
+
+
+# ------------------------------------------------------- PART: `Пренапиши` (G4.18)
+
+
+@pytest.fixture
+def rewrite_calls(monkeypatch):
+    """Capture what the boundary forwards, so the test asserts the CONTRACT.
+
+    The rewrite worker itself is exercised end-to-end in
+    `tests/test_natural_draft_loop.py`. What is pinned here is the JSON
+    boundary: which request bodies are accepted, which are refused, and what
+    each accepted body turns into.
+    """
+    seen: list[dict] = []
+
+    def fake_start(article_id, comment, *, idempotency_key="", mode="", length=""):
+        seen.append(
+            {
+                "article_id": article_id,
+                "comment": comment,
+                "mode": mode,
+                "length": length,
+                "idempotency_key": idempotency_key,
+            }
+        )
+        return {"operationToken": f"op-{len(seen)}"}
+
+    monkeypatch.setattr(app, "start_article_rewrite", fake_start)
+    return seen
+
+
+def _rewrite(api_server, article_id, body, *, key="rk-1"):
+    return request(
+        api_server,
+        f"/api/v1/articles/{article_id}/rewrite",
+        method="POST",
+        body=body,
+        headers={"Idempotency-Key": key},
+    )
+
+
+def test_rewrite_accepts_the_comment_alone_because_that_is_what_the_client_sends(
+    api_server, api_store, rewrite_calls
+):
+    """G4.18: an untouched control is OMITTED, so it must not be REQUIRED.
+
+    `client.ts` sends `{comment}` plus only the controls the editor actually
+    chose. Measured before the fix: that exact body came back
+    `400 VALIDATION_ERROR`, because the endpoint used the exact-match `_body`
+    and therefore demanded both new keys be present. The editor who changed
+    nothing — the ordinary rewrite — could not rewrite at all.
+    """
+    article_id = api_store["article"]["article_id"]
+
+    status, payload = _rewrite(api_server, article_id, {"comment": "По-кратко."})
+
+    assert status == 202, payload
+    assert payload["data"]["operationToken"] == "op-1"
+    assert rewrite_calls == [
+        {
+            "article_id": article_id,
+            "comment": "По-кратко.",
+            "mode": "",
+            "length": "",
+            "idempotency_key": "rk-1",
+        }
+    ], "an untouched control means the automatic behaviour, not a refusal"
+
+
+def test_rewrite_accepts_either_control_on_its_own(api_server, api_store, rewrite_calls):
+    """G4.18: `Дължина` and `Формат` are independent, so each may travel alone.
+
+    Also a 400 before the fix. They are separate `<select>` elements with
+    separate defaults, so "the editor set the length and left the format" is an
+    ordinary state, not a malformed request.
+    """
+    article_id = api_store["article"]["article_id"]
+
+    assert _rewrite(api_server, article_id, {"comment": "Разшири.", "length": "full"})[0] == 202
+    assert rewrite_calls[-1]["length"] == "full" and rewrite_calls[-1]["mode"] == ""
+
+    assert (
+        _rewrite(
+            api_server,
+            article_id,
+            {"comment": "Разшири.", "mode": "MODE_STANDARD_NEWS"},
+            key="rk-2",
+        )[0]
+        == 202
+    )
+    assert rewrite_calls[-1]["mode"] == "MODE_STANDARD_NEWS"
+    assert rewrite_calls[-1]["length"] == ""
+
+
+def test_rewrite_forwards_both_controls_together(api_server, api_store, rewrite_calls):
+    """G4.18: the case the feature exists for — both controls, both honoured."""
+    article_id = api_store["article"]["article_id"]
+
+    status, _ = _rewrite(
+        api_server,
+        article_id,
+        {"comment": "Разшири до пълна статия.", "mode": "MODE_STANDARD_NEWS", "length": "full"},
+    )
+
+    assert status == 202
+    assert rewrite_calls[-1]["mode"] == "MODE_STANDARD_NEWS"
+    assert rewrite_calls[-1]["length"] == "full"
+    assert rewrite_calls[-1]["comment"] == "Разшири до пълна статия."
+
+
+def test_rewrite_still_refuses_an_unknown_control_instead_of_falling_back(
+    api_server, api_store, rewrite_calls
+):
+    """G4.18: a value the product does not offer is a 400, never a guess.
+
+    This is the property the whole feature rests on — the original defect was a
+    SILENT fallback to `MODE_BRIEF`. Widening the accepted key set must not have
+    widened the accepted VALUE set.
+    """
+    article_id = api_store["article"]["article_id"]
+
+    for body in (
+        {"comment": "Разшири.", "length": "huge"},
+        {"comment": "Разшири.", "mode": "MODE_MADE_UP"},
+        {"comment": "Разшири.", "length": "Full"},
+    ):
+        status, payload = _rewrite(api_server, article_id, body)
+        assert status == 400, (body, payload)
+        assert payload["error"]["code"] == "VALIDATION_ERROR"
+
+    assert rewrite_calls == [], "a refused control must reach no model call"
+
+
+def test_rewrite_keeps_its_key_set_closed_and_its_comment_required(
+    api_server, api_store, rewrite_calls
+):
+    """G4.18: optional does not mean open. `comment` is still the request."""
+    article_id = api_store["article"]["article_id"]
+
+    # An unregistered field is still refused by name.
+    status, payload = _rewrite(
+        api_server, article_id, {"comment": "Разшири.", "evidence": ["fact_x"]}
+    )
+    assert status == 400 and payload["error"]["code"] == "VALIDATION_ERROR"
+
+    # An absent or blank comment is still refused: the words ARE the request.
+    for body in ({"length": "full"}, {"comment": "   ", "length": "full"}):
+        assert _rewrite(api_server, article_id, body)[0] == 400
+
+    # The idempotency key is still required, and an empty body is still a 400.
+    assert (
+        request(
+            api_server,
+            f"/api/v1/articles/{article_id}/rewrite",
+            method="POST",
+            body={"comment": "Разшири."},
+        )[0]
+        == 400
+    )
+
+    assert rewrite_calls == []
+
+
+# ------------------------------- PART: the Operations index (V1.2-G4.38)
+
+
+def test_operations_name_their_subject_and_link_to_it(api_server, api_store):
+    """G4.38: every row says what it was ABOUT and takes the editor there.
+
+    Measured on the editor's own Operations page before this: a row read
+    «Чернова · art_85e69497b45cdbe» — an internal id where a headline belongs —
+    and only 2 of the 6 scope shapes the application actually creates produced a
+    link at all. `Проучване` and «Чернова по история» had a Story id sitting in
+    the scope string the whole time and rendered nothing clickable, because the
+    client kept its own partial copy of the scope list.
+    """
+    article_id = api_store["article"]["article_id"]
+    articles.update_article_title(article_id, 0, "Съветът одобри графика за ремонта")
+    articles.update_editor_focus(article_id, "Да обясним решението.")
+
+    story_operations.start("article-draft:" + article_id, "", lambda: {"ok": True})
+    story_operations.start("article-rewrite:" + article_id, "", lambda: {"ok": True})
+    story_operations.start("quick-draft:s-one", "", lambda: {"ok": True})
+    story_operations.start("s-one", "", lambda: {"ok": True})  # research
+    story_operations.start("today-refresh", "", lambda: {"ok": True})
+    story_operations.start("desk-quick-drafts", "", lambda: {"ok": True})
+    for token in [r["operationToken"] for r in story_operations.recent()]:
+        for _ in range(200):
+            if story_operations.get(token)["status"] == "succeeded":
+                break
+            time.sleep(0.01)
+
+    rows = _data(request(api_server, "/api/v1/operations"))["operations"]
+    by_scope = {row["storyId"]: row for row in rows}
+
+    for scope in (
+        "article-draft:" + article_id,
+        "article-rewrite:" + article_id,
+        "quick-draft:s-one",
+        "s-one",
+    ):
+        row = by_scope[scope]
+        assert row["topic"], f"{scope} must name its subject, not its id"
+        assert article_id not in row["topic"], "a title is never an internal id"
+        assert row["topicHref"], f"{scope} must be clickable"
+        assert row["topicHref"] in {f"/articles/{article_id}", "/stories/s-one"}
+        assert row["kind"], f"{scope} must be named in the editor's words"
+
+    # A Story-scoped operation links to the Story page, which has existed all
+    # along — the old comment claiming a Story id "is not a link" was the
+    # reason two of these rows had nowhere to go.
+    assert by_scope["s-one"]["topicHref"] == "/stories/s-one"
+    assert by_scope["quick-draft:s-one"]["topicHref"] == "/stories/s-one"
+    assert by_scope["quick-draft:s-one"]["kind"] == "Чернова по история"
+    assert by_scope["s-one"]["kind"] == "Проучване"
+
+    # The desk-wide action is NAMED even though it has no single subject to
+    # open. Falling through to the generic «Операция» was the other half of the
+    # bug: unlinked is honest here, unnamed is not.
+    assert by_scope["desk-quick-drafts"]["kind"] == "Чернови по всички истории"
+    assert by_scope["desk-quick-drafts"]["topicHref"] == ""
+    assert by_scope["today-refresh"]["kind"] == "Обновяване на новините"
+
+
+def test_operations_report_when_the_work_ran(api_server, api_store, monkeypatch):
+    """G4.38: the index carries a wall clock, because none existed to show."""
+    rows = _data(request(api_server, "/api/v1/operations"))["operations"]
+
+    token = story_operations.start("s-one", "", lambda: {"ok": True})[0]
+    for _ in range(200):
+        if story_operations.get(token)["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+
+    row = next(
+        r
+        for r in _data(request(api_server, "/api/v1/operations"))["operations"]
+        if r["operationToken"] == token
+    )
+    started = datetime.fromisoformat(row["startedAt"])
+    finished = datetime.fromisoformat(row["finishedAt"])
+    assert started <= finished
+    assert finished <= datetime.now(timezone.utc)
+    assert all("startedAt" in r and "finishedAt" in r for r in rows + [row])
+
+
+def test_operations_do_not_invent_a_topic_for_a_deleted_article(api_server, api_store):
+    """G4.38: an unresolvable subject stays empty rather than being decorated.
+
+    The id is right there and would make a convincing-looking row. It is still
+    not a headline, and printing it would be the id-as-title lie all over again.
+    """
+    token = story_operations.start("article-draft:art_gone123", "", lambda: {"ok": True})[0]
+    for _ in range(200):
+        if story_operations.get(token)["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+
+    row = next(
+        r
+        for r in _data(request(api_server, "/api/v1/operations"))["operations"]
+        if r["operationToken"] == token
+    )
+    assert row["topic"] == ""
+    assert row["topicHref"] == ""
+    assert row["kind"] == "Чернова", "it still says what KIND of work this was"
+
+
+def test_operations_survive_an_unreadable_story_store(api_server, api_store):
+    """G4.38 review: a broken store must not take this page down.
+
+    `/operations` used to read only the in-memory registry and could not fail on
+    a store. The topic projection added store reads, and `read_store` raises
+    `StoryStoreError` — which surfaced as a generic `500 INTERNAL_ERROR` logged
+    as "Unhandled editor API failure", i.e. the server treating its own ordinary
+    read path as a crash.
+
+    That is backwards: «Операции» is the page an editor opens BECAUSE something
+    else is broken. It must degrade to "what kind of work was this" and keep
+    answering.
+    """
+    token = story_operations.start("s-one", "", lambda: {"ok": True})[0]
+    for _ in range(200):
+        if story_operations.get(token)["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+
+    stories_path = api_store["stories"]
+    backup = stories_path.read_text(encoding="utf-8")
+    stories_path.write_text("{ not json at all", encoding="utf-8")
+    try:
+        status, payload = request(api_server, "/api/v1/operations")
+    finally:
+        stories_path.write_text(backup, encoding="utf-8")
+
+    assert status == 200, payload
+    row = next(r for r in payload["data"]["operations"] if r["operationToken"] == token)
+    assert row["kind"] == "Проучване", "the kind does not depend on any store"
+    assert row["topic"] == "" and row["topicHref"] == "", "and nothing is invented"
+
+
+def test_operations_read_each_store_once_per_page_not_once_per_row(
+    api_server, api_store, monkeypatch
+):
+    """G4.38 review: the topic projection must not scale its reads with the rows.
+
+    Measured on the first version: a 12-row page read the Story store 12 times
+    and the whole inbox 12 times — 134 ms, on the one surface that re-polls
+    every 5 seconds.
+    """
+    for index in range(11):
+        token = story_operations.start(f"s-bulk{index}", "", lambda: {"ok": True})[0]
+        for _ in range(200):
+            if story_operations.get(token)["status"] == "succeeded":
+                break
+            time.sleep(0.01)
+
+    counts = {"stories": 0, "items": 0}
+    from editor_assistant.workflow import story_store
+
+    real_read_store = story_store.read_store
+    real_items = app._story_items
+
+    def counting_read_store(*args, **kwargs):
+        counts["stories"] += 1
+        return real_read_store(*args, **kwargs)
+
+    def counting_items(*args, **kwargs):
+        counts["items"] += 1
+        return real_items(*args, **kwargs)
+
+    monkeypatch.setattr(story_store, "read_store", counting_read_store)
+    monkeypatch.setattr(app, "_story_items", counting_items)
+
+    status, payload = request(api_server, "/api/v1/operations")
+
+    assert status == 200
+    rows = [r for r in payload["data"]["operations"] if r["storyId"].startswith("s-")]
+    assert len(rows) >= 11, "the bulk rows are there; the read count is the point"
+    assert counts == {"stories": 1, "items": 1}, f"store reads per page load: {counts}"

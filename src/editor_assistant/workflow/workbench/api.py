@@ -14,7 +14,6 @@ from editor_assistant.workflow import (
     editor_queries,
     rewrite_feedback,
     story_editor_metadata,
-    story_operations,
 )
 from editor_assistant.workflow import editor_application as app
 from editor_assistant.workflow import editor_source_settings as sources_settings
@@ -445,7 +444,23 @@ def _rewrite(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     # an unknown value is a client error, never a silent fallback to the
     # auto-suggested one — which is the behaviour that made "разшири" come back
     # shorter.
-    body = _body(handler, {"comment", "mode", "length"})
+    #
+    # V1.2-G4.18 fix: the closed key set belongs to `_body_partial`, NOT to
+    # `_body`. `_body` demands an EXACT match, so it also demanded that `mode`
+    # and `length` be PRESENT — and the client deliberately omits a control the
+    # editor did not touch ("Only the keys the editor actually chosen travel.
+    # Sending empty values would be a claim that they were set"). The two
+    # defaults therefore met in the middle and every ordinary rewrite came back
+    # `400 VALIDATION_ERROR`: the editor who left both selects alone, and the
+    # editor who set only one of them, were both refused by a field they never
+    # had. Measured through the real HTTP server, not inferred: shapes
+    # `{comment}`, `{comment, length}` and `{comment, mode}` were all 400, while
+    # `{comment, mode, length}` was 202. The controls were unreachable in
+    # exactly the case they exist for.
+    #
+    # So: the key set stays closed (an unregistered field is still a 400), the
+    # comment stays required, and the two controls are genuinely optional.
+    body = _body_partial(handler, {"comment", "mode", "length"})
     key = handler.headers.get("Idempotency-Key", "").strip()
     if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
         raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
@@ -458,7 +473,7 @@ def _rewrite(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     return 202, {
         "operationToken": app.start_article_rewrite(
             article_id,
-            _string(body["comment"], "comment", maximum=4000),
+            _string(body.get("comment", ""), "comment", maximum=4000),
             idempotency_key=key,
             mode=mode,
             length=length,
@@ -620,7 +635,11 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             }
     if len(parts) == 3 and parts[:3] == [*prefix, "operations"] and method == "GET":
         # The index an editor needs after asking for several things at once.
-        return 200, {"operations": story_operations.recent()}
+        # V1.2-G4.38: through the application projection, so every row carries a
+        # topic and a link. `recent()` alone returned the raw scope — an
+        # internal id, and not a place. Measured: 2 of the 6 scope shapes the
+        # application creates produced a link at all.
+        return 200, app.list_operations()
     if len(parts) == 4 and parts[:3] == [*prefix, "operations"] and method == "GET":
         return 200, app.operation_status(
             _identifier(parts[3], re.compile(r"op_[0-9a-f]{24}\Z"), "операция")
