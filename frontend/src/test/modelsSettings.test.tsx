@@ -126,4 +126,48 @@ describe("AI и модели — the paid switch", () => {
     expect(dead?.getAttribute("data-dead")).toBe("true");
     expect(dead?.textContent).toContain("0");
   });
+  it("refuses an unusable budget out loud instead of doing nothing", async () => {
+    // V1.2-G4.41. The button used to `return` silently, so typing "abc" and
+    // pressing it looked exactly like a successful save — on the one field that
+    // decides how much real money the newsroom may spend.
+    const puts: unknown[] = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes("/settings/models") && init?.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)));
+        return data({ ...SETTINGS });
+      }
+      return data(SETTINGS);
+    });
+    renderPage();
+
+    const field = (await screen.findByLabelText(/Нов софт бюджет/)) as HTMLInputElement;
+    const save = screen.getByRole("button", { name: "Запази бюджета" });
+
+    // `type="number"` refuses letters, so the reachable bad values are an empty
+    // field, a negative one, and one past the bound — not "abc".
+    await userEvent.clear(field);
+    expect(screen.getByText("Въведи число.")).toBeInTheDocument();
+    expect(save).toBeDisabled();
+
+    await userEvent.type(field, "-5");
+    expect(screen.getByText("Бюджетът не може да е отрицателен.")).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    expect(field).toHaveAttribute("aria-invalid", "true");
+
+    await userEvent.clear(field);
+    await userEvent.type(field, "999");
+    expect(screen.getByText(/над 500 USD/)).toBeInTheDocument();
+    expect(save).toBeDisabled();
+
+    // Nothing was sent while the value was unusable.
+    expect(puts).toEqual([]);
+
+    // A real number saves it.
+    await userEvent.clear(field);
+    await userEvent.type(field, "4.5");
+    expect(screen.queryByText("Бюджетът трябва да е число.")).toBeNull();
+    await userEvent.click(save);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toEqual({ paidEnabled: false, softPaidBudgetUsdDay: 4.5 });
+  });
 });

@@ -68,11 +68,30 @@ export function ModelsSettingsPage() {
     save.mutate({ paidEnabled: !settings.paidEnabled });
   }
 
+  // V1.2-G4.41. A budget the operator cannot read is a budget they think they
+  // saved. `saveBudget` used to `return` silently on a value it could not use,
+  // so typing "abc" or "-5" and pressing the button did nothing at all — on a
+  // SPEND field, where a silent no-op is indistinguishable from a successful
+  // save. The refusal is now computed and shown, and the button is disabled
+  // while the value is unusable, so the reason is on screen before the click
+  // rather than after it.
+  function budgetProblem(): string {
+    if (budget === null) return "";
+    const raw = budget.trim();
+    if (raw === "") return "Въведи число.";
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return "Бюджетът трябва да е число.";
+    if (parsed < 0) return "Бюджетът не може да е отрицателен.";
+    if (parsed > 500) return "Бюджетът не може да е над 500 USD.";
+    return "";
+  }
+
   function saveBudget() {
-    if (!settings) return;
-    const parsed = Number(budget);
-    if (!Number.isFinite(parsed) || parsed < 0) return;
-    save.mutate({ paidEnabled: settings.paidEnabled, softPaidBudgetUsdDay: parsed });
+    if (!settings || budgetProblem()) return;
+    save.mutate({
+      paidEnabled: settings.paidEnabled,
+      softPaidBudgetUsdDay: Number(budget!.trim()),
+    });
   }
 
   const header = (
@@ -165,19 +184,27 @@ export function ModelsSettingsPage() {
                 id="paid-budget"
                 type="number"
                 min={0}
+                max={500}
                 step="0.5"
+                aria-invalid={Boolean(budgetProblem())}
+                aria-describedby={budgetProblem() ? "paid-budget-problem" : undefined}
                 value={budget ?? String(settings.softPaidBudgetUsdDay)}
                 onChange={(event) => setBudget(event.target.value)}
               />
               <button
                 type="button"
                 className={styles.secondary}
-                disabled={save.isPending || budget === null}
+                disabled={save.isPending || budget === null || Boolean(budgetProblem())}
                 onClick={saveBudget}
               >
                 Запази бюджета
               </button>
             </div>
+            {budgetProblem() ? (
+              <p className={styles.warn} id="paid-budget-problem" role="alert">
+                {budgetProblem()}
+              </p>
+            ) : null}
 
             {save.isError && (
               <p className={styles.error} role="alert">

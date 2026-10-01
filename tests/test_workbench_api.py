@@ -2191,3 +2191,40 @@ def test_a_refused_switch_does_not_change_the_stored_state(api_server, api_store
 def test_model_settings_is_a_known_path_so_a_wrong_method_is_405(api_server):
     """G4.39: an editor posting here gets "wrong verb", not "no such page"."""
     assert request(api_server, "/api/v1/settings/models", method="POST", body={})[0] == 405
+
+
+def test_an_empty_rewrite_body_is_told_it_forgot_the_comment(api_server, api_store):
+    """G4.41: "nothing to change" is the truth for an edit form, not a command.
+
+    `_body_partial` is shared, and its empty-body sentence was written for the
+    edit forms that use it. `Пренапиши` inherited it, so an empty body told the
+    editor there was nothing to change — on a screen whose only job is to send
+    a command. The refusal is still a 400; only the reason is now the real one.
+    """
+    article_id = api_store["article"]["article_id"]
+    status, payload = request(
+        api_server,
+        f"/api/v1/articles/{article_id}/rewrite",
+        method="POST",
+        body={},
+        headers={"Idempotency-Key": "empty-1"},
+    )
+    assert status == 400, payload
+    assert payload["error"]["code"] == "VALIDATION_ERROR"
+    message = payload["error"]["message"]
+    assert "Няма какво да се промени" not in message, message
+    assert "пренапишете" in message, message
+
+
+def test_an_edit_form_still_says_nothing_to_change(api_server, api_store):
+    """G4.41: the shared default is unchanged for the screens it was written for.
+
+    `Източници` is an edit form - a row edited one field at a time - so "nothing
+    to change" is exactly right there, and the per-command override must not have
+    leaked into it. Checked through the real endpoint, not by reading a constant.
+    """
+    status, payload = request(
+        api_server, "/api/v1/settings/sources/src-missing", method="PUT", body={}
+    )
+    assert status == 400, payload
+    assert payload["error"]["message"] == "Няма какво да се промени.", payload

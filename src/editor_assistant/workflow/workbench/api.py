@@ -164,7 +164,9 @@ def _body(handler: BaseHTTPRequestHandler, required: set[str]) -> dict:
     return value
 
 
-def _body_partial(handler: BaseHTTPRequestHandler, allowed: set[str]) -> dict:
+def _body_partial(
+    handler: BaseHTTPRequestHandler, allowed: set[str], *, empty_message: str = ""
+) -> dict:
     """A body carrying **some** of `allowed`, and nothing else.
 
     The exact-match `_body` is right for a command that takes one fixed shape.
@@ -172,6 +174,12 @@ def _body_partial(handler: BaseHTTPRequestHandler, allowed: set[str]) -> dict:
     and the name are independent editor actions, and a row must be editable one
     field at a time. The key set is still closed, so no unregistered field can be
     reached — the refusal is on the name, not on completeness (§10, §32).
+
+    V1.2-G4.41. `empty_message` exists because "nothing to change" is the
+    truth for an edit form and a falsehood for a command. `Пренапиши` with an
+    empty body is not a row with nothing to change; it is a request that forgot
+    its comment, and the old wording sent the editor looking for a control they
+    had never been near.
     """
     content_type = handler.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
     if content_type != "application/json":
@@ -200,7 +208,11 @@ def _body_partial(handler: BaseHTTPRequestHandler, allowed: set[str]) -> dict:
             field_errors=[{"field": name} for name in unknown],
         )
     if not value:
-        raise ApiError(400, "VALIDATION_ERROR", "Няма какво да се промени.")
+        raise ApiError(
+            400,
+            "VALIDATION_ERROR",
+            empty_message or "Няма какво да се промени.",
+        )
     return value
 
 
@@ -493,7 +505,13 @@ def _rewrite(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     #
     # So: the key set stays closed (an unregistered field is still a 400), the
     # comment stays required, and the two controls are genuinely optional.
-    body = _body_partial(handler, {"comment", "mode", "length"})
+    body = _body_partial(
+        handler,
+        {"comment", "mode", "length"},
+        # V1.2-G4.41. An empty rewrite body is a missing comment, not "nothing
+        # to change" — the editor is sending a command, not editing a row.
+        empty_message="Напишете какво да се промени, преди да пренапишете.",
+    )
     key = handler.headers.get("Idempotency-Key", "").strip()
     if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
         raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
