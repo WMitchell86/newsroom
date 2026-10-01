@@ -117,10 +117,37 @@ note and blocked a working model" is how the next reader repeats the error.
 These fail on unmodified `main` and are not regressions. Verify against a
 stashed run before blaming a change:
 
-- `tests/test_model_policy.py` — 2 failures
-- `tests/test_workbench_api.py` — 12-13, and the set varies between runs
+- `tests/test_workbench_api.py` — 4-5, and the set varies between runs
   (`test_research_that_finds_nothing_persists_an_explicit_gap` is order-dependent)
-- `tests/test_quick_draft.py` — 7 failures
+- `tests/test_newsroom_refresh.py` — 2
+  (`test_new_development_reaches_a_followed_story_once_and_aggregates`,
+  `test_duplicate_material_creates_no_false_attention`)
+- `tests/browser/` — 6-7, all in `test_d2a_stories` / `test_v11_d1_today` /
+  `test_v11_d2_quick_draft` / `test_v12_g2_2_research_ux`. These skip entirely
+  in a fresh `git worktree` (no `frontend/node_modules`), so a worktree is NOT
+  a valid baseline for them — compare in the real tree.
+
+**This list is measured, not remembered, and it goes stale.** Entries that used
+to be here and no longer fail: `tests/test_model_policy.py` (2) and
+`tests/test_quick_draft.py` (7) were both clean on 2026-10-01. Re-measure before
+trusting it; a stale entry hides a real regression, and a missing one sends you
+looking for a failure you caused.
 
 Never present a failing count as a regression without a stashed comparison.
 Never absorb a failure silently to make a number look better.
+
+## 11. A test that depends on ambient environment is a test that lies
+
+`tests/browser/conftest.py` sets `GEMINI_API_KEY` in `os.environ` and never
+clears it, so every later test file inherits it. A routing test written against
+that ambient state passed alone and failed after `tests/browser/` — the same
+failure looks like a regression in whatever you just changed.
+
+- A test that reasons about routing must set the keys it depends on, or clear
+  the ones it does not. Asserting "route X is eligible" with no key is
+  meaningless: the router skips a keyless route with `липсва …KEY`, so the
+  route under test is excluded along with the ones you meant to exclude.
+- Prove order-independence by running the polluting file **and** your file
+  together, not your file alone.
+- `git worktree add` gives a clean baseline for pure-Python tests only; browser
+  tests skip there, so it silently "passes" work that is not being tested.

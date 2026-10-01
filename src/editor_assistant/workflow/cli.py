@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -1419,11 +1420,27 @@ def newsroom_doctor(*, last_run_path=None) -> tuple[str, int]:
         lines.append(
             "РАЗПИС: липсва " + ", ".join(schedule["missing"]) + " — бюрото не се обновява."
         )
+    elif not schedule.get("logDirOk", True):
+        # Every crontab line can be present and every job still never run: with
+        # no log directory the shell fails the redirect BEFORE the command
+        # starts, so the job exits 2 in silence. The older check called this
+        # healthy. Reported separately because the fix is one mkdir, not an edit
+        # to the schedule.
+        lines.append(
+            f"РАЗПИС: задачите са в crontab, но {schedule['logDir']} липсва — "
+            "всяка задача пада при пренасочването на изхода и не записва нищо."
+        )
+        lines.append(f"  ПЪРВА ПОДХОД: mkdir -p {schedule['logDir']}")
     else:
         lines.append(f"РАЗПИС: на място ({len(schedule['present'])} задачи).")
 
     lines.append("")
-    problems = bool(dead_roles) or stale or bool(schedule["missing"])
+    problems = (
+        bool(dead_roles)
+        or stale
+        or bool(schedule["missing"])
+        or (schedule["readable"] and not schedule.get("logDirOk", True))
+    )
     if dead_roles:
         for role, contract in dead_roles:
             plain = _ON_EXHAUSTED_PLAIN.get(contract, contract or "неизвестно")
@@ -1561,16 +1578,6 @@ def newsroom_repair(*, timeout: int = 20) -> tuple[str, int]:
 #: hand-maintained crontab eventually has. The minute offsets are deliberate:
 #: `repair` and `doctor` must not land on the same minute, and `doctor` runs
 #: after `repair` so it reports the repaired state rather than the broken one.
-#: Collection is every 2 hours, not hourly, because `newsroom_run` treats a lock
-#: as stale after LOCK_STALE_SECONDS = 3600 and an hourly schedule collides with
-#: exactly that window.
-#: V1.2-G4.5. The ONE source of truth for the newsroom's schedule.
-#:
-#: Both `doctor` and the installer read this list, so "what is installed" and
-#: "what should be installed" cannot drift apart — which is the failure every
-#: hand-maintained crontab eventually has. The minute offsets are deliberate:
-#: `repair` and `doctor` must not land on the same minute, and `doctor` runs
-#: after `repair` so it reports the repaired state rather than the broken one.
 #:
 #: V1.2-G4.40 — `newsroom refresh` moves from `17 */2 * * *` to `17 * * * *`.
 #:
@@ -1600,14 +1607,39 @@ def newsroom_repair(*, timeout: int = 20) -> tuple[str, int]:
 #: about a desk that was updating hourly, and `test_doctor_is_quiet_when_-
 #: everything_is_healthy` failed. A self-check that disagrees with the thing it
 #: checks is worse than no self-check. These two must always change together.
+#:
+#: The `mkdir -p … &&` prefix on every line is load-bearing, not decoration.
+#: The shell opens a crontab's `>> file.log` redirect BEFORE it runs the command,
+#: so a script that creates its own log directory cannot rescue the job: the
+#: redirect has already failed. `var/` is gitignored, so a fresh checkout has no
+#: `var/cron/` at all, and every one of these jobs would die at the redirect with
+#: exit 2, no log line and no error anywhere the operator reads — while
+#: `cron_status` still matched the crontab text and `doctor` cheerfully reported
+#: "РАЗПИС: на място (4 задачи)". Creating the directory in the crontab line
+#: itself is the only place early enough.
+CRON_LOG_DIR = "var/cron"
+
 NEWSROOM_CRONS = (
-    ("13,43 * * * *", "newsroom repair"),
-    ("17 * * * *", "newsroom refresh"),
-    ("47 * * * *", "newsroom doctor"),
-    ("41 6 * * *", "newsroom models validate"),
+    ("13,43 * * * *", "newsroom repair", "repair.log"),
+    ("17 * * * *", "newsroom refresh", "collect.log"),
+    ("47 * * * *", "newsroom doctor", "doctor.log"),
+    ("41 6 * * *", "newsroom models validate", "validate.log"),
 )
 
 CRON_ENTRY = "/home/test/media/scripts/newsroom_cron.sh"
+
+
+def cron_line(schedule: str, command: str, log_name: str) -> str:
+    """The exact crontab line for one job — the one `cron_status` looks for.
+
+    Single source of the line's shape, so the installer, the matcher and the
+    docs cannot drift. `mkdir -p` runs before the redirect for the reason
+    recorded on `NEWSROOM_CRONS`.
+    """
+    return (
+        f"{schedule} mkdir -p {ROOT}/{CRON_LOG_DIR} && "
+        f"{CRON_ENTRY} {command} >> {ROOT}/{CRON_LOG_DIR}/{log_name} 2>&1"
+    )
 
 
 def cron_status() -> dict:
@@ -1617,9 +1649,10 @@ def cron_status() -> dict:
     the quietest kind of breakage: the newsroom simply stops updating and every
     number still looks plausible. `doctor` therefore checks its own schedule,
     and reports a missing job rather than assuming it.
-    """
-    import subprocess
 
+    `subprocess` is imported at module scope (not here) so tests can patch the
+    one `crontab -l` call this makes.
+    """
     try:
         out = subprocess.run(
             ["crontab", "-l"], capture_output=True, text=True, timeout=10, check=False
@@ -1627,13 +1660,38 @@ def cron_status() -> dict:
     except (OSError, subprocess.SubprocessError):
         # Cannot tell is not the same as "absent". Saying "missing" here would
         # be exactly the confident wrong sentence this command exists to avoid.
-        return {"readable": False, "missing": [], "present": []}
+        return {
+            "readable": False,
+            "missing": [],
+            "present": [],
+            "logDir": str(ROOT / CRON_LOG_DIR),
+            "logDirOk": False,
+        }
 
     missing, present = [], []
-    for schedule, command in NEWSROOM_CRONS:
-        line = f"{schedule} {CRON_ENTRY} {command}"
+    for schedule, command, log_name in NEWSROOM_CRONS:
+        line = cron_line(schedule, command, log_name)
         (present if line in out else missing).append(command)
-    return {"readable": True, "missing": missing, "present": present}
+
+    # A job whose crontab line is present can still never run: if the log
+    # directory does not exist, the shell fails the redirect before the command
+    # starts, and the job exits 2 having written nothing and said nothing. This
+    # is not hypothetical — `var/` is gitignored, so a fresh checkout has no
+    # `var/cron/`, and reporting the schedule as healthy there is the confident
+    # wrong sentence this command exists to avoid. Checked, not assumed.
+    log_dir = ROOT / CRON_LOG_DIR
+    try:
+        log_dir_ok = log_dir.is_dir()
+    except OSError:
+        log_dir_ok = False
+
+    return {
+        "readable": True,
+        "missing": missing,
+        "present": present,
+        "logDir": str(log_dir),
+        "logDirOk": log_dir_ok,
+    }
 
 
 def render_refresh_summary(collect, stories, story_error):

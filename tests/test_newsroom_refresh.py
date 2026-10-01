@@ -942,6 +942,161 @@ def test_an_unreadable_crontab_is_not_reported_as_missing():
     monkey = __import__("pytest").MonkeyPatch()
     monkey.setattr(subprocess, "run", Boom().run)
     try:
-        assert cli.cron_status() == {"readable": False, "missing": [], "present": []}
+        result = cli.cron_status()
+        assert result["readable"] is False
+        assert result["missing"] == []
+        assert result["present"] == []
     finally:
         monkey.undo()
+def _fake_crontab(text: str):
+    """A `subprocess.run` replacement returning `text` as `crontab -l` output."""
+
+    class _Result:
+        stdout = text
+        stderr = ""
+        returncode = 0
+
+    return lambda *args, **kwargs: _Result()
+
+
+def test_a_missing_log_directory_is_reported_even_when_every_cron_line_is_present(monkeypatch):
+    """The silent failure this guards: crontab present, jobs never run.
+
+    `var/` is gitignored, so a fresh checkout has no `var/cron/`. The shell
+    opens the crontab's `>> var/cron/x.log` redirect BEFORE running the command,
+    so the job dies at the redirect with exit 2 and writes nothing. The old
+    check only string-matched the crontab, so `doctor` answered
+    "РАЗПИС: на място (4 задачи)" about four jobs that could not run once.
+
+    The assertion is on the DOCTOR's words, not on a helper's return value,
+    because the sentence the editor reads is the thing that was wrong.
+    """
+    from editor_assistant.workflow import cli
+
+    monkeypatch.setattr(
+        cli,
+        "cron_status",
+        lambda: {
+            "readable": True,
+            "missing": [],
+            "present": ["newsroom repair", "newsroom refresh"],
+            "logDir": "/home/test/media/var/cron",
+            "logDirOk": False,
+        },
+    )
+    from editor_assistant.drafting import model_policy, model_router
+    from editor_assistant.workflow import source_health
+
+    monkeypatch.setattr(
+        model_router,
+        "plan_routes",
+        lambda role, policy=None, **kw: {
+            "routes": [{"model": "m0", "eligible": True, "reason": ""}],
+            "on_exhausted": "conservative",
+        },
+    )
+    monkeypatch.setattr(model_policy, "load_policy", lambda: {"roles": {"draft": {}}})
+    monkeypatch.setattr(
+        source_health,
+        "read_last_run",
+        lambda path=None: {"finished_at": "2026-10-01T14:17:08Z"},
+    )
+    monkeypatch.setattr(cli, "_record_doctor_status", lambda record: None)
+
+    report, code = cli.newsroom_doctor()
+
+    assert code == 1, "a schedule that cannot run must not be reported healthy"
+    assert "var/cron" in report
+    assert "не е на място" not in report
+    assert "на място (" not in report
+
+
+def test_every_cron_line_creates_its_own_log_directory_before_the_redirect():
+    """The `mkdir -p` must come BEFORE `>>`, or it cannot help.
+
+    Ordering is the whole fix: a redirect is opened before the command runs, so
+    a `mkdir` after it (or inside the script) is too late. Asserted on the line
+    text because that is what the operator pastes into `crontab -e`.
+    """
+    from editor_assistant.workflow import cli
+
+    for schedule, command, log_name in cli.NEWSROOM_CRONS:
+        line = cli.cron_line(schedule, command, log_name)
+        mkdir_at = line.index("mkdir -p")
+        redirect_at = line.index(">>")
+        assert mkdir_at < redirect_at, f"mkdir must precede the redirect: {line}"
+        assert line.endswith(f">> {cli.ROOT}/{cli.CRON_LOG_DIR}/{log_name} 2>&1")
+
+
+def test_cron_status_reports_a_missing_log_directory_as_not_ok(monkeypatch, tmp_path):
+    """`logDirOk` is measured, never assumed."""
+    from editor_assistant.workflow import cli
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path / "no-such-checkout")
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        _fake_crontab("\n".join(cli.cron_line(s, c, l) for s, c, l in cli.NEWSROOM_CRONS)),
+    )
+
+    status = cli.cron_status()
+
+    assert status["missing"] == [], "the crontab lines themselves are present"
+    assert status["logDirOk"] is False, "the directory they log into is not"
+
+
+def test_cron_status_is_ok_once_the_log_directory_exists(monkeypatch, tmp_path):
+    from editor_assistant.workflow import cli
+
+    root = tmp_path / "checkout"
+    (root / cli.CRON_LOG_DIR).mkdir(parents=True)
+    monkeypatch.setattr(cli, "ROOT", root)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        _fake_crontab("\n".join(cli.cron_line(s, c, l) for s, c, l in cli.NEWSROOM_CRONS)),
+    )
+
+    status = cli.cron_status()
+
+    assert status["logDirOk"] is True
+    assert status["missing"] == []
+    assert len(status["present"]) == len(cli.NEWSROOM_CRONS)
+
+
+def test_the_installed_crontab_line_is_what_cron_status_looks_for(monkeypatch):
+    """The drift trap from 849b455, closed for the log-directory prefix too.
+
+    Editing the crontab without editing `NEWSROOM_CRONS` is what once made the
+    doctor report a missing job about a desk that was collecting fine. The
+    `mkdir -p` prefix is part of the matched line, so it has the same exposure
+    and the same guard.
+    """
+    from editor_assistant.workflow import cli
+
+    installed = "\n".join(cli.cron_line(s, c, l) for s, c, l in cli.NEWSROOM_CRONS)
+    monkeypatch.setattr(cli.subprocess, "run", _fake_crontab(installed))
+
+    status = cli.cron_status()
+
+    assert status["missing"] == []
+
+
+def test_a_stale_crontab_without_the_mkdir_prefix_is_reported_as_missing(monkeypatch):
+    """The OLD line shape must no longer satisfy the check.
+
+    This is the whole point: the four lines installed before this fix are
+    broken on a fresh checkout, so if they still matched, the fix would be
+    invisible and the next reinstall would silently reintroduce it.
+    """
+    from editor_assistant.workflow import cli
+
+    old_style = "\n".join(
+        f"{s} {cli.CRON_ENTRY} {c} >> {cli.ROOT}/{cli.CRON_LOG_DIR}/{l} 2>&1"
+        for s, c, l in cli.NEWSROOM_CRONS
+    )
+    monkeypatch.setattr(cli.subprocess, "run", _fake_crontab(old_style))
+
+    status = cli.cron_status()
+
+    assert status["missing"], "the pre-fix crontab must not pass as installed"

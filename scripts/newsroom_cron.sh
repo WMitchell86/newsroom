@@ -9,6 +9,12 @@
 # looking fine - the process had no usable key and said nothing about it.
 #
 # Every scheduled task goes through here so that cannot happen per-job.
+#
+# `mkdir -p var/cron` below is for a HUMAN or a test running this by hand. It
+# does NOT rescue a cron job: the shell opens the crontab's `>> var/cron/x.log`
+# redirect BEFORE it executes this script, so that line runs too late. When the
+# log directory is missing the job dies at the redirect with no output at all,
+# which is why the crontab lines create the directory themselves.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"

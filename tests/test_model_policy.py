@@ -640,6 +640,67 @@ def test_draft_free_fallback_is_allowed_but_paid_is_still_gated():
     assert policy["roles"]["draft"]["on_exhausted"] == "fail_visible"
 
 
+def test_every_role_has_a_free_substitute():
+    """A role whose only fallbacks are PAID has no fallback at all.
+
+    This was a real gap: `angle` went straight from the Gemini routes to two
+    `billing: paid` OpenRouter models. With `paid_enabled: false` a paid route
+    is skipped, so once the Gemini per-model daily limits were spent the role had
+    NOTHING eligible left and quietly degraded — the exact `on_exhausted:
+    degraded` case the contract exists for.
+
+    OpenRouter is the PROVIDER, not a billing class: it also serves models that
+    are genuinely free, and those are proven working (the ledger shows
+    nemotron-3-ultra-550b:free answering 50/56 calls today). So the fix is a
+    free route in the chain, not loosening the paid gate.
+
+    Ordering is deliberately NOT asserted. A gated paid route is a skip that
+    `continue`s to the next route, so a free route placed after it is still
+    reached — `draft` ships that way and works. Asserting the order would pin a
+    detail the router does not depend on.
+    """
+    policy = model_policy.load_policy()
+
+    for role in model_policy.ROLES:
+        billings = [r.get("billing") for r in policy["roles"][role]["routes"]]
+        assert "free" in billings, f"{role}: no free substitute in {billings}"
+
+
+def test_the_angle_free_substitute_survives_gemini_being_spent(monkeypatch):
+    """The scenario above, asserted on the router rather than on the JSON.
+
+    Spending the Gemini daily limits must leave `angle` a FREE eligible route,
+    not an empty list. Pinned because the JSON assertion alone would still pass
+    if a later edit reordered the routes or the free model were removed.
+
+    Only the GEMINI keys are cleared, and that is deliberate. The browser
+    conftest leaves `GEMINI_API_KEY` in `os.environ` without cleanup, so a
+    scenario test that keeps it silently depends on test order — it passed alone
+    and failed after `tests/browser/` (reproduced). `OPENROUTER_API_KEY` must
+    stay: a route with no key is skipped with "липсва …KEY", so clearing it
+    would skip the free substitutes too and the test would assert nothing about
+    the fallback at all.
+    """
+    for name in ("GEMINI_API_KEY", "GEMINI_DRAFT_MODELS", "GEMINI_ANGLE_MODELS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-not-used-for-a-real-call")
+    policy = model_policy.load_policy()
+    monkeypatch.setattr(
+        model_router.model_usage, "model_calls_today", lambda provider, model, day=None: 999
+    )
+
+    plan = model_router.plan_routes("angle", policy=policy, payload_class="public")
+    eligible = [r for r in plan["routes"] if r.get("eligible")]
+
+    assert eligible, (
+        "angle must still have a route once Gemini is spent; reasons were: "
+        + "; ".join(f"{r['model']}={r['reason']}" for r in plan["routes"] if r.get("reason"))
+    )
+    assert all(
+        r.get("billing") == "free" for r in eligible
+    ), f"angle fell back to something that is not free: {[r['billing'] for r in eligible]}"
+
+
 def test_angle_and_story_roles_never_ride_the_judge_pool():
     policy = model_policy.load_policy()
     judge_models = {r["model"] for r in policy["roles"]["judge"]["routes"]}

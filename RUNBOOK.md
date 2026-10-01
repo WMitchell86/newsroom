@@ -374,9 +374,110 @@ crontab -e
 0 7,12,16,20 * * * cd /home/test/media && PYTHONPATH=src /usr/bin/python3 -m editor_assistant.workflow.cli newsroom refresh >> var/newsroom/cron.log 2>&1
 ```
 
+The `>>` target directory must already exist. **A shell opens a cron job's
+output redirect *before* it runs the command**, so a `mkdir` inside the command
+is too late — the job dies at the redirect, exits `2`, and writes nothing. This
+is why the installed newsroom schedule uses the `newsroom_cron.sh` wrapper, whose
+crontab lines create the log directory first:
+
+```bash
+crontab -e
+17 * * * * mkdir -p /home/test/media/var/cron && /home/test/media/scripts/newsroom_cron.sh newsroom refresh >> /home/test/media/var/cron/collect.log 2>&1
+```
+
+`var/` is gitignored, so a fresh checkout has no `var/cron/` at all — without the
+`mkdir -p` every scheduled job is dead on arrival while the crontab still looks
+correct. `newsroom doctor` checks this (`РАЗПИС:` line, exit `1`) rather than
+reporting the schedule as installed.
+
+`NEWSROOM_CRONS` in `src/editor_assistant/workflow/cli.py` is the single source of
+truth for these lines: `newsroom doctor` matches the installed crontab against the
+exact line built from it, so the crontab and that constant must be changed
+together. `newsroom_cron.sh` loads `.env` in the shell (`set -a; . ./.env`) — never
+`env $(cat .env)`, which leaves quotes attached to the keys and makes every
+provider call fail while the summary claims the work was done.
+
 Exit codes: `0` ok · `1` at least one source failed (successful sources keep
 their items — read the summary) · `3` another run holds the collection lock
 (cron overlapping the Workbench «Събери новите сега» button; harmless).
+
+### Every role needs a free substitute
+
+A role whose only fallbacks are `billing: paid` has **no fallback at all** while
+`paid_enabled` is false — a paid route is *skipped*, so once the Gemini
+per-model daily limits are spent such a role has nothing left and quietly does
+less. That is exactly the failure each role's `on_exhausted` contract exists to
+prevent (`angle: degraded`, `draft: fail_visible`, `story: conservative`).
+
+`angle` shipped that way until 2026-10-01: its chain went straight from the
+three Gemini Flash routes to two **paid** OpenRouter models, so
+`newsroom doctor` reported `✗ angle 0/5` and, once Gemini was spent, `angle`
+would have had zero eligible routes. It now carries
+`nvidia/nemotron-3-ultra-550b-a55b:free` and `nvidia/nemotron-3.5-lightning:free`
+(0/5 → 3/7).
+
+**OpenRouter is the provider, not a billing class.** The same provider serves
+free and paid models, and its free endpoints are the ones that keep the desk
+running when Gemini is spent. `newsroom models validate` lists which of the
+configured ids are free endpoints today.
+
+Order note: the free route must simply be *in* the chain. A gated paid route is
+a skip that continues to the next route, so `draft` legitimately lists its paid
+route ahead of the free ones and still reaches them.
+
+Two rules when adding a substitute:
+
+- **`openrouter` + `billing: free` implies `public_only: true`** (rejected
+  otherwise). The route is only usable for a public payload — check the role's
+  `default_payload_class` and what the call site actually passes. `angle`'s
+  default is `private`, but both real callers (`discovery.propose_angles`,
+  the assessment path) pass `payload_class="public"` explicitly.
+- **A free model that cannot answer is worse than no model.** On 2026-10-01
+  `qwen/qwen3.8-27b:free` was 0-for-14 (`EMPTY_OUTPUT` / `RATE_LIMITED`) while
+  `models status` still showed it ✓ eligible, because eligibility is decided by
+  limits and health marks, not by whether the model has ever produced output.
+  Check the ledger (`var/model_usage/<sofia-day>.json`) before trusting a route.
+
+### Reading the usage ledger
+
+`var/model_usage/<Europe/Sofia day>.json` is the only record of what was asked of
+each model. The file is keyed by the **Sofia** day, so its rows can start as early
+as `21:00Z` the previous calendar day: `2026-10-01.json` opened at
+`2026-09-30T22:17:21Z` (= 01:17 Sofia). `by_role`/`by_model` are aggregates,
+`calls` is the row list.
+
+Count rows **carefully** — a row is not a call:
+
+- `provider_attempts > 0` → a real transport call. This is the number the daily
+  limits read, so it is the one to compare against a `daily_call_limit`.
+- `provider_attempts == 0` with `status: SKIPPED` → the router never called out
+  (`MODEL_LIMIT_REACHED`, `PAID_DISABLED`, `NO_KEY`, `ROUTE_UNHEALTHY`,
+  `RPM_LIMIT_REACHED`, `ROLE_HARD_BUDGET`). Nothing was spent.
+- Rows in a burst sharing one `request_id` are a **single logical request**
+  walking its fallback chain, not many requests. 32 of the 34 `draft` rows on
+  2026-10-01 were two real drafts plus their fallbacks.
+- **Only rows with `input_tokens`/`output_tokens` are real work.** A `draft` call
+  with `in=0, out=0` produced nothing — that day there were 34 draft-role calls
+  and 2 drafts (1007 output tokens).
+
+Per-role budgets (`soft_calls_day`/`hard_calls_day`) count *logical requests*;
+`daily_call_limit` counts *provider attempts*. Two different controls.
+
+**`daily_call_limit` is per MODEL per day, shared by every role.** There is no
+role filter in `model_usage.model_calls_today`. On 2026-10-01 the `story` role
+spent `gemini-3.8-flash` to 22 attempts on its own, and because `story`/`angle`
+declare `daily_call_limit: 20` for that model while `draft` declares `80` for
+the same one, `models status` showed the same model as
+
+```
+× 0: gemini-3.8-flash · днес 22/20 · дневен лимит на модела (20) е достигнат   ← story
+✓ 1: gemini-3.8-flash · днес 22/80                                              ← draft
+```
+
+The `20` is **our own declared guardrail, not a measured provider limit** — the
+message reads like the provider's quota, and it is not one. Treat a
+`дневен лимит … е достигнат` line as "our number", and do not report it to the
+editor as an exhausted quota (AGENTS.md rule 3).
 
 ### Operational rules
 
