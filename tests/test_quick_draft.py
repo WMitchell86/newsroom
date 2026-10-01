@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -594,6 +595,69 @@ def test_research_that_finds_nothing_stops_when_nothing_can_be_read(
     assert not _rows("cases.jsonl"), "no generation provider call may happen"
 
 
+def test_a_refused_quick_draft_is_not_recorded_as_a_success(newsroom, monkeypatch, working_model):
+    """V1.2-G4.36 — a refusal must not be history's idea of a success.
+
+    Measured on the operator's own desk before this test existed: one Quick Draft
+    on a collected Story returned `needs_attention`, created no Article, and
+    `var/operations.json` recorded `status: "succeeded"` with an empty
+    `error_code`. The registry was reporting that its WORKER returned, which is
+    true and useless: the editor reloaded Today, saw `lastAttempt: null`, and was
+    offered «Чернова» again with the refusal nowhere on screen. That is the exact
+    symptom `lastAttempt` was added to remove (V1.2-G4.6).
+
+    Three claims, because they fail independently: the registry names the
+    outcome, the Today row states it, and the persisted history keeps it.
+    """
+    blocked_url = "https://flagman.bg/x"
+    items = inbox_store.read_items(newsroom / "inbox.jsonl")
+    for item in items:
+        item["url"] = blocked_url
+    inbox_store.save_items(items, newsroom / "inbox.jsonl")
+    monkeypatch.setattr(
+        "editor_assistant.workflow.publication_material.publication_urls", lambda title: []
+    )
+    substitute_research_network(monkeypatch, results=False)
+    _route_research_edges(monkeypatch)
+    monkeypatch.setattr(app, "_run_draft_generation", lambda *a: pytest.fail("no attempt"))
+
+    token = app.start_quick_draft("s-one", idempotency_key="refused-outcome")["operationToken"]
+    row = await_operation(token)
+    result = row["result"]
+    assert result["status"] == quick_draft.NEEDS_ATTENTION
+
+    # 1. The registry keeps both facts: the worker returned, the command refused.
+    assert row["status"] == "succeeded"
+    stored = next(item for item in story_operations.recent() if item["operationToken"] == token)
+    assert stored["outcome"] == quick_draft.NEEDS_ATTENTION
+
+    # 2. The Today row says what happened, in the editor's own vocabulary, with
+    #    the command's real reason rather than a generic sentence.
+    story = next(
+        s
+        for s in story_store.read_store(newsroom / "stories.json")["stories"]
+        if s["story_id"] == "s-one"
+    )
+    attempt = quick_draft.availability(
+        story=story,
+        articles=articles.read_editor_articles(),
+        contents={},
+    )["lastAttempt"]
+    assert attempt["status"] == "failed", attempt
+    assert attempt["errorCode"] == result["reasonCode"]
+    assert attempt["error"] == result["message"]
+
+    # 3. The durable history is not a record of success for work that produced
+    #    nothing. Read through the module's own path, not the raw file name.
+    ledger = json.loads(Path(story_operations.ledger_path()).read_text(encoding="utf-8"))
+    persisted = next(item for item in ledger["rows"] if item["token"] == token)
+    assert persisted["outcome"] == quick_draft.NEEDS_ATTENTION, persisted
+    assert persisted["outcome_message"], "the refusal reason must survive a restart"
+
+    # The failure path is unchanged by the new field: a raise is still a raise.
+    assert persisted["error_code"] == ""
+
+
 def test_a_readable_publication_is_attempted_even_when_research_found_nothing(
     newsroom, monkeypatch, working_model
 ):
@@ -622,6 +686,56 @@ def test_a_readable_publication_is_attempted_even_when_research_found_nothing(
     assert result["reasonCode"] == "GENERATION_FAILED", "the real reason, not a research excuse"
     assert [article["article_id"] for article in articles_for()] == attempts
     assert not _rows("cases.jsonl"), "a refused generation publishes nothing"
+
+
+def test_an_unread_source_is_worth_the_attempt_not_a_refusal(newsroom, monkeypatch, working_model):
+    """V1.2-G4.39 — the exemption the command gate makes must reach Quick Draft.
+
+    `article_readiness.evaluate` reports `eligible=False` with
+    `DRAFT_FROM_UNREAD_SOURCE` for a Story whose own publication is merely WORTH
+    one bounded read: nothing has been read yet, so "the material is sufficient"
+    would be a false claim. Both `article_generation.evaluate` - the canonical
+    COMMAND gate - and `_draft_preflight` exempt that code on purpose, because
+    the generation that follows is what reads the page and refuses honestly if
+    it finds nothing.
+
+    This orchestration read the raw `eligible` flag instead, so the exemption
+    became a hard refusal and the two callers of "the same" pipeline disagreed.
+    Measured live 2026-10-01 on the operator's own desk: a click on the collected
+    Story `s32aa7fd0b7aaa95` created an empty Preparation Article, returned
+    `needs_attention` / `DRAFT_FROM_UNREAD_SOURCE` in 14 seconds, spent no model
+    call, and could never make progress - a retry re-resolved to the same empty
+    Preparation and stopped in the same place.
+    """
+    substitute_research_network(monkeypatch, results=False)
+    _route_research_edges(monkeypatch)
+
+    # The exact decision the canonical gate is written to let through.
+    unread = article_readiness.DraftReadiness(
+        eligible=False,
+        reason_code=article_readiness.DRAFT_FROM_UNREAD_SOURCE,
+        reason_message=article_readiness.REASON_MESSAGES[
+            article_readiness.DRAFT_FROM_UNREAD_SOURCE
+        ],
+        evidence_status="unassessed",
+        has_open_source=False,
+    )
+    monkeypatch.setattr(article_readiness, "evaluate", lambda _snapshot: unread)
+
+    attempts = []
+
+    def attempted(article_id, _token):
+        attempts.append(article_id)
+        raise article_generation.DraftRefused("GENERATION_FAILED", "Черновата не успе.")
+
+    monkeypatch.setattr(app, "_run_draft_generation", attempted)
+    row = run_quick(key="unread-source")
+
+    assert attempts, "an unread source must reach generation, not be refused before it"
+    # Whatever generation said is the answer; the point is that the run got there
+    # instead of reporting the pre-flight's own uncertainty as the outcome.
+    assert row["result"]["reasonCode"] == "GENERATION_FAILED"
+    assert row["result"]["reasonCode"] != article_readiness.DRAFT_FROM_UNREAD_SOURCE
 
 
 def test_a_persisting_blocking_gap_reports_the_real_blocker(newsroom, monkeypatch, working_model):
@@ -991,6 +1105,176 @@ def _row_for(newsroom, story_id: str = "s-one") -> dict:
     return next(row for row in _today_rows(newsroom) if row["objectId"] == story_id)
 
 
+def _add_current_desk_stories(newsroom, count: int, *, prefix: str = "desk") -> list[str]:
+    """Add `count` Stories that are on Today *now*, built the fixture's own way.
+
+    The fixture Story is dated 2026-09-25 and Today's horizon is the Sofia
+    calendar, so those rows are correctly retired today. The desk run reads the
+    real clock - it has to, because that is what "the desk" means - so a test of
+    it must supply Stories that are actually current rather than pin a clock the
+    production path does not have.
+    """
+    moment = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = inbox_store.read_items(newsroom / "inbox.jsonl")
+    store = story_store.read_store(newsroom / "stories.json")
+    ids: list[str] = []
+    for index in range(count):
+        story_id = f"s-{prefix}-{index}"
+        item = _item(f"{prefix}-{index}", f"{HEADLINE} ({prefix} {index})")
+        item["published_at"] = moment
+        item["discovered_at"] = moment
+        items.append(item)
+        story = story_store.new_story(item, now=moment)
+        story["story_id"] = story_id
+        story["status"] = "NEW"
+        store["stories"].append(story)
+        ids.append(story_id)
+    inbox_store.save_items(items, newsroom / "inbox.jsonl")
+    story_store.write_store(store, newsroom / "stories.json")
+    return ids
+
+
+def test_the_desk_press_drafts_a_bounded_run_and_reports_each_story(
+    newsroom, monkeypatch, working_model
+):
+    """V1.2-G4.40 — «Направи чернови» turns the working pipeline into output.
+
+    The Quick Draft path was correct and unreachable at scale: one click in
+    Today was the whole entry point, so a desk of collected Stories produced
+    drafts only as fast as an editor could press. The owner asked twice in one
+    evening, both operations reported success and neither produced an Article.
+
+    This asserts the three things that make the press trustworthy: the cap is
+    the server's and it holds, every Story is drafted through the REAL command
+    (so it keeps its own operation row and its own `lastAttempt`), and the run
+    reports per-Story outcomes instead of one total the editor cannot act on.
+    """
+    opened = substitute_research_network(monkeypatch)
+    _route_research_edges(monkeypatch)
+    ids = _add_current_desk_stories(newsroom, app.DESK_DRAFT_LIMIT + 1)
+
+    # `scope="all"` for the same reason `_today_rows` reads it: this fixture's
+    # abstract Story names no Burgas locality, and the desk run's own default is
+    # the regional working desk.
+    token = app.start_desk_quick_drafts(idempotency_key="desk-1", scope="all")["operationToken"]
+    row = await_operation(token)
+
+    assert row["status"] == "succeeded", row
+    result = row["result"]
+    assert result["status"] == app.DESK_DRAFT_STARTED
+    # The cap is a fact the editor can rely on, not a hint: one more Story was
+    # on the desk and it was deliberately left alone.
+    assert result["limit"] == app.DESK_DRAFT_LIMIT
+    assert result["attempted"] == app.DESK_DRAFT_LIMIT
+    assert result["created"] == app.DESK_DRAFT_LIMIT, result["stories"]
+    assert opened, "a real research round must have run"
+
+    drafted = {entry["storyId"] for entry in result["stories"]}
+    assert len(drafted) == app.DESK_DRAFT_LIMIT
+    assert drafted <= set(ids)
+    untouched = [story_id for story_id in ids if story_id not in drafted]
+    assert len(untouched) == 1
+
+    for story_id in drafted:
+        articles_on_desk = articles_for(story_id)
+        assert len(articles_on_desk) == 1, story_id
+        content = articles.get_article_content(articles_on_desk[0]["article_id"])
+        assert content["body"].strip(), story_id
+        # Each Story keeps its OWN operation row, because it was drafted by the
+        # real command rather than by a loop that swallowed the registry.
+        scoped = story_operations.last_for_scope(quick_draft.scope_for(story_id))
+        assert scoped, story_id
+        assert scoped[0]["outcome"] == quick_draft.DRAFT_CREATED, scoped
+
+    for story_id in untouched:
+        assert articles_for(story_id) == []
+
+
+def test_one_refusing_story_does_not_stop_the_desk_run(newsroom, monkeypatch, working_model):
+    """A refusal is one Story's outcome, not the end of the run.
+
+    Half a desk is the normal case: a page that cannot be opened, a Story that
+    just became ignored, a Story whose one allowed research round came back
+    empty. The editor asked for the desk, so the run has to finish, say which
+    Story failed, say why, and keep the ones that worked.
+
+    The two Stories here really do differ, and only in the way a real desk
+    differs: the first has no reachable page and its research finds nothing, the
+    second has both. Nothing about the gate itself is stubbed.
+    """
+    substitute_research_network(monkeypatch)
+    _route_research_edges(monkeypatch)
+    ids = _add_current_desk_stories(newsroom, 2)
+
+    # The provider answers for one Story and has nothing for the other, which is
+    # what "a dead end on the desk" actually looks like.
+    working_provider = _SUBSTITUTE_PROVIDER[0]
+    dead_query = "desk 0"
+
+    class Selective:
+        name = "fake"
+
+        def search(self, query):
+            if dead_query in query:
+                return {
+                    "provider": "fake",
+                    "query": query,
+                    "status": "NO_RESULTS",
+                    "results": [],
+                }
+            return working_provider.search(query)
+
+    _SUBSTITUTE_PROVIDER[0] = Selective()
+
+    # And its member URL is a host the safety list really rejects, so the
+    # "worth one bounded read" fallback cannot save it either.
+    blocked_title = f"{HEADLINE} (desk 0)"
+    blocked_url = "https://flagman.bg/x"
+    assert blocked_domains.is_blocked(blocked_url), "the fixture must use a really blocked host"
+    items = inbox_store.read_items(newsroom / "inbox.jsonl")
+    for item in items:
+        if item["title"] == blocked_title:
+            item["url"] = blocked_url
+    inbox_store.save_items(items, newsroom / "inbox.jsonl")
+
+    token = app.start_desk_quick_drafts(idempotency_key="desk-refusal", scope="all")[
+        "operationToken"
+    ]
+    result = await_operation(token)["result"]
+
+    assert result["attempted"] == 2
+    by_story = {entry["storyId"]: entry for entry in result["stories"]}
+    assert by_story[ids[0]]["status"] == quick_draft.NEEDS_ATTENTION
+    assert by_story[ids[0]]["reasonCode"] == article_readiness.NO_DRAFT_MATERIAL
+    assert by_story[ids[0]]["message"]
+    assert by_story[ids[1]]["status"] == quick_draft.DRAFT_CREATED
+    assert result["created"] == 1
+    # The Story that could not be written from left nothing behind, and the one
+    # that worked left exactly one Article.
+    assert articles_for(ids[0]) == []
+    assert len(articles_for(ids[1])) == 1
+
+
+def test_the_desk_press_is_idempotent_and_requires_a_key(newsroom, monkeypatch, working_model):
+    """A double click drafts the desk once, and an anonymous press is refused."""
+    with pytest.raises(app.EditorApplicationError):
+        app.start_desk_quick_drafts(idempotency_key="")
+
+    substitute_research_network(monkeypatch)
+    _route_research_edges(monkeypatch)
+    _add_current_desk_stories(newsroom, 1)
+
+    first = app.start_desk_quick_drafts(idempotency_key="desk-again", scope="all")
+    again = app.start_desk_quick_drafts(idempotency_key="desk-again", scope="all")
+    assert again["operationToken"] == first["operationToken"]
+    await_operation(first["operationToken"])
+    # A third press carrying the same key reattaches to the finished run rather
+    # than spending a second set of model calls on the same Stories.
+    settled = app.start_desk_quick_drafts(idempotency_key="desk-again", scope="all")
+    assert settled["operationToken"] == first["operationToken"]
+    assert settled["status"] == "succeeded"
+
+
 def test_today_offers_all_three_triage_intents_for_a_current_story(newsroom):
     """§3/§43 — `Игнорирай`, `Прегледай`, `Чернова`, decided by the backend."""
     story = story_store.read_store(newsroom / "stories.json")["stories"][0]
@@ -1142,6 +1426,71 @@ def test_the_quick_draft_route_answers_202_with_one_operation_token(
         assert forbidden not in serialized.lower()
 
 
+def test_the_desk_press_route_requires_a_key_and_takes_no_fields(api_server):
+    """V1.2-G4.40 — the transport contract for «Направи чернови».
+
+    A desk run spends one research round and one generation PER STORY, so a
+    retry that silently started a second run would be the most expensive bug in
+    the product. The key is required, the body is closed, and a GET is a 405
+    rather than a misleading 404.
+    """
+    path = "/api/v1/today/quick-drafts"
+    status, payload = _request(api_server, path, method="POST")
+    assert status == 400
+    assert payload["error"]["code"] == "VALIDATION_ERROR"
+
+    status, _ = _request(
+        api_server, path, method="POST", headers={"Idempotency-Key": "bad key with spaces"}
+    )
+    assert status == 400
+
+    status, _ = _request(
+        api_server,
+        path,
+        method="POST",
+        body={"limit": 5},
+        headers={"Idempotency-Key": "desk-fields"},
+    )
+    assert status == 400, "the cap is the server's decision, not the client's"
+
+    status, _ = _request(api_server, path, method="GET")
+    assert status == 405
+
+    assert _articles_on_disk() == []
+
+
+def test_the_desk_press_route_reports_every_story_it_took_on(
+    api_server, newsroom, monkeypatch, working_model
+):
+    """One press over HTTP, and a per-Story report that names each outcome."""
+    substitute_research_network(monkeypatch)
+    _route_research_edges(monkeypatch)
+    _add_current_desk_stories(newsroom, app.DESK_DRAFT_LIMIT + 1)
+
+    status, payload = _request(
+        api_server,
+        "/api/v1/today/quick-drafts?scope=all",
+        method="POST",
+        headers={"Idempotency-Key": "desk-over-http"},
+    )
+    assert status == 202, payload
+    token = payload["data"]["operationToken"]
+    assert token.startswith("op_")
+
+    operation = _await_http(api_server, token)
+    assert operation["status"] == "succeeded", operation
+    report = operation["result"]
+    assert report["status"] == app.DESK_DRAFT_STARTED
+    assert report["attempted"] == report["created"] == app.DESK_DRAFT_LIMIT
+    assert report["limit"] == app.DESK_DRAFT_LIMIT
+    # Every Story in the report is identified, because a list the editor cannot
+    # line up with the desk they are looking at is not a report.
+    assert len({entry["storyId"] for entry in report["stories"]}) == app.DESK_DRAFT_LIMIT
+    serialized = json.dumps(report, ensure_ascii=False).lower()
+    for forbidden in ("model", "provider", "prompt", "case", "evidence_id"):
+        assert forbidden not in serialized
+
+
 def test_a_repeated_http_post_returns_the_same_operation(api_server, monkeypatch, working_model):
     """§39 — a double click over HTTP addresses one operation, not two."""
     substitute_research_network(monkeypatch)
@@ -1217,9 +1566,7 @@ def test_draft_start_returns_while_generation_is_still_running(
     assert settled["error_code"] == article_draft_failure.PROVIDER_UNAVAILABLE
 
 
-def test_another_command_is_not_blocked_by_a_draft_in_flight(
-    newsroom, monkeypatch, working_model
-):
+def test_another_command_is_not_blocked_by_a_draft_in_flight(newsroom, monkeypatch, working_model):
     """V1.2-G4.6 — no global lock is held across generation, so editing continues.
 
     `save_content` is the control: it takes `_COMMAND_LOCK` on purpose, so under
@@ -1265,7 +1612,6 @@ def test_another_command_is_not_blocked_by_a_draft_in_flight(
 
     gate.set()
     assert await_operation(token)["status"] == "failed"
-
 
 
 def test_a_quick_draft_that_loses_the_guard_race_answers_with_an_editor_error(

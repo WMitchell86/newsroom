@@ -20,7 +20,21 @@ from editor_assistant.workflow.redaction import safe_detail
 LOG = logging.getLogger(__name__)
 
 MAX_OPERATIONS = 32
-TTL_SECONDS = 900
+#: V1.2-G4.37. There is deliberately NO time-based expiry for a FINISHED
+#: operation. `MAX_OPERATIONS` is the memory bound and the only one; a finished
+#: row is evicted by count, never by age.
+#:
+#: Measured: `_prune` used to drop every finished row 900 s after its last
+#: update. The registry is mirrored to `var/operations.json` precisely so a
+#: lost operation stays visible instead of looking like one nobody asked for
+#: (V1.2-G4.6), and `recent()` / `last_for_scope()` read only `_ROWS` - so the
+#: durable record survived on disk while the editor-visible index went empty.
+#: Two consequences, both observed: the Operations page lost every row 15
+#: minutes after the last message, and `quick_draft.availability.lastAttempt`
+#: forgot a refusal, so Today offered «Чернова» again with the reason nowhere
+#: on screen. That is the exact symptom V1.2-G4.36 was written to remove,
+#: reintroduced one step later by the expiry. An operation that reported
+#: something remains reportable until it is evicted by count.
 _LOCK = threading.RLock()
 _ROWS = OrderedDict()
 
@@ -45,21 +59,70 @@ def token_for(story_id, gap_signature, generation=0, key=""):
     return "op_" + hashlib.sha256(seed.encode()).hexdigest()[:24]
 
 
-def _prune(now):
-    for token, row in list(_ROWS.items()):
-        if now - row["updated_at"] > TTL_SECONDS and row["status"] not in {"pending", "running"}:
-            _ROWS.pop(token, None)
+#: V1.2-G4.36. The result statuses that mean the command RAN and produced
+#: nothing. A worker that returns normally has succeeded as an operation; the
+#: command it ran may still have refused. Recording only the registry status made
+#: the history state a success for work that produced nothing.
+#:
+#: Measured on the operator's own desk: one Quick Draft on a collected Story
+#: returned `needs_attention`, created no Article, and `var/operations.json`
+#: recorded `status: "succeeded"` with an empty `error_code`. Reloading Today then
+#: showed «Чернова» again with no trace that anything had been asked for, which is
+#: the exact symptom `lastAttempt` was added to remove.
+REFUSED_OUTCOMES = frozenset({"needs_attention"})
+
+
+def _outcome_of(result):
+    """`(outcome, code, message)` for a command result, or empty strings.
+
+    Deliberately narrow: only a dict carrying a string `status` reports an
+    outcome, and only the command's own editor-safe `reasonCode`/`message` are
+    kept. No provider text, no prompt and no internal id crosses into the
+    registry, which is read by an editor-facing surface.
+    """
+    if not isinstance(result, dict):
+        return "", "", ""
+    status = result.get("status")
+    if not isinstance(status, str) or not status:
+        return "", "", ""
+    return (
+        status,
+        str(result.get("reasonCode") or "")[:64],
+        str(result.get("message") or "")[:240],
+    )
+
+
+def _evict_finished(keep: int) -> None:
+    """Drop the oldest FINISHED rows until at most `keep` remain.
+
+    The one bound on the registry. It never drops `pending`/`running` work:
+    those rows are what a caller reattaches to, so evicting them would orphan a
+    live operation (its `release` no-ops on token inequality while the worker
+    keeps running). Insertion order is the recency order for a finished row,
+    which is why the oldest finished rows are the only candidates.
+    """
+    for old_token, item in list(_ROWS.items()):
+        if len(_ROWS) <= keep:
+            return
+        if item["status"] not in {"pending", "running"}:
+            _ROWS.pop(old_token, None)
 
 
 def start(story_id, gap_signature, work, generation=0, key=""):
     token = token_for(story_id, gap_signature, generation, key)
     now = time.monotonic()
     with _LOCK:
-        _prune(now)
         existing = _ROWS.get(token)
         if existing is not None and existing["status"] == "failed":
             existing.update(
-                status="pending", result=None, error=None, error_code="", updated_at=now
+                status="pending",
+                result=None,
+                error=None,
+                error_code="",
+                outcome="",
+                outcome_code="",
+                outcome_message="",
+                updated_at=now,
             )
             existing["view"] = {"status": "pending"}
             row = existing
@@ -74,17 +137,16 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                 ]
                 if len(active) >= MAX_OPERATIONS:
                     raise BusyError("операциите са заети")
-                for old_token, item in list(_ROWS.items()):
-                    if item["status"] not in {"pending", "running"}:
-                        _ROWS.pop(old_token, None)
-                        if len(_ROWS) < MAX_OPERATIONS:
-                            break
+                _evict_finished(MAX_OPERATIONS - 1)
             row = {
                 "story_id": story_id,
                 "status": "pending",
                 "result": None,
                 "error": None,
                 "error_code": "",
+                "outcome": "",
+                "outcome_code": "",
+                "outcome_message": "",
                 "updated_at": now,
                 "view": {"status": "pending"},
             }
@@ -100,11 +162,20 @@ def start(story_id, gap_signature, work, generation=0, key=""):
             row["updated_at"] = time.monotonic()
         try:
             result = work()
+            outcome, outcome_code, outcome_message = _outcome_of(result)
             with _LOCK:
                 if token in _ROWS:
                     row["view"] = {"status": "succeeded"}
                     _ROWS[token].update(
-                        status="succeeded", result=result, updated_at=time.monotonic()
+                        status="succeeded",
+                        result=result,
+                        # V1.2-G4.36: the WORK succeeded; what the COMMAND did is
+                        # this. Without it a refusal is indistinguishable from a
+                        # Draft in the ledger and in the Today row.
+                        outcome=outcome,
+                        outcome_code=outcome_code,
+                        outcome_message=outcome_message,
+                        updated_at=time.monotonic(),
                     )
             _write_ledger()
         except Exception as exc:  # noqa: BLE001 - worker must become a sanitized failed operation
@@ -113,6 +184,11 @@ def start(story_id, gap_signature, work, generation=0, key=""):
                     row["view"] = {"status": "failed"}
                     _ROWS[token].update(
                         status="failed",
+                        # A raise is not a result: whatever a previous run of this
+                        # token reported must not survive into the failure.
+                        outcome="",
+                        outcome_code="",
+                        outcome_message="",
                         error=str(exc)[:240] or type(exc).__name__,
                         # A command that already classified its own stable failure
                         # keeps that code; the caller maps it to editor wording and
@@ -167,6 +243,12 @@ def _write_ledger() -> None:
                         "status": row["status"],
                         "error_code": row.get("error_code", ""),
                         "error": row.get("error") or "",
+                        # V1.2-G4.36: the persisted history has to distinguish a
+                        # Draft from a refusal, or the ledger is a record of
+                        # success for work that produced nothing.
+                        "outcome": row.get("outcome", ""),
+                        "outcome_code": row.get("outcome_code", ""),
+                        "outcome_message": row.get("outcome_message", ""),
                     }
                     for token, row in _ROWS.items()
                 ]
@@ -176,9 +258,7 @@ def _write_ledger() -> None:
                 "saved_at": datetime.now(timezone.utc).isoformat(),
                 "rows": rows,
             }
-            path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
-            )
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
         except OSError as exc:
             LOG.warning("operation ledger write failed: %s", type(exc).__name__)
 
@@ -217,6 +297,9 @@ def load_ledger() -> int:
             _ROWS[token] = {
                 "story_id": item.get("story_id", ""),
                 "status": status,
+                "outcome": item.get("outcome", ""),
+                "outcome_code": item.get("outcome_code", ""),
+                "outcome_message": item.get("outcome_message", ""),
                 "result": None,
                 "error": error,
                 "error_code": code,
@@ -224,6 +307,11 @@ def load_ledger() -> int:
                 "view": {"status": status},
             }
             restored += 1
+        # V1.2-G4.37: the ledger is now the only history that outlives count
+        # eviction, so it is also the one path that could grow `_ROWS` without a
+        # bound. History is restored in insertion order, so the eviction drops
+        # the oldest, exactly as the in-process bound would have.
+        _evict_finished(MAX_OPERATIONS)
         return restored
 
 
@@ -278,7 +366,6 @@ def last_for_scope(scope, limit=1):
     page they have to know to visit.
     """
     with _LOCK:
-        _prune(time.monotonic())
         found = []
         for token, row in _ROWS.items():
             if row.get("story_id") != scope:
@@ -289,6 +376,11 @@ def last_for_scope(scope, limit=1):
                     "status": row["status"],
                     "errorCode": row.get("error_code", ""),
                     "error": _editor_reason(row),
+                    # V1.2-G4.36: what the COMMAND did, not only that the worker
+                    # returned. `status` alone cannot express "ran and refused".
+                    "outcome": row.get("outcome", ""),
+                    "outcomeCode": row.get("outcome_code", ""),
+                    "outcomeMessage": row.get("outcome_message", ""),
                     "updated_at": row["updated_at"],
                 }
             )
@@ -306,7 +398,6 @@ def recent(limit=40):
     to them was to keep them all in a terminal. This is the missing index.
     """
     with _LOCK:
-        _prune(time.monotonic())
         rows = []
         for token, row in reversed(_ROWS.items()):
             rows.append(
@@ -316,6 +407,14 @@ def recent(limit=40):
                     "status": row["status"],
                     "errorCode": row.get("error_code", ""),
                     "error": _editor_reason(row),
+                    # V1.2-G4.36: the index that exists so "what happened to the
+                    # four I started" has an answer must not answer "succeeded"
+                    # for one that refused. The reasons travel with it: a row
+                    # that says "did not produce anything" and cannot say why is
+                    # the same silence in a new place.
+                    "outcome": row.get("outcome", ""),
+                    "outcomeCode": row.get("outcome_code", ""),
+                    "outcomeMessage": row.get("outcome_message", ""),
                 }
             )
         return rows[:limit]
@@ -323,7 +422,6 @@ def recent(limit=40):
 
 def get(token):
     with _LOCK:
-        _prune(time.monotonic())
         row = _ROWS.get(token)
         if row is None:
             return None

@@ -3,6 +3,8 @@ import type {
   ArchiveArticle,
   ArticleDetail,
   ArticleSummary,
+  FeedbackDecisionResult,
+  FeedbackStatus,
   NewSourceInput,
   QuickDraftResult,
   SourceChanges,
@@ -657,6 +659,80 @@ async function pollOperation(operationToken: string): Promise<void> {
   });
 }
 
+/**
+ * One Story's outcome inside a desk run.
+ *
+ * The vocabulary is the single Quick Draft's, not a second one: the editor reads
+ * the same words whether they pressed one row or the whole desk.
+ */
+export interface DeskDraftOutcome {
+  storyId: string;
+  status: "draft_created" | "existing_article" | "needs_attention";
+  articleId?: string;
+  reasonCode?: string;
+  message?: string;
+}
+
+/** What one bounded press over the desk actually produced. */
+export interface DeskDraftReport {
+  /** How many Stories the run took on. Bounded by `limit`, never by hope. */
+  attempted: number;
+  /** How many produced a Draft. `attempted - created` is the desk's real work. */
+  created: number;
+  /** The server's own cap, so the label can state it before the press. */
+  limit: number;
+  stories: DeskDraftOutcome[];
+}
+
+function operationDeskDraft(value: ResearchOperation): DeskDraftReport | null {
+  const candidate = value.result;
+  if (!isRecord(candidate)) return null;
+  if (typeof candidate.attempted !== "number" || typeof candidate.created !== "number") {
+    return null;
+  }
+  return {
+    attempted: candidate.attempted,
+    created: candidate.created,
+    limit: typeof candidate.limit === "number" ? candidate.limit : candidate.attempted,
+    stories: Array.isArray(candidate.stories)
+      ? (candidate.stories as DeskDraftOutcome[])
+      : [],
+  };
+}
+
+/**
+ * V1.2-G4.40 «Направи чернови» — draft the desk, in one bounded press.
+ *
+ * Before this the only entry point was one click on one Today row, so a desk of
+ * collected Stories produced drafts only as fast as an editor could press. The
+ * run is bounded by the SERVER's cap and reports per-Story outcomes, so a Story
+ * that could not be written from says so instead of disappearing into a total.
+ *
+ * The budget is the long one: measured 2026-10-01, a single Quick Draft took
+ * 426 s on the free fallback routes, and the run is sequential on purpose.
+ */
+export async function draftDesk(scope: TodayScope = "region"): Promise<DeskDraftReport> {
+  const value = await sendStoryCommand<unknown>(
+    `/today/quick-drafts?scope=${encodeURIComponent(scope)}`,
+    "POST",
+    undefined,
+    { "Idempotency-Key": createIdempotencyKey() },
+  );
+  if (!isRecord(value) || typeof value.operationToken !== "string") {
+    throw new ApiError(200, "INTERNAL_ERROR", "Операцията не върна резултат.", true);
+  }
+  const report = await pollOperationFor<DeskDraftReport>(value.operationToken, {
+    budget: LONG_OPERATION_POLL_BUDGET,
+    malformed: "Черновите не можаха да бъдат подготвени. Опитайте отново.",
+    succeededWithoutResult: "Операцията не върна резултат за черновите.",
+    // Truthful wording about the wait: the run may still be working, and the
+    // Stories already drafted are on the desk regardless.
+    exhausted: "Черновите още се подготвят. Вижте Операции за напредъка.",
+    extract: operationDeskDraft,
+  });
+  return report as DeskDraftReport;
+}
+
 /** The one editor-facing newsroom action. Canonical Today is refetched after it. */
 export async function refreshNewsroom(): Promise<void> {
   const value = await sendStoryCommand<unknown>(
@@ -801,6 +877,28 @@ export function updateSource(id: string, changes: SourceChanges): Promise<Source
     "PUT",
     changes,
   );
+}
+
+/**
+ * V1.2-G4.3 §G — the controlled learning loop, from the editor's own Settings.
+ *
+ * A pure read: it runs the deterministic analyzer server-side and changes
+ * nothing. Decisions are made by `decideFeedbackProposal`, and the client sends
+ * only a `patternId` and a flag — never the instruction text, so a caller can
+ * only decide a rule the analyzer actually found.
+ */
+export function getFeedbackSettings(): Promise<FeedbackStatus> {
+  return getData("/settings/feedback");
+}
+
+export function decideFeedbackProposal(
+  patternId: string,
+  approved: boolean,
+): Promise<FeedbackDecisionResult> {
+  return sendStoryCommand<FeedbackDecisionResult>("/settings/feedback/decisions", "POST", {
+    patternId,
+    approved,
+  });
 }
 
 export type ArticleFilter = "all" | "preparation" | "draft" | "ready";

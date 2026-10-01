@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { getOperations } from "../api/client";
@@ -251,6 +251,57 @@ function ReadyBanner({
   );
 }
 
+/**
+ * V1.2-G4.41 — a finished operation must land on the page you are looking at.
+ *
+ * The shell polls `/operations` every 3 s, so it is the first thing to learn
+ * that work has stopped running. Until now that knowledge only dismissed the
+ * «върви» strip and raised a ready banner: the Today / Stories / Articles
+ * projections the editor was actually reading kept serving their cached rows,
+ * because the query client never refetches on focus (`refetchOnWindowFocus:
+ * false`) and the desk carries no poll of its own. So the editor watched an
+ * operation finish and the row it belonged to did not change — the exact
+ * "I have to refresh to see it" complaint.
+ *
+ * Two deliberate constraints, the same ones the ready banner already enforces:
+ *
+ * - **Only a transition, never a backlog.** A token has to have been seen
+ *   running first. A page opened onto already-finished work changes nothing.
+ * - **Once per token.** The operations endpoint keeps returning `succeeded`, so
+ *   without the remembered set every poll would refetch the whole app.
+ *
+ * The client never invents the new state: it only invalidates, and the server's
+ * projection is what comes back.
+ */
+function useFinishedWorkRefetch(rows: unknown) {
+  const queryClient = useQueryClient();
+  const seenRunning = useRef<Set<string>>(new Set());
+  const refreshed = useRef<Set<string>>(new Set());
+  const list = Array.isArray(rows) ? rows : [];
+
+  useEffect(() => {
+    for (const op of list) {
+      const token = String(op?.operationToken ?? "");
+      if (!token) continue;
+      if (op.status === "running" || op.status === "pending") {
+        seenRunning.current.add(token);
+        continue;
+      }
+      if (op.status !== "succeeded") continue;
+      if (!seenRunning.current.has(token) || refreshed.current.has(token)) continue;
+      refreshed.current.add(token);
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["today"] }),
+        queryClient.invalidateQueries({ queryKey: ["stories"] }),
+        queryClient.invalidateQueries({ queryKey: ["story"] }),
+        queryClient.invalidateQueries({ queryKey: ["articles"] }),
+        queryClient.invalidateQueries({ queryKey: ["article"] }),
+        queryClient.invalidateQueries({ queryKey: ["archive"] }),
+      ]);
+    }
+  }, [list, queryClient]);
+}
+
 function ActivityStrip({ active }: { active: OperationSummary[] }) {
   if (!active.length) return null;
   return (
@@ -283,6 +334,7 @@ function ShellActivity() {
   const rows = operations.data?.operations;
   const list = Array.isArray(rows) ? rows : [];
   const active = list.filter((op) => op.status === "running" || op.status === "pending");
+  useFinishedWorkRefetch(rows);
   const { notices, dismiss } = useReadyNotices(rows, location.pathname);
   return (
     <>

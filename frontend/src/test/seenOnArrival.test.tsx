@@ -6,7 +6,8 @@ import { AppShell } from "../app/AppShell";
 import { StoryWorkspace } from "../pages/StoryWorkspace";
 import { TodayPage } from "../pages/TodayPage";
 import { renderWithProviders } from "./render";
-import { todayProjection } from "./fixtures";
+import { storyDetail as canonicalStoryDetail, todayProjection } from "./fixtures";
+import type { StoryDetail } from "../api/dto";
 
 /**
  * V1.2-G4.15 — the desk has to be able to empty.
@@ -28,16 +29,14 @@ const post = (d: unknown) =>
 
 let reviews = 0;
 
-function storyDetail() {
-  return {
-    id: "s1",
-    title: "История",
-    summary: "Обобщение",
-    status: "NEW",
-    developments: [],
-    observedDevelopmentIds: [],
-    reviewState: { reviewed: false },
-  };
+// A complete `StoryDetail`, not a hand-rolled stub. The workspace reads
+// `publications`, `availableActions`, `relatedArticles` and `newDevelopments`
+// on every render, and the previous partial object omitted them, so each render
+// here threw inside the tree and the file reported five uncaught exceptions on
+// top of its passing assertions. Typing the fixture against the contract is what
+// keeps the next omitted field from failing the same silent way.
+function storyDetail(): StoryDetail {
+  return { ...canonicalStoryDetail, id: "s1", title: "История", summary: "Обобщение" };
 }
 
 function routes() {

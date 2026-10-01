@@ -80,6 +80,23 @@ class FeedbackError(ValueError):
     """A feedback record that must not be stored or trusted."""
 
 
+class ProposalNotDecidable(FeedbackError):
+    """A decision that must not be recorded, with a stable machine code.
+
+    The two surfaces that may decide a proposal - the operator CLI and the
+    Settings screen - compose their own sentence around the reason, but they
+    must agree on WHY. `code` is that shared reason:
+
+        NOT_ELIGIBLE     too little evidence for a decision at all
+        UNKNOWN_PATTERN  no proposal the analyzer actually found
+        CONFLICT         a conflict is a question, never an instruction
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = str(code)
+
+
 def set_threshold(value: int) -> int:
     """Set the unprocessed-record count at which analysis becomes eligible."""
     global _THRESHOLD
@@ -509,6 +526,50 @@ def apply_approval(
         )
         _mark_processed(entry["feedback_ids"], root=root)
     return entry
+
+
+def decide_proposal(
+    pattern_id: str,
+    *,
+    approved: bool = True,
+    now=None,
+    root=None,
+) -> dict:
+    """The ONE place a proposal may be decided, for every surface.
+
+    Extracted from the operator CLI so the Settings screen cannot drift from
+    it. Two properties are the point of learning being *controlled*:
+
+    * The client never supplies the proposal. It names a `pattern_id`, and the
+      proposal is RE-ANALYZED here from the stored feedback. A frontend can
+      therefore never invent an instruction - it can only decide one the
+      analyzer actually found.
+    * The threshold gates the DECISION, not merely the report. Below it, no
+      surface may approve a rule built from too little evidence.
+
+    Raises `ProposalNotDecidable` (with a stable `code`) when the decision is
+    not allowed, and `apply_approval`'s own `FeedbackError` for a malformed
+    proposal. Nothing is written unless a decision is genuinely allowed.
+    """
+    wanted = str(pattern_id or "").strip()
+    if not is_eligible(root=root):
+        pending = len(unprocessed(root=root))
+        raise ProposalNotDecidable(
+            "NOT_ELIGIBLE",
+            f"{pending} / {threshold()} — решение по предложение не е възможно "
+            "при този брой записи.",
+        )
+    proposals = {row["pattern_id"]: row for row in analyze(root=root)}
+    target = proposals.get(wanted)
+    if target is None:
+        raise ProposalNotDecidable(
+            "UNKNOWN_PATTERN", f"Няма предложение „{wanted}“, което може да бъде решено."
+        )
+    if target.get("status") == "conflict":
+        raise ProposalNotDecidable(
+            "CONFLICT", "Противоречието е въпрос, а не инструкция — първо изберете приоритет."
+        )
+    return apply_approval(target, approved=approved, now=now, root=root)
 
 
 @contextmanager

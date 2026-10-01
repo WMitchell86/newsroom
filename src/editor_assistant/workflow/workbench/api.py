@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler
 from editor_assistant.workflow import (
     draft_material,
     editor_queries,
+    rewrite_feedback,
     story_editor_metadata,
     story_operations,
 )
@@ -313,6 +314,86 @@ def _update_source(handler: BaseHTTPRequestHandler, source_id: str) -> dict:
     return _sources_call(sources_settings.update_source, _source_id(source_id), changes)
 
 
+def _feedback_call(fn, *args, **kwargs):
+    """A refused decision is the client's error, with the service's own sentence."""
+    try:
+        return fn(*args, **kwargs)
+    except rewrite_feedback.FeedbackError as exc:
+        raise ApiError(400, "VALIDATION_ERROR", str(exc)) from exc
+
+
+def _proposal_json(row: dict) -> dict:
+    """One analyzer proposal in the editor's own vocabulary.
+
+    The service speaks the CLI's snake_case; the SPA speaks camelCase. The API
+    is where that translation belongs, so neither side has to know the other's
+    field names and the service stays the CLI's own contract.
+    """
+    return {
+        "patternId": str(row.get("pattern_id") or ""),
+        "label": str(row.get("label") or ""),
+        "target": str(row.get("target") or ""),
+        "support": int(row.get("support") or 0),
+        "total": int(row.get("total") or 0),
+        "examples": [str(item) for item in (row.get("examples") or [])],
+        "suggestedInstruction": str(row.get("suggested_instruction") or ""),
+        "status": str(row.get("status") or "proposed"),
+    }
+
+
+def _instruction_json(row: dict) -> dict:
+    """One approved (or rejected) instruction in the editor's vocabulary."""
+    return {
+        "patternId": str(row.get("pattern_id") or ""),
+        "target": str(row.get("target") or ""),
+        "instruction": str(row.get("instruction") or ""),
+        "support": int(row.get("support") or 0),
+        "approved": bool(row.get("approved")),
+        "decidedAt": str(row.get("decided_at") or ""),
+    }
+
+
+def _read_feedback() -> dict:
+    """The controlled learning loop as the Settings screen reads it.
+
+    A pure read: it runs the deterministic analyzer and the approved-instruction
+    read and changes nothing. Proposals are reported only once the threshold is
+    reached, so the screen can never offer a decision the service would refuse.
+    """
+    eligible = rewrite_feedback.is_eligible()
+    return {
+        "pending": len(rewrite_feedback.unprocessed()),
+        "threshold": rewrite_feedback.threshold(),
+        "eligible": eligible,
+        "proposals": [
+            _proposal_json(row) for row in (rewrite_feedback.analyze() if eligible else [])
+        ],
+        "instructions": [
+            _instruction_json(row) for row in rewrite_feedback.approved_instructions()
+        ],
+    }
+
+
+def _decide_feedback(handler: BaseHTTPRequestHandler) -> dict:
+    """`Одобри` / `Отхвърли` — a human decision about ONE proposal.
+
+    The client sends a `patternId` and an `approved` flag, and nothing else. It
+    never sends the instruction text: the server re-analyzes and decides the
+    pattern the analyzer actually found (`decide_proposal`), so a frontend can
+    never invent a rule, only decide a real one. The whole new state comes back,
+    so the screen never has to guess what changed.
+    """
+    body = _body(handler, {"patternId", "approved"})
+    if not isinstance(body["approved"], bool):
+        raise ApiError(400, "VALIDATION_ERROR", "Решението трябва да е вярно или невярно.")
+    entry = _feedback_call(
+        rewrite_feedback.decide_proposal,
+        _string(body["patternId"], "patternId", maximum=64),
+        approved=body["approved"],
+    )
+    return {"decision": _instruction_json(entry), **_read_feedback()}
+
+
 def _review(handler: BaseHTTPRequestHandler, story_id: str) -> dict:
     body = _body(handler, {"observedDevelopmentIds"})
     observed = body["observedDevelopmentIds"]
@@ -433,6 +514,25 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         return 202, {
             "operationToken": app.start_newsroom_refresh(idempotency_key=key)["operationToken"]
         }
+    if parts == [*prefix, "today", "quick-drafts"] and method == "POST":
+        # V1.2-G4.40 «Направи чернови». One bounded press over the desk. The
+        # Idempotency-Key is REQUIRED for the same reason it is on `Обнови` and
+        # on a single Quick Draft: a double click, a browser retry and a
+        # returning editor must all address the same run instead of spending a
+        # second set of model calls on the same Stories. No body: the cap is the
+        # server's decision, not the client's.
+        if _body_required(handler):
+            body = _body(handler, set())
+            if body:
+                raise ApiError(400, "VALIDATION_ERROR", "Операцията не приема полета.")
+        key = handler.headers.get("Idempotency-Key", "").strip()
+        if not key or len(key) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", key):
+            raise ApiError(400, "VALIDATION_ERROR", "Idempotency key is required.")
+        return 202, {
+            "operationToken": app.start_desk_quick_drafts(
+                idempotency_key=key, scope=_query_scope(handler)
+            )["operationToken"]
+        }
     if parts == [*prefix, "stories", "hint"] and method == "POST":
         # V1.2-G4.20 «Започни от идея». The hint is a search query; the pages it
         # opens become ordinary Stories. Nothing here writes a provenance
@@ -449,8 +549,9 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         # the browser would still have downloaded all of it; the bytes are the
         # problem, not just the rows on screen.
         page = _int(query.get("page", "1"), "page", minimum=1)
-        per_page = _int(query.get("per_page", str(app.STORY_PAGE_SIZE)), "per_page",
-                        minimum=1, maximum=200)
+        per_page = _int(
+            query.get("per_page", str(app.STORY_PAGE_SIZE)), "per_page", minimum=1, maximum=200
+        )
         # The page and its total come from ONE call. Reading the total from
         # shared state after the fact let a threaded server answer page 1 with
         # a number belonging to a request that started in between.
@@ -583,6 +684,14 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
             return 201, _create_source(handler)
     if len(parts) == 5 and parts[:4] == [*prefix, "settings", "sources"] and method == "PUT":
         return 200, _update_source(handler, parts[4])
+    # V1.2-G4.3 §G, now reachable from the editor's own Settings screen. The
+    # learning loop existed but only a terminal could drive it; these two routes
+    # are the same service, so a decision made here and one made by the CLI are
+    # the same decision.
+    if parts == [*prefix, "settings", "feedback"] and method == "GET":
+        return 200, _read_feedback()
+    if parts == [*prefix, "settings", "feedback", "decisions"] and method == "POST":
+        return 200, _decide_feedback(handler)
     if len(parts) == 4 and parts[:3] == [*prefix, "archive"] and method == "GET":
         article_id = _identifier(parts[3], ARTICLE_ID_RE, "статия")
         rows = [row for row in app.list_archive() if row["id"] == article_id]
@@ -601,6 +710,8 @@ def _known_resource_path(parts: list[str]) -> bool:
     if parts in (
         [*prefix, "today"],
         [*prefix, "today", "refresh"],
+        # V1.2-G4.40: known so a GET on it is 405, not a misleading 404.
+        [*prefix, "today", "quick-drafts"],
         [*prefix, "health"],
         [*prefix, "stories"],
         # V1.2-G4.20: known so a GET on it is 405, not a misleading 404.
@@ -608,6 +719,9 @@ def _known_resource_path(parts: list[str]) -> bool:
         [*prefix, "articles"],
         [*prefix, "archive"],
         [*prefix, "settings", "sources"],
+        # V1.2-G4.3 §G: known so a GET on `decisions` is 405, not a 404.
+        [*prefix, "settings", "feedback"],
+        [*prefix, "settings", "feedback", "decisions"],
     ):
         return True
     if len(parts) == 5 and parts[:4] == [*prefix, "settings", "sources"]:

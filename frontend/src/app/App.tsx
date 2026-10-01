@@ -5,6 +5,7 @@ import { QueryProvider } from "./QueryProvider";
 import { ArticleWorkspace } from "../pages/ArticleWorkspace";
 import { ArticleListPage } from "../pages/ArticleListPage";
 import { ArchivePage } from "../pages/ArchivePage";
+import { FeedbackSettingsPage } from "../pages/FeedbackSettingsPage";
 import { FinalizedArticleView } from "../pages/FinalizedArticleView";
 import { SettingsLanding } from "../pages/SettingsLanding";
 import { SourcesPage } from "../pages/SourcesPage";
@@ -33,6 +34,9 @@ export function App() {
                 one secondary screen this slice makes real. `AI и модели` and
                 `Система` stay unimplemented rather than shipping as empty tabs. */}
             <Route path="settings/sources" element={<SourcesPage />} />
+            {/* V1.2-G4.3 §G: the controlled learning loop, now reachable from the
+                editor's own Settings rather than only from a terminal. */}
+            <Route path="settings/feedback" element={<FeedbackSettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

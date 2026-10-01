@@ -237,6 +237,50 @@ describe("ready notice", () => {
     );
   }, 12_000);
 
+  it("refetches the page's projection when an operation finishes, so the result is on screen without a manual reload", async () => {
+    // The shell polls operations, so it is first to learn work stopped. Before
+    // this, the desk the editor was reading kept its cached rows and the result
+    // only appeared after navigating away and back — "I have to refresh".
+    let phase = 0;
+    let todayCalls = 0;
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) {
+        todayCalls += 1;
+        return data(todayProjection);
+      }
+      if (s.includes("/operations")) return data({ operations: [op(phase ? "succeeded" : "running")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/"] });
+    await screen.findByRole("button", { name: /^Всички/ });
+    await screen.findByText(/В момента върви/);
+    const before = todayCalls;
+    phase = 1;
+    await waitFor(() => expect(todayCalls).toBeGreaterThan(before), { timeout: 6000 });
+  }, 12_000);
+
+  it("refetches nothing for work that finished before the page opened", async () => {
+    // Same rule as the ready banner: a page opened onto already-finished work is
+    // a backlog, not a transition, and must not trigger a refetch storm.
+    let todayCalls = 0;
+    fetchMock.mockImplementation(async (u: RequestInfo | URL) => {
+      const s = String(u);
+      if (s.includes("/today")) {
+        todayCalls += 1;
+        return data(todayProjection);
+      }
+      if (s.includes("/operations")) return data({ operations: [op("succeeded")] });
+      if (s.includes("/health")) return data({ ok: true, roles: [], unroutableRoles: [], remedy: "" });
+      return data({});
+    });
+    renderWithProviders(routes(), { initialEntries: ["/"] });
+    await screen.findByRole("button", { name: /^Всички/ });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(todayCalls).toBe(1);
+  }, 12_000);
+
   it("does not announce work that was already finished before the page opened", async () => {
     // A page that greets you with yesterday's finished drafts is a backlog,
     // not a notification. The Articles list is the backlog.

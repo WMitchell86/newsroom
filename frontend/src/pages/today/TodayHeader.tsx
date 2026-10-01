@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import type { DeskDraftReport } from "../../api/client";
 import type { RoleHealth } from "../../api/dto";
 import styles from "./Today.module.css";
 
@@ -55,6 +56,14 @@ export interface TodayHeaderProps {
    * `null` while unknown — an unknown state is not a warning.
    */
   roleHealth?: { ok: boolean; roles: RoleHealth[]; unroutableRoles: string[]; remedy: string } | null;
+  /**
+   * V1.2-G4.40. The desk-level press. `null` after a run that returned nothing
+   * usable, so the report line is only rendered when there is one.
+   */
+  onDraftDesk: () => void;
+  draftDeskPending: boolean;
+  draftDeskError: string | null;
+  draftDeskReport: DeskDraftReport | null;
 }
 
 /**
@@ -74,6 +83,10 @@ export function TodayHeader({
   query,
   onQueryChange,
   roleHealth,
+  onDraftDesk,
+  draftDeskPending,
+  draftDeskError,
+  draftDeskReport,
 }: TodayHeaderProps) {
   return (
     <header className={styles.header}>
@@ -132,6 +145,43 @@ export function TodayHeader({
             {refreshError ? (
               <span className={styles.refreshError} role="alert">
                 {refreshError}
+              </span>
+            ) : null}
+          </div>
+          {/*
+            V1.2-G4.40 «Направи чернови». The desk press, next to the refresh it
+            depends on, because until it existed the Quick Draft pipeline could
+            only be run one Story at a time - and the desk is where the editor
+            sees the Stories that need it. The caption states what came back
+            from the server's own report; the CAP is deliberately not printed
+            before the press, because it is the server's number and the client
+            must not restate it as if it were its own.
+          */}
+          <div className={styles.refreshControl}>
+            <button
+              className={styles.refresh}
+              type="button"
+              disabled={draftDeskPending || refreshPending}
+              onClick={onDraftDesk}
+              data-desk-draft-trigger="desk"
+            >
+              {draftDeskPending ? "Пишат се чернови…" : "Направи чернови"}
+            </button>
+            {draftDeskPending ? (
+              <span className={styles.refreshStatus} role="status" aria-live="polite">
+                Върви по историите, една след друга. Може да отнеме минути.
+              </span>
+            ) : null}
+            {draftDeskReport ? (
+              <span className={styles.refreshStatus} role="status">
+                Готови {draftDeskReport.created} от {draftDeskReport.attempted} (до{" "}
+                {draftDeskReport.limit}). Останалите са на опашката за следващото
+                натискане.
+              </span>
+            ) : null}
+            {draftDeskError ? (
+              <span className={styles.refreshError} role="alert">
+                {draftDeskError}
               </span>
             ) : null}
           </div>

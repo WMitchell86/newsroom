@@ -1239,24 +1239,19 @@ def _run_newsroom_feedback(args):
         print("Нищо не е променено. Одобрете с: newsroom feedback approve <pattern_id>")
         return
     if action in {"approve", "reject"}:
-        # G1: the threshold gates the WHOLE loop, not just the report. Without
-        # this check an operator could approve a rule built from three comments
-        # while the gate exists precisely to say three is not yet a pattern.
-        if not rewrite_feedback.is_eligible():
-            pending = len(rewrite_feedback.unprocessed())
-            print(
-                f"{pending} / {rewrite_feedback.threshold()} — решение по предложение "
-                "не е възможно при този брой записи."
-            )
-            raise SystemExit(1)
-        proposals = {row["pattern_id"]: row for row in rewrite_feedback.analyze()}
-        target = proposals.get(args.pattern_id)
-        if target is None:
-            # Re-analyzing with no stored proposals must not let a typo invent an
-            # instruction: only a pattern the analyzer actually found is decidable.
-            print(f"Няма предложение с име {args.pattern_id}. Стартирайте: feedback analyze")
-            raise SystemExit(1)
-        entry = rewrite_feedback.apply_approval(target, approved=action == "approve")
+        # G1/G4: the decision rule itself - the threshold gate, "only a pattern the
+        # analyzer found", and "a conflict is not an instruction" - lives in the
+        # service (`decide_proposal`), so the CLI and the Settings screen make the
+        # same decision instead of two that can drift apart. This command only
+        # renders the reason.
+        try:
+            entry = rewrite_feedback.decide_proposal(args.pattern_id, approved=action == "approve")
+        except rewrite_feedback.ProposalNotDecidable as exc:
+            if exc.code == "UNKNOWN_PATTERN":
+                print(f"Няма предложение с име {args.pattern_id}. Стартирайте: feedback analyze")
+            else:
+                print(str(exc))
+            raise SystemExit(1) from exc
         word = "одобрено" if action == "approve" else "отхвърлено"
         print(f"{word}: {entry['instruction']}")
         print(f"  подкрепа: {entry['support']} записа; feedback ids: {len(entry['feedback_ids'])}")

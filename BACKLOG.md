@@ -56,8 +56,12 @@ out of time:
 - [ ] Automatic scheduling of the feedback analyzer. The threshold, the
       proposals and the approval step all exist; only a cron trigger is missing,
       and at prototype scale `newsroom feedback analyze` is sufficient.
-- [ ] A Settings UI for approving a proposal. CLI approval is deliberate for
-      this slice; a UI would broaden scope without changing the contract.
+- [x] **A Settings UI for approving a proposal — DONE 2026-10-01.**
+      `Настройки → Редакционно обучение` reads and decides proposals over
+      `GET/POST /api/v1/settings/feedback`, through the same
+      `rewrite_feedback.decide_proposal` the CLI uses, so the two surfaces
+      cannot drift. The client sends only `patternId` + `approved`; the server
+      re-analyzes, so a screen can only decide a rule the analyzer found.
 - [ ] Model-backed Focus proposals. The current deterministic Focus is
       Story-specific; alternatives stay empty until they can be genuinely
       different per Story (§C3).

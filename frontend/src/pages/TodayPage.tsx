@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { createIdempotencyKey, getRoleHealth, ignoreStory, quickDraftStory, refreshNewsroom } from "../api/client";
+import {
+  createIdempotencyKey,
+  draftDesk,
+  getRoleHealth,
+  ignoreStory,
+  quickDraftStory,
+  refreshNewsroom,
+} from "../api/client";
 import type {
   GroupingHealth,
   TodayAttention,
@@ -281,6 +288,37 @@ function SecondarySection({
  * control is not split across two components; this hook only owns the mutation
  * and the canonical refetch that follows a successful run.
  */
+/**
+ * V1.2-G4.40: the desk press, owned as an operation here.
+ *
+ * The report the server returns is what the header renders - the client does
+ * not count Stories, decide which ones were eligible, or summarise successes it
+ * did not observe. After a run the desk is refetched, because the Stories it
+ * drafted now carry a `lastAttempt`, an Article, or both.
+ */
+function useDeskDraftOperation(scope: TodayScope) {
+  const queryClient = useQueryClient();
+  const draft = useMutation({
+    mutationFn: () => draftDesk(scope),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["today"] }),
+        queryClient.invalidateQueries({ queryKey: ["stories"] }),
+        queryClient.invalidateQueries({ queryKey: ["articles"] }),
+        queryClient.invalidateQueries({ queryKey: ["operations"] }),
+      ]);
+    },
+  });
+  return {
+    report: draft.data ?? null,
+    pending: draft.isPending,
+    error: draft.error
+      ? getErrorMessage(draft.error, "Черновите не можаха да бъдат подготвени.")
+      : null,
+    run: () => draft.mutate(),
+  };
+}
+
 function useRefreshOperation() {
   const queryClient = useQueryClient();
   const refresh = useMutation({
@@ -388,6 +426,7 @@ export function TodayPage() {
   });
   const queryClient = useQueryClient();
   const refresh = useRefreshOperation();
+  const deskDraft = useDeskDraftOperation(scope);
   // One timestamp for the whole render, so two rows can never disagree about
   // what "преди 18 мин" means because the clock ticked between them.
   const [now] = useState(() => new Date());
@@ -412,6 +451,10 @@ export function TodayPage() {
         query={query}
         onQueryChange={setQuery}
         roleHealth={roleHealth.data ?? null}
+        onDraftDesk={deskDraft.run}
+        draftDeskPending={deskDraft.pending}
+        draftDeskError={deskDraft.error}
+        draftDeskReport={deskDraft.report}
       />
 
       <GroupingHealthNotice health={projection.groupingHealth} />

@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -77,6 +78,20 @@ ARTICLE_FILTERS = ("all", "preparation", "draft", "ready")
 #: Story id: it only tells the shared operation registry which editor wording a
 #: transport result belongs to.
 REFRESH_SCOPE = "today-refresh"
+#: V1.2-G4.40. Operation scope for the desk-level «Направи чернови» action.
+#: Like `REFRESH_SCOPE`, it is not a Story id: it only tells the shared registry
+#: which editor wording a transport result belongs to.
+DESK_DRAFT_SCOPE = "desk-quick-drafts"
+#: How many Stories one press may draft.
+#:
+#: A cap is not a formality. Each Story in the run costs one research round and
+#: one generation, so the number is the difference between a bounded action and
+#: a machine that spends a day's model budget while the editor is not looking.
+#: Measured 2026-10-01: one Quick Draft on the operator's desk took 426 s and
+#: routed through two free providers before one answered. Three is a press the
+#: editor can stand behind; the label states it so the number is never a
+#: surprise, and the run reports per-Story outcomes rather than a total.
+DESK_DRAFT_LIMIT = 3
 
 
 class EditorApplicationError(ValueError):
@@ -754,7 +769,8 @@ def _article_actions(
         # OFFERED - changing the Focus is still a real choice - it simply stops
         # being the only thing they can do.
         actions = (
-            ["CHANGE_FOCUS"] if editor_projections.focus_is_confirmed(article)
+            ["CHANGE_FOCUS"]
+            if editor_projections.focus_is_confirmed(article)
             else ["SELECT_FOCUS", "CHANGE_FOCUS"]
         )
         if manual_continuation:
@@ -768,9 +784,7 @@ def _article_actions(
             # stays false - the material is not confirmed - while the button is
             # offered, because the editor should not have to research first.
             actions.append("MAKE_DRAFT")
-            return actions, _next_action(
-                "MAKE_DRAFT", readiness.reason_code, "Направи чернова"
-            )
+            return actions, _next_action("MAKE_DRAFT", readiness.reason_code, "Направи чернова")
         # Focus is no longer a refusal source, so the only remaining refusals are
         # evidence ones. Those whose remedy is research route the editor to the
         # owning Story — which stays the sole owner of research orchestration.
@@ -876,10 +890,7 @@ def _article_projection(
         # one bounded read? That is what keeps `Чернова` offered for a Story the
         # command can actually write, instead of only for one already researched.
         readable_publication=bool(
-            story
-            and _original_publication_is_readable(
-                story.get("story_id"), story, resolve=False
-            )
+            story and _original_publication_is_readable(story.get("story_id"), story, resolve=False)
         ),
     )
     readiness = article_readiness.evaluate(readiness_snapshot)
@@ -1302,7 +1313,9 @@ class EditorHintRejected(EditorApplicationError):
     default_message = "Подсказката не можа да бъде използвана."
 
 
-def seed_stories_from_hint(hint: str, *, provider=None, page_opener=None, max_open: int = 3) -> dict:
+def seed_stories_from_hint(
+    hint: str, *, provider=None, page_opener=None, max_open: int = 3
+) -> dict:
     """«Започни от идея»: the editor's hint, turned into real material.
 
     The hint is a search query and never evidence. What comes back is a set of
@@ -1354,14 +1367,22 @@ def seed_stories_from_hint(hint: str, *, provider=None, page_opener=None, max_op
         # list rather than a growing set of flags: the editor can only act on
         # a reason, and silence reads as "found two" when three were seen.
         "skipped": [
-            {"url": p.get("url") or "", "title": p.get("title") or "", "reason": p.get("skipped") or ""}
+            {
+                "url": p.get("url") or "",
+                "title": p.get("title") or "",
+                "reason": p.get("skipped") or "",
+            }
             for p in result.opened
             if p.get("skipped")
         ],
         # Real categories, so a timeout is visible as a timeout and never
         # softened into "such material does not exist".
         "unopened": [
-            {"url": u.get("url") or "", "status": u.get("status") or "", "detail": u.get("detail") or ""}
+            {
+                "url": u.get("url") or "",
+                "status": u.get("status") or "",
+                "detail": u.get("detail") or "",
+            }
             for u in result.unopened
         ],
         "providerChain": result.audit.get("provider_chain") or [],
@@ -1906,10 +1927,14 @@ def _draft_snapshot(article_id: str, *, enrich: bool = True) -> dict:
     # the opened sources and whatever it fails to find becomes a warning that
     # travels with the Draft. It can never remove material, never promote a fact,
     # never close a gap, and never refuse the command that called it.
-    enrichment = _bounded_draft_enrichment(
-        headline=headline,
-        existing_sources=opened,
-    ) if enrich else {"sources": [], "queries": [], "warnings": []}
+    enrichment = (
+        _bounded_draft_enrichment(
+            headline=headline,
+            existing_sources=opened,
+        )
+        if enrich
+        else {"sources": [], "queries": [], "warnings": []}
+    )
     opened = draft_enrichment.merge_sources(opened, enrichment["sources"])
     snapshot.update(
         {
@@ -2126,9 +2151,7 @@ def _revalidate_before_generation(article_id: str, bound: dict) -> None:
     # editor their text is safe, which a bare version conflict does not.
     readiness = article_readiness.evaluate(_draft_readiness_basis(article_id)["snapshot"])
     code = (
-        article_readiness.ARTICLE_VERSION_CONFLICT
-        if readiness.eligible
-        else readiness.reason_code
+        article_readiness.ARTICLE_VERSION_CONFLICT if readiness.eligible else readiness.reason_code
     )
     # A `DraftRefused`, not the request path's `_raise_draft_refusal`: this runs
     # inside the worker, where the code is the operation's own stable reason.
@@ -2480,9 +2503,7 @@ def start_article_rewrite(
     scope = article_rewrite.scope_for(article_id)
     # A rewrite is bound to the exact text it was asked to rewrite, so a new
     # comment is a new operation even though the Article is the same one.
-    signature = hashlib.sha256(
-        f"{content['content_version']}\0{text}".encode()
-    ).hexdigest()[:24]
+    signature = hashlib.sha256(f"{content['content_version']}\0{text}".encode()).hexdigest()[:24]
     if key:
         signature = ""
     token = story_operations.token_for(scope, signature, 0, key)
@@ -2772,17 +2793,38 @@ def _run_quick_draft(story_id: str) -> dict:
     # 6. The ONE readiness decision for the concrete Article now that it exists
     # with a confirmed Focus. Re-read from canonical state: the click, the
     # research round and the Focus write all happened after the click.
+    #
+    # V1.2-G4.39 — the decision is taken by `article_generation.evaluate`, the
+    # canonical COMMAND gate, and not by reading `readiness.eligible` here. The
+    # two are not the same question, and this step used to conflate them.
+    #
+    # `article_readiness.evaluate` reports `eligible=False` with
+    # `DRAFT_FROM_UNREAD_SOURCE` for a Story whose own publication is merely
+    # WORTH one bounded read: nothing has been read, so "the material is
+    # sufficient" would be a false claim. But the run is authorised —
+    # `article_generation.evaluate` and `_draft_preflight` both exempt that code
+    # for exactly that reason, and the generation in step 7 is what reads the
+    # page and refuses honestly if it finds nothing. Reading the raw flag turned
+    # the exemption into a hard refusal, so the two callers of "the same"
+    # pipeline disagreed and the Today button was the one that lost.
+    #
+    # Measured live 2026-10-01 on the operator's own desk: a click on the
+    # collected Story `s32aa7fd0b7aaa95` created an empty Preparation Article,
+    # returned `needs_attention` / `DRAFT_FROM_UNREAD_SOURCE` in 14 seconds,
+    # spent no model call, and could never make progress — a retry re-resolved to
+    # the same empty Preparation and stopped in the same place. A refusal with a
+    # research remedy is still reported with its own exact code: Quick Draft does
+    # not research again here, because it already spent its one allowed round in
+    # step 2 and a second speculative round would be autonomous research the
+    # product does not permit.
     snapshot = _draft_snapshot(article_id)
-    readiness = article_readiness.evaluate(snapshot)
-    if not readiness.eligible:
-        # A refusal with a research remedy is reported with its own exact code.
-        # Quick Draft does not research again here: it already spent its one
-        # allowed round in step 2, and a second speculative round would be
-        # autonomous research the product does not permit.
+    try:
+        article_generation.evaluate(snapshot)
+    except article_generation.DraftRefused as exc:
         return quick_draft.result_needs_attention(
             story_id,
-            readiness.reason_code,
-            readiness.reason_message,
+            exc.code,
+            exc.message,
             article_id=article_id,
         )
 
@@ -2890,9 +2932,7 @@ def start_quick_draft(story_id: str, *, idempotency_key: str = "") -> dict:
             row = story_operations.get(holder) if holder else None
             if row is not None and row["status"] in {"pending", "running"}:
                 return {"operationToken": holder, "status": row["status"]}
-            raise EditorInvalidTransition(
-                "Операциите са заети; опитайте след малко."
-            ) from busy
+            raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from busy
 
     def work():
         try:
@@ -2904,6 +2944,143 @@ def start_quick_draft(story_id: str, *, idempotency_key: str = "") -> dict:
         operation_token, view = story_operations.start(scope, "", work, key=key)
     except story_operations.BusyError as exc:
         quick_draft.release(story_id, token)
+        raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
+    return {"operationToken": operation_token, "status": view["status"]}
+
+
+#: The outcome codes a desk run can report per Story, plus its own summary
+#: status. Deliberately the SAME vocabulary a single Quick Draft uses, so the
+#: editor reads one set of words whether they pressed one row or the desk.
+DESK_DRAFT_STARTED = "desk_run"
+
+
+def _desk_draft_candidates(scope: str) -> list[str]:
+    """The Today Stories one press may draft, in the desk's own order.
+
+    Read through `read_today` - the same projection the editor is looking at -
+    so the run cannot pick a Story the screen never showed them. The filter is
+    the projection's own `quickDraft` verdict, never re-derived here: an ignored
+    Story or an ambiguous one is already `available: False`, a Story whose Draft
+    already exists is `articleId` + the open label, and a Story whose work is
+    running is `inFlight`. Nothing in this function decides policy.
+
+    A Story with an EMPTY Preparation Article is deliberately included: that is
+    the reuse path, and it is the shape a previously-refused attempt leaves
+    behind.
+    """
+    today = read_today(scope)
+    chosen: list[str] = []
+    for row in [*(today.get("newDevelopments") or []), *(today.get("newStories") or [])]:
+        quick = row.get("quickDraft") or {}
+        if not quick.get("available") or quick.get("inFlight"):
+            continue
+        # `Отвори чернова` means a real Draft is already there. Regenerating it
+        # is exactly what `plan` refuses to do, so the run must not pick it.
+        if quick.get("articleId") and quick.get("label") != quick_draft.LABEL_DRAFT:
+            continue
+        chosen.append(str(row.get("objectId") or ""))
+    return [story_id for story_id in chosen if story_id]
+
+
+def _await_quick_operation(token: str, *, timeout: float = 900.0) -> dict:
+    """Wait for one nested Quick Draft to settle; report the wait if it does not.
+
+    The run is SEQUENTIAL on purpose. Starting the Stories in parallel would put
+    three generations, three research rounds and three provider retries on one
+    machine at once, and it would make the per-Story `inFlight` guard fight
+    itself. The bounded wait exists so one Story that hangs cannot hold the
+    whole press open forever: a timeout is reported as this Story's own outcome
+    and the run moves on.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        row = story_operations.get(token)
+        if row is not None and row["status"] in {"succeeded", "failed"}:
+            return row
+        time.sleep(0.25)
+    return {}
+
+
+def start_desk_quick_drafts(*, idempotency_key: str = "", scope: str | None = None) -> dict:
+    """«Направи чернови» - one bounded press that drafts the desk (§V1.2-G4.40).
+
+    **Why this exists.** The Quick Draft machinery was correct and unreachable at
+    scale: the only entry point was one click on one Today row, so a desk of 141
+    collected Stories produced drafts only as fast as an editor could press. The
+    owner asked twice in one evening; both operations reported success and
+    produced nothing. Fixing the single-Story path (V1.2-G4.39) made one press
+    work; this makes the desk work.
+
+    It is an ORCHESTRATION of the existing command, not a second implementation:
+    each Story is drafted by calling the real `start_quick_draft` with its own
+    idempotency key, so every Story keeps its own operation row, its own
+    `inFlight` guard, its own refusal reason and its own `lastAttempt` on Today.
+    Nothing is generated here that a single click would not have generated.
+
+    Returns a bounded operation token the editor's poll already understands.
+    """
+    key = str(idempotency_key or "").strip()
+    if not key:
+        raise EditorApplicationError("Idempotency key is required.")
+    token = story_operations.token_for(DESK_DRAFT_SCOPE, "", 0, key)
+    accepted = story_operations.get(token)
+    if accepted is not None and accepted["status"] in {"pending", "running", "succeeded"}:
+        return {"operationToken": token, "status": accepted["status"]}
+
+    candidates = _desk_draft_candidates(scope or editor_queries.SCOPE_REGION)[:DESK_DRAFT_LIMIT]
+
+    def work():
+        stories: list[dict] = []
+        created = 0
+        for index, story_id in enumerate(candidates):
+            try:
+                started = start_quick_draft(story_id, idempotency_key=f"{token}:{index}")
+            except (EditorApplicationError, story_operations.BusyError) as exc:
+                # A Story the desk offered but the command would not accept (it
+                # became ignored, or every operation slot is busy). One Story's
+                # refusal never stops the run - the editor asked for the desk.
+                stories.append(
+                    {
+                        "storyId": story_id,
+                        "status": quick_draft.NEEDS_ATTENTION,
+                        "reasonCode": str(getattr(exc, "code", "") or "RUN_REFUSED"),
+                        "message": str(exc) or "Историята не можа да бъде обработена.",
+                    }
+                )
+                continue
+            row = _await_quick_operation(started["operationToken"])
+            result = (row or {}).get("result")
+            if isinstance(result, dict) and result.get("status"):
+                # Always name the Story. `result_draft_created` and
+                # `result_existing_article` carry only an `articleId`, so a run
+                # that reported them verbatim would be a list the editor cannot
+                # align with the desk they are looking at.
+                stories.append({"storyId": story_id, **dict(result)})
+                if result["status"] == quick_draft.DRAFT_CREATED:
+                    created += 1
+            else:
+                # No result at all: the worker raised, or it outlived the bounded
+                # wait. Both are this Story failing, and saying so keeps the run
+                # a report of what happened rather than of what was attempted.
+                stories.append(
+                    {
+                        "storyId": story_id,
+                        "status": quick_draft.NEEDS_ATTENTION,
+                        "reasonCode": "RUN_INCOMPLETE",
+                        "message": "Черновата за тази история не завърши.",
+                    }
+                )
+        return {
+            "status": DESK_DRAFT_STARTED,
+            "attempted": len(stories),
+            "created": created,
+            "limit": DESK_DRAFT_LIMIT,
+            "stories": stories,
+        }
+
+    try:
+        operation_token, view = story_operations.start(DESK_DRAFT_SCOPE, "", work, key=key)
+    except story_operations.BusyError as exc:
         raise EditorInvalidTransition("Операциите са заети; опитайте след малко.") from exc
     return {"operationToken": operation_token, "status": view["status"]}
 

@@ -2039,13 +2039,19 @@ describe("Archive and Settings", () => {
    * it also pins that no row claims to be disabled, because a screen an editor
    * can open must actually work.
    */
-  it("offers exactly one settings entry, and it is a working link", () => {
+  it("offers only real, working settings entries and never a placeholder", () => {
+    // V1.2-G4.3 §G added the second real surface. The rule §3 froze is not
+    // "exactly one" — it is "never an empty tab": every entry is a working
+    // link, and nothing claims to be a surface that does not exist.
     renderWithProviders(<SettingsLanding />, { route: "/settings" });
     const entries = screen.getAllByRole("listitem");
-    expect(entries).toHaveLength(1);
+    expect(entries).toHaveLength(2);
     expect(entries[0]?.textContent).toContain("Източници");
-    const link = screen.getByRole("link", { name: /Източници/ });
-    expect(link).toHaveAttribute("href", "/settings/sources");
+    expect(entries[1]?.textContent).toContain("Редакционно обучение");
+    const sources = screen.getByRole("link", { name: /Източници/ });
+    expect(sources).toHaveAttribute("href", "/settings/sources");
+    const feedback = screen.getByRole("link", { name: /Редакционно обучение/ });
+    expect(feedback).toHaveAttribute("href", "/settings/feedback");
     // No placeholder claims to be a settings surface any more.
     expect(screen.queryByText(/Още не е налично/)).toBeNull();
     expect(document.querySelector('[aria-disabled="true"]')).toBeNull();

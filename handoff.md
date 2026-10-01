@@ -1,3 +1,36 @@
+## Handoff — Chain audit + Settings learning loop (2026-10-01)
+
+Owner priority: the **core loop** (see news → sources → research → real draft)
+must work great, with a pleasant, informative, bug-free and logical front and
+back end, before anything is built on top. This slice therefore fixes the one
+real break in that loop and completes the one approved addition.
+
+- **Chain audited** (collect → story → research/scrape → draft → article →
+  desk): research/scrape is sound (automatic enrichment on «Чернова» + on-demand
+  Story research, bounded and honest); the article pipeline is sound
+  (`build_packet` → angle gate → `generate_draft` → publish pointer last); the
+  originality guard is real (8-word shared-run, quotes exempt, warning-only).
+- **Fixed — the desk did not update itself.** `today`/`stories`/`story`/
+  `articles`/`article` had no poll and `refetchOnWindowFocus: false`, so a
+  finished draft only appeared after leaving and returning. `AppShell`
+  (`useFinishedWorkRefetch`) now invalidates those projections on an observed
+  `running → succeeded` transition, once per token, only for work seen running.
+  Test: `frontend/src/test/navigationState.test.tsx` (proven failing pre-fix).
+- **Settings → Редакционно обучение.** `rewrite_feedback.decide_proposal` +
+  `ProposalNotDecidable` are the ONE decision rule, shared by the CLI and the new
+  API; `GET /api/v1/settings/feedback` and `POST …/decisions` (client sends only
+  `patternId` + `approved`). New page, route and Settings entry.
+- **Recorded, not fixed** (owner-deferred): topic categories need the deferred
+  Story→topic classifier, so the rail stays frozen;
+  `draft_enrichment.official_source_query` is a dead duplicate of the live
+  `event_search` copy; the
+  originality guard compares against one packet source (a different member
+  publication's prose is not checked).
+
+Gates: `tests/test_g4_settings_feedback.py` **12 passed**; +`test_natural_draft_loop.py`
++`test_g4_settings_sources.py` green; `ruff check` clean; frontend **295/295**,
+`typecheck` clean, build OK.
+
 ## Handoff — Pre-frontend correctness gate (2026-09-24)
 
 Report: `m4/review/PRE_FRONTEND_CORRECTNESS_REPORT.md` (ROUND 1 sub-report:

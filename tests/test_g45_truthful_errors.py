@@ -159,6 +159,7 @@ def test_the_operations_list_never_carries_an_unobserved_cause():
     failure the system had not actually diagnosed. G4.5 had already fixed the
     single-operation envelope and missed this one.
     """
+
     def explode():
         raise RuntimeError("openrouter/gemini-3 failed at /home/test/.config/router.json")
 
@@ -190,6 +191,7 @@ def test_a_classified_reason_is_still_shown_in_the_operations_list():
     the whole value of the Operations page: the row has to say WHICH failure
     happened, or the editor is back to a red badge with no cause.
     """
+
     def refused():
         raise _Classified("Моделът не отговаря.")
 
@@ -207,6 +209,7 @@ def test_a_classified_reason_is_still_shown_in_the_operations_list():
 
 def test_a_secret_in_a_classified_reason_is_still_redacted():
     """Classification earns a reason, not a licence to leak a credential."""
+
     def leaky():
         raise _Classified("upstream rejected Authorization: Bearer sk-live-abcdef123456")
 
@@ -225,6 +228,7 @@ def test_the_single_operation_envelope_keeps_its_own_diagnosable_policy():
     failure stays diagnosable, so the registry must not launder the text before
     `operation_status` gets to apply its own rule.
     """
+
     def refused():
         raise _Classified("Моделът не отговаря.")
 
@@ -245,3 +249,88 @@ def test_a_failed_ledger_write_does_not_fail_the_operation(monkeypatch, caplog):
         story_operations._write_ledger()
 
     assert any("ledger write failed" in record.getMessage() for record in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# §G4.37 history — a finished operation is bounded by COUNT, never by a clock
+# --------------------------------------------------------------------------
+
+
+def test_a_finished_operation_is_never_silenced_by_age():
+    """The registry forgot settled work 15 minutes after it finished.
+
+    Measured: `_prune` deleted every finished row once its `updated_at` passed
+    `TTL_SECONDS = 900`, while `recent()` and `last_for_scope()` read only the
+    in-memory `_ROWS`. The durable ledger - mirrored to `var/operations.json`
+    precisely so a lost operation stays visible instead of looking like one
+    nobody asked for - therefore kept the row while the editor-visible index
+    went empty.
+
+    Two consequences, and this pins both: the Operations page lost every entry
+    after 15 quiet minutes, and `quick_draft.availability.lastAttempt` forgot a
+    refusal, so Today offered «Чернова» again with the reason nowhere on screen.
+    That is the symptom V1.2-G4.36 exists to remove, so an expired row is not a
+    cache eviction here - it is the defect coming back in a later costume.
+    """
+
+    def refused():
+        return quick_draft.result_needs_attention(
+            "s-one", "NO_DRAFT_MATERIAL", "Няма от какво да се напише чернова."
+        )
+
+    scope = quick_draft.scope_for("s-one")
+    token, row = _run_to_completion(refused, scope=scope)
+    # The WORK succeeded; the COMMAND refused. Both facts are recorded, and it
+    # is the second one the editor needs (V1.2-G4.36).
+    assert row["status"] == "succeeded"
+    assert row["result"]["status"] == quick_draft.NEEDS_ATTENTION
+
+    # Age the settled row well past the expiry that used to delete it.
+    story_operations._ROWS[token]["updated_at"] -= 24 * 60 * 60
+
+    listed = [item for item in story_operations.recent() if item["operationToken"] == token]
+    assert listed, "a finished operation must stay in the index"
+    assert listed[0]["outcome"] == quick_draft.NEEDS_ATTENTION
+    assert listed[0]["outcomeCode"] == "NO_DRAFT_MATERIAL"
+
+    scoped = story_operations.last_for_scope(scope)
+    assert [item["operationToken"] for item in scoped] == [token]
+    assert scoped[0]["outcome"] == quick_draft.NEEDS_ATTENTION
+
+    # The user-facing half: the Today row must still say the attempt failed,
+    # rather than offering the button as if nothing had been asked.
+    view = quick_draft.availability(story={"story_id": "s-one"}, articles=[], contents={})
+    assert view["lastAttempt"] is not None
+    assert view["lastAttempt"]["status"] == "failed"
+    assert view["lastAttempt"]["errorCode"] == "NO_DRAFT_MATERIAL"
+    assert view["lastAttempt"]["error"] == "Няма от какво да се напише чернова."
+
+
+def test_the_registry_is_bounded_by_count_and_never_evicts_live_work():
+    """Removing the clock must not remove the bound.
+
+    `MAX_OPERATIONS` is now the only limit, and it must only ever take FINISHED
+    rows: evicting a `pending`/`running` row would orphan live work, because the
+    worker's own `release` then no-ops on token inequality while the thread keeps
+    running.
+    """
+    gate = threading.Event()
+    live = []
+    try:
+        for index in range(story_operations.MAX_OPERATIONS):
+            token, _view = story_operations.start(f"s-live-{index}", "", gate.wait)
+            live.append(token)
+        # `MAX_OPERATIONS` live rows fill the registry; a new one must be told
+        # the truth rather than quietly discarding a running operation.
+        with pytest.raises(story_operations.BusyError):
+            story_operations.start("s-one-too-many", "", gate.wait)
+    finally:
+        gate.set()
+        for token in live:
+            for _ in range(500):
+                row = story_operations.get(token)
+                if row is not None and row["status"] in {"succeeded", "failed"}:
+                    break
+                time.sleep(0.01)
+    for token in live:
+        assert story_operations.get(token) is not None, token

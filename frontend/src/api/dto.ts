@@ -402,6 +402,24 @@ export interface OperationSummary {
   errorCode: string;
   /** The server's own recorded reason, already sanitized server-side. */
   error: string;
+  /**
+   * V1.2-G4.36: what the **command** did, which is not the same question as
+   * what the worker did.
+   *
+   * `status` reports that the worker returned. A Quick Draft that ran to
+   * completion and produced nothing returns `needs_attention` — a refusal —
+   * while `status` stays `succeeded`, so this page used to label it «Готово»
+   * with no reason at all. That is the surface an editor uses to ask "what
+   * happened to the four I started", and it was answering `succeeded` for
+   * work that had produced nothing.
+   *
+   * Empty when the command reported no outcome of its own.
+   */
+  outcome: string;
+  /** The command's own stable refusal code, when it refused. */
+  outcomeCode?: string;
+  /** The command's own editor sentence for that refusal. */
+  outcomeMessage?: string;
 }
 
 export type TodayAttention =
@@ -692,4 +710,45 @@ export interface SourceChanges {
   monitored?: boolean;
   factualAuthority?: boolean;
   priority?: SourcePriority;
+}
+
+/**
+ * V1.2-G4.3 §G — the controlled learning loop, as Settings sees it.
+ *
+ * The backend is the authority on every field. `proposals` is empty until the
+ * threshold is reached, so this screen can never offer a decision the service
+ * would refuse; `instructions` is the set a human has actually decided on.
+ */
+export interface FeedbackProposal {
+  patternId: string;
+  label: string;
+  target: string;
+  support: number;
+  total: number;
+  examples: string[];
+  suggestedInstruction: string;
+  /** `conflict` is a question to the editor, never an approvable rule. */
+  status: "proposed" | "conflict";
+}
+
+export interface FeedbackInstruction {
+  patternId: string;
+  target: string;
+  instruction: string;
+  support: number;
+  approved: boolean;
+  decidedAt: string;
+}
+
+export interface FeedbackStatus {
+  pending: number;
+  threshold: number;
+  eligible: boolean;
+  proposals: FeedbackProposal[];
+  instructions: FeedbackInstruction[];
+}
+
+/** The decided entry, plus the whole new state it produced. */
+export interface FeedbackDecisionResult extends FeedbackStatus {
+  decision: FeedbackInstruction;
 }

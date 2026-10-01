@@ -51,7 +51,9 @@ def test_merges_all_three_sources_and_ranks_the_story_first(monkeypatch):
     run. `RECORDED` and `NEWS` share a host and `KEYLESS` names the Story less
     directly, so a correct ranking puts the recorded page first.
     """
-    monkeypatch.setattr(publication_material, "resolve_publication_urls", lambda *a, **k: [RECORDED])
+    monkeypatch.setattr(
+        publication_material, "resolve_publication_urls", lambda *a, **k: [RECORDED]
+    )
     monkeypatch.setattr(publication_material, "_keyless_lookup", lambda *a, **k: [KEYLESS])
     monkeypatch.setattr(publication_material, "_news_lookup", lambda *a, **k: [NEWS])
 
@@ -79,7 +81,9 @@ def test_the_merge_itself_refilters_so_a_new_source_cannot_smuggle_a_wrapper(mon
     the next person from fixing it and records the gap as a decision.
     """
     wrapper = "https://www.facebook.com/somepage/posts/1"
-    monkeypatch.setattr(publication_material, "resolve_publication_urls", lambda *a, **k: [RECORDED])
+    monkeypatch.setattr(
+        publication_material, "resolve_publication_urls", lambda *a, **k: [RECORDED]
+    )
     # A source that forgets to filter, which is the only way this can happen.
     monkeypatch.setattr(publication_material, "_keyless_lookup", lambda *a, **k: [wrapper])
     monkeypatch.setattr(publication_material, "_news_lookup", lambda *a, **k: [NEWS])
@@ -121,17 +125,34 @@ def test_a_refresh_bypasses_the_cache(monkeypatch):
 
 def _feed(*sources: str) -> bytes:
     items = "".join(
-        f"<item><title>t</title><source url=\"{url}\"></source></item>" for url in sources
+        f'<item><title>t</title><source url="{url}"></source></item>' for url in sources
     )
     return f'<?xml version="1.0"?><rss><channel>{items}</channel></rss>'.encode()
 
 
 class _FakeResponse:
-    def __init__(self, payload: bytes) -> None:
+    """Minimal urlopen stand-in, with the attributes `web_fetch` reads.
+
+    V1.2-G4.36. `_news_lookup` now goes through `web_fetch.fetch_page`, which
+    reads `.status`, `.headers` and `.geturl()` as well as `.read()` — so a fake
+    that only offered `read()` would exercise the fixture, not the fetch path it
+    is standing in for. `content_type` is what the per-call allow-list is checked
+    against, so it is a parameter here rather than an omission.
+    """
+
+    def __init__(self, payload: bytes, content_type: str = "application/rss+xml") -> None:
         self._payload = payload
+        self.headers = {"Content-Type": content_type}
+        self.status = 200
 
     def read(self, size: int = -1) -> bytes:
         return self._payload if size < 0 else self._payload[:size]
+
+    def geturl(self) -> str:
+        return "https://news.google.com/rss/search"
+
+    def close(self) -> None:
+        return None
 
     def __enter__(self):
         return self
@@ -140,11 +161,13 @@ class _FakeResponse:
         return False
 
 
-def _patch_feed(monkeypatch, payload: bytes) -> None:
+def _patch_feed(monkeypatch, payload: bytes, content_type: str = "application/rss+xml") -> None:
     import urllib.request
 
     monkeypatch.setattr(
-        urllib.request, "urlopen", lambda *a, **k: _FakeResponse(payload)
+        urllib.request,
+        "urlopen",
+        lambda *a, **k: _FakeResponse(payload, content_type),
     )
 
 
@@ -182,20 +205,63 @@ def test_an_entity_expansion_feed_is_refused(monkeypatch):
     bomb = (
         b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "1234567890">'
         b'<!ENTITY b "&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;">]>'
-        b"<rss><channel><item><source url=\"https://vestnik.example.test\"/></item></channel></rss>"
+        b'<rss><channel><item><source url="https://vestnik.example.test"/></item></channel></rss>'
     )
     _patch_feed(monkeypatch, bomb)
     assert _REAL_NEWS_LOOKUP("Ремонт") == []
 
 
 def test_an_oversized_feed_is_refused(monkeypatch):
-    oversized = b"<rss><channel>" + b"x" * (publication_material.MAX_FEED_BYTES + 10) + b"</channel></rss>"
+    oversized = (
+        b"<rss><channel>" + b"x" * (publication_material.MAX_FEED_BYTES + 10) + b"</channel></rss>"
+    )
     _patch_feed(monkeypatch, oversized)
+    assert _REAL_NEWS_LOOKUP("Ремонт") == []
+
+
+def test_the_news_feed_is_read_through_the_web_fetch_guard(monkeypatch):
+    """V1.2-G4.36. The lookup must not open the feed with a raw urlopen.
+
+    It did, and that made it the only outbound edge in the product without the
+    SSRF guard and the DNS-rebinding pin - on the Draft path, in a worker the
+    editor waits on. This asserts the CALL, not the consequence: `fetch_page` is
+    the only thing here that guards and pins, so a test that only checks the
+    return value would pass again the moment someone rewrote the fetch by hand.
+
+    The per-call content types are asserted too, because the obvious "fix" of
+    adding `application/rss+xml` to the global list would silently widen every
+    research fetch, and it must be visible here if it happens.
+    """
+    from editor_assistant.sources import web_fetch
+
+    calls: list[dict] = []
+    real = web_fetch.fetch_page
+
+    def spy(url, **kwargs):
+        calls.append(kwargs)
+        return real(url, **kwargs)
+
+    monkeypatch.setattr(publication_material.web_fetch, "fetch_page", spy)
+    _patch_feed(monkeypatch, _feed("https://vestnik.example.test"))
+
+    assert _REAL_NEWS_LOOKUP("Ремонт") == ["https://vestnik.example.test"]
+    assert len(calls) == 1, "the feed must be opened through web_fetch.fetch_page"
+    allowed = calls[0].get("allowed_content_types")
+    assert allowed == publication_material.NEWS_FEED_CONTENT_TYPES, (
+        "the feed needs its own content types; widening the global list is not a fix"
+    )
+    assert "application/rss+xml" not in web_fetch.ALLOWED_CONTENT_TYPES
+
+
+def test_a_feed_served_as_a_non_feed_content_type_is_refused(monkeypatch):
+    """The per-call allow-list is enforced, so the call is not a no-op."""
+    _patch_feed(monkeypatch, _feed("https://vestnik.example.test"), "application/pdf")
     assert _REAL_NEWS_LOOKUP("Ремонт") == []
 
 
 def test_a_keyless_lookup_error_yields_nothing(monkeypatch):
     """A provider outage must move the reader on, never raise through the Draft."""
+
     def boom(*_a, **_k):
         raise OSError("provider is down")
 

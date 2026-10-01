@@ -3,6 +3,7 @@ import {
   getArchive,
   getArticle,
   getArticles,
+  getFeedbackSettings,
   getFinalizedArticle,
   getSources,
   getStories,
@@ -25,6 +26,8 @@ export const queryKeys = {
   archiveArticle: (id: string) => ["archiveArticle", id] as const,
   /** V1.2-G4: one canonical registry, one query key. */
   sources: ["sources"] as const,
+  /** V1.2-G4.3 §G: the controlled learning loop, one key. */
+  feedback: ["feedback"] as const,
 };
 
 export async function invalidateArticleProjections(
@@ -92,3 +95,5 @@ export const archiveOptions = (query: string) =>
 export const archiveArticleOptions = (id: string) =>
   queryOptions({ queryKey: queryKeys.archiveArticle(id), queryFn: () => getFinalizedArticle(id) });
 export const sourcesOptions = () => queryOptions({ queryKey: queryKeys.sources, queryFn: getSources });
+export const feedbackOptions = () =>
+  queryOptions({ queryKey: queryKeys.feedback, queryFn: getFeedbackSettings });

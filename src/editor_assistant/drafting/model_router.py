@@ -238,43 +238,55 @@ def role_has_usable_route(role, *, policy=None, now=None):
     Deciding before spending anything turns that from minutes into a boolean.
     A 429 is separate from a 503 on purpose: an exhausted quota does not clear
     in minutes, so there is nothing to retry and nothing to wait for.
+
+    V1.2-G4.38 — **this function used to answer `None` for every role, always.**
+
+    It read `eligible` off each RAW policy route. No real route carries that key
+    - the shipped ones are `billing`, `daily_call_limit`, `enabled`, `model`,
+    `provider`, `public_only` - so every route was skipped on the first
+    condition, `saw_candidate` stayed False, and the tri-state collapsed to
+    "cannot judge" for `draft`, `story`, `angle` and everything else. Both
+    callers treat `None` as permission to proceed, so the two guards this
+    function exists for were dead:
+
+    * `editor_application._draft_route_preflight` (G4.8) never refused, so the
+      measured 3 min 49 s spinner it was written to remove was still possible;
+    * `newsroom_refresh` (G4.6) never skipped the semantic stage, so the
+      measured "8 semantic calls x a 60-second deferral each, for a 429 it
+      already had recorded" was still possible.
+
+    It also DISAGREED with `read_health()`, which computes eligibility through
+    `plan_routes` and therefore reported the truth: the screen could name an
+    unroutable role while the guard that acts on it judged nothing.
+
+    Measured on the operator's desk 2026-10-01: `plan_routes('draft')` showed 4
+    Gemini routes uneligible (quota) and 2 free OpenRouter routes eligible, and
+    `exhausted_routes_for('draft')` named three EXHAUSTED routes - while this
+    function said `None`. The tests missed it because their policy fixtures
+    carried an `eligible` key the real policy never has, which is the fiction
+    `test_the_shipped_policy_is_judgeable` now pins against.
+
+    Eligibility is therefore computed in exactly ONE place - `plan_routes`, the
+    same call the health screen makes - so the guard and the screen cannot
+    drift apart again.
     """
     if policy is None:
         try:
             policy = model_policy.load_policy()
         except Exception:  # noqa: BLE001 - an unreadable policy is "cannot judge"
             return None
-    routes = ((policy.get("roles") or {}).get(role) or {}).get("routes") or []
+    try:
+        plan = plan_routes(role, policy=policy, now=now)
+    except Exception:  # noqa: BLE001 - an unreadable role is "cannot judge"
+        return None
+    routes = plan.get("routes") or []
     if not routes:
         return None
-    state = read_health()
-    moment = _utc_now(now)
-    saw_candidate = False
-    for route in routes:
-        if not route.get("eligible"):
-            continue
-        if route.get("provider") != "gemini" and not (policy.get("global") or {}).get(
-            "paid_enabled", True
-        ):
-            continue
-        saw_candidate = True
-        record = state.get(route_key(route))
-        if not isinstance(record, dict):
-            return True
-        if record.get("status") == STATUS_EXHAUSTED:
-            until = record.get("until") or ""
-            if until and until > _iso(moment):
-                continue
-            # The window the provider gave us has passed: worth one try again.
-            return True
-        if record.get("status") == STATUS_RATE_LIMITED:
-            until = record.get("until") or ""
-            if until and until > _iso(moment):
-                continue
-            return True
-        return True
-    # Every route exists but none is a candidate we may call.
-    return False if saw_candidate else None
+    # `plan_routes`' `eligible` already folds in the policy gates, the payload
+    # class, the model and role day limits, the per-minute window AND the
+    # recorded route health, so a route that is merely rate-limited for this
+    # minute is reported ineligible here for exactly as long as it really is.
+    return any(route.get("eligible") for route in routes)
 
 
 def exhausted_routes_for(role, *, policy=None, now=None) -> list:
@@ -292,8 +304,13 @@ def exhausted_routes_for(role, *, policy=None, now=None) -> list:
     for route in routes:
         record = state.get(route_key(route))
         if isinstance(record, dict) and record.get("status"):
-            out.append({"route": route_key(route), "status": record.get("status"),
-                        "until": record.get("until") or ""})
+            out.append(
+                {
+                    "route": route_key(route),
+                    "status": record.get("status"),
+                    "until": record.get("until") or "",
+                }
+            )
     return out
 
 
@@ -532,13 +549,15 @@ def _skip_reasons(
 ):
     reasons = []
     keys = keys if keys is not None else _keys_available()
+    # A policy with no `global` section is readable, not a crash.
+    global_cfg = policy.get("global") or {}
     if not route.get("enabled", True):
         reasons.append("изключен маршрут")
     billing = route.get("billing")
-    if billing == "paid" and not policy["global"].get("paid_enabled"):
+    if billing == "paid" and not global_cfg.get("paid_enabled"):
         reasons.append("платените модели са изключени")
     if (
-        policy["global"].get("privacy_gate_enabled")
+        global_cfg.get("privacy_gate_enabled")
         and route.get("public_only")
         and payload_class == "private"
     ):
@@ -758,9 +777,7 @@ def call_role(
         reason = "няма достъпен маршрут"
         if skipped:
             reason += f" ({'; '.join(skipped)})"
-    raise RoleUnavailable(
-        role, reason, on_exhausted=role_raw["on_exhausted"], trace=trace
-    )
+    raise RoleUnavailable(role, reason, on_exhausted=role_raw["on_exhausted"], trace=trace)
 
 
 def _explicit_route(policy, model) -> dict:

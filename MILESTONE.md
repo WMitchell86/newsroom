@@ -1,3 +1,56 @@
+## Chain audit + Settings learning loop — 2026-10-01 — BUILT, AWAITING REVIEW
+
+Owner priority this round: **make the core loop work great before building
+further** (see news → sources → research → real draft), so this slice fixes the
+one real break in that loop and adds the approved Settings surface, nothing more.
+
+The chain was audited end to end: collect → story → research/scrape → draft →
+article → desk.
+
+- **Research/scrape (verified sound).** Automatic enrichment inside «Чернова»
+  (`_bounded_draft_enrichment` → `draft_enrichment.enrich` →
+  `search.run_event_discovery`, 30 s wall clock, ≤3 queries, ≤5 opened pages,
+  Serper clamped to the policy max) and on-demand Story research both work;
+  only *opened publisher pages* contribute, and a failure is an honest warning.
+  Query planning is deterministic and shape-aware (`plan_questions`), and
+  `event_search.event_queries` adds `"<subject>" site:<registered-official>` —
+  it names the authority, not keyword soup. Found (recorded, not fixed):
+  `draft_enrichment._registered_official_domain` / `official_source_query` are a
+  **dead duplicate** of the live `event_search` copy.
+- **Originality guard (verified, one blind spot recorded).**
+  `generate.originality_check` = 8-word contiguous shared run, quotes exempt,
+  `blocking: false` warning by design. It compares against `packet["source_text"]`
+  — the ONE packet source — so a draft copying a *different* member publication
+  is not caught. Recorded, not changed.
+- **Fixed: a finished operation did not update the page you were on.** Operations
+  polled (3 s/5 s) and role health polled (60 s), but `today`/`stories`/`story`/
+  `articles`/`article` had no poll and `refetchOnWindowFocus: false` globally, so
+  a completed draft only appeared after navigating away and back. `AppShell` now
+  invalidates the canonical projections on an observed `running → succeeded`
+  transition — once per token, only for work seen running (same rule as the
+  ready banner). Regression test proven to fail without the fix.
+- **Settings → Редакционно обучение (the approved slice).** The controlled
+  learning loop had a service and a CLI but no surface. New
+  `decide_proposal(pattern_id, approved)` is the ONE decision rule (eligible →
+  re-analyze → known pattern → not a conflict → `apply_approval`), used by BOTH
+  the CLI and the new routes; `GET /api/v1/settings/feedback` (pure read) and
+  `POST /api/v1/settings/feedback/decisions` (client sends only `patternId` +
+  `approved`, never the instruction). New `Settings → Редакционно обучение`
+  screen, route and Settings entry. `ProposalNotDecidable` carries a stable
+  code so both surfaces agree on WHY a decision is refused.
+- **Frontend orientation note recorded for the sidebar:** topic categories cannot
+  be activated without the deferred Story→topic classifier; the frozen rail is
+  left as the truthful prepared space.
+
+Gates: **`tests/test_g4_settings_feedback.py` 12 passed**, `tests/test_natural_draft_loop.py`
++ `tests/test_g4_settings_sources.py` green (82 total in that selection);
+`ruff check` clean and every touched file formatted (api.py + the new test fully
+formatted; `cli.py`/`rewrite_feedback.py` carry only their pre-existing
+unformatted regions); frontend `typecheck` clean, **295 tests / 14 files pass**,
+`npm run build` OK, `frontend/dist` rebuilt.
+
+---
+
 ## Pre-Frontend Correctness Gate — 2026-09-24 — BUILT, AWAITING REVIEW
 
 Harness: `m4/HARNESS_PROMPT_PRE_FRONTEND_CORRECTNESS.md`; report:

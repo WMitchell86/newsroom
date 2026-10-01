@@ -72,6 +72,13 @@ LABEL_OPEN_DRAFT = "Отвори чернова"
 MULTIPLE_ACTIVE_ARTICLES = "MULTIPLE_ACTIVE_ARTICLES"
 STORY_IGNORED = "STORY_IGNORED"
 
+#: V1.2-G4.36. Result statuses that mean this attempt produced nothing, so the
+#: Today row must state it rather than offer the button as if untouched. Imported
+#: by name from the registry rather than re-spelled here: the vocabulary belongs
+#: to `result_needs_attention`, and a second copy in this file is how the two
+#: drift apart.
+_REFUSED_OUTCOMES = story_operations.REFUSED_OUTCOMES
+
 #: A generation attempt that passed readiness and then genuinely failed (§18).
 #: V1.1-C already recorded it; this only names it for the editor-facing result.
 DRAFT_GENERATION_FAILED = "DRAFT_GENERATION_FAILED"
@@ -243,14 +250,30 @@ def availability(*, story: dict, articles, contents) -> dict:
     # V1.2-G4.6. A failed Quick Draft leaves no Article to show, so the row has
     # to say what happened. Silently offering "Чернова" again over a failure is
     # the same unpressable button as the lost pending state, one step later.
+    #
+    # V1.2-G4.36 — `needs_attention` is a failure of the ATTEMPT, whatever the
+    # operation registry calls its worker. Measured on the operator's own desk:
+    # one Quick Draft on a collected Story returned `needs_attention`, created no
+    # Article, and the registry recorded `succeeded` with no error — so this row
+    # reported `lastAttempt: null` after a reload and offered «Чернова» again with
+    # the refusal nowhere on screen. The registry now names the outcome
+    # (`story_operations.REFUSED_OUTCOMES`) instead of that being inferred here,
+    # and this is the one place the editor's own word for it is chosen.
     last = story_operations.last_for_scope(scope_for(story["story_id"]))
     last_attempt = None
     if last:
         row = last[0]
+        refused = row["status"] == "failed" or row.get("outcome") in _REFUSED_OUTCOMES
         last_attempt = {
-            "status": row["status"],
-            "errorCode": row["errorCode"],
-            "error": row["error"],
+            # The DTO's `status` is this ATTEMPT's outcome for the editor, not the
+            # registry's row status: the two are different questions and the row
+            # is the one the editor can act on. `null` still means "never tried".
+            "status": "failed" if refused else row["status"],
+            "errorCode": row["errorCode"] or (row.get("outcomeCode") or ""),
+            # A refusal's own sentence is the reason; it is built by
+            # `result_needs_attention` from the one reason-message table, so it
+            # names no provider, model, path or internal id.
+            "error": row["error"] or (row.get("outcomeMessage") or ""),
         }
     ignored = story.get("status") == "IGNORED"
     active = _active_articles(articles, story["story_id"])

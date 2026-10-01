@@ -52,6 +52,21 @@ NETWORK_TIMEOUT = 12
 #: magnitude and still refuses an unbounded read.
 MAX_FEED_BYTES = 2 * 1024 * 1024
 
+#: V1.2-G4.36. The content types the Google News search feed may arrive as.
+#: Deliberately a PER-CALL value passed to `web_fetch.fetch_page`, never an
+#: addition to `web_fetch.ALLOWED_CONTENT_TYPES`: that list is the research
+#: reader's "this is an article" gate, and a feed is not an article. Adding RSS
+#: there to make this one call work would widen every research fetch in the
+#: product to accept a feed as prose.
+NEWS_FEED_CONTENT_TYPES = (
+    "application/rss+xml",
+    "application/atom+xml",
+    "application/xml",
+    "text/xml",
+    "text/html",
+    "text/plain",
+)
+
 #: The identifying words of a title, for matching a discovery record to it.
 _TITLE_NOISE = re.compile(r"[^\w]+", re.UNICODE)
 
@@ -154,9 +169,7 @@ def is_readable_publication(url: str) -> bool:
 def _title_key(text: str) -> frozenset[str]:
     """The identifying words of a title, for matching a discovery record to it."""
     return frozenset(
-        word
-        for word in _TITLE_NOISE.split(str(text or "").casefold())
-        if len(word) > 3
+        word for word in _TITLE_NOISE.split(str(text or "").casefold()) if len(word) > 3
     )
 
 
@@ -287,33 +300,52 @@ def _news_lookup(title: str, *, limit: int = 8) -> list[str]:
 
     The returned entries are publisher roots, not articles, so a caller that
     cannot open them must simply move on — which is what the reader loop does.
+
+    **V1.2-G4.36 — this now goes through `web_fetch`.** It used to call
+    `urllib.request.urlopen` itself, which made it the only outbound edge in this
+    codebase without the SSRF guard and the DNS-rebinding pin, on the Draft path,
+    inside a worker the editor is waiting on. Two shapes were tried and both were
+    wrong, recorded here so they are not tried again:
+
+    * a bare `web_fetch.guard_target(url)` — the wrong unit. The guard's own
+      docstring says that discarding the resolved address and letting urllib
+      resolve the name again IS the DNS-rebinding hole; the address has to be
+      pinned for the connection.
+    * `web_fetch.fetch_page(url)` as it stood — it would break this function,
+      because `ALLOWED_CONTENT_TYPES` excludes `application/rss+xml` and every
+      call would raise `FETCH_UNSUPPORTED_CONTENT`.
+
+    The fix is the second shape with the content types made explicit for this one
+    caller. The guard, the pin, the timeout and the size bound are now the same
+    ones every research fetch uses; only the accepted content type differs, and
+    only here.
     """
     import urllib.parse
-    import urllib.request
     import xml.etree.ElementTree as ET
 
     query = urllib.parse.quote(str(title or ""))
-    url = (
-        "https://news.google.com/rss/search?q=" + query + "&hl=bg&gl=BG&ceid=BG:bg"
-    )
+    url = "https://news.google.com/rss/search?q=" + query + "&hl=bg&gl=BG&ceid=BG:bg"
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "chernomorie-editor/1.0"})
-        feed = urllib.request.urlopen(request, timeout=NETWORK_TIMEOUT).read(MAX_FEED_BYTES + 1)
-        # V1.2-G4.35. Two bounds this fetch had none of, both measured.
-        #
-        # A cap: `.read()` with no argument will take whatever the socket gives
-        # it, and this runs in a worker the editor waits on.
-        #
-        # A DOCTYPE rejection: `ET.fromstring` expands internal entities, so a
-        # feed carrying a small declaration can expand into a large string.
-        # Measured here: 128 bytes became 480 characters of text, and the
-        # expansion nests — a three-level declaration is enough. A Google News
-        # RSS search feed has no legitimate reason to carry a DTD, so refusing
-        # one costs nothing real and removes the whole class.
-        if len(feed) > MAX_FEED_BYTES or b"<!DOCTYPE" in feed[:1024].upper():
+        page = web_fetch.fetch_page(
+            url,
+            timeout=NETWORK_TIMEOUT,
+            max_bytes=MAX_FEED_BYTES,
+            # Never the global list: see the docstring above.
+            allowed_content_types=NEWS_FEED_CONTENT_TYPES,
+        )
+        feed = str(page.get("text") or "")
+        # V1.2-G4.35. A DOCTYPE rejection: `ET.fromstring` expands internal
+        # entities, so a feed carrying a small declaration can expand into a
+        # large string. Measured here: 128 bytes became 480 characters of text,
+        # and the expansion nests — a three-level declaration is enough. A
+        # Google News RSS search feed has no legitimate reason to carry a DTD, so
+        # refusing one costs nothing real and removes the whole class. (The size
+        # cap that used to live here is now `max_bytes` above, applied by
+        # `fetch_page` before it hands anything back.)
+        if "<!DOCTYPE" in feed[:1024].upper():
             return []
         root = ET.fromstring(feed)
-    except (OSError, ValueError, ET.ParseError):
+    except (web_fetch.WebFetchError, OSError, ValueError, ET.ParseError):
         return []
     roots: list[str] = []
     for item in root.findall("./channel/item")[: limit * 3]:
@@ -442,10 +474,35 @@ def read_publication(url: str, *, topic: str = "", opener=None) -> dict | None:
     ][:MAX_CLAIMS]
     if not kept:
         return None
+    # V1.2-G4.36 — a claims-level relevance gate was written HERE and removed.
+    #
+    # The hazard is real and measured: `page_is_about` above tests the whole
+    # document, so a page carrying other stories' headlines in a sidebar passes
+    # it (the page does mention this Story), and because the caller takes the
+    # FIRST candidate that yields any read, a sidebar headline can become the
+    # Draft's grounding. On the operator's desk the top candidate for a real
+    # Story was the RIGHT url (`pik.bg/...-news1356100.html`) and the selected
+    # set mixed in `Пиян шофьор се вряза в шест коли след гонка в София` — a
+    # different city — and a politics headline.
+    #
+    # Requiring the SELECTED sentences to be about the Story too
+    # (`page_is_about(" ".join(kept), topic)`, the same threshold, no new
+    # tuning) was implemented and measured on seven real resolutions: it agreed
+    # with the page-level verdict in every case where that mattered, rejected
+    # nothing the page gate had accepted, and did NOT reject the pik.bg page it
+    # was written for. It is therefore dead weight carrying a false-negative
+    # risk, and it is not shipped.
+    #
+    # The reason no gate at this layer can work is the matcher itself, and it is
+    # worth recording where the next attempt should look: `claim_equivalence`
+    # keys by a four-character stem, so this Story's `арести` and the unrelated
+    # `арестуваха` key to the same `арес`, and `claim_quality._is_about`
+    # therefore passes one shared key between two different stories. The
+    # discriminating question is not "is this sentence about the Story" but "is
+    # this sentence from THIS article rather than another headline on the same
+    # page", which needs the page's own headline and does not exist yet.
     return {
         "url": str((page or {}).get("final_url") or url),
         "domain": (urlsplit(str((page or {}).get("final_url") or url)).hostname or "").lower(),
-        "claims": [
-            {"text": text, "locator": f"claim:{index}"} for index, text in enumerate(kept)
-        ],
+        "claims": [{"text": text, "locator": f"claim:{index}"} for index, text in enumerate(kept)],
     }

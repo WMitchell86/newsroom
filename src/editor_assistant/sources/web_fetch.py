@@ -148,12 +148,22 @@ def fetch_page(
     timeout=DEFAULT_TIMEOUT,
     max_bytes=MAX_BYTES,
     opener=None,
+    allowed_content_types=None,
 ):
     """Fetch one research source page. Returns a plain record, never HTML soup.
 
     opener: injection point for tests (a callable (Request) -> response-like
     with .status/.headers/.read()); defaults to a real urlopen.
+
+    allowed_content_types: V1.2-G4.36. The content types this ONE caller accepts,
+    defaulting to the global `ALLOWED_CONTENT_TYPES`. It exists so a non-HTML
+    reader (the Google News search feed in `publication_material._news_lookup`)
+    can go through this guard and this pin without widening the global list: an
+    RSS feed is `application/rss+xml`, and adding that to `ALLOWED_CONTENT_TYPES`
+    would let every research fetch accept a feed as if it were an article. A
+    caller that passes a tuple owns that decision explicitly.
     """
+    content_types = tuple(allowed_content_types or ALLOWED_CONTENT_TYPES)
     address = guard_target(url)
     ascii_url = _ascii_url(url)
     if ascii_url is None:
@@ -173,7 +183,14 @@ def fetch_page(
     # address and the connection can land on a private one. The pin is
     # thread-local because the workbench serves on a ThreadingHTTPServer.
     with _pinned_host(urllib.parse.urlparse(ascii_url).hostname or "", address):
-        return _fetch_with(request, url, timeout=timeout, max_bytes=max_bytes, opener=opener)
+        return _fetch_with(
+            request,
+            url,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            opener=opener,
+            content_types=content_types,
+        )
 
 
 @contextlib.contextmanager
@@ -192,7 +209,7 @@ def _pinned_host(host, address):
         _PIN.host, _PIN.address = previous
 
 
-def _fetch_with(request, url, *, timeout, max_bytes, opener):
+def _fetch_with(request, url, *, timeout, max_bytes, opener, content_types=ALLOWED_CONTENT_TYPES):
     try:
         response = (opener or urllib.request.urlopen)(request, timeout=timeout)
         try:
@@ -222,7 +239,7 @@ def _fetch_with(request, url, *, timeout, max_bytes, opener):
 
     if len(body) > max_bytes:
         raise WebFetchError(FETCH_TOO_LARGE, f"body exceeds {max_bytes} bytes", status=status)
-    if content_type and content_type not in ALLOWED_CONTENT_TYPES:
+    if content_type and content_type not in content_types:
         raise WebFetchError(
             FETCH_UNSUPPORTED_CONTENT, f"content-type {content_type!r} not allowed", status=status
         )

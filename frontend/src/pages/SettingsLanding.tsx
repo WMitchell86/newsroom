@@ -21,6 +21,13 @@ const settingsEntries = [
     description: "Какво следим, кои източници приемаме за надеждни за факти и колко са важни.",
     available: true,
   },
+  {
+    to: "/settings/feedback",
+    title: "Редакционно обучение",
+    description:
+      "Повтарящи се редакционни забележки, които могат да станат постоянни правила — само след човешко одобрение.",
+    available: true,
+  },
 ] as const;
 
 export function SettingsLanding() {
