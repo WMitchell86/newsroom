@@ -2097,3 +2097,97 @@ def test_operations_read_each_store_once_per_page_not_once_per_row(
     rows = [r for r in payload["data"]["operations"] if r["storyId"].startswith("s-")]
     assert len(rows) >= 11, "the bulk rows are there; the read count is the point"
     assert counts == {"stories": 1, "items": 1}, f"store reads per page load: {counts}"
+
+
+# --------------------------------- PART: `AI и модели` — the paid switch (G4.39)
+
+
+def test_model_settings_report_the_switch_and_what_it_would_unlock(api_server, api_store):
+    """G4.39: the editor can read the paid state and see what turning it on means.
+
+    The switch existed only on the server-rendered `/models` page, which the
+    editor's own Settings had no link to. BACKLOG recorded `AI и модели` as
+    "still unimplemented" — this is the real screen behind that name.
+    """
+    payload = _data(request(api_server, "/api/v1/settings/models"))
+
+    assert payload["paidEnabled"] is False, "the shipped default is paid OFF"
+    assert payload["softPaidBudgetUsdDay"] >= 0
+    assert payload["paidCostTodayUsd"] >= 0
+    assert {r["role"] for r in payload["roles"]} >= {"draft", "story", "angle"}
+    # What ON would unlock is named, so the consequence is visible before the
+    # switch is flipped — and it is the real list from the policy, not a copy.
+    assert payload["paidRoutes"], "the policy declares paid routes; name them"
+    assert all({"role", "provider", "model"} <= set(r) for r in payload["paidRoutes"])
+
+
+def test_the_operator_can_switch_paid_models_on_and_off(api_server, api_store, monkeypatch):
+    """G4.39: the switch persists, and the response is the STORED state.
+
+    Echoing the request back would let the screen claim "on" while the policy
+    still said off, so the response is re-read from the policy.
+    """
+    from editor_assistant.drafting import model_policy
+
+    on = _data(
+        request(
+            api_server,
+            "/api/v1/settings/models",
+            method="PUT",
+            body={"paidEnabled": True, "softPaidBudgetUsdDay": 3.5},
+        )
+    )
+    assert on["paidEnabled"] is True
+    assert on["softPaidBudgetUsdDay"] == 3.5
+    # Re-read through the policy the router uses, not through our own response.
+    assert model_policy.load_policy()["global"]["paid_enabled"] is True
+    assert model_policy.load_policy()["global"]["soft_paid_budget_usd_day"] == 3.5
+    # And the screen reflects it on a fresh read.
+    assert _data(request(api_server, "/api/v1/settings/models"))["paidEnabled"] is True
+
+    off = _data(
+        request(api_server, "/api/v1/settings/models", method="PUT", body={"paidEnabled": False})
+    )
+    assert off["paidEnabled"] is False
+    assert model_policy.load_policy()["global"]["paid_enabled"] is False
+    # The budget survives a switch being turned off; it is a separate decision.
+    assert off["softPaidBudgetUsdDay"] == 3.5
+
+
+def test_the_paid_switch_refuses_what_it_cannot_mean(api_server, api_store):
+    """G4.39: a word, a missing field and an unbounded budget are all 400s.
+
+    `"false"` is truthy in Python; a screen that read the operator's word as
+    "turn paid models ON" is the worst failure this switch can have.
+    """
+    for body in (
+        {"paidEnabled": "false"},  # the dangerous one: truthy string
+        {"paidEnabled": 1},  # int is not a decision here
+        {},  # no decision at all
+        {"paidEnabled": True, "softPaidBudgetUsdDay": "lots"},
+        {"paidEnabled": True, "softPaidBudgetUsdDay": -1},
+        {"paidEnabled": True, "softPaidBudgetUsdDay": 10_000},
+        {"paidEnabled": True, "somethingElse": 1},  # the key set stays closed
+    ):
+        status, payload = request(api_server, "/api/v1/settings/models", method="PUT", body=body)
+        assert status == 400, (body, payload)
+        assert payload["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_a_refused_switch_does_not_change_the_stored_state(api_server, api_store):
+    """G4.39: a rejected edit leaves the policy exactly as it was."""
+    from editor_assistant.drafting import model_policy
+
+    before = model_policy.load_policy()["global"].get("paid_enabled")
+    request(
+        api_server,
+        "/api/v1/settings/models",
+        method="PUT",
+        body={"paidEnabled": True, "softPaidBudgetUsdDay": 99_999},
+    )
+    assert model_policy.load_policy()["global"].get("paid_enabled") == before
+
+
+def test_model_settings_is_a_known_path_so_a_wrong_method_is_405(api_server):
+    """G4.39: an editor posting here gets "wrong verb", not "no such page"."""
+    assert request(api_server, "/api/v1/settings/models", method="POST", body={})[0] == 405

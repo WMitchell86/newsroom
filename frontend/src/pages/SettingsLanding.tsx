@@ -13,6 +13,12 @@ import styles from "./SupportingPages.module.css";
  * `AI и модели` and `Система` are deliberately **absent** rather than shipped as
  * empty tabs: §3 prefers one polished Sources screen over three half-built ones,
  * and a placeholder an editor can open teaches them that Settings is unfinished.
+ *
+ * V1.2-G4.39: `AI и модели` is BACK, and the paragraph above is now historical
+ * for that name. It returns only because it has a real screen behind it. The
+ * rule §3 froze was never "a fixed number of entries" — the test states it as
+ * "never an empty tab". `Система` is still absent, and still correctly so:
+ * there is nothing to put there.
  */
 const settingsEntries = [
   {
@@ -26,6 +32,18 @@ const settingsEntries = [
     title: "Редакционно обучение",
     description:
       "Повтарящи се редакционни забележки, които могат да станат постоянни правила — само след човешко одобрение.",
+    available: true,
+  },
+  {
+    // V1.2-G4.39. This name was in BACKLOG as "still unimplemented" and was
+    // deliberately kept OFF this screen — correctly, because a tab with no
+    // screen behind it teaches an editor that Settings is unfinished. It now has
+    // one: the paid-model switch, which until now existed only on a
+    // server-rendered page the editor had no link to.
+    to: "/settings/models",
+    title: "AI и модели",
+    description:
+      "Кои модели може да ползва редакцията, кои са заключени и колко е платено днес. Платените модели се включват тук.",
     available: true,
   },
 ] as const;

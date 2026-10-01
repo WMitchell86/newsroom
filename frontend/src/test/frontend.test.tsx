@@ -2045,13 +2045,22 @@ describe("Archive and Settings", () => {
     // link, and nothing claims to be a surface that does not exist.
     renderWithProviders(<SettingsLanding />, { route: "/settings" });
     const entries = screen.getAllByRole("listitem");
-    expect(entries).toHaveLength(2);
+    // V1.2-G4.39: a THIRD real entry. The number moved from 2 to 3 on purpose,
+    // and the rule that justifies it is the one stated two lines above — never
+    // an empty tab, not "exactly N". `AI и модели` returns with a working screen
+    // behind it; the paid-model switch existed on a server-rendered page the
+    // editor had no link to. Had it come back without that screen, this count
+    // would have stayed at 2.
+    expect(entries).toHaveLength(3);
     expect(entries[0]?.textContent).toContain("Източници");
     expect(entries[1]?.textContent).toContain("Редакционно обучение");
+    expect(entries[2]?.textContent).toContain("AI и модели");
     const sources = screen.getByRole("link", { name: /Източници/ });
     expect(sources).toHaveAttribute("href", "/settings/sources");
     const feedback = screen.getByRole("link", { name: /Редакционно обучение/ });
     expect(feedback).toHaveAttribute("href", "/settings/feedback");
+    const models = screen.getByRole("link", { name: /AI и модели/ });
+    expect(models).toHaveAttribute("href", "/settings/models");
     // No placeholder claims to be a settings surface any more.
     expect(screen.queryByText(/Още не е налично/)).toBeNull();
     expect(document.querySelector('[aria-disabled="true"]')).toBeNull();

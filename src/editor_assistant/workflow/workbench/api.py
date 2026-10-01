@@ -9,6 +9,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+from editor_assistant.drafting.model_policy import PolicyError
 from editor_assistant.workflow import (
     draft_material,
     editor_queries,
@@ -17,6 +18,7 @@ from editor_assistant.workflow import (
 )
 from editor_assistant.workflow import editor_application as app
 from editor_assistant.workflow import editor_source_settings as sources_settings
+from editor_assistant.workflow.workbench import newsroom as wb_newsroom
 
 LOG = logging.getLogger(__name__)
 MAX_BODY_BYTES = 1_000_000
@@ -407,6 +409,37 @@ def _review(handler: BaseHTTPRequestHandler, story_id: str) -> dict:
         raise ApiError(400, "VALIDATION_ERROR", "Наблюдаваните развития не са валидни.") from exc
 
 
+def _update_models(handler: BaseHTTPRequestHandler) -> dict:
+    """`AI и модели` — the operator's own paid-model switch.
+
+    V1.2-G4.39. The budget is optional so a client can flip the switch without
+    restating the budget it already has; when it IS sent it is bounded here and
+    nowhere else, because this is the boundary an operator types a number into.
+
+    A non-boolean `paidEnabled` is refused rather than coerced. `"false"` is
+    truthy in Python, and a screen that silently read the operator's words as
+    "turn paid models ON" is the worst possible failure for this switch.
+    """
+    body = _body_partial(handler, {"paidEnabled", "softPaidBudgetUsdDay"})
+    if "paidEnabled" not in body:
+        raise ApiError(400, "VALIDATION_ERROR", "Избери дали платените модели са разрешени.")
+    enabled = body["paidEnabled"]
+    if not isinstance(enabled, bool):
+        raise ApiError(
+            400, "VALIDATION_ERROR", "Разрешаването на платени модели е вярно или невярно."
+        )
+    budget = None
+    if "softPaidBudgetUsdDay" in body and body["softPaidBudgetUsdDay"] is not None:
+        value = body["softPaidBudgetUsdDay"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ApiError(400, "VALIDATION_ERROR", "Дневният платен бюджет е число в USD.")
+        budget = float(value)
+    try:
+        return wb_newsroom.set_paid_models(paid_enabled=enabled, soft_paid_budget_usd_day=budget)
+    except PolicyError as exc:
+        raise ApiError(400, "VALIDATION_ERROR", str(exc)) from exc
+
+
 def _focus(handler: BaseHTTPRequestHandler, article_id: str) -> dict:
     body = _body(handler, {"focus"})
     return app.update_focus(article_id, _string(body["focus"], "focus", maximum=4_000))
@@ -711,6 +744,14 @@ def _resource(method: str, handler: BaseHTTPRequestHandler) -> tuple[int, object
         return 200, _read_feedback()
     if parts == [*prefix, "settings", "feedback", "decisions"] and method == "POST":
         return 200, _decide_feedback(handler)
+    # V1.2-G4.39 `AI и модели`. The paid-model switch already existed and worked
+    # on the server-rendered `/models` page; this is the same decision over the
+    # editor's own JSON boundary, through the same service, so it is the same
+    # `var/model_policy.json` diff either way.
+    if parts == [*prefix, "settings", "models"] and method == "GET":
+        return 200, wb_newsroom.read_model_settings()
+    if parts == [*prefix, "settings", "models"] and method == "PUT":
+        return 200, _update_models(handler)
     if len(parts) == 4 and parts[:3] == [*prefix, "archive"] and method == "GET":
         article_id = _identifier(parts[3], ARTICLE_ID_RE, "статия")
         rows = [row for row in app.list_archive() if row["id"] == article_id]
@@ -741,6 +782,8 @@ def _known_resource_path(parts: list[str]) -> bool:
         # V1.2-G4.3 §G: known so a GET on `decisions` is 405, not a 404.
         [*prefix, "settings", "feedback"],
         [*prefix, "settings", "feedback", "decisions"],
+        # V1.2-G4.39: known so a POST on it is 405, not a misleading 404.
+        [*prefix, "settings", "models"],
     ):
         return True
     if len(parts) == 5 and parts[:4] == [*prefix, "settings", "sources"]:

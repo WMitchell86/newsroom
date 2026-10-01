@@ -506,6 +506,92 @@ def models_view():
     return report
 
 
+#: V1.2-G4.39. The daily paid soft budget an operator may set, bounded so a
+#: typo cannot turn a switch into an unbounded spend. The upper bound is not a
+#: budget decision, it is a bound on what one field can express.
+MAX_PAID_BUDGET_USD = 500.0
+
+
+def read_model_settings() -> dict:
+    """`AI и модели` — what the operator can switch on, and what it would cost.
+
+    V1.2-G4.39. The paid-model switch existed and worked, but only on the
+    server-rendered `/models` page, which the editor's own Settings had no link
+    to. BACKLOG recorded `AI и модели` as "still unimplemented" and removed it
+    from the Settings screen — correctly, because a placeholder teaches an
+    editor that Settings is unfinished. This is the real screen behind that name.
+
+    Every number here is the SAME one `newsroom models status` prints, read
+    through `status_report`. This screen does not compute a second opinion about
+    routing, and it never states a cost it did not read.
+    """
+    from editor_assistant.drafting import model_router
+
+    report = model_router.status_report()
+    roles = []
+    paid_routes = []
+    for plan in report.get("roles") or []:
+        routes = plan.get("routes") or []
+        roles.append(
+            {
+                "role": plan.get("role", ""),
+                "eligible": sum(1 for r in routes if r.get("eligible")),
+                "total": len(routes),
+                "onExhausted": str(plan.get("on_exhausted") or ""),
+            }
+        )
+        for route in routes:
+            # What turning the switch ON would actually unlock. A switch whose
+            # consequence is invisible is a switch nobody should flip.
+            if route.get("billing") == "paid":
+                paid_routes.append(
+                    {
+                        "role": plan.get("role", ""),
+                        "provider": route.get("provider", ""),
+                        "model": route.get("model", ""),
+                    }
+                )
+    return {
+        "paidEnabled": bool(report.get("paid_enabled")),
+        "softPaidBudgetUsdDay": float(report.get("soft_paid_budget_usd_day") or 0.0),
+        "paidCostTodayUsd": float(report.get("paid_cost_today_usd") or 0.0),
+        "paidSoftExceeded": bool(report.get("paid_soft_exceeded")),
+        "privacyGateEnabled": bool(report.get("privacy_gate_enabled")),
+        "day": str(report.get("day") or ""),
+        "keys": {
+            "gemini": bool(os.environ.get("GEMINI_API_KEY")),
+            "openrouter": bool(os.environ.get("OPENROUTER_API_KEY")),
+        },
+        "roles": roles,
+        "paidRoutes": paid_routes,
+    }
+
+
+def set_paid_models(*, paid_enabled: bool, soft_paid_budget_usd_day=None) -> dict:
+    """Persist the paid-model switch, then return the state that was stored.
+
+    V1.2-G4.39. The write goes through the SAME `edit_policy` service the CLI
+    and the `/models` page already use, so a decision made here is the same
+    decision and the same `var/model_policy.json` diff. Nothing is invented.
+
+    The response is re-read from the policy rather than echoed from the request:
+    a switch that reports "on" without the stored policy actually saying so is
+    the one failure this screen must not be able to produce.
+    """
+    from editor_assistant.drafting import model_policy
+
+    changes: dict = {"paid_enabled": bool(paid_enabled)}
+    if soft_paid_budget_usd_day is not None:
+        budget = float(soft_paid_budget_usd_day)
+        if budget < 0 or budget > MAX_PAID_BUDGET_USD:
+            raise model_policy.PolicyError(
+                f"дневният платен бюджет трябва да е между 0 и {MAX_PAID_BUDGET_USD:.0f} USD"
+            )
+        changes["soft_paid_budget_usd_day"] = budget
+    edit_policy(action_edit="global", **changes)
+    return read_model_settings()
+
+
 def read_validation():
     path = validation_store()
     if not path.exists():

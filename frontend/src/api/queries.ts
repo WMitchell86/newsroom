@@ -28,6 +28,8 @@ export const queryKeys = {
   sources: ["sources"] as const,
   /** V1.2-G4.3 §G: the controlled learning loop, one key. */
   feedback: ["feedback"] as const,
+  /** V1.2-G4.39: the paid-model switch, one key. */
+  modelSettings: ["modelSettings"] as const,
 };
 
 export async function invalidateArticleProjections(

@@ -449,6 +449,48 @@ export interface OperationSummary {
   kind?: string;
 }
 
+/**
+ * V1.2-G4.39 — `AI и модели`: the paid-model switch, in the operator's words.
+ *
+ * The switch already existed and worked on the server-rendered `/models` page;
+ * this is the same decision over the editor's own JSON boundary. Every number
+ * here is read from the same `status_report` that `newsroom models status`
+ * prints — the screen never computes its own opinion about routing or cost.
+ */
+export interface ModelRoleStatus {
+  role: string;
+  eligible: number;
+  total: number;
+  onExhausted: string;
+}
+
+/** A route that is `billing: "paid"` — what the switch actually unlocks. */
+export interface PaidRoute {
+  role: string;
+  provider: string;
+  model: string;
+}
+
+export interface ModelSettings {
+  paidEnabled: boolean;
+  softPaidBudgetUsdDay: number;
+  paidCostTodayUsd: number;
+  /** The daily soft cap is reached. A warning, not a block — see the router. */
+  paidSoftExceeded: boolean;
+  privacyGateEnabled: boolean;
+  /** The newsroom day these figures belong to, so a stale reading is visible. */
+  day: string;
+  /** Which provider keys this process actually has. */
+  keys: { gemini: boolean; openrouter: boolean };
+  roles: ModelRoleStatus[];
+  paidRoutes: PaidRoute[];
+}
+
+export interface PaidModelChanges {
+  paidEnabled: boolean;
+  softPaidBudgetUsdDay?: number;
+}
+
 export type TodayAttention =
   | (AttentionBase & {
       objectType: "story";

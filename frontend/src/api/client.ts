@@ -6,6 +6,8 @@ import type {
   FeedbackDecisionResult,
   FeedbackStatus,
   NewSourceInput,
+  ModelSettings,
+  PaidModelChanges,
   QuickDraftResult,
   SourceChanges,
   SourceRow,
@@ -877,6 +879,25 @@ export function updateSource(id: string, changes: SourceChanges): Promise<Source
     "PUT",
     changes,
   );
+}
+
+/**
+ * V1.2-G4.39 — `AI и модели`, the paid-model switch.
+ *
+ * A pure read: no provider call, no spend. `setPaidModels` is the only write,
+ * and it goes through the SAME service the CLI and the `/models` page use, so a
+ * decision made here is the same decision in `var/model_policy.json`.
+ *
+ * The budget is sent only when the operator changed it, because the backend
+ * treats an absent budget as "keep what is stored" — restating a number the
+ * editor did not touch would be a second, silent edit.
+ */
+export function getModelSettings(): Promise<ModelSettings> {
+  return getData("/settings/models");
+}
+
+export function setPaidModels(changes: PaidModelChanges): Promise<ModelSettings> {
+  return sendStoryCommand<ModelSettings>("/settings/models", "PUT", changes);
 }
 
 /**
