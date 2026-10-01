@@ -1564,9 +1564,45 @@ def newsroom_repair(*, timeout: int = 20) -> tuple[str, int]:
 #: Collection is every 2 hours, not hourly, because `newsroom_run` treats a lock
 #: as stale after LOCK_STALE_SECONDS = 3600 and an hourly schedule collides with
 #: exactly that window.
+#: V1.2-G4.5. The ONE source of truth for the newsroom's schedule.
+#:
+#: Both `doctor` and the installer read this list, so "what is installed" and
+#: "what should be installed" cannot drift apart — which is the failure every
+#: hand-maintained crontab eventually has. The minute offsets are deliberate:
+#: `repair` and `doctor` must not land on the same minute, and `doctor` runs
+#: after `repair` so it reports the repaired state rather than the broken one.
+#:
+#: V1.2-G4.40 — `newsroom refresh` moves from `17 */2 * * *` to `17 * * * *`.
+#:
+#: WHY IT WAS NOT HOURLY, and why that is no longer the binding constraint.
+#: `newsroom_run.acquire_lock` refuses to take a lock younger than
+#: LOCK_STALE_SECONDS = 3600, so a run that died holding the lock used to cost
+#: a whole cycle: at a 2-hour cadence the next attempt was a full hour past the
+#: stale boundary, and at an hourly one it landed exactly ON it. That is real
+#: margin, and it was the right reason at the time.
+#:
+#: It stopped being binding because a run does not hold the lock for an hour.
+#: Measured on this newsroom: the 10:17 collection started 10:19:45 and finished
+#: 10:19:50 — five seconds, and `release_lock` runs on the way out. The window
+#: only opens when a run CRASHES, and a crashed run leaves a lock that is stale
+#: by the next hourly attempt.
+#:
+#: RESIDUAL RISK, stated rather than hidden: if a collection ever takes close to
+#: an hour, an hourly schedule can lose one cycle where a 2-hourly one would
+#: not. If that ever happens, the fix is the stale window or an explicit
+#: "previous run still going" skip — not silently putting the schedule back and
+#: leaving the editor waiting two hours again.
+#:
+#: And the trap this constant exists to close, which cost a real failure here:
+#: `cron_status` matches the installed crontab by EXACT line built from THIS
+#: tuple. Editing the crontab alone — which is what I did first — made
+#: `newsroom doctor` report "липсва newsroom refresh — бюрото не се обновява"
+#: about a desk that was updating hourly, and `test_doctor_is_quiet_when_-
+#: everything_is_healthy` failed. A self-check that disagrees with the thing it
+#: checks is worse than no self-check. These two must always change together.
 NEWSROOM_CRONS = (
     ("13,43 * * * *", "newsroom repair"),
-    ("17 */2 * * *", "newsroom refresh"),
+    ("17 * * * *", "newsroom refresh"),
     ("47 * * * *", "newsroom doctor"),
     ("41 6 * * *", "newsroom models validate"),
 )
