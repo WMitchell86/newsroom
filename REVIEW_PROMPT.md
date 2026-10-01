@@ -1,394 +1,266 @@
-# Code review prompt — round 6 (REVISED: the question changed)
+# Code review prompt — cron self-healing + debugging trails (2026-10-01)
 
 Copy everything below into a fresh agent with the repository at `/home/test/media`.
-Give it read access to the working tree. Do **not** give it any earlier round's
-report; tell it only what is true of the code now.
+Give it read access to the working tree. Do **not** give it my earlier reports or
+commit messages as premises — tell it only what is true of the code now, and let
+it check the rest.
 
-Five rounds have run. Rounds 1-2 found defects. Round 3 verified and corrected
-one of mine. Round 4 found the **cost of my fixes** — all four of its findings
-correct, including one where I had pinned a bug as intended behaviour. Round 5
-answered the five things I left undecided, and **corrected my framing on all of
-them**: the one-line guard is the wrong unit, the full `fetch_page` route is the
-wrong shape, and the allow-list I was hesitating over is a bad idea.
+> **Note on this file.** `REVIEW_PROMPT.md` is a rolling slot: rounds 4, 5 and 6
+> each replaced it (`2228f4a`, `cfdc4e2`, `7b7852f`, `c670754`). The previous
+> occupant targeted a different line of work — the research/promote path — and its
+> §0 "State at the time you read this" is now **stale** against this tree. It was
+> replaced, not deleted: `git show c670754:REVIEW_PROMPT.md`.
 
-**READ THIS BEFORE THE REST.** I measured the running application while writing
-this prompt, and the result reframes the whole job:
+**Range under review:** `0fd9544..HEAD` — three commits, 16 files, +1954/−33.
 
 ```
-inbox items: 140
-items that come from an OPENED page: 0
+66d4cf1  fix(cron): the log directory is opened before the script that creates it
+21c59ea  feat(debug): what was sent to a model, and which pages research actually tried
+8fd784a  docs: the working report for the cron + debugging-trails session
 ```
 
-Not one Story on the entire desk has publisher prose. Every `summary` is an RSS
-snippet concatenated with the source name; every `sourceUrl` is a
-`news.google.com` redirect wrapper. The hint path was exercised once, just now,
-and it works: it opened `burgas.bg/bg/byudzhet/`, took 620 characters of real
-prose, and refused our own site and one publisher by name.
+The owner question that started this was *"check the cron job behavior, fix it"*.
+It turned into four defects and two missing audit trails. **I expect the highest
+value you can add is not re-confirming that the four defects were real — it is
+finding what the fixes cost, and what I wrote down as "by design".**
 
-So: **the application is now honest and empty.** Five rounds made it stop
-reporting causes it had not observed. None of them made it produce anything.
+Three facts about how I worked that should shape where you look:
 
-The consequence is concrete. The promote path correctly refuses a collected Story,
-because a snippet may not become a fact. That means the «Чернова» button on Today
-can now only refuse — for all 140. Before the fix it looked like a working
-pipeline, because it was inventing material.
-
-**Round 6's question is therefore NOT "what did your fixes cost".** It is:
-**what would it take for this application to produce one real draft from its own
-desk?** The bug-hunting below still matters, and everything marked fixed is still
-fixed. But a seventh round that finds three more labelling holes while the desk
-has no readable material has not helped anybody.
-
-A pattern worth naming, because it is the one thing five rounds have consistently
-produced: **almost every finding has been something I had already written down as
-"handled", "by design", or "the operator's decision".** Every one of those was
-wrong or unexamined. Treat any such sentence in this file as a lead, not a
-conclusion — and treat the five rounds of defect-hunting themselves as the same
-kind of lead.
-
-One standing note before you start: three of the four things round 4 found were
-things I had already written down as "handled" or "by design". Round 4's own
-disagreement with me was a sentence I had overstated. Treat every claim in this
-file — including the ones about what is fixed — as a claim to check, not a
-premise to accept.
+1. **Most findings came from measuring, not reading.** The cron bug, the missing
+   `angle` substitute, and the "34 drafts" figure were each wrong in a way that
+   reading the code did not reveal.
+2. **I have already been wrong in writing in this very session** — four times, all
+   recorded in `m4/review/V1_2_G4_19_CRON_AND_DEBUG_TRAILS_REPORT.md` §6. Treat any
+   sentence of mine that says "fixed", "by design", or "the operator's decision" as
+   a **lead, not a conclusion**.
+3. **This is dev mode and the numbers move.** Every counter quoted below is a
+   snapshot of 2026-10-01. Re-measure; do not treat a stale number as a finding.
 
 ---
 
 ## 0. State at the time you read this
 
-Everything below is **fixed and measured**. Do not re-report any of it.
+Measured and verified. **Do not re-report any of it** — it is here so you do not
+have to rediscover it, and so you can spot it if it is no longer true.
 
-**The snippet leak and its three residuals — all closed.** Round 1 found a Google
-News snippet becoming packet facts via `promote_story_to_idea`; round 2 found the
-body fix was insufficient and that a wrapper URL and the same snippet still
-reached `source_url` and `what_changed`; round 3 enumerated the function and
-confirmed **no fifth route**, and that `workbench://story/<id>` is safe in every
-consumer (`_safe_href` is http(s)-only so it renders as text; `needs_angle_review`
-returns False; `_transcript_trust` falls through; the frontend has zero
-`source_type` consumers).
+**D1 — the cron jobs were dead on any fresh checkout.** `scripts/newsroom_cron.sh`
+had `mkdir -p var/cron`, but a shell opens a crontab's `>> file.log` redirect
+*before* running the command, so that line could never help. `var/` is gitignored
+(`git ls-files var` → 0), so a fresh checkout has no `var/cron/`: all four jobs
+died at the redirect, exit 2, writing nothing — while `cron_status()` only
+string-matched the crontab and `doctor` answered "РАЗПИС: на място (4 задачи)".
+Fixed by generating each line with `mkdir -p` before the redirect via one
+`cron_line()`, and by making `cron_status()` **measure** the directory
+(`logDirOk`). Verified both directions: the old line shape still dies at the
+redirect; the new shape self-heals; live cron fired `14:43:01` and wrote its log.
 
-**F4, critical, rule 6 — fixed in `593039a`.** With neither a fact nor an opened
-page, `build_packet` produced an empty `source_url`, `validate_packet` raised a
-raw `EvidenceError` instead of a `DraftRefused`, and `_run_draft_generation`'s
-catch-all recorded `PROVIDER_UNAVAILABLE` — a Story with nothing to read telling
-the editor the provider was down.
+**D2 — `angle` had no free substitute.** Its chain went from the three Gemini Flash
+routes straight to two `billing: paid` OpenRouter routes. A paid route is *skipped*
+when `paid_enabled: false`, so a spent Gemini budget left the role with zero
+eligible routes and silent `degraded` behaviour. Added
+`nvidia/nemotron-3-ultra-550b-a55b:free` and `nvidia/nemotron-3.5-lightning:free`.
+`doctor` angle **0/5 → 3/7**, exit **1 → 0**, all 7 roles routable. The paid gate
+was **not** loosened: 11 paid rows today, every one `SKIPPED`/`PAID_DISABLED`,
+0 attempts, $0.00.
 
-**Two stale tests — fixed canonically, no patching.** `04b8374` (the refusal test
-that patched a flag the command never reads) and `193ce21` (a parity matrix that
-asserted a refusal §A deliberately abolished — it now asserts the *waiver*, which
-is a stronger claim). Both files are clean for the first time this session.
+**D3 — the sent-prompt log.** `lineage.model` already recorded which model wrote a
+draft; the prompt text was stored nowhere. New store
+`var/editorial_workflow/model_prompts.jsonl` (mode `0600`), written in
+`model_router._try_route` at the transport boundary, *before* the call. Verified on
+a real Workbench rewrite: 3 draft attempts logged (gemini-3.5 → 3.8 → 3.6), the
+13 024-character prompt retrievable verbatim, and the last row's model matches
+`lineage.model` (`gemini-3.6-flash`).
 
-**The suite was spending 8 minutes testing nothing — now 0.3s.** `593039a` and
-`11fe96c`: the publication-URL resolver cascade, and the router's retry backoff
-that a refusal test was paying for. No production timeout was shortened. The
-coverage that fix removed is restored in `a952d69`.
+**D4 — the research trace.** `story_research.json` records only what survived, and
+the round has five drop points, each a silent `continue`. New store
+`var/editorial_workflow/research_trace.jsonl` (mode `0600`) plus
+`newsroom stories research-trace`. Verified on a real round: 3 `news.google.com`
+wrappers dropped, `bnrnews.bg` dropped by the claim gate, story produced 0 facts
+with the reason now legible.
 
-### What round 5 and round 4 fixed
+**Gates:** full suite **27 failed / 2019 passed**, failure set **identical** to the
+pre-change 27 (`diff` of the two `FAILED` lists is empty), 0 errors. `ruff check`
+clean on every file touched. `newsroom doctor` exit 0. Server 200 on `/`,
+`/inbox`, `/stories`, `/sources`, `/models`, `/api/v1/today`.
 
-The places below are where I have already been wrong, so they are where I am most
-likely to be wrong again. They are listed for completeness, not as round 6's
-agenda — §7 puts the product question first.
-
-**Fixed since round 5 (`7d749ac`) — the `transcript` substring.** Both call sites
-used `"transcript" in url.lower()`, so `https://example.bg/transcriptome-study`
-made a biology article look like a council transcript. `source_type` is now
-matched by equality and `source_url` by whole word tokens. The promote bridge
-was the higher-stakes of the two: it set `source_type`, which `_transcript_trust`
-reads to grant AUTO_CAPTION trust, so the mislabel ELEVATED trust rather than
-merely adding a review gate. The transliteration gap (`obshtinski-svet`) is
-recorded as unchanged, not closed.
-
-**Verified by round 5, not re-reportable:** the label table (9 keys, producer scan
-clean), the merge refilter, and the `_news_lookup` bounds.
-
-**Open, and genuinely undecided — all five of round 5's items, with its verdicts.**
-Note that none of these is the most important thing about the project right now;
-§7 explains what is.
-
-1. **`_news_lookup` still has no `web_fetch` guard**, and round 5 showed BOTH
-   options I offered are wrong. A bare `guard_target(url)` is the wrong unit: its
-   own docstring says discarding the address and letting urllib resolve again IS
-   the DNS-rebinding hole. And routing through `fetch_page` as-is would break the
-   function rather than harden it, because `ALLOWED_CONTENT_TYPES` is
-   `('text/html', 'application/xhtml+xml', 'text/plain')` and an RSS feed is
-   `application/rss+xml` — it would raise `FETCH_UNSUPPORTED_CONTENT` every time.
-   The residual is DNS-rebinding on the redirect chain plus TOCTOU, on the Draft
-   path, not SSRF-via-host: the host is constant and the query is quoted.
-   Round 5's candidate shapes: a pinned raw-bytes helper (guard + pin + capped
-   read, ~10 lines), or `fetch_page` gaining an explicit `allowed_content_types`
-   for this one caller. It warns explicitly against extending the GLOBAL
-   allow-list for RSS, which would weaken every research fetch. **This is the
-   single most substantive open item and I have not started it.**
-2. **`Source: workbench://story/<id>` reaches the model prompt verbatim**
-   (`drafting/prompt.py:176`). Editor-facing rendering is verified across four
-   reviews; whether the model cites it back is **unverified** — round 4 said so,
-   round 5 recommended a cheap offline run, and I still have not run it.
-3. **That `workbench://` path has never been checked end to end.** Five reviews
-   in. Rendering, label, angle gate, transcript trust and the safety guard are
-   all individually verified; the whole path in one run is not.
-4. **The transliteration gap in transcript matching** is recorded, not closed. A
-   slug like `obshtinski-svet` matches nothing — as it did before. Worth closing
-   deliberately, or is substring matching on transliterated Bulgarian out of scope?
-5. **`needs_angle_review` now matches `{съвет, общински}` as whole tokens in a
-   URL.** Round 5 asked for this and I implemented it, but the cue list is mine
-   and unexamined: is it right, too broad, or missing shapes?
+---
 
 ## 1. What this is
 
-A single-editor newsroom pipeline for the Burgas region of Bulgaria. It finds real
-sources, opens them, extracts publisher prose, assembles facts, drafts articles
-from those facts, and publishes to Telegram. An editor enters a one-line hint; the
-system finds real citable material behind it and reports honestly what it could
-not reach.
+A Bulgarian-language editorial newsroom. The loop the owner cares about:
+**news → sources → research/scrape → real draft → article → desk**. Collection is
+a one-shot process the operator's cron calls; the repository installs no timer.
 
-- **Backend:** Python 3.14, `src/editor_assistant/` — 119 files, ~47k lines.
-- **Tests:** `tests/` — 122 files, ~45k lines. **Frontend:** React + TS, 59 files.
-- **Stores:** JSON/JSONL under `var/` (gitignored). Not SQLite.
-- **Run:** `python3 -m editor_assistant.workflow.cli workbench --port 8123`
-
-### The invariant everything is judged against
-
-> **A hint is never evidence. Only opened publisher prose becomes material.**
-
-A search snippet is `DISCOVERY_ONLY`: it selects and ranks candidate pages and is
-never promoted into a Story summary, a fact, or a draft. Nothing is evidence unless
-it can be opened — `publication_material.is_readable_publication` refuses social
-wrappers for that reason. A path from a snippet or an unopened page into a fact is
-a **critical** finding no matter how clean it looks.
-
----
+This slice is **operations and observability only**. No new editorial capability,
+and nothing in the frozen UI contracts (§1 left rail, §3 Settings landing) moved.
 
 ## 2. How this codebase thinks
 
-`AGENTS.md` is ten working rules, each produced by a recorded failure. Treat them as
-constraints, not style:
+Read `AGENTS.md` first — it is short and every rule in it exists because of a
+recorded failure. The four that bear on this slice:
 
-1. Never report a system state that was not measured. "I do not know" is valid.
-2. 429 (quota spent, wait) and 503 (overloaded, clears in minutes) are opposite
-   problems.
-3. Never invent a limit and present it as external. `daily_call_limit` and
-   `hard_calls_day` are local guardrails; one tighter than the provider allows is a
-   bug in the guardrail.
-4. Check the whole documented set before computing a total.
-5. A frozen contract is a contract: five left-rail destinations, one Settings entry.
-   Do not propose a sixth rail item to house a feature.
-6. Never swallow an exception into a confident sentence. A catch-all reporting
-   `Source unavailable` for an exhausted quota is **critical**.
-7. Never verify a claim with the tool that might be the problem. If a hand-written
-   probe contradicts the product, suspect the probe. Load config as the process
-   does: `set -a; . ./.env`, not `env $(cat .env)`.
-8. State counts exactly, and check case.
-9. A destructive action gets a backup and a stated scope first.
-10. Record the real cause in the commit message.
+- **Rule 1** — never report a system state you did not measure. A probe result and
+  a conclusion are different sentences.
+- **Rule 2** — `429 RESOURCE_EXHAUSTED` (quota spent; waiting is the only fix) and
+  `503 UNAVAILABLE` (overload; clears in minutes) are different problems needing
+  opposite responses.
+- **Rule 3** — `daily_call_limit` / `hard_calls_day` are **local guardrails**. Never
+  present one as a provider limit.
+- **Rule 6** — never let a log line, API response or UI badge state a cause the
+  system did not observe.
 
-A finding violating rule 6, 1 or 3 outranks everything else. If you cannot verify
-something, **mark it unverified** — an unmarked guess is worse than no finding.
+Two structural constraints I had to design around, and would check first if you
+were extending this work:
 
----
+- `model_usage`'s ledger **must never contain prompt text** —
+  `tests/test_model_policy.py::test_usage_ledger_aggregates_and_never_stores_prompts`
+  freezes it. D3 deliberately uses a separate store.
+- `story_research_store._row()` validates a **closed** field set
+  (`req <= set(v) <= req | optional`). D4 deliberately uses a separate store.
 
 ## 3. What must NOT be re-litigate
 
-**Fixed in `fdbe938` — the critical one.** `promote_story_to_idea` read `summary`
-unconditionally, because the `candidate.get("body")` rung above it never matched:
-`inbox_store.FIELDS` has no `body` field, so a collected Story's RSS snippet fell
-into `build_packet_from_record` and became verbatim packet facts. Measured before
-the fix: one `news.google.com` item gave `fact_count = 2`, with the wrapper URL as
-`source_url`. Provenance is now explicit — a summary is material only when
-`source_kind == "editor-hint"` (the page was opened and segmented); otherwise it is
-refused by name. `full_text` remains a valid basis. Two regression tests added.
-Do not re-report it. **Do verify the fix is complete** — see §5.1.
+- The **contract** behind D1: a schedule whose log directory is missing cannot run,
+  and `doctor` reporting it as installed is the defect. The `mkdir -p` prefix must
+  precede the redirect; that is the whole fix.
+- The **decision** behind D2: OpenRouter is the *provider*; `billing` is a
+  per-*model* property. Free OpenRouter models are legitimate substitutes. This was
+  the owner's correction and it is recorded in the commit message.
+- The **`0600`** on both new stores, and the reasoning: umask is `0022`, so a plain
+  `open("a")` creates `0644` and these files carry unpublished editorial text.
+- The **`daily_call_limit` numbers themselves** — an owner decision, recorded, not
+  re-tuned. See §5.
+## 4. The four places I was wrong, and where I am therefore most likely to be
+##    wrong again
 
-**Fixed in `6380aa9`.** The `if not blocks and text.strip():` rung in
-`story_research.py` and `publication_material.py` is removed.
+This is the section I would read first if I were you.
 
-**Fixed earlier:** the browser suite's session-scoped boundary leak;
-`test_api_frontend_contract`'s stale `roleHealth` set; the Story filter label read
-via `inner_text()`.
+1. **I asserted free-before-paid route ordering in a test, and it was wrong.** A
+   gated paid route is a skip that `continue`s (the skip branch in
+   `model_router.call_role`), so `draft` ships paid-then-free and still reaches the
+   free routes. I had not read the router. The test now asserts only what the
+   router depends on — **check that it is not now too weak.**
+2. **I wrote an order-dependent test, then "fixed" it wrongly.** It passed alone and
+   failed in a full run, caused by `tests/browser/conftest.py` setting
+   `GEMINI_API_KEY` in `os.environ` with no cleanup. My first fix deleted *both*
+   keys, which made the test fail alone — with no key, **every** route is skipped
+   with `липсва …KEY`, so the test asserted nothing. The version that shipped clears
+   only the Gemini keys. Now recorded as `AGENTS.md` rule 11.
+3. **I instrumented the wrong drop point in D4.** I added traces to the in-loop
+   `continue`s; my own test caught that a `facebook.com` result never appeared.
+   `publisher_opened` filters wrapper/social hosts **before** the reading loop, so
+   most pages never reach any in-loop point. Fixed by moving instrumentation to the
+   filter. **There may be a fifth drop point I still do not trace.**
+4. **Two ordering bugs in my own new code**, both caught before commit: the
+   `KEPT`/`SKIPPED_CLAIM_GATE` loop read `allowed_source_ids` before
+   `_promote_claims` assigned it; and `dropped_pages` was declared *below* the
+   filter that increments it, so wrapper drops were traced but not counted
+   (`considered` reported 2 for 3 pages). I also nearly shipped a `return` in the
+   round-summary `except`, which would have abandoned the round's result.
 
-Already done, not to be re-reported: the SSRF/DNS-rebinding guard, the inbox write
-lock, regional filtering and all 13 municipalities, the `fetch_page()["prose"]`
-verdict (27/32 corpus URLs, ~85%).
+## 5. Product decisions that are not mine to re-take
+
+1. **`daily_call_limit` is per MODEL per day, shared by every role.**
+   `model_usage.model_calls_today` has no role filter. `story` spent
+   `gemini-3.8-flash` to 22 today while `story`/`angle` declare `20` and `draft`
+   declares `80` for the same model, so `models status` shows the same model as
+   `× 0: … днес 22/20` for story and `✓ 1: … днес 22/80` for draft. Per rule 3 the
+   `20` is **ours**, not the provider's. Documented in RUNBOOK; **deliberately not
+   changed.** If you think the design is wrong, say so — but do not silently retune
+   a number.
+2. **`qwen/qwen3.8-27b:free` is eligible but 0-for-14 today** (`EMPTY_OUTPUT` /
+   `RATE_LIMITED`). Eligibility is decided by limits and health marks, not by
+   whether a model has ever produced output. Flagged, not changed.
+3. **Both new stores are append-only JSONL with no rotation.** They grew to 3 MB
+   during one suite run before I fixed the isolation gap. There is no retention
+   policy. Flagged, not designed.
+4. **Dropped pages record url/host/reason but NOT page text.** Deliberate: the
+   store answers "what happened", and keeping scraped bodies would duplicate the
+   private evidence stores. Check whether you agree with that trade.
+
+## 6. Facts about this environment that will mislead you
+
+1. **The suite's 27 failures are pre-existing.** The `AGENTS.md` baseline list is
+   measured but goes stale; it was itself wrong before this session
+   (`test_model_policy` 2 and `test_quick_draft` 7 were both clean on 2026-10-01).
+   **Always compare failure SETS against a stashed baseline, never counts.**
+2. **`tests/browser/` skips entirely in a fresh `git worktree`** (no
+   `frontend/node_modules`), so a worktree is *not* a valid baseline for those 6-7
+   failures. Compare in the real tree. I used a worktree once and nearly drew the
+   wrong conclusion.
+3. **`tests/browser/conftest.py:146` leaks `GEMINI_API_KEY`** into `os.environ` for
+   every later test file. Any routing test written against ambient state is
+   order-dependent. Prove order-independence by running the polluting file **and**
+   yours together.
+4. **`var/` is gitignored**, so neither new store appears in the diff. To see them:
+   `ls -l var/editorial_workflow/{model_prompts,research_trace}.jsonl` — both
+   `0600`. Do not `cat` them into a report; they hold unpublished editorial text.
+5. **The numbers in this prompt and in the report are a 2026-10-01 snapshot.**
+   Re-measure before quoting one.
 
 ---
 
-## 4. One early verdict was WRONG — do not inherit it
+## 7. The open defect — the most useful thing you could finish
 
-Round 1 concluded the prose fallback was "unreachable dead code". **It is reachable.**
-Measured:
+**The cron path never records grouping health.** Verified, still true, unfixed:
 
 ```
-normalize_blocks("<html><body><script>var x=1;</script><style>.a{}</style></body></html>")
-  -> ()
+cli.py  _run_newsroom_refresh  ->  story_identity.update(...)        # never records
+newsroom_refresh.refresh_newsroom -> record_run_stories / record_run_grouping
 ```
 
-Empty block list, non-empty `text`, so the guard fired and manufactured a PROSE
-block out of raw script and CSS. That is why it was removed.
+The CLI path is what `crontab` calls every hour; the recording lives only in the
+Workbench path. Measured consequence: after the 16:17 cron run the log reported
+`семантично групиране: 10/6 класифицирани`, yet `var/newsroom/last_run.json` has
+**no `grouping` key** and `GET /api/v1/today` returns **`groupingHealth: null`**.
 
-Take this as the working example of the standard: round 1 got the direction right
-and the evidence wrong, and one measurement changed the action from "delete dead
-code" to "delete a reachable defect". **Measure before you classify.**
+`_today_grouping_health()` maps a missing block to `None` = *unknown*, and the
+frontend renders unknown as **no warning**. So every cron-refreshed run that
+degraded is **silent to the editor** — a rule-6 shape, on a path an editor actually
+uses. I stopped because it was outside what was asked and I would rather not change
+assessment semantics unasked; that judgement is yours to overturn.
 
----
-
-## 5. Product decisions that are not mine to take
-
-These are real and unaddressed. None is a bug, and none has been silently dropped.
-
-- **Telegram is not implemented.** Legacy Telegram/outbox code is bound to a
-  SQLite/state pipeline the newsroom no longer uses. A Story-level bridge is
-  needed. Two decisions are still unmade: new Stories only, or new Stories plus
-  tracked developments; and bot/channel configuration is unconfirmed.
-- **Official sources are mislabelled.** Many entries marked `official` are Google
-  News *searches*, not direct feeds. CIK is not registered as a real source. A
-  wrong `site:` domain is worse than none, which is why this was left conservative
-  and needs corpus verification.
-- **No verified gazetteer of villages** for regional coverage.
-- **UI Bulgarian strings** (`html.py`, `labels.py`) have not had the corpus-backed
-  review the sources and search terms received. This is the largest unreviewed
-  surface in the project.
-- **The G4.28 prose verdict is advisory-only.** Round 3 established the two call
-  sites are the same deterministic call on the same bytes, and that after
-  `6380aa9` the `blocks` argument is load-bearing rather than decorative. But
-  neither site reads `page["prose"]`. Is the verdict earning its keep, or should
-  both consume it?
-- **Stored damage, operator decision.** Measured twice: 3 rows in
-  `live_evidence.jsonl` carry a news.google.com wrapper `source_url` (1 fact
-  each), and `ideas.jsonl` holds 61 rows with pre-fix `source_type` values. Zero
-  hits in `cases.jsonl` / `live_drafts.jsonl`, so nothing consumed them. Per rule
-  9: annotate, quarantine, or leave — and say what you decided and why. I have
-  deliberately done nothing to `var/`.
-- **The store guard stays as-is** (`tests/browser/conftest.py`), per round 3. The
-  collision is real: `crontab -l` has `:17 */2 refresh` plus `:41 validate`,
-  `:13`/`:43 repair, `:47 doctor` — four writers through the same script. Making
-  the guard schedule-aware couples the suite to host cron and still races.
-  Document the constraint: do not start full runs across an even-hour `:17`.
-
-## 6. Test-suite facts that will mislead you
-
-**The failure count is order-dependent and the `AGENTS.md` baseline of `17 failed`
-is stale.** Do not treat it as truth, and do not call a different number a
-regression without a comparison.
-
-Two traps cost real time:
-
-- **A `git worktree` is not a valid baseline** — no `node_modules`, so browser tests
-  skip and counts are not comparable. Use the same working directory. And a plain
-  `git stash` is not a baseline either **if the tree is already clean**: `stash push`
-  silently creates nothing, and you will have measured your own changes while
-  believing you measured the baseline. I made that mistake. Use
-  `git checkout <old> -- src/ tests/`, run, then `git checkout HEAD -- src/ tests/`.
-- **The browser suite's session-scoped boundary substitutes** used to leak into every
-  non-browser test. Now contained by `real_boundaries_outside_browser` in
-  `tests/conftest.py`; that fixture must keep its **eager** capture at conftest
-  import, because a lazy one records the substitutes as the baseline.
-
-**Always reproduce in isolation first:** `pytest -p no:randomly tests/<file>::<test>`
-takes under a second for most files and separates a real defect from an ordering
-effect instantly.
+If you take it: the fix is small, but **think about whether the CLI path should
+also record `new_stories`** (it has the same gap), and whether a cron run that
+*fails* should leave the previous run's record intact.
 
 ---
 
-## 7. What I want back
+## 8. What I want back
 
-**1. The product question, and it comes first.**
+Prioritised, and **specific** — a file:line and a failure mode, not a category.
 
-> What would it take for this application to produce one real draft from its own
-> desk, today, with no further review rounds?
+1. **The cost of the D1 fix.** `cron_line()` is now the single source of the
+   crontab line shape. What breaks if someone hand-edits the crontab, adds a fifth
+   job, or changes a log filename? Is there any path where `cron_status` and the
+   real crontab can still disagree silently?
+2. **Whether the two new stores can leak or grow without bound.** Both hold private
+   text. Is `0600` maintained on **every** path that creates them (including if
+   `os.chmod` fails), and what happens if `var/editorial_workflow/` does not exist
+   or is a symlink?
+3. **The D3 capture point.** I log in `_try_route` before the transport, on the
+   argument that the failed attempts are the interesting ones and that the text is
+   unchanged by the call. Check that argument: does any provider path mutate
+   `prompt_text` before sending? Is logging once per *retry* (not per request) the
+   right granularity, given `attempts_allowed` can be 2?
+4. **The D4 completeness claim.** I traced five drop points. Find the sixth — a
+   `continue`, an early `return`, or an exception path in `execute_story_research`
+   where a considered page leaves no row.
+5. **Anything in §4 where I over-corrected.** Especially whether the
+   `considered == len(pages_seen)` assertion is now testing the trace rather than
+   the behaviour.
+6. **Whether my tests are vacuous.** I verified the best-effort guards by sabotaging
+   them and watching the tests fail. Do the same for the rest: mutate each new
+   assertion and check it actually fails.
 
-Concretely, and please be specific rather than encouraging:
+## 9. What I got wrong today, so you do not inherit it
 
-- The 140 collected Stories each have a real publisher URL in the timeline. The
-  machinery to open them exists — `_draft_snapshot` already calls
-  `read_publication` on the Story's own items, and `publication_urls` resolves
-  candidates. **Why has it never run over the whole desk?** Is there a gate that
-  stops it, or has nobody simply never asked for it? If the answer is "nobody
-  asked", say so plainly — that is the most useful thing in this report.
-- What is the smallest change that turns the hint path's working machinery into
-  something the collected desk uses, and what is the risk of doing that?
-- Is the honest answer that the collected desk is *discovery only by design*, and
-  the editor is meant to hint rather than to promote? If so, then the «Чернова»
-  button on Today is still a lie by omission — it is offered on 140 Stories and
-  can refuse on all of them. That is a product decision, and it needs someone to
-  make it.
+The four items in §4, plus one more that is easy to repeat: **I added a private
+store and forgot to add it to the autouse isolation fixture**, so one full suite run
+wrote 328 rows / 3 MB of test prompts into the operator's own file — silently,
+because nothing reads that file automatically. It would have surfaced only as the
+editor opening `newsroom models prompts` to a wall of fixture text posing as their
+own drafts. Backed up to `var/backup_pre_promptlog_clean_1649/`, cleaned, fixture
+fixed, regression tests added. **If you add a store, add its env var to
+`tests/conftest.py` in the same commit.**
 
-**2. Then the open technical item.** `_news_lookup` still has no `web_fetch`
-guard, and round 5 showed both shapes I offered are wrong: a bare `guard_target`
-is the wrong unit (its own docstring says the discarded-address pattern IS the
-DNS-rebinding hole), and routing through `fetch_page` as-is would break the
-function, because `ALLOWED_CONTENT_TYPES` excludes RSS. Round 5's candidates were
-a pinned raw-bytes helper, or `fetch_page` gaining an explicit
-`allowed_content_types` for this one caller.
-
-**3. Then the two verifications nobody has run in five rounds:** whether the model
-cites `workbench://story/<id>` back, and whether that path works end to end in a
-single run.
-
-**4. Then defects, and only these:** anything violating rules 6, 1 or 3 with the
-exact line and the exact failure; and the open items in §5. Genuine labelling
-holes or swallowed exceptions still matter — but they are fourth, not first.
-
-For each finding: file and line, what is wrong, the concrete input or sequence that
-makes it fail, and what you ran. If you ran nothing, say that.
-
-**A standing request, and it is the reason five rounds were worth running:** if you
-disagree with something above, say so and show the measurement. Round 1's one wrong
-verdict changed what I did. Round 3's one correction saved me repeating a mistake.
-Round 5 told me both of my proposed fixes were the wrong shape. I would rather be
-corrected than agreed with, and so should the next person to read this file.
-
-## 8. What I got wrong today, so you do not inherit it
-
-Recording these because a prompt that only lists successes teaches the wrong lesson.
-
-1. **My first "fix" for the prose fallback did not work.** I captured the
-   "pristine" callables lazily, on the fixture's first use — which happens *after*
-   the browser suite has already substituted them, so the capture recorded the
-   substitutes as the baseline and the leak survived. The comment I wrote above
-   the code described exactly this hazard; I then wrote the hazard. The capture is
-   eager now.
-1b. **A later script-based patch of `test_manual_continuation.py` produced 203
-   ruff errors** — I used a string-replacing script on a source file again. Caught
-   by ruff immediately, reverted, redone by hand.
-
-2. **My first "baseline" measurement was invalid.** The tree was already clean, so
-   `git stash push` silently created nothing and the run measured my own changes
-   while I believed it measured the baseline. Use `git checkout <old> -- src/ tests/`.
-
-3. **I ran up to eleven concurrent pytest processes** while investigating, which
-   made every timing number I took during that window meaningless and cost more
-   time than it saved. **Kill what is running before you measure anything.**
-
-4. **I patched source files with a generated script** and got the indentation wrong
-   on every line, leaving the file unparseable. I reverted and did it by hand. Edit
-   source with the editor, not with a string-replacing script.
-
-5. **I twice "fixed" a test by patching a flag** and reverted both times, because
-   the test's deeper assumption was still wrong and the green result would have been
-   for the wrong reason. A test that passes for the wrong reason is worse than a red
-   one: it removes the signal without adding the safety.
-
-6. **I claimed the F4 fix changed what the stale test should expect.** Round 3
-   corrected it: F4 lives in `build_packet` (post-gate) and the refusal is decided
-   at the readiness gate (pre-gate), so it did not move the expected value at all.
-   I had reasoned about the failure instead of tracing the two paths.
-7. **I shipped a fix I had predicted would break a consumer, and only noticed by
-   grepping for my own new string afterwards** — `source_type =
-   "opened_publication"` had no entry in `SOURCE_TYPE_LABELS`. I had written the
-   prediction into the review prompt, which is not the same as having checked it.
-   It was worse than predicted: three more values were already broken in the
-   operator's own store and I found them only when round 4 read the store.
-8. **I found a real gap and pinned it as intended behaviour.** `publication_urls`
-   not refiltering its merge was a genuine smuggling hazard; I wrote a test
-   asserting that was "by design" and moved on. A test that pins a discovered gap
-   as correct is worse than no test: it stops the next person fixing it and
-   records the bug as a decision. Round 4 caught it; I did not.
-9. **My own speed fix disabled the tests for the code it made fast.** The conftest
-   fixture that removed 391s substitutes `_keyless_lookup` and `_news_lookup` in
-   EVERY test, so the first two tests I wrote against those functions exercised
-   the stub and passed vacuously. I did not notice for two test runs.
-
-The through-line: **every one of these was caught by measuring, by grepping, or by
-being contradicted — never by reasoning harder up front.** In cases 1 and 7 the
-measurement and the grep both came *after* I was confident. "I already verified
-that" is the most expensive sentence in this repository, and I have now said it
-wrongly enough times for that to be a real warning rather than a slogan.
