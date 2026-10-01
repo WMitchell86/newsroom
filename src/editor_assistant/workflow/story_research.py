@@ -17,6 +17,7 @@ from editor_assistant.workflow import (
     newsroom_run,
     publication_identity,
     research,
+    research_trace,
     search,
     story_research_store,
     story_store,
@@ -252,6 +253,27 @@ _NON_PUBLISHER_HOSTS = frozenset(
 #: so the publisher COUNT the editor sees and the independence rule used here
 #: are provably the same rule rather than two similar ones.
 _PUBLISHER_NEUTRAL_LABELS = story_store.PUBLISHER_NEUTRAL_LABELS
+
+
+def _trace_page(story_id, candidate, page, final_url, host, **kwargs) -> None:
+    """Record one considered page (V1.2-G4.20). Never raises.
+
+    Wraps `research_trace.record_page` so every drop point is a one-liner and so
+    a trace failure can never abort a research round. Records the URL and the
+    verdict, NOT the page text: this store answers "what happened", and keeping
+    scraped bodies would duplicate the private evidence stores.
+    """
+    try:
+        research_trace.record_page(
+            story_id=story_id,
+            url=str((candidate or {}).get("url") or ""),
+            final_url=str(final_url or ""),
+            host=str(host or ""),
+            **kwargs,
+        )
+    except Exception:  # noqa: BLE001 - an audit trail must never fail research
+        return False
+    return kwargs.get("outcome") != research_trace.KEPT
 
 
 def _publisher_identity(host: str) -> str:
@@ -553,12 +575,38 @@ def execute_story_research(
         for c in operation.get("candidates", [])
         if (c.get("opened") or {}).get("status") == "FETCH_OK"
     ]
-    publisher_opened = [
-        c
-        for c in opened
-        if (urlsplit(str((c.get("opened") or {}).get("final_url") or c["url"])).hostname or "").lower()
-        not in _NON_PUBLISHER_HOSTS
-    ]
+    # V1.2-G4.20: how many considered pages were DROPPED, for the round summary.
+    # Incremented by the `_trace_page` return value at each drop point, so the
+    # count cannot drift from the rows that were actually written. Declared HERE,
+    # above the wrapper filter, because that filter is also a drop point: placed
+    # with the other loop accumulators further down, the wrapper drops would be
+    # traced but never counted, and `considered` would under-report.
+    dropped_pages = 0
+    publisher_opened = []
+    # V1.2-G4.20: `publisher_opened` is where MOST pages actually disappear -
+    # the wrapper filter runs BEFORE the reading loop, so a page dropped here
+    # never reached any of its in-loop `continue` points and left no trace at
+    # all. Traced here so "it fetched the page and did nothing with it" has an
+    # answer. These do not consume the opening budget, by design (§B2/§18).
+    for candidate in opened:
+        host = (
+            urlsplit(
+                str((candidate.get("opened") or {}).get("final_url") or candidate["url"])
+            ).hostname
+            or ""
+        ).lower()
+        if host not in _NON_PUBLISHER_HOSTS:
+            publisher_opened.append(candidate)
+            continue
+        dropped_pages += _trace_page(
+            story_id,
+            candidate,
+            {},
+            str((candidate.get("opened") or {}).get("final_url") or candidate["url"]),
+            host,
+            outcome=research_trace.SKIPPED_NON_PUBLISHER,
+            reason=f"host {host} is a wrapper/social page, not a publisher (§18)",
+        )
     seed_opened = []
     if bootstrap and seed_urls:
         # V1.1-A §8: attempt the representative publication through the
@@ -657,9 +705,45 @@ def execute_story_research(
             or host in _NON_PUBLISHER_HOSTS
         ):
             # §18: an unresolved aggregator or social page is not a source.
+            # V1.2-G4.20: record WHY. This is the first of several silent
+            # `continue` points; a page that vanished here used to leave nothing
+            # behind, so "did it try the other links?" was unanswerable.
+            dropped_pages += _trace_page(
+                story_id,
+                candidate,
+                page,
+                final_url,
+                host,
+                outcome=(
+                    research_trace.SKIPPED_BLOCKED
+                    if blocked_mod.is_blocked(normalized_url)
+                    else research_trace.SKIPPED_NON_PUBLISHER
+                ),
+                reason=(
+                    "blocked domain"
+                    if blocked_mod.is_blocked(normalized_url)
+                    else f"host {host or '(unresolved)'} is not a publisher"
+                ),
+            )
             continue
         publication_key = publication_identity.publication_key_for(normalized_url, host)
         if publication_key in seen_keys or publication_key in set(existing_publication_keys):
+            # V1.2-G4.20: a duplicate is a REAL outcome, not nothing - it means
+            # two registry entries or two search hits resolved to one publisher
+            # page, which is worth seeing when the evidence looks thin.
+            dropped_pages += _trace_page(
+                story_id,
+                candidate,
+                page,
+                final_url,
+                host,
+                outcome=research_trace.SKIPPED_DUPLICATE,
+                reason=(
+                    "already in this round"
+                    if publication_key in seen_keys
+                    else "already used by an earlier round"
+                ),
+            )
             continue
         seen_keys.add(publication_key)
         text = str(page.get("text") or "")
@@ -693,6 +777,18 @@ def execute_story_research(
             anchors=anchors,
         )
         if not candidates:
+            # V1.2-G4.20: a page that opened fine but offered no usable claim is
+            # the most confusing silent drop of all - from the outside it looks
+            # exactly like a page that was never fetched.
+            dropped_pages += _trace_page(
+                story_id,
+                candidate,
+                page,
+                final_url,
+                host,
+                outcome=research_trace.SKIPPED_NO_PROSE,
+                reason=f"{len(blocks)} usable text block(s), 0 candidate claims",
+            )
             continue
         # §R1/§R2: resolve authority from the PUBLISHER IDENTITY of the page that
         # actually opened, not from the bare host. `www.burgas.bg` is the same
@@ -777,6 +873,12 @@ def execute_story_research(
                     "locator": f"claim:{slot}",
                 }
             )
+    # V1.2-G4.20: the claim gate runs AFTER the loop, so KEPT vs
+    # SKIPPED_CLAIM_GATE can only be decided here - a source that opened and
+    # yielded claims may still be dropped for lack of corroboration, and that is
+    # precisely the case an editor cannot explain from `story_research.json`.
+    # Placed AFTER `_promote_claims` on purpose: it needs `allowed_source_ids`,
+    # and reading it before that line is a NameError, not a warning.
     # §2/§16: promotion is decided per CLAIM, not per source, and corroboration
     # means two independent publishers supporting the SAME FACTUAL PROPOSITION
     # rather than the same string. The safety rule is untouched: a claim is
@@ -784,6 +886,27 @@ def execute_story_research(
     # confirms it. Nothing else grants evidence.
     allowed_source_ids, new_conflicts, comparison_count = _promote_claims(source_records)
     assert comparison_count <= MAX_SEMANTIC_COMPARISONS
+    for record in source_records:
+        sid = record["source"]["id"]
+        _trace_page(
+            story_id,
+            {"url": record["source"]["url"], "title": record["source"]["name"]},
+            {},
+            record["source"]["url"],
+            record["domain"],
+            outcome=(
+                research_trace.KEPT
+                if sid in allowed_source_ids
+                else research_trace.SKIPPED_CLAIM_GATE
+            ),
+            reason=(
+                ""
+                if sid in allowed_source_ids
+                else "claim not corroborated by an independent publisher"
+            ),
+            source_id=sid,
+            claim_count=1,
+        )
     # §30: the semantic stage is a model call. `comparison_count` is how many
     # candidate PAIRS this round actually spent, and the cap that bounds it is
     # asserted directly by the test suite, so the cost cannot drift upward
@@ -805,6 +928,25 @@ def execute_story_research(
     ]
     # §12: a claim existed and the gate dropped it is a corroboration problem.
     dropped_by_gate = len(source_records) - len(facts)
+    # V1.2-G4.20: the round summary, so the page list can be read without doing
+    # the arithmetic by hand. Recorded here because this is the first point where
+    # considered / kept / facts / dropped are ALL known - `considered` needs the
+    # deduped source count, not the raw candidate count.
+    try:
+        research_trace.record_round(
+            story_id=story_id,
+            topic=topic,
+            questions=plan.get("research_questions") or (),
+            considered=len(sources) + dropped_pages,
+            kept=len(sources),
+            facts=len(facts),
+            dropped_by_gate=dropped_by_gate,
+            operation_id=str(operation.get("operation_id") or operation.get("run_id") or ""),
+        )
+    except Exception:  # noqa: BLE001 - an audit trail must never fail research
+        # `return` here would abandon the round's own result, so the failure is
+        # swallowed instead: the trace is best effort and the research is not.
+        _ = None
     if not facts:
         # V1.1-A §10/§16: a completed first round with no usable opened
         # source is ASSESSED with an explicit gap — never an empty assessed

@@ -27,6 +27,7 @@ from editor_assistant.drafting import (
     generate,
     model_catalog,
     model_policy,
+    model_prompt_log,
     model_router,
     model_usage,
 )
@@ -1492,3 +1493,175 @@ def test_a_spent_minute_routes_to_the_next_model_instead_of_calling(monkeypatch)
     assert skipped, meta["trace"]
     assert "минутен лимит" in skipped[0]["reason"], skipped[0]
     assert model_router._skip_category([skipped[0]["reason"]]) == model_router.RPM_LIMIT_REACHED
+
+
+def test_the_prompt_log_records_what_was_sent_per_attempt(monkeypatch, tmp_path):
+    """What was SENT, per attempt - including the ones that failed.
+
+    The editor's two questions are "what exactly did you ask?" and "which model
+    answered?", and the usage ledger can answer neither by design. Asserted on
+    the fallback chain because that is the case worth keeping: a request that
+    tried Gemini and then fell back must leave a row for EVERY attempt, so the
+    reason the expected model was not used stays visible after the fact.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "prompts.jsonl"))
+    secret = "НЕПУБЛИКУВАН ИЗТОЧНИК ТЕКСТ"
+    policy = _policy_with(
+        "draft",
+        [
+            _route("gemini", "gemini-3.8-flash"),
+            _route("openrouter", "good/model:free", billing="free"),
+        ],
+        default_payload_class="public",
+    )
+
+    def gemini_503(*_a, **_k):
+        raise _FakeHTTPError(503, "")
+
+    def ok(*_a, **_k):
+        return ("чернова", {"provider": "openrouter", "usage": {}})
+
+    model_router.call_role(
+        "draft",
+        secret,
+        policy=policy,
+        call_map=_Callers(gemini=gemini_503, openrouter=ok).as_map(),
+        sleep=lambda _s: None,
+    )
+
+    rows = model_prompt_log.read_sent_prompts()
+    models = [r["model"] for r in rows]
+    assert "gemini-3.8-flash" in models, models
+    assert models[-1] == "good/model:free", "the answering model is the LAST row"
+    assert all(r["prompt"] == secret for r in rows)
+    assert all(r["request_id"] for r in rows), "one logical request, one id"
+    assert len({r["request_id"] for r in rows}) == 1
+
+
+def test_the_prompt_log_never_reaches_the_usage_ledger(monkeypatch, tmp_path):
+    """The ledger's contract holds: no prompt text, not even a field name.
+
+    `test_usage_ledger_aggregates_and_never_stores_prompts` freezes the ledger;
+    this proves the NEW store did not quietly become a back door into it.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("MODEL_USAGE_DIR", str(tmp_path / "usage"))
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "prompts.jsonl"))
+    secret = "ТАЙНА НЕПУБЛИКУВАНА МАТЕРИАЛ"
+    policy = _policy_with(
+        "draft", [_route("openrouter", "m:free", billing="free")], default_payload_class="public"
+    )
+
+    model_router.call_role(
+        "draft",
+        secret,
+        policy=policy,
+        call_map=_Callers(
+            openrouter=lambda *_a, **_k: ("ok", {"provider": "openrouter"})
+        ).as_map(),
+        sleep=lambda _s: None,
+    )
+
+    ledger = (tmp_path / "usage" / f"{model_usage.sofia_day()}.json").read_text(encoding="utf-8")
+    assert secret not in ledger
+    assert "prompt" not in ledger.lower()
+    # ...and it IS in the private store, so the feature is not a no-op.
+    assert secret in (tmp_path / "prompts.jsonl").read_text(encoding="utf-8")
+
+
+def test_the_prompt_log_file_is_private(monkeypatch, tmp_path):
+    """Unpublished editorial text must not land world-readable.
+
+    `open("a")` applies the umask, which is 0022 on this host - so a plain
+    append would create the file 0644 and expose every draft prompt to any
+    local user. Asserted on the mode, not on the intent.
+
+    `MODEL_PROMPT_LOG` is cleared first because the autouse isolation fixture
+    sets it, and it takes precedence over `root`. Left in place, `root=` would be
+    silently ignored and the test would assert on a file nobody wrote - which is
+    exactly how it failed before this line existed.
+    """
+    monkeypatch.delenv("MODEL_PROMPT_LOG", raising=False)
+    model_prompt_log.record_sent_prompt(
+        role="draft", provider="gemini", model="m", prompt_text="x", root=tmp_path
+    )
+    path = tmp_path / "editorial_workflow" / model_prompt_log.FILENAME
+    assert path.exists()
+    assert oct(path.stat().st_mode)[-3:] == "600"
+
+
+def test_reading_the_prompt_log_tolerates_a_missing_file_and_bad_lines(monkeypatch, tmp_path):
+    """An inspection command must never crash on its own store."""
+    monkeypatch.delenv("MODEL_PROMPT_LOG", raising=False)
+    assert model_prompt_log.read_sent_prompts(root=tmp_path) == []
+
+    path = tmp_path / "editorial_workflow" / model_prompt_log.FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"role": "draft", "prompt": "ok"}\nnot json at all\n\n', encoding="utf-8")
+    rows = model_prompt_log.read_sent_prompts(root=tmp_path)
+    assert [r["prompt"] for r in rows] == ["ok"]
+
+
+def test_the_test_suite_never_writes_the_operator_prompt_store(monkeypatch, tmp_path):
+    """The autouse fixture must redirect the prompt store, not just the ledger.
+
+    Regression guard for a real accident: the fixture isolated
+    `MODEL_USAGE_DIR` / `MODEL_HEALTH_PATH` / `MODEL_POLICY_PATH` but not the new
+    `MODEL_PROMPT_LOG`, so one full suite run appended ~328 rows / 3 MB of test
+    prompts into the operator's own store. Nothing reads that file
+    automatically, so nothing failed - it would only have surfaced as the editor
+    opening `newsroom models prompts` to a wall of fixture text.
+    """
+    from editor_assistant.drafting import model_prompt_log as module
+
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "isolated.jsonl"))
+    monkeypatch.setenv("MODEL_USAGE_DIR", str(tmp_path / "usage"))
+
+    module.record_sent_prompt(
+        role="draft", provider="gemini", model="m", prompt_text="тестово"
+    )
+
+    assert (tmp_path / "isolated.jsonl").exists(), "the write went to the override"
+    real = module.ROOT / "var" / "editorial_workflow" / module.FILENAME
+    if real.exists():
+        assert "тестово" not in real.read_text(encoding="utf-8"), (
+            "test text reached the operator's own prompt store"
+        )
+
+
+def test_a_prompt_log_failure_never_breaks_the_model_call(monkeypatch, tmp_path):
+    """Logging is best effort. A generation must not fail over its audit trail.
+
+    The failure is injected at `_write` (the real IO helper) rather than at
+    `record_sent_prompt`, because patching the public function replaces the very
+    guard this test is about: it would pass for the wrong reason, and it would
+    keep passing if someone later deleted the try/except entirely.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "prompts.jsonl"))
+
+    def boom(*_args, **_kwargs):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(model_prompt_log, "_write", boom)
+    policy = _policy_with(
+        "draft", [_route("openrouter", "m:free", billing="free")], default_payload_class="public"
+    )
+
+    text, meta = model_router.call_role(
+        "draft",
+        "prompt",
+        policy=policy,
+        call_map=_Callers(
+            openrouter=lambda *_a, **_k: ("ok", {"provider": "openrouter"})
+        ).as_map(),
+        sleep=lambda _s: None,
+    )
+
+    assert text == "ok", "the call must still return its answer"
+    assert meta.get("model") == "m:free"
+    assert model_prompt_log.read_sent_prompts(root=tmp_path) == []

@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from editor_assistant.workflow import story_research, story_research_store
+from editor_assistant.workflow import research_trace, story_research, story_research_store
 
 
 def _row():
@@ -67,6 +67,28 @@ class _Provider:
                 },
             ],
         }
+
+
+class _ProviderWithAggregator(_Provider):
+    """`_Provider` plus a non-publisher host, so the §18 drop point is reachable.
+
+    `max_open` defaults to 3 and the shared `_Provider` already returns two
+    results, so this is the third page the round actually CONSIDERS - which is
+    what makes it the right vehicle for asserting a recorded drop.
+    """
+
+    def search(self, query):
+        payload = dict(super().search(query))
+        payload["results"] = list(payload["results"]) + [
+            {
+                "rank": 3,
+                "title": "Social",
+                "url": "https://facebook.com/somepage",
+                "snippet": "snippet",
+            },
+        ]
+        return payload
+
 
 
 def test_executor_uses_opened_source_and_claim_provenance(tmp_path):
@@ -311,3 +333,192 @@ def test_provider_failure_before_assessment_writes_nothing(tmp_path, monkeypatch
         )
         == "unassessed"
     )
+
+
+# ---------------------------------------------------------------- V1.2-G4.20
+# Why a page did or did not reach the draft model. Before this, `continue` in the
+# research loop dropped pages with no record, so "did it look anywhere else?" was
+# unanswerable from the product.
+
+
+def test_a_dropped_page_is_recorded_with_its_reason(tmp_path, monkeypatch):
+    """A social/aggregator page leaves a row, not silence.
+
+    The whole feature is the negative case: `story_research.json` can only show
+    what survived, so a test that asserts a KEPT page exists would pass even if
+    every drop point were still silent.
+    """
+    root = tmp_path / "editorial"
+    story_research_store.save_story_research(_row(), root=root)
+    trace_file = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(trace_file))
+    pages = {
+        "https://facebook.com/somepage": {
+            "final_url": "https://facebook.com/somepage",
+            "content_type": "text/html",
+            "bytes": 10,
+            "text": "Приятели, вижте новата публикация на страницата ни днес в 18 часа.",
+        },
+        "https://official.test/a": {
+            "final_url": "https://official.test/a",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+        "https://second.test/b": {
+            "final_url": "https://second.test/b",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+    }
+    story_research.execute_story_research(
+        "s-one",
+        topic="Срок за кандидатурите изтича през септември",
+        canonical_story={"story_id": "s-one"},
+        authority_resolver=dict,
+        readiness_result={
+            "status": "RESEARCH_MORE",
+            "sufficiency": {"research_questions": ["Кога изтича срокът за кандидатурите?"]},
+        },
+        root=root,
+        provider=_ProviderWithAggregator(),
+        page_opener=pages.__getitem__,
+        now="2026-09-25T09:00:00Z",
+    )
+
+    rows = research_trace.read_trace()
+    by_outcome = {r["outcome"] for r in rows}
+    assert research_trace.SKIPPED_NON_PUBLISHER in by_outcome, by_outcome
+    dropped = [r for r in rows if r["outcome"] == research_trace.SKIPPED_NON_PUBLISHER]
+    assert any("facebook.com" in r["url"] for r in dropped), [r["url"] for r in dropped]
+    assert all(r["reason"] for r in dropped), "a drop must name a cause"
+    # ...and the kept page is recorded too, so the list is a whole picture.
+    assert research_trace.KEPT in by_outcome, by_outcome
+
+
+def test_the_round_summary_counts_pages_without_arithmetic(tmp_path, monkeypatch):
+    """`considered`/`kept`/`facts` are known only after the claim gate runs."""
+    root = tmp_path / "editorial"
+    story_research_store.save_story_research(_row(), root=root)
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "trace.jsonl"))
+    pages = {
+        "https://official.test/a": {
+            "final_url": "https://official.test/a",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+        "https://second.test/b": {
+            "final_url": "https://second.test/b",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+    }
+    story_research.execute_story_research(
+        "s-one",
+        topic="Срок за кандидатурите изтича през септември",
+        canonical_story={"story_id": "s-one"},
+        authority_resolver=dict,
+        readiness_result={
+            "status": "RESEARCH_MORE",
+            "sufficiency": {"research_questions": ["Кога изтича срокът за кандидатурите?"]},
+        },
+        root=root,
+        provider=_Provider(),
+        page_opener=pages.__getitem__,
+        now="2026-09-25T09:00:00Z",
+    )
+
+    rounds = [r for r in research_trace.read_trace() if r["outcome"] == "ROUND"]
+    assert len(rounds) == 1, rounds
+    summary = rounds[0]
+    pages_seen = [r for r in research_trace.read_trace() if r["outcome"] != "ROUND"]
+    # `considered` must equal the pages actually listed. This is the assertion
+    # that caught the wrapper-filter bug: facebook was traced but not counted
+    # because its drop happens before the counter is declared.
+    assert summary["considered"] == len(pages_seen), (summary, len(pages_seen))
+    assert summary["kept"] == sum(
+        1 for r in pages_seen if r["outcome"] == research_trace.KEPT
+    ), summary
+    assert summary["questions"], "the round must record what it asked"
+    assert summary["story_id"] == "s-one"
+
+
+def test_the_trace_store_is_private_and_tolerates_a_missing_file(tmp_path, monkeypatch):
+    """A url plus its verdict is still a record of what the newsroom was reading."""
+    monkeypatch.delenv("RESEARCH_TRACE_PATH", raising=False)
+    assert research_trace.read_trace(root=tmp_path) == []
+
+    research_trace.record_page(
+        story_id="s-one",
+        url="https://x.test/a",
+        outcome=research_trace.KEPT,
+        root=tmp_path,
+    )
+    path = tmp_path / "editorial_workflow" / research_trace.FILENAME
+    assert oct(path.stat().st_mode)[-3:] == "600"
+
+    path.write_text('{"outcome": "KEPT"}\nbroken line\n\n', encoding="utf-8")
+    assert len(research_trace.read_trace(root=tmp_path)) == 1
+
+
+def test_a_broken_trace_never_breaks_a_research_round(tmp_path, monkeypatch):
+    """Same contract as the prompt log: the audit trail is best effort."""
+    root = tmp_path / "editorial"
+    story_research_store.save_story_research(_row(), root=root)
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "trace.jsonl"))
+
+    def boom(**_kwargs):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(research_trace, "_write", boom)
+    pages = {
+        "https://official.test/a": {
+            "final_url": "https://official.test/a",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+        "https://second.test/b": {
+            "final_url": "https://second.test/b",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+    }
+    row = story_research.execute_story_research(
+        "s-one",
+        topic="Срок за кандидатурите изтича през септември",
+        canonical_story={"story_id": "s-one"},
+        authority_resolver=dict,
+        readiness_result={
+            "status": "RESEARCH_MORE",
+            "sufficiency": {"research_questions": ["Кога изтича срокът за кандидатурите?"]},
+        },
+        root=root,
+        provider=_Provider(),
+        page_opener=pages.__getitem__,
+        now="2026-09-25T09:00:00Z",
+    )
+    assert row["facts"], "the round must still return its facts"
+    assert row["research_rounds"] == 1
+
+
+def test_the_trace_never_reaches_the_operator_store_from_a_test(monkeypatch, tmp_path):
+    """`RESEARCH_TRACE_PATH` belongs in the autouse isolation fixture.
+
+    Same accident as `MODEL_PROMPT_LOG`, and worse in one way: the trace records
+    the real urls a round fetched, so an unisolated suite would leave fixture
+    traffic in the operator's own file.
+    """
+    from editor_assistant.workflow import research_trace as module
+
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "isolated.jsonl"))
+    module.record_page(story_id="s-x", url="https://fixture.test/x", outcome=module.KEPT)
+
+    assert (tmp_path / "isolated.jsonl").exists(), "the write went to the override"
+    real = module.ROOT / "var" / "editorial_workflow" / module.FILENAME
+    if real.exists():
+        assert "fixture.test" not in real.read_text(encoding="utf-8")

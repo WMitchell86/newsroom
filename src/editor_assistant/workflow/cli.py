@@ -1036,7 +1036,107 @@ def _run_newsroom_models(args):
     if action == "set":
         _apply_models_set(args)
         return
+    if action == "prompts":
+        _print_sent_prompts(args)
+        return
     raise SystemExit(f"unknown newsroom models action: {action}")
+
+
+def _print_research_trace(args) -> None:
+    """`newsroom stories research-trace` — which pages were tried, and what happened.
+
+    Answers the question the research store cannot: `story_research.json` records
+    only what SURVIVED, and the round has several silent drop points. Every
+    considered page is listed with its verdict, kept and dropped alike.
+    """
+    from editor_assistant.workflow import research_trace
+
+    rows = research_trace.read_trace(
+        story_id=getattr(args, "story_id", None),
+        outcome=getattr(args, "outcome", None),
+        limit=getattr(args, "limit", None),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print(
+            "Няма записан research trace"
+            + (" по този филтър." if research_trace.trace_path().exists() else ".")
+            + f" ({research_trace.trace_path()})"
+        )
+        return
+
+    pages = [r for r in rows if r.get("outcome") != "ROUND"]
+    rounds = [r for r in rows if r.get("outcome") == "ROUND"]
+    print(f"RESEARCH TRACE — {len(pages)} страници, {len(rounds)} кръг(а)")
+    print(f"store: {research_trace.trace_path()} (частен файл, 0600)")
+    print()
+    for rnd in rounds:
+        print(
+            f"КРЪГ {rnd['at']}  story={rnd['story_id']}  "
+            f"разгледани={rnd['considered']}  запазени={rnd['kept']}  "
+            f"факти={rnd['facts']}  отхвърлени от claim gate={rnd['dropped_by_gate']}"
+        )
+        for q in rnd.get("questions") or []:
+            print(f"    въпрос: {q}")
+        print()
+    for row in pages:
+        mark = "✓" if row["outcome"] == research_trace.KEPT else "·"
+        host = row.get("host") or "-"
+        print(f"{mark} {row['outcome']:24s} {row['at']}  {host}")
+        print(f"    url: {row['url']}")
+        if row.get("final_url") and row["final_url"] != row["url"]:
+            print(f"    ->  {row['final_url']}")
+        if row.get("reason"):
+            print(f"    причина: {row['reason']}")
+        if row.get("source_id"):
+            print(f"    source_id: {row['source_id']}")
+        print()
+
+
+def _print_sent_prompts(args) -> None:
+    """`newsroom models prompts` — what was actually sent, per attempt.
+
+    Answers the two questions the ledger cannot: "what exactly did you ask the
+    model?" and "which model ended up answering?". The ledger deliberately has
+    no prompt text (see `model_prompt_log`), so this reads the separate private
+    store instead of loosening that contract.
+    """
+    from editor_assistant.drafting import model_prompt_log
+
+    rows = model_prompt_log.read_sent_prompts(
+        role=getattr(args, "role", None),
+        model=getattr(args, "model", None),
+        request_id=getattr(args, "request_id", None),
+        limit=getattr(args, "limit", None),
+    )
+    if getattr(args, "json", False):
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print(
+            "Няма записани промпти"
+            + ("" if not model_prompt_log.prompt_log_path().exists() else " по този филтър.")
+            + f" ({model_prompt_log.prompt_log_path()})"
+        )
+        return
+    print(f"ПРОМПТИ, ИЗПРАТЕНИ НА МОДЕЛ — {len(rows)} реда")
+    print(f"store: {model_prompt_log.prompt_log_path()} (частен файл, 0600)")
+    print()
+    for row in rows:
+        print(
+            f"{row['at']}  {row['role']:8s} route#{row['route_index']} "
+            f"опит {row['attempt']}  {row['provider']}:{row['model']}  "
+            f"{row['chars']} симв."
+            + (f"  payload={row['payload_class']}" if row.get("payload_class") else "")
+        )
+        print(f"  request_id: {row['request_id']}")
+        if row["chars"] and not getattr(args, "no_text", False):
+            print("-" * 72)
+            print(row["prompt"])
+            print("-" * 72)
+        print()
 
 
 def render_models_status(report):
@@ -1274,6 +1374,11 @@ def _run_newsroom_feedback(args):
 def _run_newsroom_stories(args):
     """M4C: incremental story assignment (or an explicit full rebuild)."""
     from editor_assistant.workflow import story_identity
+
+    # V1.2-G4.20. Why a page did or did not reach the draft model.
+    if args.action == "stories" and args.stories_action == "research-trace":
+        _print_research_trace(args)
+        return
 
     if args.action == "stories" and args.stories_action == "rebuild":
         result = story_identity.rebuild(
@@ -1801,6 +1906,17 @@ def _add_newsroom_subcommands(sub):
     )
     reb.add_argument("--no-semantic", action="store_true", help="deterministic only")
 
+    # V1.2-G4.20. Which pages the research round considered and what happened to
+    # each one. It READS the trace: never re-runs research, never spends a credit.
+    trace = story_actions.add_parser(
+        "research-trace",
+        help="which pages research tried and why each was kept or dropped",
+    )
+    trace.add_argument("--story-id", default=None, help="only this story")
+    trace.add_argument("--outcome", default=None, help="filter: KEPT / SKIPPED_* / OPEN_FAILED")
+    trace.add_argument("--limit", type=int, default=None, help="only the last N rows")
+    trace.add_argument("--json", action="store_true", help="machine-readable output")
+
     refresh = actions.add_parser(
         "refresh", help="collect, then assign the new material to stories, one summary"
     )
@@ -1850,6 +1966,23 @@ def _add_newsroom_subcommands(sub):
     m_set.add_argument("--soft-calls", type=int, default=None, help="soft calls/day for --role")
     m_set.add_argument("--hard-calls", type=int, default=None, help="hard calls/day for --role")
     m_set.add_argument("--reset", action="store_true", help="delete the operator override")
+    # V1.2-G4.19. What was actually SENT to a model. Separate from `models
+    # status` because the usage ledger deliberately holds no prompt text; this
+    # reads the private prompt store instead of weakening that contract.
+    m_prompts = model_actions.add_parser(
+        "prompts",
+        help="show the exact prompt sent per model attempt (private store)",
+    )
+    m_prompts.add_argument("--role", default=None, help="only this role")
+    m_prompts.add_argument("--model", default=None, help="only this model id")
+    m_prompts.add_argument("--request-id", default=None, help="only this logical request")
+    m_prompts.add_argument("--limit", type=int, default=None, help="show only the last N rows")
+    m_prompts.add_argument(
+        "--no-text",
+        action="store_true",
+        help="headers only, no prompt body (safe to paste into a report)",
+    )
+    m_prompts.add_argument("--json", action="store_true", help="machine-readable output")
 
     # V1.2-G4.3 §G: the controlled editorial learning loop. `analyze` only ever
     # PROPOSES; `approve` is the single human-gated step that makes a proposal

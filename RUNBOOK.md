@@ -353,6 +353,7 @@ PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom refresh        
 # M4D model routing
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models status      # per-role model view
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models validate    # check model IDs live
+PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models prompts            # what was SENT to a model
 PYTHONPATH=src python3 -m editor_assistant.workflow.cli newsroom models show         # full policy dump
 PYTHONPATH=src python3 scripts/evals/model_role_eval.py --list                     # qualification plan
 PYTHONPATH=src python3 scripts/evals/model_role_eval.py --role judge               # qualify one role
@@ -478,6 +479,116 @@ The `20` is **our own declared guardrail, not a measured provider limit** — th
 message reads like the provider's quota, and it is not one. Treat a
 `дневен лимит … е достигнат` line as "our number", and do not report it to the
 editor as an exhausted quota (AGENTS.md rule 3).
+
+### Seeing what was sent to a model
+
+Two questions the ledger cannot answer: *what exactly did you ask the model?*
+and *which model actually wrote this?*
+
+```bash
+newsroom models prompts                      # every recorded attempt, with the text
+newsroom models prompts --role draft         # one role
+newsroom models prompts --limit 3            # only the last N
+newsroom models prompts --no-text            # headers only — safe to paste into a report
+newsroom models prompts --request-id <id>    # one logical request, every route it tried
+newsroom models prompts --json
+```
+
+Store: `var/editorial_workflow/model_prompts.jsonl`, **mode `0600`** like the
+other private editorial stores — a draft prompt carries unpublished source text.
+
+**The prompt text is NOT in the usage ledger, and must never be.** The ledger is
+aggregated and diffed while investigating a provider failure;
+`test_usage_ledger_aggregates_and_never_stores_prompts` freezes that. The prompt
+log is a separate store for that reason, not an oversight.
+
+One row per **transport attempt**, so a request that fell back leaves the whole
+chain. A real rewrite on 2026-10-01, where three Gemini routes failed before the
+fourth answered:
+
+```
+16:38:30  draft route#0  gemini:gemini-3.5-flash  13024 симв.  payload=private
+16:38:30  draft route#1  gemini:gemini-3.8-flash  13024 симв.  payload=private
+16:39:15  draft route#3  gemini:gemini-3.6-flash  13024 симв.  payload=private   ← answered
+```
+
+The **last** row of a `request_id` is the model that answered, and it matches
+`lineage.model` in `live_drafts.jsonl` (`gemini-3.6-flash`). Rows sharing a
+`request_id` are one logical request.
+
+Logged at the transport boundary, not by the caller: `_trim_for_model` runs
+inside `generate._call_gemini`, so a prompt captured before the call would be the
+pre-trim text and would differ from what the provider received whenever the
+30 000-char safety valve fires. Logging happens per attempt **before** the call,
+so the failures are recorded too — those are the rows that explain why the
+expected model was not used.
+
+Logging is best effort: a broken prompt log never fails a generation.
+
+### Which pages research tried, and what happened to them
+
+`story_research.json` records only what **survived** — promoted sources, their
+claims, the fact ids. It says nothing about the pages that were dropped, and the
+round has several drop points: a wrapper/social host, a blocked domain, a
+duplicate publication, a page with no usable prose, and the claim gate. So
+"did it look anywhere else?" had no answer in the product.
+
+```bash
+newsroom stories research-trace                     # every page considered
+newsroom stories research-trace --story-id s-abc123 # one story
+newsroom stories research-trace --outcome KEPT      # only what survived
+newsroom stories research-trace --outcome SKIPPED_NO_PROSE
+newsroom stories research-trace --limit 20
+newsroom stories research-trace --json
+```
+
+Store: `var/editorial_workflow/research_trace.jsonl`, mode `0600`. It reads the
+trace — it never re-runs research and never spends a credit.
+
+```
+КРЪГ 2026-10-01T17:16:39Z  story=s-one  разгледани=3  запазени=2  факти=2  отхвърлени от claim gate=0
+    въпрос: Кога изтича срокът за кандидатурите?
+
+· SKIPPED_NON_PUBLISHER  facebook.com   host facebook.com is a wrapper/social page (§18)
+✓ KEPT                   official.test  source_id: src_1e26c1ea02dac218
+✓ KEPT                   second.test    source_id: src_206cf44033f87669
+```
+
+| outcome | meaning |
+|---|---|
+| `KEPT` | read, yielded claims, and the claim gate promoted it |
+| `SKIPPED_NON_PUBLISHER` | wrapper/social host (§18) — **the most common drop**, and it happens *before* the reading loop |
+| `SKIPPED_BLOCKED` | blocked domain |
+| `SKIPPED_DUPLICATE` | same publisher page already used this round or an earlier one |
+| `SKIPPED_NO_PROSE` | opened fine, but no candidate claims — from outside this looks identical to a page never fetched |
+| `SKIPPED_CLAIM_GATE` | claims existed but no independent publisher corroborated them |
+
+Separate store because `story_research_store._row()` validates a **closed** field
+set (`req <= set(v) <= req | optional`) — adding a trace field to the research row
+would break that contract. The row is the canonical assessment the editor reads.
+
+Dropped pages record the url, host and reason, **not** the scraped text: this
+store answers "what happened", and keeping page bodies would duplicate the
+private evidence stores at a size nobody asked for.
+
+### Joining research to the prompt
+
+The chain is complete and greppable, which is what makes the two commands one
+investigation rather than two:
+
+```
+research_trace row (source_id)
+  → story_research.json  sources[].id            + claims[].text
+  → facts[].sourceId / .locator
+  → draft prompt         - [fact_…] (current_event) …
+  → model_prompts.jsonl  request_id + model      ← which model got it
+```
+
+`fact_ids` are `sha256(story_id \0 source_id \0 text)`, so a fact in the prompt
+identifies its source without guessing. Note that a **live** evidence packet's
+facts carry `source_reference: "source_text"` and a single packet-level
+`source_url` — per-fact source attribution exists on the RESEARCH path, not on
+the live-evidence path.
 
 ### Operational rules
 

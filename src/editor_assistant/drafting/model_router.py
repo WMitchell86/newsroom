@@ -55,7 +55,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from editor_assistant.drafting import model_policy, model_usage
+from editor_assistant.drafting import model_policy, model_prompt_log, model_usage
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -614,6 +614,7 @@ def call_role(
     call_map=None,
     sleep=None,
     now=None,
+    prompt_log_root=None,
 ):
     """Call the first eligible route of `role`; return `(text, meta)`.
 
@@ -708,6 +709,8 @@ def call_role(
             fallbacks=fallbacks,
             reasons=trace,
             now=now,
+            request_id=request_id,
+            prompt_log_root=prompt_log_root,
         )
         if text is not None:
             meta = dict(meta or {})
@@ -835,6 +838,8 @@ def _try_route(
     fallbacks,
     reasons,
     now,
+    request_id="",
+    prompt_log_root=None,
 ):
     """Try one route with bounded retries.
 
@@ -861,6 +866,27 @@ def _try_route(
     while True:
         attempt += 1
         started = time.monotonic()
+        # V1.2-G4.19. Log BEFORE the transport, not after: an attempt that FAILS
+        # is exactly the row an editor wants ("what did you send before it gave
+        # up on that model?"), and a failure returns from the `except` below
+        # before any post-call code could run. The text is unchanged by the call,
+        # so pre-logging still records what the transport received.
+        #
+        # This is the transport boundary, not the caller, on purpose:
+        # `_trim_for_model` runs INSIDE `generate._call_gemini`, so a prompt
+        # logged by the caller would be the pre-trim text and would differ from
+        # what the provider received whenever the 30 000-char valve fires.
+        model_prompt_log.record_sent_prompt(
+            role=role,
+            provider=provider,
+            model=route.get("model"),
+            prompt_text=prompt_text,
+            request_id=request_id,
+            route_index=index,
+            payload_class=payload_class,
+            attempt=attempt,
+            root=prompt_log_root,
+        )
         try:
             if provider == "gemini":
                 kwargs = {

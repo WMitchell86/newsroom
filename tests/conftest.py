@@ -166,10 +166,23 @@ def _isolated_model_state(tmp_path, monkeypatch) -> Iterator[None]:
     `var/model_health.json` or `var/model_policy.json`: the usage ledger feeds
     budgets and per-model daily limits, so a polluted ledger would make a later
     test skip a route it expects to call.
+
+    `MODEL_PROMPT_LOG` belongs here for a different and sharper reason. The sent-
+    prompt store (V1.2-G4.19) holds FULL prompt text - unpublished source text
+    included - and a single full suite run appended ~328 rows / 3 MB of test
+    prompts into the operator's real store before this line existed. Unlike a
+    polluted ledger, nothing reads that file back automatically, so the damage is
+    silent: `newsroom models prompts` would have shown the editor a wall of
+    fixture text as if it were their own drafts.
     """
     monkeypatch.setenv("MODEL_USAGE_DIR", str(tmp_path / "model_usage"))
     monkeypatch.setenv("MODEL_HEALTH_PATH", str(tmp_path / "model_health.json"))
     monkeypatch.setenv("MODEL_POLICY_PATH", str(tmp_path / "model_policy.json"))
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "model_prompts.jsonl"))
+    # Same reason for the research trace (V1.2-G4.20): it records the real urls a
+    # round fetched, so an unisolated suite leaves fixture traffic in the
+    # operator's own file and `newsroom stories research-trace` reports it.
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "research_trace.jsonl"))
     yield
 
 
