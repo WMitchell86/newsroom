@@ -130,7 +130,8 @@ These fail on unmodified `main` and are not regressions. Verify against a
 stashed run before blaming a change:
 
 Measured 2026-10-02 on the real tree, `pytest --ignore=tests/browser`:
-**20 failed / 1976 passed**. By file:
+**19-20 failed / ~1978 passed** (the count varies with one documented
+intermittent). By file:
 
 - `tests/test_workbench_newsroom.py` — 5
 - `tests/test_workbench_api.py` — 4 (the set varies between runs;
@@ -141,8 +142,10 @@ Measured 2026-10-02 on the real tree, `pytest --ignore=tests/browser`:
   `test_duplicate_material_creates_no_false_attention`)
 - `tests/test_draft_vs_ready_contract.py` — 2
 - `tests/test_v12_g2_4b_contract.py`, `tests/test_sources_registry.py`,
-  `tests/test_research_ux_contract.py`, `tests/test_draft_readiness_parity.py` — 1 each
-  (the last is a known intermittent)
+  `tests/test_research_ux_contract.py` — 1 each
+- `tests/test_draft_readiness_parity.py` — 1, and it is INTERMITTENT: present in
+  most full-suite runs and absent in some. A run reporting 19 rather than 20 has
+  not lost coverage, so do not "fix" the count by chasing it.
 
 **Newly observed 2026-10-02, unexplained — do not assume it is harmless.**
 `tests/test_search_foundation.py::test_429_is_rate_limited_and_bounded` failed in

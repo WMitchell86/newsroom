@@ -176,7 +176,7 @@
           "enabled": true,
           "billing": "operator_declared",
           "public_only": false,
-          "daily_call_limit": 80
+          "daily_call_limit": 20
         },
         {
           "provider": "gemini",
@@ -184,7 +184,7 @@
           "enabled": true,
           "billing": "operator_declared",
           "public_only": false,
-          "daily_call_limit": 80
+          "daily_call_limit": 20
         },
         {
           "provider": "gemini",
@@ -192,7 +192,7 @@
           "enabled": true,
           "billing": "operator_declared",
           "public_only": false,
-          "daily_call_limit": 80
+          "daily_call_limit": 20
         },
         {
           "provider": "gemini",
@@ -200,7 +200,7 @@
           "enabled": true,
           "billing": "operator_declared",
           "public_only": false,
-          "daily_call_limit": 80
+          "daily_call_limit": 20
         },
         {
           "provider": "openrouter",
