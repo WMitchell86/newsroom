@@ -1252,9 +1252,15 @@ _OUTCOME_READABLE = {
     "FAILED:RATE_LIMITED": "провален — прекалено много заявки (429). Изисква кратко изчакване.",
     "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT": "празен отговор — моделът изчерпа лимита "
     "си за токени и НЕ върна нито един знак (finish_reason=length).",
-    "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING": "празен отговор — моделът изразходва целия "
-    "лимит за токени върху вътрешно размишление и не стигна до писане. Това е проблем с ЛИМИТА, "
-    "не с модела: при по-висок лимит същият модел връща текст (проверено).",
+    "FAILED:EMPTY_OUTPUT:REPETITION_LOOP": "празен отговор — моделът се върти в цикъл и "
+    "повтаря една и съща част от текста, без да напредва. Прекъснат е навреме.",
+    "FAILED:EMPTY_OUTPUT:DEADLINE_EXCEEDED": "празен отговор — генерацията надхвърли зададеното "
+    "време и беше прекъсната, преди да завърши.",
+    # Kept for rows written before G4.28: that label claimed a budget cause we
+    # could not actually observe, so it is no longer produced, only translated.
+    "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING": "празен отговор — моделът е изразходвал "
+    "целия лимит за токени върху вътрешно размишление и не е стигнал до писане "
+    "(запис от преди корекцията на диагностиката).",
     "FAILED:EMPTY_OUTPUT": "празен отговор — моделът не върна текст.",
     "": "няма отчетен резултат (редът е от стара версия без поле outcome)",
 }
@@ -1264,6 +1270,10 @@ _NEXT_STEP = {
     "FAILED:RATE_LIMITED": "Опитай отново след малко; маршрутът е временно ограничен.",
     "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING": "Увеличи OPENROUTER_MAX_TOKENS (в момента "
     "32768) или избери модел без вътрешно размишление за тази роля.",
+    "FAILED:EMPTY_OUTPUT:REPETITION_LOOP": "Този модел върти в цикъл при този prompt. "
+    "Махни го от ролята или избери друг; повторен опит няма да помогне.",
+    "FAILED:EMPTY_OUTPUT:DEADLINE_EXCEEDED": "Повиши OPENROUTER_DEADLINE_S, ако задачата "
+    "legitimately е дълга, или смени маршрута.",
     "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT": "Намали prompt-а (има 30 000-символен "
     "таван) или смени маршрута — виж `newsroom models prompts` за текста, изпратен на този модел.",
 }

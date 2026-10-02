@@ -846,20 +846,27 @@ def empty_output_outcome(meta) -> str:
     implying a cause nobody observed (AGENTS.md rule 6).
     """
     stop = str((meta or {}).get("finish_reason") or "").strip()
-    # V1.2-G4.24. Reasoning tokens count INSIDE `max_tokens` on OpenRouter, so a
-    # model that spends the whole ceiling thinking emits no content at all and
-    # looks identical to a model with nothing to say. Measured on
-    # stealth/space-bunny-alpha with a real 2 858-char draft prompt: 70 036 chars
-    # of `delta.reasoning`, and at the old 8192 ceiling zero content. That is a
-    # BUDGET problem with a named cause, not a silent one - so it is reported as
-    # such instead of collapsing into a bare EMPTY_OUTPUT (AGENTS.md rule 6).
-    reasoning_chars = int((meta or {}).get("reasoning_chars") or 0)
-    if reasoning_chars and not stop:
-        return f"FAILED:{EMPTY_OUTPUT}:SPENT_BUDGET_ON_REASONING"
-    if reasoning_chars and stop == "length":
-        return f"FAILED:{EMPTY_OUTPUT}:TRUNCATED_BY_TOKEN_LIMIT"
+    # V1.2-G4.28. An EARLY STOP is a different fault from an empty answer, and
+    # it has its own named causes. These are the only two the transport can
+    # actually OBSERVE - "the model spent its budget thinking" was never
+    # provable from reasoning length alone, and asserting it was the rule-6
+    # shape this whole table exists to prevent (it has been renamed; rows
+    # already written keep the old code, which is why it stays in the map).
+    stopped = str((meta or {}).get("stopped_because") or "").strip()
+    # An OBSERVED stop reason outranks any inference, so `length` is checked
+    # FIRST: the provider told us the answer hit the ceiling, and no legacy
+    # heuristic may override a fact the transport can read directly.
     if stop == "length":
         return f"FAILED:{EMPTY_OUTPUT}:TRUNCATED_BY_TOKEN_LIMIT"
+    if stopped == "repetition_loop":
+        return f"FAILED:{EMPTY_OUTPUT}:REPETITION_LOOP"
+    if stopped == "deadline_exceeded":
+        return f"FAILED:{EMPTY_OUTPUT}:DEADLINE_EXCEEDED"
+    # Backwards compatibility for rows written before G4.28: those metas have NO
+    # `stopped_because` key at all. Presence is what distinguishes them - a
+    # truthiness test cannot, because an empty value is falsy in both cases.
+    if "stopped_because" not in (meta or {}) and (meta or {}).get("reasoning_chars"):
+        return "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING"
     if stop:
         return f"FAILED:{EMPTY_OUTPUT}:stop={stop}"
     return f"FAILED:{EMPTY_OUTPUT}:no_stop_reason"

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -74,6 +75,52 @@ REASONING_DELTA_KEYS = ("reasoning", "reasoning_content")
 #: A model that does not support the parameter is unaffected: the catalog lists
 #: `reasoning_effort` per model, and OpenRouter ignores unknown fields.
 OPENROUTER_REASONING_EFFORT = str(os.environ.get("OPENROUTER_REASONING_EFFORT", "")).strip()
+
+#: V1.2-G4.28. Streaming guards.
+#:
+#: The whole body used to be read with `resp.read()` before a single frame was
+#: parsed, so a model that had already stopped making progress still had to run
+#: to completion. Measured on `stealth/space-bunny-alpha` with the real 12 642-char
+#: draft prompt: 27 937 characters of reasoning containing only 129 DISTINCT ones,
+#: stuck on one fragment of the evidence, for 292 s - and the application could do
+#: nothing but wait, because the parser had not started yet.
+#:
+#: The stream is now parsed incrementally, so a degenerate generation is abandoned
+#: WHILE it happens instead of after it.
+#:
+#: V1.2-G4.28. Loop detection.
+#:
+#: Two earlier detectors were WRONG, and both were caught by measuring a live
+#: failure rather than by reading the code:
+#:
+#:   1. Byte-equality of a 160-char window: fired on nothing, because the window
+#:      is longer than the model's ~129-character cycle.
+#:   2. Distinct-ratio over 64 sampled windows: also fired on nothing, because
+#:      two samples only collide when they land on the same phase of the cycle.
+#:      With ~20-character chunks over a ~129-character cycle that needs ~129
+#:      samples to realign, and only 64 are kept.
+#:
+#: Both were SAMPLE-ALIGNMENT problems: they asked "have I seen this exact text
+#: before?", which is only answerable at the right phase. The signal below does
+#: not sample. It asks whether the model is producing ANY NEW CHARACTER at all.
+#:
+#: A cycling model exhausts its ~129 distinct characters within the first few
+#: hundred and then re-emits them forever. Real prose keeps introducing new
+#: characters right to the end. `chars_since_new` therefore separates the two
+#: without any reference to where in a cycle a sample happens to fall.
+#:
+#: 1 000 characters with no new character at all is far outside anything real
+#: prose does, even deliberately repetitive text.
+LOOP_WINDOW = 80
+LOOP_STALE_CHARS = 1_000
+#: Whitespace carries no information about whether the model is advancing, so it
+#: is stripped before the novelty test. Otherwise a model padding with spaces
+#: would look like it was producing nothing new.
+_WHITESPACE_TABLE = {ord(c): None for c in " \t\n\r"}
+#: Hard wall on ONE generation, independent of the socket `timeout` (which only
+#: bounds a single read). Measured: the looping model took 292 s; a legitimate
+#: long draft finished in 19-84 s across every control run.
+OPENROUTER_DEADLINE_S = float(os.environ.get("OPENROUTER_DEADLINE_S", "180"))
 
 # Gemini 3.x spends output budget on internal "thinking" before emitting text.
 # For structured JSON drafting that starved the answer (measured: 1921 thinking
@@ -366,6 +413,34 @@ def _raise_openrouter_error(data) -> None:
     )
 
 
+def _iter_lines(resp):
+    """Yield an HTTP response's lines as they arrive, without blocking for all.
+
+    V1.2-G4.28. `resp.read()` waits for the whole body, which is why a model
+    looping for 292 s could not be abandoned early. A real HTTP response
+    supports `readline()`, which returns as soon as a line is available.
+
+    Falls back to a single buffered `read()` for objects that only implement
+    that (the transport's own tests stub a minimal fake). The fallback streams
+    no better, but it keeps the function total instead of raising
+    AttributeError on a shape it did not create.
+
+    Decoding is per line with `errors="replace"`, so a multi-byte character split
+    across a chunk boundary cannot raise mid-stream.
+    """
+    readline = getattr(resp, "readline", None)
+    if readline is None:
+        raw = resp.read()
+        text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+        yield from text.splitlines()
+        return
+    while True:
+        raw = readline()
+        if not raw:
+            return
+        yield raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+
+
 def _openrouter_nonstream_text(body_text):
     """Content of a NON-streaming chat-completion body ("" when absent/malformed).
 
@@ -417,77 +492,101 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
         data=payload,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8", errors="replace")
-    chunks = []
+    # V1.2-G4.28: parsed INCREMENTALLY. `resp.read()` used to block until the
+    # whole generation finished, so a model that had stopped making progress
+    # still ran to completion (measured: 292 s, 129 distinct characters). Lines
+    # are consumed as they arrive and this loop can abandon it.
+    #
+    # The raw body is still accumulated: `_openrouter_nonstream_text` needs it
+    # when a provider ignores `stream`, and the dead frames are the only
+    # diagnostic when something goes wrong.
+    chunks: list[str] = []
+    raw_lines: list[str] = []
     finish_reason = ""
-    # V1.2-G4.22. The provider's own stop reason is captured here and it is the
-    # ONLY thing that distinguishes "the model had nothing to say" from "the
-    # token ceiling cut the answer off before a single character arrived".
-    #
-    # Measured on the real failing draft prompt (12 630 chars) against
-    # qwen/qwen3.8-27b:free: at max_tokens 16384 the stream ends with
-    # `finish_reason: "length"` and ZERO content chunks — the model spent the
-    # whole budget and emitted nothing, which the caller reported as a bare
-    # `EMPTY_OUTPUT`. The same prompt at 8192 was served normally, so raising
-    # the ceiling is NOT the fix; a higher ceiling made this worse, not better.
-    #
-    # V1.2-G4.24 corrects that reading: the ceiling WAS the problem, for the
-    # REASONING models. They stream thinking under `delta.reasoning`, which this
-    # parser used to drop, so a model mid-thought looked identical to a model with
-    # nothing to say. Reasoning is now counted and reported (never returned as
-    # the answer — see REASONING_DELTA_KEYS).
-    #
-    # Both fields are returned because the caller logs them: without them the
-    # operator sees "empty output" and has to guess between a dead model, a
-    # quota wall, a truncated answer and a model that spent its budget thinking
-    # (AGENTS.md rule 6).
-    # `usage_total` below replaces the two `prompt_chars`/`completion_tokens`
-    # locals that used to be assigned here and overwrote each other frame.
     reasoning_chars = 0
     # V1.2-G4.27: a malformed frame is counted instead of vanishing. A dropped
     # event means the answer may be short, and silently reporting a clean success
     # over an incomplete response is the rule-6 shape.
     malformed_frames = 0
     usage_total: dict = {}
-    for raw_line in body.splitlines():
-        line = raw_line.strip()
-        if not line.startswith("data:"):
-            continue
-        payload_text = line[5:].strip()
-        if payload_text == "[DONE]":
-            break
-        try:
-            data = json.loads(payload_text)
-        except ValueError:
-            malformed_frames += 1
-            continue
-        # V1.2-G4.27: BEFORE `choices`. An error frame arriving after partial
-        # content must fail the attempt, not be reported as a usable answer.
-        _raise_openrouter_error(data)
-        usage = data.get("usage") or {}
-        # Merge rather than overwrite: OpenRouter sends usage on the LAST frame
-        # only, and an earlier event without it used to reset the totals to 0.
-        if isinstance(usage, dict):
-            for key, value in usage.items():
-                if isinstance(value, (int, float)):
-                    usage_total[key] = usage_total.get(key, 0) + value
-        choices = data.get("choices") or []
-        if not choices:
-            continue
-        choice = choices[0]
-        finish_reason = choice.get("finish_reason") or finish_reason
-        if choice.get("error"):
-            _raise_openrouter_error({"error": choice["error"]})
-        delta = choice.get("delta", {}) or {}
-        if delta.get("content"):
-            chunks.append(delta["content"])
-        for key in REASONING_DELTA_KEYS:
-            value = delta.get(key)
-            if isinstance(value, str):
-                reasoning_chars += len(value)
+    # Loop detection: no sampling, so no alignment problem. `chars_since_new` counts
+    # reasoning characters that arrived containing nothing we had not seen before.
+    chars_since_new = 0
+    # Mirrors chars_since_new in the reported meta, so the guard's strength is
+    # visible to the operator. Initialized here because it is only assigned once
+    # reasoning actually starts.
+    loop_repeats = 0
+    # PER CALL, not module-level: a "characters seen so far" set must not survive
+    # into the next generation, or a second draft would inherit the first
+    # draft's alphabet and trip the guard on ordinary text.
+    _seen_chars: set[str] = set()
+    stopped_because = ""
+    started_at = time.monotonic()
+    deadline = started_at + OPENROUTER_DEADLINE_S
+
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for raw_line in _iter_lines(resp):
+            raw_lines.append(raw_line)
+            line = raw_line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload_text = line[5:].strip()
+            if payload_text == "[DONE]":
+                break
+            try:
+                data = json.loads(payload_text)
+            except ValueError:
+                malformed_frames += 1
+                continue
+            # V1.2-G4.27: BEFORE `choices`. An error frame arriving after partial
+            # content must fail the attempt, not be reported as a usable answer.
+            _raise_openrouter_error(data)
+            usage = data.get("usage") or {}
+            # Merge rather than overwrite: OpenRouter sends usage on the LAST
+            # frame only, and an earlier event without it used to reset it to 0.
+            if isinstance(usage, dict):
+                for key, value in usage.items():
+                    if isinstance(value, (int, float)):
+                        usage_total[key] = usage_total.get(key, 0) + value
+            choices = data.get("choices") or []
+            if choices:
+                choice = choices[0]
+                finish_reason = choice.get("finish_reason") or finish_reason
+                if choice.get("error"):
+                    _raise_openrouter_error({"error": choice["error"]})
+                delta = choice.get("delta", {}) or {}
+                if delta.get("content"):
+                    chunks.append(delta["content"])
+                for key in REASONING_DELTA_KEYS:
+                    value = delta.get(key)
+                    if not isinstance(value, str) or not value:
+                        continue
+                    reasoning_chars += len(value)
+                    # Sample-free loop test: has ANY character we had not already
+                    # seen appeared lately? A cycling model exhausts its distinct
+                    # characters in the first few hundred and then re-emits them
+                    # forever; real prose keeps introducing them to the end.
+                    fresh = value.translate(_WHITESPACE_TABLE)
+                    if fresh and not fresh.isspace():
+                        # True only when EVERY character here is already known.
+                        if not any(c not in _seen_chars for c in fresh):
+                            chars_since_new += len(fresh)
+                        else:
+                            chars_since_new = 0
+                            _seen_chars.update(fresh)
+                    loop_repeats = chars_since_new
+                    if chars_since_new > LOOP_STALE_CHARS:
+                        stopped_because = "repetition_loop"
+                        break
+            if stopped_because:
+                break
+            if time.monotonic() > deadline:
+                stopped_because = "deadline_exceeded"
+                break
+
+    body = "".join(raw_lines)
     text = "".join(chunks)
-    if not text.strip():
+    if not text.strip() and not stopped_because:
         # Defensive: a provider that ignores/refuses `stream` returns a single
         # JSON completion.  Parse that rather than report an empty generation.
         text = _openrouter_nonstream_text(body)
@@ -506,6 +605,12 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
         "completion_tokens": int(usage_total.get("completion_tokens") or 0),
         "reasoning_chars": reasoning_chars,
         "malformed_frames": malformed_frames,
+        # V1.2-G4.28: why the stream stopped early, if it did. "" means it ended
+        # on the provider's own terms - the value the router reads to name
+        # REPETITION_LOOP and DEADLINE_EXCEEDED instead of a bare empty answer.
+        "stopped_because": stopped_because,
+        "loop_repeats": loop_repeats,
+        "elapsed_ms": int((time.monotonic() - started_at) * 1000),
     }
 
 

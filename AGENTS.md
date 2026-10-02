@@ -117,11 +117,21 @@ note and blocked a working model" is how the next reader repeats the error.
 These fail on unmodified `main` and are not regressions. Verify against a
 stashed run before blaming a change:
 
-- `tests/test_workbench_api.py` — 4-5, and the set varies between runs
-  (`test_research_that_finds_nothing_persists_an_explicit_gap` is order-dependent)
+Measured 2026-10-02 on the real tree, `pytest --ignore=tests/browser`:
+**20 failed / 1976 passed**. By file:
+
+- `tests/test_workbench_newsroom.py` — 5
+- `tests/test_workbench_api.py` — 4 (the set varies between runs;
+  `test_research_that_finds_nothing_persists_an_explicit_gap` is order-dependent)
+- `tests/test_bulgarian_forms.py` — 3
 - `tests/test_newsroom_refresh.py` — 2
   (`test_new_development_reaches_a_followed_story_once_and_aggregates`,
   `test_duplicate_material_creates_no_false_attention`)
+- `tests/test_draft_vs_ready_contract.py` — 2
+- `tests/test_v12_g2_4b_contract.py`, `tests/test_sources_registry.py`,
+  `tests/test_research_ux_contract.py`, `tests/test_draft_readiness_parity.py` — 1 each
+  (the last is a known intermittent)
+
 - `tests/browser/` — 6-7, all in `test_d2a_stories` / `test_v11_d1_today` /
   `test_v11_d2_quick_draft` / `test_v12_g2_2_research_ux`. These skip entirely
   in a fresh `git worktree` (no `frontend/node_modules`), so a worktree is NOT
@@ -129,9 +139,11 @@ stashed run before blaming a change:
 
 **This list is measured, not remembered, and it goes stale.** Entries that used
 to be here and no longer fail: `tests/test_model_policy.py` (2) and
-`tests/test_quick_draft.py` (7) were both clean on 2026-10-01. Re-measure before
-trusting it; a stale entry hides a real regression, and a missing one sends you
-looking for a failure you caused.
+`tests/test_quick_draft.py` (7) were both clean on 2026-10-01.
+`tests/test_openrouter_transport.py` (3) failed only while the G4.28 streaming
+rewrite was mid-edit and is clean now — a reminder that a failure list which
+only grows is also lying. Re-measure before trusting it; a stale entry hides a
+real regression, and a missing one sends you looking for a failure you caused.
 
 Never present a failing count as a regression without a stashed comparison.
 Never absorb a failure silently to make a number look better.

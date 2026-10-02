@@ -2114,6 +2114,92 @@ def test_usage_accumulates_and_is_not_reset_by_later_frames():
     assert meta["input_tokens"] == 10, meta
 
 
+def test_a_model_that_repeats_itself_is_stopped_early():
+    """V1.2-G4.28. The measured failure, reproduced in miniature.
+
+    `stealth/space-bunny-alpha` emitted 27 380 characters of reasoning with only
+    129 DISTINCT ones, for 144 s, and the old `resp.read()` could do nothing
+    about it. This streams ~20-character chunks (the real chunk size) around a
+    ~129-character cycle (the real cycle), so it fails for the same reason the
+    live model does.
+    """
+    from editor_assistant.drafting import generate
+
+    cycle = ("мусъл който се повтаря много и по един и същи начин. " * 3)[:129]
+    frames = [
+        '{"choices":[{"delta":{"reasoning":'
+        + json.dumps(cycle[(i * 20) % 129: ((i * 20) % 129) + 20])
+        + '},"finish_reason":null}]}'
+        for i in range(200)
+    ]
+    text, meta = _call_with_body(generate, _sse(*frames))
+
+    assert meta["stopped_because"] == "repetition_loop", meta
+    assert meta["loop_repeats"] > 0.5, meta
+    # And it stopped BEFORE consuming every frame - that is the whole point.
+    assert meta["reasoning_chars"] < len(cycle) * 20, meta
+
+
+def test_a_normal_long_answer_is_not_mistaken_for_a_loop():
+    """The guard must not fire on text that merely shares a window boundary."""
+    from editor_assistant.drafting import generate
+
+    body = "различен текст. "
+    frames = [
+        '{"choices":[{"delta":{"reasoning":' + json.dumps(body + str(i) * 20) + '},"finish_reason":null}]}'
+        for i in range(20)
+    ]
+    frames.append('{"choices":[{"delta":{"content":"готово"},"finish_reason":"stop"}]}')
+    text, meta = _call_with_body(generate, _sse(*frames))
+
+    assert meta["stopped_because"] == "", meta
+    assert text == "готово", text
+
+
+def test_a_generation_past_its_deadline_is_cut_off(monkeypatch):
+    """A hard wall on ONE generation, independent of the socket timeout."""
+    from editor_assistant.drafting import generate
+
+    ticks = iter([0.0] + [10_000.0] * 50)  # the deadline check passes instantly
+    monkeypatch.setattr(generate.time, "monotonic", lambda: next(ticks))
+
+    frames = [
+        '{"choices":[{"delta":{"content":"x"},"finish_reason":null}]}'
+        for _ in range(10)
+    ]
+    text, meta = _call_with_body(generate, _sse(*frames))
+
+    assert meta["stopped_because"] == "deadline_exceeded", meta
+
+
+def test_the_two_new_causes_are_named_and_translated():
+    from editor_assistant.drafting import model_router
+    from editor_assistant.workflow import cli
+
+    loop = model_router.empty_output_outcome({"stopped_because": "repetition_loop"})
+    assert loop == "FAILED:EMPTY_OUTPUT:REPETITION_LOOP", loop
+    late = model_router.empty_output_outcome({"stopped_because": "deadline_exceeded"})
+    assert late == "FAILED:EMPTY_OUTPUT:DEADLINE_EXCEEDED", late
+
+    assert "цикъл" in cli.readable_outcome(loop)
+    assert "OPENROUTER_DEADLINE_S" in cli.next_step(late)
+
+
+def test_the_old_reasoning_label_is_no_longer_produced():
+    """It claimed a budget cause we could not observe. Old rows keep it; new
+    ones must not carry it."""
+    from editor_assistant.drafting import model_router
+
+    # Reasoning present, no stop reason, no observed early stop: say only that.
+    meta = {"reasoning_chars": 70_036, "finish_reason": "", "stopped_because": ""}
+    assert model_router.empty_output_outcome(meta) == "FAILED:EMPTY_OUTPUT:no_stop_reason"
+    # The legacy shape (no `stopped_because` key at all) still translates.
+    legacy = {"reasoning_chars": 70_036, "finish_reason": ""}
+    assert model_router.empty_output_outcome(legacy) == (
+        "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING"
+    )
+
+
 def test_the_research_summary_reports_what_was_actually_gathered():
     """The achievement, not the activity. Measured need: a round can consider
     many pages, keep some, and still gather nothing."""
