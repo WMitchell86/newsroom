@@ -5,7 +5,8 @@ gets a useful regional stack instead of a scattering of hard-coded entries in th
 CLI/UI. This module is **pure data**: it imports nothing from the registry and
 performs no I/O, so it can never create an import cycle.
 
-Rules the catalogue follows (see `m4/M4_DEFAULT_SOURCE_STACK_RESEARCH.md`):
+Rules the catalogue follows (decided in the M4 source-stack research, 2026-09;
+that report is in git history — `git log --diff-filter=D -- m4/`):
 
 * never guess an RSS endpoint — a source is collected through a generic collector
   that already exists (`rss` for the one verified feed, `google_news_rss` for a

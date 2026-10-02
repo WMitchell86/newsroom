@@ -13,8 +13,9 @@ provider and the page opener). Everything else is production code: the real
 worker thread, the real research store, the real readiness assessment and the
 real Story projection.
 
-The proof uses the real Царево Story from
-``m4/review/V1_1_EDITORIAL_USABILITY_DIAGNOSTIC.md`` (``s16943311c9c782f``),
+The proof uses the real Царево Story from the V1.1 editorial-usability
+diagnostic (2026-09, commit ``s16943311c9c782f``; the report itself is now in
+git history — ``git log --diff-filter=D -- m4/review/``),
 which the diagnostic measured as ``facts: 0, gaps: 0, research_rounds: 0``.
 """
 

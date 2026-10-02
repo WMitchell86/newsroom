@@ -2,7 +2,7 @@
 
 Deliberately narrow: `InboxItem -> publication_key`. No story semantics live here.
 
-Three identities stay separate in M4C (see `m4/HARNESS_PROMPT_M4B1_M4C_STORY_IDENTITY.md`):
+Three identities stay separate:
 
 ```text
 DISCOVERY    source_id / source_kind      how did the system find this item?

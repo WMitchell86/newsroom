@@ -9,8 +9,8 @@ The raw timestamped SRT stays the authoritative machine evidence (Part E). This
 module contains no article/editorial logic and never collapses infrastructure
 failure into "no useful story": every failure maps to an explicit category.
 
-Hardening (ideas from the sibling *ytvault* project - see
-`m3/review/M3B1_INTAKE_HARDENING_REPORT.md`):
+Hardening (ideas from the sibling *ytvault* project; the M3B.1 hardening report
+is in git history — `git log --diff-filter=D -- m3/review/`):
 
 * **player-client rotation** - `tv_simply` / `web_safari` are reported to pass
   checks the default web client fails, so a client-specific failure rotates to

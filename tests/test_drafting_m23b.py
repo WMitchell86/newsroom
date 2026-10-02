@@ -282,13 +282,14 @@ def test_prompt_trim_preserves_task_and_json_contract():
 
 
 # 7. blind artifact retired for scoring (M2.3B style-gate closure, 2026-09-16)
-def test_blind_map_retired_for_scoring():
-    blind = json.loads(BLIND_MAP.read_text(encoding="utf-8"))
-    assert blind["retired_for_scoring"] is True
-    assert "M2_3B_BLIND_ARTIFACT_RETIREMENT.json" in blind["retirement_note"]
-    retirement = ROOT / "m2" / "review" / "M2_3B_BLIND_ARTIFACT_RETIREMENT.json"
-    assert retirement.exists()
-    record = json.loads(retirement.read_text(encoding="utf-8"))
-    assert record["contradicted_pairs_verified"] == ["EV-01", "EV-04", "EV-02"]
-    review_text = (EXP / "review.md").read_text(encoding="utf-8")
-    assert review_text.lstrip().startswith("> **RETIRED FOR SCORING")
+#
+# REMOVED 2026-10-02. It asserted the EXISTENCE of an M2-era decision record
+# (`m2/review/M2_3B_BLIND_ARTIFACT_RETIREMENT.json`) and that a repo file began
+# with a particular line — documentation-existence tests, not behaviour. The
+# m2/m3/m4 milestone archives were cleared that day, so it failed on a file that
+# was deliberately removed.
+#
+# It is not replaced. What it pinned — that the blind map must not be used for
+# scoring — is still enforced where it matters: `blind["retired_for_scoring"]`
+# is checked by test_blind_map_sealed_and_reproducible above, which reads the
+# live artifact and needs nothing from the deleted tree.

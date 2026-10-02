@@ -13,7 +13,8 @@ Today path at all, so a national item looked identical to a Burgas one.
 default regional view when ANY of three deterministic conditions holds. There is
 no score, no weighting, no ranking and no model call, because every attempt at
 one in this repository collapsed onto two levels and taught the editor nothing
-(see `m4/review/V1_1_E1_JEV_RANKING_SHADOW_REPORT.md`).
+(measured in the V1.1 E1 shadow ranking report, now in git history —
+`git log --diff-filter=D -- m4/review/`).
 
   1. **Local source** — a current Publication comes from a source the editor
      has configured as a local institution or local outlet. That is registry
