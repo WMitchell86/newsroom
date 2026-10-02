@@ -397,6 +397,196 @@ def test_a_dropped_page_is_recorded_with_its_reason(tmp_path, monkeypatch):
     assert research_trace.KEPT in by_outcome, by_outcome
 
 
+def test_a_failed_seed_open_leaves_an_open_failed_row(tmp_path, monkeypatch):
+    """The sixth drop point: a bootstrap seed URL that never opens.
+
+    `open_seed_url` returns `None` for a fetch failure (and for an unresolving
+    redirect); the loop used to `continue` with no row, so a round that spent
+    its fetch on a dead representative URL looked like it tried nothing.
+    Sabotage the seed fetch and the row must appear — delete the trace call
+    and this fails.
+    """
+    root = tmp_path / "editorial"
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "trace.jsonl"))
+    pages = {
+        "https://official.test/a": {
+            "final_url": "https://official.test/a",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+        "https://second.test/b": {
+            "final_url": "https://second.test/b",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+    }
+
+    def opener(url):
+        if "dead-seed" in url:
+            raise story_research.web_fetch.WebFetchError("FETCH_FAILED", "boom")
+        return pages[url]
+
+    story_research.execute_story_research(
+        "s-boot",
+        topic="Срок за кандидатурите изтича през септември",
+        canonical_story={"story_id": "s-boot"},
+        authority_resolver=lambda domain=None: {"kind": "media", "factual_authority": True},
+        root=root,
+        provider=_Provider(),
+        page_opener=opener,
+        story_title="Срок за кандидатурите изтича през септември",
+        story_items=[{"item_id": "i1"}],
+        seed_urls=["https://dead-seed.test/representative"],
+        now="2026-09-25T09:00:00Z",
+    )
+
+    rows = research_trace.read_trace()
+    pages_seen = [r for r in rows if r["outcome"] != "ROUND"]
+    failed = [r for r in pages_seen if r["outcome"] == research_trace.OPEN_FAILED]
+    assert any("dead-seed" in r["url"] for r in failed), [r["url"] for r in pages_seen]
+    summary = next(r for r in rows if r["outcome"] == "ROUND")
+    assert summary["considered"] == len(pages_seen), (summary, len(pages_seen))
+
+
+def test_a_second_seed_from_the_same_host_is_traced_and_counted(tmp_path, monkeypatch):
+    """The seed per-host dedup must leave a row AND stay inside `considered`.
+
+    This is the branch that just got traced: `seed_hosts` already contains the
+    publisher, so the second representative URL is never fetched and used to
+    `continue` silently. Both halves matter — a row without the count would
+    make `considered` under-report, which is the exact drift §G4.20 recorded.
+    """
+    root = tmp_path / "editorial"
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "trace.jsonl"))
+    pages = {
+        "https://official.test/seed1": {
+            "final_url": "https://official.test/seed1",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+        "https://official.test/a": {
+            "final_url": "https://official.test/a",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+        "https://second.test/b": {
+            "final_url": "https://second.test/b",
+            "content_type": "text/html",
+            "bytes": 20,
+            "text": "Срокът за кандидатурите изтича на 25 септември 2026 година.",
+        },
+    }
+
+    # `seed1` is NOT one of the discovery URLs above: a seed that duplicates a
+    # discovered candidate is dropped as a duplicate instead, and its host
+    # never reaches `seed_hosts` — which would leave this branch unreachable.
+    story_research.execute_story_research(
+        "s-boot",
+        topic="Срок за кандидатурите изтича през септември",
+        canonical_story={"story_id": "s-boot"},
+        authority_resolver=lambda domain=None: {"kind": "media", "factual_authority": True},
+        root=root,
+        provider=_Provider(),
+        page_opener=pages.__getitem__,
+        story_title="Срок за кандидатурите изтича през септември",
+        story_items=[{"item_id": "i1"}],
+        seed_urls=[
+            "https://official.test/seed1",
+            "https://official.test/seed2",
+        ],
+        now="2026-09-25T09:00:00Z",
+    )
+
+    rows = research_trace.read_trace()
+    pages_seen = [r for r in rows if r["outcome"] != "ROUND"]
+    dedup = [
+        r
+        for r in pages_seen
+        if r["outcome"] == research_trace.SKIPPED_DUPLICATE
+        and "already-attempted publisher host" in r["reason"]
+    ]
+    assert dedup, [r["reason"] for r in pages_seen]
+    summary = next(r for r in rows if r["outcome"] == "ROUND")
+    assert summary["considered"] == len(pages_seen), (summary, len(pages_seen))
+
+
+def test_a_failed_discovery_open_leaves_an_open_failed_row(tmp_path, monkeypatch):
+    """The seventh silent point: a discovered URL whose fetch failed.
+
+    `execute_story_research` only listed FETCH_OK candidates in `opened`, so
+    a URL the discovery pass found but could not fetch never reached any
+    drop point. It is now traced as OPEN_FAILED with the fetch's own detail.
+    """
+    root = tmp_path / "editorial"
+    story_research_store.save_story_research(_row(), root=root)
+    monkeypatch.setenv("RESEARCH_TRACE_PATH", str(tmp_path / "trace.jsonl"))
+
+    class _FailingProvider:
+        name = "fake"
+
+        def search(self, query):
+            return {
+                "provider": "fake",
+                "query": query,
+                "status": "SEARCH_OK",
+                "results": [
+                    {
+                        "rank": 1,
+                        "title": "Dead",
+                        "url": "https://dead.test/page",
+                        "snippet": "snippet",
+                    },
+                ],
+            }
+
+    def opener(url):
+        raise story_research.web_fetch.WebFetchError("TIMEOUT", "timeout")
+
+    with monkeypatch.context() as m:
+        m.setattr(
+            story_research.search,
+            "run_event_discovery",
+            lambda **kw: {
+                "candidates": [
+                    {
+                        "url": "https://dead.test/page",
+                        "title": "Dead",
+                        "opened": {"status": "TIMEOUT", "detail": "timeout"},
+                    }
+                ],
+                "operation_id": "op-1",
+            },
+        )
+        try:
+            story_research.execute_story_research(
+                "s-one",
+                topic="Срок за кандидатурите изтича през септември",
+                canonical_story={"story_id": "s-one"},
+                authority_resolver=dict,
+                readiness_result={
+                    "status": "RESEARCH_MORE",
+                    "sufficiency": {
+                        "research_questions": ["Кога изтича срокът за кандидатурите?"]
+                    },
+                },
+                root=root,
+                provider=_FailingProvider(),
+                page_opener=opener,
+                now="2026-09-25T09:00:00Z",
+            )
+        except story_research.StoryResearchError:
+            pass
+
+    rows = research_trace.read_trace()
+    pages_seen = [r for r in rows if r["outcome"] != "ROUND"]
+    failed = [r for r in pages_seen if r["outcome"] == research_trace.OPEN_FAILED]
+    assert any("dead.test" in r["url"] for r in failed), [r["url"] for r in pages_seen]
+
+
 def test_the_round_summary_counts_pages_without_arithmetic(tmp_path, monkeypatch):
     """`considered`/`kept`/`facts` are known only after the claim gate runs."""
     root = tmp_path / "editorial"

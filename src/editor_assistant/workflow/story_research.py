@@ -581,7 +581,25 @@ def execute_story_research(
     # above the wrapper filter, because that filter is also a drop point: placed
     # with the other loop accumulators further down, the wrapper drops would be
     # traced but never counted, and `considered` would under-report.
+    #
+    # G4.21: this covers only FETCH_OK candidates. A discovered URL whose fetch
+    # FAILED never reaches `opened`, so it never reaches any drop point below
+    # either — the seventh silent point. Traced here as OPEN_FAILED, counted
+    # the same way, so `considered` still equals the rows actually listed.
     dropped_pages = 0
+    for candidate in operation.get("candidates", []) or []:
+        opened_state = candidate.get("opened") or {}
+        if opened_state.get("status") == "FETCH_OK" or not opened_state:
+            continue
+        dropped_pages += _trace_page(
+            story_id,
+            candidate,
+            {},
+            str(opened_state.get("final_url") or candidate.get("url") or ""),
+            str(candidate.get("url") or ""),
+            outcome=research_trace.OPEN_FAILED,
+            reason=str(opened_state.get("detail") or opened_state.get("status") or "open failed"),
+        )
     publisher_opened = []
     # V1.2-G4.20: `publisher_opened` is where MOST pages actually disappear -
     # the wrapper filter runs BEFORE the reading loop, so a page dropped here
@@ -620,9 +638,40 @@ def execute_story_research(
                 break
             seed_host = (urlsplit(str(seed_url)).hostname or "").lower()
             if seed_host and seed_host in seed_hosts:
+                # G4.21 sixth drop point: the per-host seed dedup above used
+                # to `continue` with no row, so a second member URL from an
+                # already-seen publisher left no trace at all. Counted like
+                # every other drop: `_trace_page` returns non-KEPT as truthy,
+                # and `considered` must keep equal to the rows actually listed.
+                dropped_pages += _trace_page(
+                    story_id,
+                    {"url": str(seed_url)},
+                    {},
+                    str(seed_url),
+                    seed_host,
+                    outcome=research_trace.SKIPPED_DUPLICATE,
+                    reason="seed url from an already-attempted publisher host",
+                )
                 continue
             candidate = open_seed_url(seed_url)
             if candidate is None or candidate["url"] in {c.get("url") for c in opened}:
+                # G4.21 sixth drop point (second half): a seed URL whose fetch
+                # failed or that duplicated an already-opened discovery URL
+                # also vanished silently. It was CONSIDERED — the round spent
+                # a fetch on it — so it leaves an OPEN_FAILED row.
+                dropped_pages += _trace_page(
+                    story_id,
+                    {"url": str(seed_url)},
+                    {},
+                    str(seed_url),
+                    seed_host,
+                    outcome=research_trace.OPEN_FAILED,
+                    reason=(
+                        "seed page did not open through the safe fetch path"
+                        if candidate is None
+                        else "seed url duplicates an already-opened candidate"
+                    ),
+                )
                 continue
             if seed_host:
                 seed_hosts.add(seed_host)

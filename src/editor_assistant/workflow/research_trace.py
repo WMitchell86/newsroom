@@ -29,6 +29,8 @@ import json
 import os
 from pathlib import Path
 
+from editor_assistant import store_retention
+
 ROOT = Path(__file__).resolve().parents[3]
 
 FILENAME = "research_trace.jsonl"
@@ -161,11 +163,24 @@ def _write(row: dict, root=None):
     path = trace_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     # 0600 like the other editorial stores: a url plus its verdict is still a
-    # record of what the newsroom was reading.
+    # record of what the newsroom was reading. Fail CLOSED like the prompt
+    # log: if the file cannot be brought to 0600, the row is not written
+    # anywhere else.
     fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        os.close(fd)
+        raise
     with os.fdopen(fd, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    os.chmod(path, 0o600)
+    # Retention (owner decision: two days, dev mode) runs AFTER the append and
+    # is best effort: a failed rewrite leaves the row above on disk, and this
+    # trail must never be what fails a research round.
+    try:
+        store_retention.maybe_prune(path)
+    except Exception:  # noqa: BLE001 - a prune must never undo the append
+        pass
     return row
 
 

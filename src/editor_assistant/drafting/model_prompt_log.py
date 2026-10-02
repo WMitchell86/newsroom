@@ -32,6 +32,8 @@ import json
 import os
 from pathlib import Path
 
+from editor_assistant import store_retention
+
 ROOT = Path(__file__).resolve().parents[3]
 
 #: The ledger's promise is scoped to the ledger; this file is a different store.
@@ -66,16 +68,24 @@ def record_sent_prompt(
     payload_class="",
     outcome="",
     attempt=1,
+    sent_chars=None,
     root=None,
 ):
     """Append one attempt's prompt. Best effort — logging must never fail a call.
 
-    Called once per REAL transport attempt, so a request that walked four routes
-    leaves four rows: three of them are exactly the "why did it not use the good
-    model" evidence an editor asks for after the fact.
+    Called once per REAL transport execution, so a request that walked four
+    routes leaves four rows: three of them are exactly the "why did it not
+    use the good model" evidence an editor asks for after the fact. A route
+    retried under `attempts_allowed` logs once per execution, so a request
+    with `attempts_allowed == 2` that fails twice leaves two rows.
 
-    Returns the record, or `None` when it could not be written. A generation must
-    not fail because its own audit trail had a bad day.
+    `outcome` is the attempt's own verdict (`SENT`, `FAILED:<category>`);
+    `sent_chars` is the length the transport reported receiving (`None`
+    when the transport never answered — e.g. it raised before trimming —
+    in which case the stored text is what was handed to it). A generation
+    must not fail because its own audit trail had a bad day.
+
+    Returns the record, or `None` when it could not be written.
     """
     text = prompt_text if isinstance(prompt_text, str) else str(prompt_text or "")
     row = {
@@ -89,6 +99,7 @@ def record_sent_prompt(
         "payload_class": str(payload_class or ""),
         "outcome": str(outcome or ""),
         "chars": len(text),
+        "sent_chars": sent_chars if sent_chars is None else int(sent_chars),
         "prompt": text,
     }
     try:
@@ -108,10 +119,26 @@ def _write(row: dict, root=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Create with restrictive permissions from the start: `open("a")` would
     # apply the umask (0022 -> world-readable) to private editorial text.
+    # Fail CLOSED: if the pre-existing file cannot be brought to 0600, the
+    # row is not written anywhere else (no world-readable copy, no silent
+    # downgrade). Measured: `os.chmod` raising after `os.open` used to leave
+    # the row appended at the file's prior mode.
     fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        os.close(fd)
+        raise
     with os.fdopen(fd, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-    os.chmod(path, 0o600)
+    # Retention (owner decision: two days, dev mode) runs AFTER the append and
+    # is itself best effort — if the rewrite fails the row above is already on
+    # disk, and swallowing here is what keeps `_write` from reporting a loss
+    # that did not happen.
+    try:
+        store_retention.maybe_prune(path)
+    except Exception:  # noqa: BLE001 - a prune must never undo the append
+        pass
     return row
 
 

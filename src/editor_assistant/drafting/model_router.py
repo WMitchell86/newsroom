@@ -866,27 +866,25 @@ def _try_route(
     while True:
         attempt += 1
         started = time.monotonic()
-        # V1.2-G4.19. Log BEFORE the transport, not after: an attempt that FAILS
-        # is exactly the row an editor wants ("what did you send before it gave
-        # up on that model?"), and a failure returns from the `except` below
-        # before any post-call code could run. The text is unchanged by the call,
-        # so pre-logging still records what the transport received.
+        # V1.2-G4.19, corrected G4.21. The FIRST version logged here, BEFORE
+        # the transport, with the comment "the text is unchanged by the
+        # call". That comment was wrong on the Gemini path: `_trim_for_model`
+        # runs INSIDE `generate._call_gemini`, so when the 30 000-char valve
+        # fires the provider receives the TRIMMED text while this log held
+        # the PRE-TRIM text (measured delta: 42 240 chars on a 72 077-char
+        # prompt). The row answered "what was assembled" while claiming to
+        # answer "what was sent" — a rule-6 shape on private editorial text.
         #
-        # This is the transport boundary, not the caller, on purpose:
-        # `_trim_for_model` runs INSIDE `generate._call_gemini`, so a prompt
-        # logged by the caller would be the pre-trim text and would differ from
-        # what the provider received whenever the 30 000-char valve fires.
-        model_prompt_log.record_sent_prompt(
-            role=role,
-            provider=provider,
-            model=route.get("model"),
-            prompt_text=prompt_text,
-            request_id=request_id,
-            route_index=index,
-            payload_class=payload_class,
-            attempt=attempt,
-            root=prompt_log_root,
-        )
+        # Rows are now written at each terminal point of the attempt (not via
+        # a `finally`: a retried attempt must log once per EXECUTION, and a
+        # `continue` inside `finally` would log the same attempt twice). The
+        # logged text is what the transport received — see `sent_chars`
+        # below. Failed attempts are still logged, with the classifier's own
+        # category as the outcome, and a `RoleUnavailable` re-raise logs
+        # nothing: the route was never entered.
+        #
+        # This is still the transport boundary, not the caller, on purpose:
+        # a prompt logged by the caller would ALWAYS be the pre-trim text.
         try:
             if provider == "gemini":
                 kwargs = {
@@ -898,6 +896,9 @@ def _try_route(
                 if route.get("omit_thinking_config"):
                     kwargs["omit_thinking_config"] = True
                 text, meta = gemini_call(prompt_text, **kwargs)
+                # What the transport received: the Gemini caller trims
+                # inside and reports the trimmed length back.
+                sent_chars = (meta or {}).get("prompt_chars")
             else:
                 from editor_assistant.drafting.generate import _check_openrouter_model_not_paid
 
@@ -908,10 +909,25 @@ def _try_route(
                     timeout=timeout,
                     model=route.get("model"),
                 )
+                # The OpenRouter caller sends the text verbatim.
+                sent_chars = len(prompt_text)
         except RoleUnavailable:
             raise
         except Exception as exc:  # noqa: BLE001 - every provider failure is classified
             category = classify_failure(exc)
+            model_prompt_log.record_sent_prompt(
+                role=role,
+                provider=provider,
+                model=route.get("model"),
+                prompt_text=prompt_text,
+                request_id=request_id,
+                route_index=index,
+                payload_class=payload_class,
+                attempt=attempt,
+                outcome=f"FAILED:{category}",
+                sent_chars=None,
+                root=prompt_log_root,
+            )
             if category in _UNHEALTHY_UNTIL_POLICY_CHANGES:
                 mark_route(
                     route,
@@ -958,8 +974,49 @@ def _try_route(
             allowed = attempts_allowed[EMPTY_OUTPUT]
             if attempt < allowed:
                 sleep(1)
+                # A retried EMPTY counts as an execution: one row for what the
+                # transport received, even though the answer was unusable.
+                model_prompt_log.record_sent_prompt(
+                    role=role,
+                    provider=provider,
+                    model=route.get("model"),
+                    prompt_text=prompt_text,
+                    request_id=request_id,
+                    route_index=index,
+                    payload_class=payload_class,
+                    attempt=attempt,
+                    outcome=f"FAILED:{EMPTY_OUTPUT}",
+                    sent_chars=sent_chars,
+                    root=prompt_log_root,
+                )
                 continue
+            model_prompt_log.record_sent_prompt(
+                role=role,
+                provider=provider,
+                model=route.get("model"),
+                prompt_text=prompt_text,
+                request_id=request_id,
+                route_index=index,
+                payload_class=payload_class,
+                attempt=attempt,
+                outcome=f"FAILED:{EMPTY_OUTPUT}",
+                sent_chars=sent_chars,
+                root=prompt_log_root,
+            )
             return None, None, EMPTY_OUTPUT, attempt
+        model_prompt_log.record_sent_prompt(
+            role=role,
+            provider=provider,
+            model=route.get("model"),
+            prompt_text=prompt_text,
+            request_id=request_id,
+            route_index=index,
+            payload_class=payload_class,
+            attempt=attempt,
+            outcome="SENT",
+            sent_chars=sent_chars,
+            root=prompt_log_root,
+        )
         meta = dict(meta or {})
         inp, out = _tokens_from_meta(meta)
         if meta.get("provider") == "openrouter":

@@ -1399,8 +1399,24 @@ def _run_newsroom_refresh(args):
 
     A story failure must not roll back a successful collection (and vice versa):
     collection runs first and its items are on disk before stories are touched.
+
+    V1.2-G4.20. The CLI path is what `crontab` calls every hour, so it records
+    the same two run-level fields the Workbench path records: `new_stories` and
+    `grouping`. Without them every cron-refreshed run left `last_run.json`
+    without a `grouping` block and `GET /api/v1/today` returned
+    `groupingHealth: null` (unknown = no warning), silently hiding a degraded
+    grouping from the editor. A dry run records nothing; a failed story stage
+    records nothing, leaving the collection-only record (unknown grouping)
+    rather than attributing a previous run's health to this one. A deliberate
+    `--no-semantic` run records `unavailable`, the same verdict the Workbench
+    path records when it skips the semantic stage on purpose.
     """
-    from editor_assistant.workflow import newsroom_run, story_identity
+    from editor_assistant.workflow import (
+        grouping_health,
+        newsroom_run,
+        source_health,
+        story_identity,
+    )
 
     collect = newsroom_run.collect(
         dry_run=args.dry_run,
@@ -1412,10 +1428,26 @@ def _run_newsroom_refresh(args):
         newsroom_run.print_summary(collect)
         raise SystemExit(3)
     story_summary, story_error = None, ""
+    semantic = not getattr(args, "no_semantic", False)
     try:
-        story_summary = story_identity.update(dry_run=args.dry_run, semantic=not args.no_semantic)
+        story_summary = story_identity.update(dry_run=args.dry_run, semantic=semantic)
     except Exception as exc:  # noqa: BLE001 - a story failure must not lose the collection
         story_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+    if story_summary is not None and not getattr(args, "dry_run", False) and not story_error:
+        source_health.record_run_stories(story_summary.get("new_stories", 0))
+        if not semantic:
+            source_health.record_run_grouping(
+                {
+                    grouping_health.FIELD_STATUS: grouping_health.GROUPING_UNAVAILABLE,
+                    grouping_health.FIELD_REQUIRED: 0,
+                    grouping_health.FIELD_ANSWERED: 0,
+                    grouping_health.FIELD_DEGRADED: 0,
+                }
+            )
+        else:
+            grouping = story_summary.get("grouping")
+            if isinstance(grouping, dict):
+                source_health.record_run_grouping(grouping)
     print(render_refresh_summary(collect, story_summary, story_error))
     if collect["failed"]:
         raise SystemExit(1)
@@ -1774,9 +1806,10 @@ def cron_status() -> dict:
         }
 
     missing, present = [], []
+    active = [ln for ln in str(out or "").splitlines() if not ln.lstrip().startswith("#")]
     for schedule, command, log_name in NEWSROOM_CRONS:
         line = cron_line(schedule, command, log_name)
-        (present if line in out else missing).append(command)
+        (present if any(line in ln for ln in active) else missing).append(command)
 
     # A job whose crontab line is present can still never run: if the log
     # directory does not exist, the shell fails the redirect before the command
@@ -1824,7 +1857,7 @@ def render_refresh_summary(collect, stories, story_error):
     # ограничено... (5 публикации)". What was missing is the CAUSE and the way
     # out: the notice says the symptom, nothing on screen said a model route was
     # marked EXHAUSTED, and `newsroom doctor` now answers both.
-    grouping = stories.get("grouping")
+    grouping = stories.get("grouping") if isinstance(stories, dict) else None
     if isinstance(grouping, dict):
         required = int(grouping.get("semanticRequired") or 0)
         answered = int(grouping.get("semanticAnswered") or 0)

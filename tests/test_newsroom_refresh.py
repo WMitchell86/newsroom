@@ -1028,6 +1028,191 @@ def test_every_cron_line_creates_its_own_log_directory_before_the_redirect():
         assert line.endswith(f">> {cli.ROOT}/{cli.CRON_LOG_DIR}/{log_name} 2>&1")
 
 
+def _ok_collect(**kw):
+    from editor_assistant.workflow import source_health
+
+    summary = {
+        "dry_run": False,
+        "locked": False,
+        "started_at": "2026-09-20T12:00:00Z",
+        "finished_at": "2026-09-20T12:00:01Z",
+        "collected": 0,
+        "new": 0,
+        "duplicate": 0,
+        "failed": 0,
+        "sources": [],
+        "by_collector": {},
+        "estimated_network_calls": 0,
+        "network_calls": 0,
+        "unsupported": 0,
+        "skipped_invalid": 0,
+        "blocked": 0,
+        "blocked_filtered": 0,
+        "cadence_skipped": 0,
+        "bootstrap_capped": 0,
+        "excluded": {},
+    }
+    # The real `collect` persists the collection summary before stories run;
+    # the CLI merge step (`record_run_stories`/`record_run_grouping`) refuses
+    # to invent a run, so the double must do the same ordering.
+    source_health.record_run(summary)
+    return summary
+
+
+def _story_summary(**over):
+    base = {
+        "new_stories": 2,
+        "relations": {"NEW_DEVELOPMENT": 0},
+        "deterministic_matches": 0,
+        "semantic_matches": 0,
+        "exact_duplicates": 0,
+        "needs_review": 0,
+        "grouping": {"status": "degraded"},
+    }
+    base.update(over)
+    return base
+
+
+def test_cli_refresh_records_grouping_and_story_count_on_the_real_last_run(
+    newsroom, monkeypatch, capsys
+):
+    """The open §7 defect: the cron path left `grouping` unrecorded.
+
+    `_run_newsroom_refresh` is what `crontab` calls every hour; a run through
+    it must land `new_stories` and `grouping` on the same `last_run.json`
+    `refresh_newsroom` writes, so `GET /api/v1/today` stops answering
+    `groupingHealth: null` for cron-refreshed runs.
+    """
+    from types import SimpleNamespace
+
+    from editor_assistant.workflow import cli, newsroom_run, source_health, story_identity
+
+    _add_source(newsroom, "council-feed", name="Съвет")
+    monkeypatch.setattr(newsroom_run, "collect", lambda **kw: _ok_collect(**kw))
+    monkeypatch.setattr(
+        story_identity,
+        "update",
+        lambda **kw: _story_summary(),
+    )
+
+    cli._run_newsroom_refresh(
+        SimpleNamespace(dry_run=False, source=None, limit=None, force=False, no_semantic=False)
+    )
+    capsys.readouterr()
+
+    stored = source_health.read_last_run(newsroom / "last_run.json")
+    assert stored["new_stories"] == 2
+    assert stored["grouping"] == {"status": "degraded"}
+
+
+def test_cli_refresh_dry_run_records_nothing(newsroom, monkeypatch, capsys):
+    """A preview must not invent a run: no `grouping` block appears from `--dry-run`."""
+    from types import SimpleNamespace
+
+    from editor_assistant.workflow import cli, newsroom_run, source_health, story_identity
+
+    _add_source(newsroom, "council-feed", name="Съвет")
+
+    def _dry_collect(**kw):
+        # The real `collect(dry_run=True)` writes nothing; the double must match.
+        return {
+            "dry_run": True,
+            "locked": False,
+            "started_at": "2026-09-20T12:00:00Z",
+            "finished_at": "2026-09-20T12:00:01Z",
+            "collected": 0,
+            "new": 0,
+            "duplicate": 0,
+            "failed": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(newsroom_run, "collect", _dry_collect)
+    monkeypatch.setattr(
+        story_identity,
+        "update",
+        lambda **kw: _story_summary(),
+    )
+
+    cli._run_newsroom_refresh(
+        SimpleNamespace(dry_run=True, source=None, limit=None, force=False, no_semantic=False)
+    )
+    capsys.readouterr()
+
+    assert source_health.read_last_run(newsroom / "last_run.json") is None
+
+
+def test_cli_refresh_no_semantic_records_unavailable(newsroom, monkeypatch, capsys):
+    """A deliberate `--no-semantic` run says so; it never reports a false `healthy`."""
+    from types import SimpleNamespace
+
+    from editor_assistant.workflow import cli, newsroom_run, source_health, story_identity
+
+    _add_source(newsroom, "council-feed", name="Съвет")
+    monkeypatch.setattr(newsroom_run, "collect", lambda **kw: _ok_collect(**kw))
+    monkeypatch.setattr(
+        story_identity,
+        "update",
+        lambda **kw: _story_summary(new_stories=0, grouping={"status": "healthy"}),
+    )
+
+    cli._run_newsroom_refresh(
+        SimpleNamespace(dry_run=False, source=None, limit=None, force=False, no_semantic=True)
+    )
+    capsys.readouterr()
+
+    stored = source_health.read_last_run(newsroom / "last_run.json")
+    assert stored["grouping"]["status"] == "unavailable"
+
+
+def test_cli_refresh_story_failure_leaves_grouping_unknown(newsroom, monkeypatch, capsys):
+    """A story-stage failure must not attribute a previous run's health to this one."""
+    from types import SimpleNamespace
+
+    from editor_assistant.workflow import cli, newsroom_run, source_health, story_identity
+
+    _add_source(newsroom, "council-feed", name="Съвет")
+    monkeypatch.setattr(newsroom_run, "collect", lambda **kw: _ok_collect(**kw))
+
+    def _boom(**kw):
+        raise RuntimeError("story store unwritable")
+
+    monkeypatch.setattr(story_identity, "update", _boom)
+
+    cli._run_newsroom_refresh(
+        SimpleNamespace(dry_run=False, source=None, limit=None, force=False, no_semantic=False)
+    )
+    out = capsys.readouterr().out
+
+    assert "истории: RuntimeError" in out
+    stored = source_health.read_last_run(newsroom / "last_run.json")
+    assert stored is not None and "grouping" not in stored
+
+
+def test_a_commented_cron_line_is_not_reported_as_present(monkeypatch):
+    """A `#`-commented job never runs; the matcher must not claim it is installed.
+
+    Measured failure mode: `cron_status` used `line in out`, so a commented
+    line still contained the canonical substring and `doctor` counted a
+    disabled job as present. Reproduced before the fix: `"# " + line`
+    matched; after the fix it does not.
+    """
+    from editor_assistant.workflow import cli
+
+    canonical = [cli.cron_line(s, c, l) for s, c, l in cli.NEWSROOM_CRONS]
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        _fake_crontab("# " + canonical[0] + "\n" + "\n".join(canonical[1:])),
+    )
+    (cli.ROOT / cli.CRON_LOG_DIR).mkdir(parents=True, exist_ok=True)
+
+    status = cli.cron_status()
+
+    assert cli.NEWSROOM_CRONS[0][1] in status["missing"], status
+    assert cli.NEWSROOM_CRONS[0][1] not in status["present"], status
+
+
 def test_cron_status_reports_a_missing_log_directory_as_not_ok(monkeypatch, tmp_path):
     """`logDirOk` is measured, never assumed."""
     from editor_assistant.workflow import cli

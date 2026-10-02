@@ -1665,3 +1665,113 @@ def test_a_prompt_log_failure_never_breaks_the_model_call(monkeypatch, tmp_path)
     assert text == "ok", "the call must still return its answer"
     assert meta.get("model") == "m:free"
     assert model_prompt_log.read_sent_prompts(root=tmp_path) == []
+
+
+def test_a_retried_attempt_logs_once_per_execution_not_once_per_retry(monkeypatch, tmp_path):
+    """`attempts_allowed == 2` that fails twice leaves two rows, not one or three.
+
+    Non-vacuity guard for the per-execution granularity: a `finally`-placed
+    log plus a `continue` would double-log the retried attempt (three rows);
+    a log only on terminal return would drop the retried attempt (one row).
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "prompts.jsonl"))
+    policy = _policy_with(
+        "draft",
+        [_route("openrouter", "m:free", billing="free")],
+        default_payload_class="public",
+        **{"global": {"max_transient_attempts": 2, "max_rate_limited_attempts": 0}},
+    )
+
+    calls = {"n": 0}
+
+    def flaky(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise _FakeHTTPError(500, "")
+        return ("ok", {"provider": "openrouter"})
+
+    text, _meta = model_router.call_role(
+        "draft",
+        "prompt",
+        policy=policy,
+        call_map=_Callers(openrouter=flaky).as_map(),
+        sleep=lambda _s: None,
+    )
+
+    assert text == "ok"
+    assert calls["n"] == 2, "the transport really executed twice"
+    rows = model_prompt_log.read_sent_prompts()
+    assert [r["attempt"] for r in rows] == [1, 2], rows
+    assert rows[0]["outcome"].startswith("FAILED:"), rows
+    assert rows[-1]["outcome"] == "SENT", rows
+
+
+def test_a_trimmed_gemini_prompt_logs_what_was_sent(monkeypatch, tmp_path):
+    """The row answers "what was sent", not "what was assembled".
+
+    Regression for the pre-trim logging bug: `_trim_for_model` runs inside
+    `_call_gemini`, so a 72k-char prompt arrives at the provider trimmed to
+    ~30k. The row must carry the transport-reported `sent_chars`, and the
+    stored text must be the trimmed text — not the 42k chars the provider
+    never saw. Mutate `sent_chars` handling and this fails.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "prompts.jsonl"))
+    policy = _policy_with(
+        "draft",
+        [_route("gemini", "gemini-3.8-flash")],
+        default_payload_class="public",
+    )
+
+    full = (
+        "===== TASK =====\nDo the thing.\n===== STYLE_EXAMPLES =====\n"
+        + "пример ".join(["x"] * 9000)
+        + "\n===== OUTPUT =====\n{json}"
+    )
+    assert len(full) > 30000, "the test only means something past the trim valve"
+    trimmed = generate._trim_for_model(full)
+    assert len(trimmed) < len(full)
+
+    def gemini_trim(prompt_text, **_kw):
+        sent = generate._trim_for_model(prompt_text)
+        return ("ok", {"provider": "gemini", "prompt_chars": len(sent), "_sent": sent})
+
+    model_router.call_role(
+        "draft",
+        full,
+        policy=policy,
+        call_map=_Callers(gemini=gemini_trim).as_map(),
+        sleep=lambda _s: None,
+    )
+
+    rows = model_prompt_log.read_sent_prompts()
+    assert len(rows) == 1, rows
+    assert rows[0]["outcome"] == "SENT", rows
+    assert rows[0]["sent_chars"] == len(trimmed), rows
+    assert rows[0]["chars"] == len(full), rows
+
+
+def test_a_chmod_failure_writes_no_world_readable_row(monkeypatch, tmp_path):
+    """Fail CLOSED: if 0600 cannot be enforced, nothing world-readable remains.
+
+    The guard is sabotaged at `os.fchmod` (the enforcement point), not at
+    `record_sent_prompt`: patching the public function would pass for the
+    wrong reason. After the fix the row is absent; before it, the row sat on
+    disk at the file's prior mode.
+    """
+    monkeypatch.delenv("MODEL_PROMPT_LOG", raising=False)
+
+    def deny(_fd, _mode):
+        raise OSError("chmod denied")
+
+    monkeypatch.setattr(__import__("os"), "fchmod", deny)
+    row = model_prompt_log.record_sent_prompt(
+        role="draft", provider="gemini", model="m", prompt_text="x", root=tmp_path
+    )
+
+    assert row is None, "best effort: the call reports the loss, it does not raise"
+    path = tmp_path / "editorial_workflow" / model_prompt_log.FILENAME
+    assert not path.exists() or path.read_text(encoding="utf-8") == ""
