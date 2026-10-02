@@ -198,7 +198,9 @@ verification_plan:
 Ако по време на работа се появи добра нова идея:
 
 - не я имплементирай;
-- добави я в `BACKLOG.md`;
+- запиши я в git history като отложена идея (от 2026-10-02 няма отдел
+  backlog файл; не се създава нов, докато не се натрупат реални отложени
+  идеи);
 - продължи текущата задача.
 
 ---
@@ -779,7 +781,8 @@ Approved events → Friday compilation.
 - добави локален config loader без реални secrets;
 - добави structured logging skeleton;
 - добави test runner и един smoke test;
-- добави `BACKLOG.md` и current milestone файл;
+- добави current state файл (няма отделни `BACKLOG.md` / milestone файлове
+  от 2026-10-02; виж `AGENTS.md`);
 - запази `AUTO_PUBLISH=false`;
 - осигури dry-run като default за бъдещи external writes.
 
@@ -919,7 +922,7 @@ Hook синтаксисът зависи от конкретния AI harness. �
 
 - прочети този файл;
 - прочети current milestone;
-- прочети `BACKLOG.md`;
+- прочети `AGENTS.md` и `RUNBOOK.md`;
 - потвърди scope;
 - забрани scope creep.
 
@@ -1196,8 +1199,8 @@ Harness-ът трябва само да:
 6. добави `AUTO_PUBLISH=false` като hard default;
 7. добави `DRY_RUN=true` като hard default за бъдещи external writes;
 8. добави test runner и един smoke test;
-9. добави `BACKLOG.md`;
-10. добави current milestone/status файл;
+9. добави `AGENTS.md` (работи правила); отделният `BACKLOG.md` е премахнат;
+10. поддържай current state в `AGENTS.md` / commit history;
 11. добави `.ai/skills/` и началните harness skill файлове;
 12. изпълни тестовете и покаже доказателство, че clean checkout може да стартира локално.
 
@@ -1207,8 +1210,8 @@ Harness-ът трябва само да:
 .
 ├── README.md
 ├── AI_HARNESS_EDITOR_ASSISTANT.md
-├── BACKLOG.md
-├── MILESTONE.md
+├── AGENTS.md
+├── RUNBOOK.md
 ├── .gitignore
 ├── .env.example
 ├── pyproject.toml

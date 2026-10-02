@@ -74,7 +74,8 @@ becomes the next narrowly-scoped milestone after D1–D8 answers.
 ---
 
 ## Addendum (2026-09-12, M1.5 steps 2–3)
-- **D1–D7 were implemented in step 2** (see MILESTONE.md): display name, subject promotion,
+- **D1–D7 were implemented in step 2** (2026-09, milestone log since removed; see
+  `git log --diff-filter=D -- MILESTONE.md`): display name, subject promotion,
   boilerplate strip-list, 280-char cap after cleaning, BG local time, compact attachments
   (+N още), emoji markers. D8 kept the source page last.
 - **§8 duplicate finding, measured on real data: 11/19** cleaned excerpts repeat the

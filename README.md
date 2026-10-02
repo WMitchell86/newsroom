@@ -6,10 +6,15 @@ write added since is the M1.4B Telegram **TEST-channel** alert, which stays
 dry-run by default (see below).
 
 Full harness rules: [`AI_HARNESS_EDITOR_ASSISTANT.md`](./AI_HARNESS_EDITOR_ASSISTANT.md).
-**Current state: [`CURRENT_STATE.md`](./CURRENT_STATE.md).** (`MILESTONE.md` and
-`handoff.md` are chronological history.) Deferred ideas: [`BACKLOG.md`](./BACKLOG.md).
+**Start here: [`AGENTS.md`](./AGENTS.md) — working rules, each tied to a recorded
+failure.** Operations and troubleshooting: [`RUNBOOK.md`](./RUNBOOK.md).
 Alert format calibration (editor decisions pending): [`UX_AUDIT.md`](./UX_AUDIT.md).
-Session guides for AI agents: [`AGENTS.md`](./AGENTS.md) (how to work in this repo).
+
+`CURRENT_STATE.md`, `MILESTONE.md`, `handoff.md` and `BACKLOG.md` were removed on
+2026-10-02. They were append-only process logs (219 KB across four files) that no
+code referenced and that no longer described the system — their newest entry
+predated the work of that day. Read them in git history if you need the record:
+`git log --diff-filter=D -- CURRENT_STATE.md`.
 
 ## Safety defaults
 
@@ -198,7 +203,9 @@ Reports: `m4/review/M4A1_DEFAULT_SOURCE_PACK_REPORT.md`,
 `m4/review/M4B_DAILY_INBOX_REPORT.md`, `m4/review/M4B1_FEED_STABILIZATION_REPORT.md`,
 `m4/review/M4C_STORY_IDENTITY_REPORT.md`, `m4/review/M4C_STORY_REVIEW_PACK.md`.
 **Next milestone: primary-route cutover of the `frontend/` SPA (D2), owner-approved
-after the D1 serving proof.** Telegram alerts stay backlog — see `BACKLOG.md`.
+after the D1 serving proof.** Telegram alerts stay backlog — the M3B.1 decision
+was deferred (2026-09) and its backlog file has since been removed; the decision
+itself is unchanged and is still recorded in git history.
 
 ## M1.4B Telegram TEST delivery (manual, opt-in)
 

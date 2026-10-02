@@ -54,7 +54,8 @@ DEFAULTS = {
     # OFF by default: the fallback contacts an unrelated third party (public
     # Invidious instances) and sends the video id to it, and the live probe on
     # 2026-09-19 found 0 of 9 instances serving captions. An operator must opt
-    # in explicitly - see BACKLOG.md (M3B.1 deferred).
+    # in explicitly - the M3B.1 decision deferred it (2026-09; the backlog file
+    # has since been removed, the decision stands).
     "fallback_enabled": False,
     "impersonate": "",  # off by default: needs the optional curl-cffi extra
 }
