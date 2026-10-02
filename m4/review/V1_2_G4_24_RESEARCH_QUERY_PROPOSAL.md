@@ -113,7 +113,52 @@ The questions stop being decoration and become the plan.
 - The existing `research-trace` store already records every considered page, so
   the improvement is measurable from data the product already keeps.
 
-## 7. What I did do in this slice (items 1 and 2, shipped)
+## 7. Reasoning effort: what is actually available (measured, 2026-10-02)
+
+The owner asked whether the models' thinking could be turned down or off, so
+that a draft call is "prompt + gathered info -> article". Measured against the
+live API on `stealth/space-bunny-alpha` with the real 2 858-char draft prompt:
+
+| payload | result |
+|---|---|
+| `reasoning.effort: none` | **HTTP 400** "Reasoning is mandatory for this endpoint and cannot be disabled." |
+| `reasoning.enabled: false` | **HTTP 400**, same message |
+| `reasoning_effort: minimal` | the only variant that ever returned content — 996 chars, reasoning 560, 505 completion tokens, 7.1 s |
+| `reasoning_effort: low` | no effect observed |
+
+**So OFF is not available on this endpoint.** `low` is the floor. The same
+`minimal` run repeated later returned nothing in 969 ms — indistinguishable from
+the 429s returned in the same minute — so even `minimal` has one observation
+behind it, not a measurement.
+
+Shipped: `OPENROUTER_REASONING_EFFORT`, **default OFF**, and two tests pin that
+it is omitted unless the operator opts in. Sending `none` blind would earn a
+400 on every call.
+
+The reliable answer is not a parameter, it is the model: `nemotron-3-ultra-550b-a55b:free`
+answered the identical prompt in 19 s with 1 354 characters and 4 paragraphs,
+and does not exhibit this behaviour.
+
+## 8. Where the questions already go (a correction to my own framing)
+
+I described the model's questions as "decoration". That was half wrong, and the
+half that was wrong matters: they **already reach the draft prompt**, as
+`===== CURRENT_UNKNOWNS =====` in the real logged 12 630-char draft prompt:
+
+```
+- Кои хора са засегнати и как?
+- Защо това има значение за читателя тук и сега?
+- Какъв е обхватът (числа, брой участници/ползватели)?
+- Кой орган/отговорник е източникът на информацията?
+- Кога и къде?
+```
+
+So the editor's model already receives them as focus guidance. The gap is
+narrower than it looked: **the questions guide the WRITING but not the SEARCH.**
+That is exactly the split the owner described, and it is why the fix is narrower
+than a rewrite.
+
+## 9. What I did do in this slice (items 1 and 2, shipped)
 
 - **Reasoning is now parsed and reported.** `delta.reasoning` /
   `delta.reasoning_content` are counted and surfaced; they are never returned as
@@ -123,6 +168,13 @@ The questions stop being decoration and become the plan.
   `completion_tokens=32768` (the full budget), 101 417 chars of reasoning, zero
   content, in 292 s. The one 352 s success was the exception, not the rule.
   `OPENROUTER_MAX_TOKENS` stays at 8192 and a test pins that negative result.
+- **Reasoning effort is opt-in, not assumed** (section 7).
+- **Query construction fixed for parts (a) and (b)** — shipped separately in
+  `a24a686`: the outlet name no longer reaches a query as a Google NOT-term, and
+  acronyms (`БСУ`, `МВР`) are recognised as entities. The real story's query went
+  from 87 characters with a NOT-term to 46 characters without one.
+- **Research trace** (`newsroom stories research-trace`) leads with what research
+  gathered rather than pages fetched, and flags the two quiet failures.
 - **Lesson recorded:** a single successful run was reported to the owner as a
   fix. It was one sample out of four. Run counts, not single observations
   (AGENTS.md rule 8).

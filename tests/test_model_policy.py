@@ -1973,6 +1973,57 @@ def test_the_operator_output_explains_a_reasoning_budget_failure():
     assert "OPENROUTER_MAX_TOKENS" in cli.next_step("FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING")
 
 
+def test_reasoning_effort_is_omitted_unless_the_operator_opts_in():
+    """The endpoint refuses `none` outright, so this must never be sent blind.
+
+    Measured: `reasoning.effort=none` and `reasoning.enabled=false` both return
+    HTTP 400 "Reasoning is mandatory for this endpoint and cannot be disabled."
+    """
+    from editor_assistant.drafting import generate
+
+    assert generate.OPENROUTER_REASONING_EFFORT == "", "must be opt-in"
+
+    sent = _sent_openrouter_payload(generate)
+    assert "reasoning_effort" not in sent, sent
+    assert "reasoning" not in sent, sent
+
+
+def test_an_opted_in_effort_is_sent_verbatim(monkeypatch):
+    from editor_assistant.drafting import generate
+
+    monkeypatch.setattr(generate, "OPENROUTER_REASONING_EFFORT", "minimal")
+    sent = _sent_openrouter_payload(generate)
+    assert sent["reasoning_effort"] == "minimal", sent
+
+
+def _sent_openrouter_payload(generate) -> dict:
+    """The JSON body `_call_openrouter` actually put on the wire."""
+    import io
+    import urllib.request
+
+    sent: dict = {}
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            self.close()
+            return False
+
+    def _capture(req, *_a, **_k):
+        sent.update(json.loads(req.data.decode("utf-8")))
+        return _Resp(b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n')
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = _capture
+    try:
+        generate._call_openrouter("p", api_key="k", timeout=5, model="m:free")
+    finally:
+        urllib.request.urlopen = real
+    return sent
+
+
 def test_the_research_summary_reports_what_was_actually_gathered():
     """The achievement, not the activity. Measured need: a round can consider
     many pages, keep some, and still gather nothing."""

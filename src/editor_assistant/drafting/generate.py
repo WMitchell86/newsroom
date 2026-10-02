@@ -48,6 +48,33 @@ OPENROUTER_MAX_TOKENS = int(os.environ.get("OPENROUTER_MAX_TOKENS", "8192"))
 #: chain-of-thought into the editor's draft store.
 REASONING_DELTA_KEYS = ("reasoning", "reasoning_content")
 
+#: V1.2-G4.26. Reasoning effort, sent ONLY when the operator opts in.
+#:
+#: The owner asked whether the thinking could be turned down or off. Measured on
+#: the live API, `stealth/space-bunny-alpha`, real 2 858-char draft prompt:
+#:
+#:     reasoning.effort=none       -> HTTP 400 "Reasoning is mandatory for this
+#:                                    endpoint and cannot be disabled."
+#:     reasoning.enabled=false     -> HTTP 400, same message
+#:     reasoning_effort=minimal    -> the ONLY variant that ever returned content
+#:                                    (996 chars, reasoning 560, 505 completion
+#:                                    tokens, 7.1 s)
+#:
+#: So OFF is not available on this endpoint; LOW is the floor.
+#:
+#: Default is OFF because the evidence is thin, not because it is useless: the
+#: one `minimal` success came from a single run, and a later repeat of the same
+#: shape returned nothing in 969 ms - indistinguishable from the 429s the same
+#: minute returned. A single observation is not a fix (AGENTS.md rule 8).
+#:
+#: Enable deliberately, per model, once it has been measured on YOUR workload:
+#:
+#:     OPENROUTER_REASONING_EFFORT=minimal
+#:
+#: A model that does not support the parameter is unaffected: the catalog lists
+#: `reasoning_effort` per model, and OpenRouter ignores unknown fields.
+OPENROUTER_REASONING_EFFORT = str(os.environ.get("OPENROUTER_REASONING_EFFORT", "")).strip()
+
 # Gemini 3.x spends output budget on internal "thinking" before emitting text.
 # For structured JSON drafting that starved the answer (measured: 1921 thinking
 # tokens vs 75 output tokens -> truncated JSON that could not parse). Disable
@@ -325,6 +352,11 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
             # answers with ONE json object, no line starts with `data:`, and the
             # caller silently receives an empty completion.
             "stream": True,
+            # V1.2-G4.26: omitted unless the operator opts in, because the
+            # endpoint refuses `none` outright and `minimal` has only been seen
+            # to work once. See OPENROUTER_REASONING_EFFORT.
+            **({"reasoning_effort": OPENROUTER_REASONING_EFFORT}
+               if OPENROUTER_REASONING_EFFORT else {}),
         }
     ).encode("utf-8")
     req = urllib.request.Request(
