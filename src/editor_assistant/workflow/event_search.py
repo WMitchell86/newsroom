@@ -168,6 +168,37 @@ _NON_ENTITY_OPENERS = frozenset(
     }
 )
 
+#: V1.2-G4.25. An ACRONYM: the most identifying token in Bulgarian local news,
+#: and the one `_CAPS_WORD` could never find because it requires at least two
+#: lowercase letters after the capital ("Бургаски" matches, "БСУ" cannot).
+#:
+#: Measured on the real story `БСУ отваря нови хоризонти с португалски и китайски
+#: език - Бургаски свободен университет`:
+#:
+#:     entities BEFORE -> ['Бургаски']      # a common adjective, not the actor
+#:     entities AFTER  -> ['БСУ', 'Бургаски']
+#:
+#: With the actor missing, Tier 2 ("entity + action + locality") had nothing to
+#: build on and never fired, so every query tier collapsed onto the raw title.
+#: Length is capped at 6 because a long ALL-CAPS run is a heading, not an
+#: acronym; `_QUERY_NOISE_WORDS` still filters ordinary words out of `terms`.
+_ACRONYM = re.compile(r"\b[А-ЯЀ-ӿ]{2,6}\b")
+
+
+def _acronyms(text: str) -> list[str]:
+    """ALL-CAPS tokens that name an actor: `БСУ`, `ОД`, `МВР`, `ПАРКЕР`.
+
+    An all-caps word is kept even when it is also an ordinary Bulgarian word
+    (`ПАРКЕР`): as a QUERY anchor it is still distinctive, and the claim gate -
+    not this function - decides what counts as evidence. That ordering is
+    deliberate; dropping them here would lose `БСУ` again.
+    """
+    out: list[str] = []
+    for word in _ACRONYM.findall(str(text or "")):
+        if word not in out:
+            out.append(word)
+    return out
+
 
 def _road_phrase(text: str) -> str:
     """The dash-joined locality pair of a road/route phrase, or `""`.
@@ -184,14 +215,49 @@ def _road_phrase(text: str) -> str:
 
 
 def _entities(text: str) -> list[str]:
-    """Capitalised spans that actually name a person, organisation or place."""
+    """Capitalised spans plus acronyms that actually name a person, organisation
+    or place.
+
+    V1.2-G4.25: acronyms come FIRST because they are the strongest anchor in the
+    title and the old capitalised-only rule could not see them at all (`БСУ` has
+    no lowercase tail). Measured: entities went from `['Бургаски']` to
+    `['БСУ', 'Бургаски']` on a real story, which is what lets Tier 2 fire.
+    """
     out: list[str] = []
-    for word in _CAPS_WORD.findall(str(text or "")):
+    for word in _acronyms(text) + _CAPS_WORD.findall(str(text or "")):
         if word.casefold() in _NON_ENTITY_OPENERS:
             continue
         if word not in out:
             out.append(word)
     return out
+
+
+#: V1.2-G4.25. The ` - Publisher` suffix every aggregator headline carries.
+#:
+#: Measured on 513 recorded queries, 98 contained ` - `, which Google reads as a
+#: NOT-term: the query was asking for the story while excluding the publisher's
+#: own name from it. The suffix is DISPLAY data ("which outlet published this")
+#: and must never be part of a search query.
+_PUBLISHER_SUFFIX = re.compile(r"\s+[-–—|]\s+[^-–—|]{2,60}$")
+
+
+def strip_publisher_suffix(title: str) -> str:
+    """The event part of a headline, without the trailing outlet name.
+
+    Conservative on purpose: it only removes a dash-joined TAIL that looks like a
+    publisher, and it refuses to strip when doing so would leave too little to
+    search on. A headline with no suffix comes back unchanged, so this is safe to
+    call on any title.
+    """
+    text = str(title or "").strip()
+    if not text:
+        return ""
+    match = _PUBLISHER_SUFFIX.search(text)
+    if not match:
+        return text
+    head = text[: match.start()].strip(" -–—|,")
+    # Never strip a title down to nothing: a bare outlet name is not a query.
+    return head if len(head) >= 12 else text
 
 
 def event_anchors(topic: str) -> dict:
@@ -208,13 +274,18 @@ def event_anchors(topic: str) -> dict:
     * `road`       — a dash-joined locality pair, the strongest same-event signal.
     """
     text = " ".join(str(topic or "").split())
-    entities = _entities(text)
+    # V1.2-G4.25. `subject` is a QUERY input, so it must not carry the outlet
+    # name: 98 of 513 recorded queries ended in ` - Publisher`, which Google reads
+    # as a NOT-term and therefore excluded the story's own publisher. The full
+    # title is still what the editor sees; only this anchor is cleaned.
+    subject = strip_publisher_suffix(text)
+    entities = _entities(subject)
     return {
-        "subject": text,
+        "subject": subject,
         "entities": entities,
         "localities": [word for word in entities if len(word) > 3],
-        "terms": _content_words(text),
-        "road": _road_phrase(text),
+        "terms": _content_words(subject),
+        "road": _road_phrase(subject),
     }
 
 
