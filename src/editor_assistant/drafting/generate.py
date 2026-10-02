@@ -319,15 +319,65 @@ def _call_gemini(
     raise last_err
 
 
+class OpenRouterProviderError(RuntimeError):
+    """An error OpenRouter reported INSIDE a 200 response.
+
+    V1.2-G4.27. OpenRouter streams `{"error": {...}}` as a normal `data:` frame
+    and also returns an error object with HTTP 200. The SSE loop used to read
+    only `choices`, so both shapes fell through as an empty string and the
+    router recorded `EMPTY_OUTPUT` - retrying a rate limit as if the model had
+    nothing to say, and reporting the wrong cause to the operator.
+
+    `code` is an int and `_chernomorie_body` is the raw JSON, because
+    `model_router.classify_failure` reads exactly those two attributes. That is
+    what routes a 429 here to RATE_LIMITED instead of to a blind TRANSIENT.
+    """
+
+    def __init__(self, message, *, code=None, body=""):
+        super().__init__(message)
+        self.code = code if isinstance(code, int) else None
+        self._chernomorie_body = str(body or "")
+
+
+def _raise_openrouter_error(data) -> None:
+    """Raise when an OpenRouter frame/object carries an `error`, else return.
+
+    Called for EVERY parsed event, before `choices` is touched, and for the
+    non-streaming body as well - an error arriving after partial content must
+    fail the attempt rather than be reported as a usable answer.
+    """
+    error = (data or {}).get("error") if isinstance(data, dict) else None
+    if not error:
+        return
+    if isinstance(error, str):
+        error = {"message": error}
+    if not isinstance(error, dict):
+        error = {"message": str(error)}
+    raw = error.get("code")
+    try:
+        numeric = int(raw)
+    except (TypeError, ValueError):
+        numeric = None
+    message = str(error.get("message") or error.get("type") or "OpenRouter reported an error")
+    raise OpenRouterProviderError(
+        message,
+        code=numeric,
+        body=json.dumps(error, ensure_ascii=False)[:2000],
+    )
+
+
 def _openrouter_nonstream_text(body_text):
     """Content of a NON-streaming chat-completion body ("" when absent/malformed).
 
-    Used only as a fallback when the streaming parse yielded nothing.
+    Used only as a fallback when the streaming parse yielded nothing. Raises
+    `OpenRouterProviderError` when the body is an error object, so a rate limit
+    delivered as a plain JSON 200 is not silently turned into "".
     """
     try:
         data = json.loads(body_text)
     except ValueError:
         return ""
+    _raise_openrouter_error(data)
     choices = data.get("choices") or []
     if not choices:
         return ""
@@ -347,10 +397,13 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
             # the model spent the whole 32 768-token budget thinking and still
             # returned nothing, in 292 s. See OPENROUTER_MAX_TOKENS.
             "max_tokens": OPENROUTER_MAX_TOKENS,
-            # The parser below reads OpenAI-style SSE frames (`data: {...}`), so
-            # streaming MUST be requested explicitly.  Without it OpenRouter
-            # answers with ONE json object, no line starts with `data:`, and the
-            # caller silently receives an empty completion.
+            # V1.2-G4.27: corrected. This comment used to claim streaming is
+            # MANDATORY and that without it "the caller silently receives an
+            # empty completion". That was true when this function only read
+            # `data:` frames. `_openrouter_nonstream_text` below now parses a
+            # plain JSON completion - and, since G4.27, RAISES on an error
+            # object instead of returning "". Streaming is still requested so
+            # long answers do not wait for the whole generation.
             "stream": True,
             # V1.2-G4.26: omitted unless the operator opts in, because the
             # endpoint refuses `none` outright and `minimal` has only been seen
@@ -389,9 +442,14 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
     # operator sees "empty output" and has to guess between a dead model, a
     # quota wall, a truncated answer and a model that spent its budget thinking
     # (AGENTS.md rule 6).
-    prompt_chars = None
-    completion_tokens = None
+    # `usage_total` below replaces the two `prompt_chars`/`completion_tokens`
+    # locals that used to be assigned here and overwrote each other frame.
     reasoning_chars = 0
+    # V1.2-G4.27: a malformed frame is counted instead of vanishing. A dropped
+    # event means the answer may be short, and silently reporting a clean success
+    # over an incomplete response is the rule-6 shape.
+    malformed_frames = 0
+    usage_total: dict = {}
     for raw_line in body.splitlines():
         line = raw_line.strip()
         if not line.startswith("data:"):
@@ -402,16 +460,25 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
         try:
             data = json.loads(payload_text)
         except ValueError:
+            malformed_frames += 1
             continue
+        # V1.2-G4.27: BEFORE `choices`. An error frame arriving after partial
+        # content must fail the attempt, not be reported as a usable answer.
+        _raise_openrouter_error(data)
         usage = data.get("usage") or {}
+        # Merge rather than overwrite: OpenRouter sends usage on the LAST frame
+        # only, and an earlier event without it used to reset the totals to 0.
         if isinstance(usage, dict):
-            prompt_chars = usage.get("prompt_tokens") or prompt_chars
-            completion_tokens = usage.get("completion_tokens") or completion_tokens
+            for key, value in usage.items():
+                if isinstance(value, (int, float)):
+                    usage_total[key] = usage_total.get(key, 0) + value
         choices = data.get("choices") or []
         if not choices:
             continue
         choice = choices[0]
         finish_reason = choice.get("finish_reason") or finish_reason
+        if choice.get("error"):
+            _raise_openrouter_error({"error": choice["error"]})
         delta = choice.get("delta", {}) or {}
         if delta.get("content"):
             chunks.append(delta["content"])
@@ -426,12 +493,19 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
         text = _openrouter_nonstream_text(body)
     return text, {
         "model": model,
-        "usage": {},
+        # V1.2-G4.27: the REAL usage, accumulated across frames. It used to be
+        # hardcoded to `{}`, so `_tokens_from_meta` read zero tokens for every
+        # OpenRouter call and the usage ledger under-counted the whole fleet.
+        "usage": usage_total,
         "provider": "openrouter",
         "finish_reason": finish_reason,
-        "prompt_chars": prompt_chars,
-        "completion_tokens": completion_tokens,
+        # The prompt's CHARACTER count - measured, not a token count. The old
+        # code put `usage.prompt_tokens` in this field, so the name lied.
+        "prompt_chars": len(prompt_text),
+        "input_tokens": int(usage_total.get("prompt_tokens") or 0),
+        "completion_tokens": int(usage_total.get("completion_tokens") or 0),
         "reasoning_chars": reasoning_chars,
+        "malformed_frames": malformed_frames,
     }
 
 

@@ -37,6 +37,8 @@ PAYMENT_REQUIRED  402 (no credits)          -> route unhealthy until the account
                                               the policy changes (never retried blindly)
 TRANSIENT         5xx / network / timeout   -> bounded retry, then continue
 EMPTY_OUTPUT      empty or malformed answer -> one bounded retry, then continue
+PROVIDER_ERROR     provider errored mid-generation or in the body -> never a
+                                              "successful" partial answer
 NO_KEY            provider key missing      -> skip, continue
 ```
 
@@ -77,6 +79,12 @@ AUTH_FAILED = "AUTH_FAILED"
 PAYMENT_REQUIRED = "PAYMENT_REQUIRED"
 TRANSIENT = "TRANSIENT"
 EMPTY_OUTPUT = "EMPTY_OUTPUT"
+#: V1.2-G4.27. The provider ended the generation with an error of its own -
+#: `finish_reason: "error"`, or an `{"error": ...}` object inside a 200 response.
+#: Previously these arrived as an empty string and were recorded as
+#: EMPTY_OUTPUT, so a failed generation looked like a model with nothing to say
+#: and a rate limit was retried as if it were a quality problem.
+PROVIDER_ERROR = "PROVIDER_ERROR"
 NO_KEY = "NO_KEY"
 PAID_DISABLED = "PAID_DISABLED"
 PRIVACY_BLOCKED = "PRIVACY_BLOCKED"
@@ -1005,6 +1013,34 @@ def _try_route(
                 continue
             return None, None, category, attempt
         latency_ms = int((time.monotonic() - started) * 1000)
+        # V1.2-G4.27. A `finish_reason` of "error" is the provider telling us the
+        # generation FAILED. Non-empty text alongside it is a partial answer, and
+        # accepting it labelled a failed generation a success: no fallback ran,
+        # and the row was logged `SENT`. This is the one case where non-empty
+        # text must not count as an answer.
+        if str((meta or {}).get("finish_reason") or "").strip().lower() == "error":
+            model_prompt_log.record_sent_prompt(
+                role=role,
+                provider=provider,
+                model=route.get("model"),
+                prompt_text=prompt_text,
+                request_id=request_id,
+                route_index=index,
+                payload_class=payload_class,
+                attempt=attempt,
+                outcome=f"FAILED:{PROVIDER_ERROR}",
+                sent_chars=sent_chars,
+                root=prompt_log_root,
+            )
+            reasons.append(
+                {
+                    "route_index": index,
+                    "route": route_key(route),
+                    "event": "ERROR",
+                    "reason": f"{PROVIDER_ERROR}: provider ended the generation with an error",
+                }
+            )
+            return None, None, PROVIDER_ERROR, attempt
         if not (text or "").strip():
             allowed = attempts_allowed[EMPTY_OUTPUT]
             # V1.2-G4.22. WHY it was empty, in the operator's language.

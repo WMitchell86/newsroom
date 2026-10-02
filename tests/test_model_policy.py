@@ -1894,8 +1894,13 @@ def test_reasoning_is_counted_but_never_returned_as_the_answer():
     assert text == "Бургас, велосипеди.", text
     assert "мисъл" not in text, "chain-of-thought must never reach the draft store"
     assert meta["reasoning_chars"] == len("мисъл едно ") + len("мисъл две"), meta
-    assert meta["completion_tokens"] == 3956, meta
-    assert meta["prompt_chars"] == 423, meta
+    # V1.2-G4.27: usage is the REAL accumulated dict, and the prompt's CHARACTER
+    # count is measured from the text. It used to hold `usage.prompt_tokens`, so
+    # the field name lied and this test pinned the lie.
+    assert meta["usage"]["completion_tokens"] == 3956, meta
+    assert meta["input_tokens"] == 423, meta
+    assert meta["prompt_chars"] == len("prompt"), meta
+    assert meta["prompt_chars"] != meta["input_tokens"], "chars and tokens are different units"
 
 
 def test_reasoning_content_is_the_other_spelling_and_also_counted():
@@ -2022,6 +2027,91 @@ def _sent_openrouter_payload(generate) -> dict:
     finally:
         urllib.request.urlopen = real
     return sent
+
+
+def test_a_provider_error_frame_is_not_swallowed_into_an_empty_string():
+    """V1.2-G4.27. OpenRouter streams `{"error": {...}}` as a normal `data:` frame.
+
+    The SSE loop read only `choices`, so this arrived as "" and the router
+    recorded EMPTY_OUTPUT - retrying a rate limit as if the model had nothing to
+    say, and reporting the wrong cause.
+    """
+    from editor_assistant.drafting import generate
+
+    body = _sse('{"error":{"code":429,"message":"Rate limit exceeded"}}')
+    with pytest.raises(generate.OpenRouterProviderError) as excinfo:
+        _call_with_body(generate, body)
+
+    # The attributes `classify_failure` actually reads.
+    assert excinfo.value.code == 429, excinfo.value
+    assert "Rate limit" in str(excinfo.value)
+    assert "Rate limit" in excinfo.value._chernomorie_body
+
+
+def test_a_provider_error_delivered_as_plain_json_200_also_raises():
+    """Not every provider error is a frame; some are a bare JSON body."""
+    from editor_assistant.drafting import generate
+
+    raw = json.dumps({"error": {"code": 429, "message": "Rate limit exceeded"}})
+    with pytest.raises(generate.OpenRouterProviderError) as excinfo:
+        generate._openrouter_nonstream_text(raw)
+    assert excinfo.value.code == 429
+
+
+def test_an_error_arriving_after_partial_content_fails_the_attempt():
+    """Partial text plus a provider error is a FAILED generation, not an answer."""
+    from editor_assistant.drafting import generate
+
+    body = _sse(
+        '{"choices":[{"delta":{"content":"Бургас, "},"finish_reason":null}]}',
+        '{"error":{"code":500,"message":"upstream failed"}}',
+    )
+    with pytest.raises(generate.OpenRouterProviderError):
+        _call_with_body(generate, body)
+
+
+def test_the_router_will_not_call_a_finish_reason_error_a_success():
+    """V1.2-G4.27. Non-empty text + `finish_reason: "error"` used to be logged SENT.
+
+    That labelled a failed generation a success: no fallback ran.
+    """
+    from editor_assistant.drafting import model_router
+
+    assert model_router.PROVIDER_ERROR == "PROVIDER_ERROR"
+    # And the outcome helper still names an ordinary empty answer as such.
+    assert model_router.empty_output_outcome({"finish_reason": ""}) == (
+        "FAILED:EMPTY_OUTPUT:no_stop_reason"
+    )
+
+
+def test_a_malformed_frame_is_counted_rather_than_vanishing():
+    """A dropped event means the answer may be short; silence hides that."""
+    from editor_assistant.drafting import generate
+
+    raw = (
+        'data: {not json at all}\n'
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n'
+        "data: [DONE]\n"
+    ).encode("utf-8")
+    text, meta = _call_with_body(generate, raw)
+    assert text == "ok", text
+    assert meta["malformed_frames"] == 1, meta
+
+
+def test_usage_accumulates_and_is_not_reset_by_later_frames():
+    """OpenRouter sends usage on the LAST frame; an earlier frame without it must
+    not zero the totals."""
+    from editor_assistant.drafting import generate
+
+    body = _sse(
+        '{"usage":{"prompt_tokens":10,"completion_tokens":1},"choices":[{"delta":{"content":"a"}}]}',
+        '{"choices":[{"delta":{"content":"b"},"finish_reason":null}]}',
+        '{"choices":[{"delta":{},"finish_reason":"stop"}]}',
+    )
+    text, meta = _call_with_body(generate, body)
+    assert text == "ab", text
+    assert meta["usage"]["completion_tokens"] == 1, meta
+    assert meta["input_tokens"] == 10, meta
 
 
 def test_the_research_summary_reports_what_was_actually_gathered():
