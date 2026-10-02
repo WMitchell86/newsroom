@@ -8,6 +8,7 @@ HTTP parsing, response formatting, provider work, or orchestration.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -1017,7 +1018,15 @@ def _article_projection(
             },
             # Current-content warnings: never the generation-time audit of an
             # immutable Draft, and never an empty set invented by a failed check.
-            "warnings": [dict(row) for row in validation.warnings] if validation else [],
+            # V1.2-G4.31: the semantic judge's own findings are appended, and
+            # ONLY while the current body still matches the text it audited — they
+            # are withdrawn on the first edit rather than shown against text they no
+            # longer describe. Before this the judge could name an invented entity
+            # and the editor saw nothing; see `_judge_findings`.
+            "warnings": (
+                [dict(row) for row in validation.warnings] if validation else []
+            )
+            + _judge_findings(article["article_id"], content),
             "validation": validation_view,
             "availableActions": actions,
             "nextAction": next_action,
@@ -1034,6 +1043,106 @@ def _article_projection(
         },
         digest,
     )
+
+
+_LIVE_DRAFTS_CACHE: dict[str, list] = {}
+
+
+def _read_live_drafts() -> list:
+    """The generated-Draft store, read once per process.
+
+    Bounded because `live_drafts.jsonl` grows without limit, while the Article
+    projection reads it on every editor page load. A missing or unreadable store
+    yields an empty list: a findings lookup must never break the projection.
+    """
+    path = _editorial_root() / "live_drafts.jsonl"
+    key = str(path)
+    cached = _LIVE_DRAFTS_CACHE.get(key)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    if cached is not None and cached["mtime"] == mtime:
+        return cached["rows"]
+    rows = []
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    _LIVE_DRAFTS_CACHE[key] = {"mtime": mtime, "rows": rows}
+    return rows
+
+
+def _judge_findings(article_id: str, content: dict) -> list[dict]:
+    """V1.2-G4.31. Surface the semantic judge's UNSUPPORTED claims to the editor.
+
+    Measured 2026-10-02 on a real generated Draft (article art_44c709017b72ec1,
+    in live_drafts.jsonl): the judge returned 6 claims, one with
+    `issue: invented_entity`, `verdict: UNSUPPORTED`, on the sentence naming
+    "проф. Георги Вълчев" - a person the evidence does not contain. The draft's
+    own attention_notes asserted the opposite: "All names and academic titles
+    (проф. Георги Вълчев) are preserved exactly as in the source."
+
+    `factual_gate` was `FACTUAL_GATE_REVIEW`. None of it reached the editor: the
+    Article DTO showed only "no additional sources found" and the generic
+    `evidence_basis_empty` blocking warning. `cases.py` and `benchmark.py` read
+    the semantic block; `editor_application.py` — the module that builds what the
+    editor actually sees — never did.
+
+    Two constraints this respects:
+
+    1. The DTO deliberately refuses to replay the generation-time audit of an
+       immutable Draft (see the `warnings` comment in the projection), because
+       those warnings go stale the moment the editor edits. So these are returned
+       ONLY while the current body is byte-identical to the audited one. Once the
+       editor types, the finding is withdrawn rather than shown against text it
+       no longer describes.
+    2. It reports what the judge RETURNED. It never asserts the model invented
+       anything as fact - that is the judge's claim, attributed as such.
+    """
+    current_body = str(content.get("body") or "")
+    if not current_body.strip():
+        return []
+    try:
+        rows = _read_live_drafts()
+    except OSError:
+        return []
+    audited = None
+    for row in reversed(rows):
+        draft = row.get("draft") or {}
+        if draft.get("body") == current_body:
+            audited = row
+            break
+    if audited is None:
+        return []
+    claims = ((audited.get("semantic") or {}).get("claims") or [])
+    out: list[dict] = []
+    for claim in claims:
+        issue = str(claim.get("issue") or "").strip()
+        verdict = str(claim.get("verdict") or "").strip()
+        if not issue or issue == "none" or verdict == "SUPPORTED":
+            continue
+        out.append(
+            {
+                "id": f"judge_{issue}",
+                "rule": f"semantic_{issue}",
+                "severity": "blocking" if verdict != "SUPPORTED" else "advisory",
+                "message": (
+                    f"Проверката на фактите отбелязва „{issue}“: "
+                    f"{str(claim.get('sentence') or '')[:160]}"
+                ),
+                "blocking": verdict != "SUPPORTED",
+                "attribution": "semantic_judge",
+            }
+        )
+    return out
 
 
 def _article_dto_by_id(article_id: str) -> dict:

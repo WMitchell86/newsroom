@@ -422,6 +422,116 @@ def test_a_primary_official_source_needs_no_second_publisher(newsroom, model, mo
 # --------------------------------------------------------------------------
 
 
+def _seed_judged_draft(newsroom, *, body, claims):
+    """Append a generated Draft row carrying the judge's verdict for `body`."""
+    from editor_assistant.workflow import editor_application as _app
+
+    store = _app._editorial_root() / "live_drafts.jsonl"
+    row = {
+        "idea_id": "ad-hoc",
+        "evidence_id": "EV-ADHOC-01",
+        "draft": {"headline": "Рбота за статия", "body": body},
+        "semantic": {"claims": claims},
+        "factual_gate": "FACTUAL_GATE_REVIEW",
+    }
+    with store.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _put_body(newsroom, article_id, body):
+    """Set the Article's current body, as the editor's edit would."""
+    from editor_assistant.workflow import editor_article_store
+
+    existing = editor_article_store.get_article_content(article_id) or {}
+    editor_article_store.save_article_content(
+        article_id,
+        title=existing.get("title") or "Работа за статия",
+        body=body,
+        expected_version=existing.get("content_version"),
+    )
+
+
+def test_the_judges_invented_entity_reaches_the_editor(newsroom, model):
+    """V1.2-G4.31. A judge's UNSUPPORTED verdict must not be dropped.
+
+    Measured on a real Draft (2026-10-02, art_44c709017b72ec1): the judge named
+    an `invented_entity` and returned UNSUPPORTED for it, `factual_gate` was
+    FACTUAL_GATE_REVIEW — and the editor saw neither. Only a generic
+    `evidence_basis_empty` warning reached the projection.
+    """
+    article_id = _new_article(newsroom)
+    body = "Ректорът на училището ще присъства на събитието."
+
+    _seed_judged_draft(
+        newsroom,
+        body=body,
+        claims=[
+            {
+                "sentence": "Ректорът на училището ще присъства на събитието.",
+                "verdict": "UNSUPPORTED",
+                "issue": "invented_entity",
+                "note": "The evidence does not name the rector.",
+                "supporting_fact_ids": [],
+            },
+            {
+                "sentence": "Събитието е на 3 октомври.",
+                "verdict": "SUPPORTED",
+                "issue": "none",
+                "note": "",
+                "supporting_fact_ids": ["f1"],
+            },
+        ],
+    )
+    _put_body(newsroom, article_id, body)
+
+    dto = app.read_article(article_id)
+    rules = {w.get("rule") for w in dto.get("warnings") or []}
+    assert "semantic_invented_entity" in rules, dto.get("warnings")
+    finding = next(
+        w for w in dto["warnings"] if w.get("rule") == "semantic_invented_entity"
+    )
+    assert finding["blocking"] is True
+    assert finding["attribution"] == "semantic_judge"
+    # A SUPPORTED claim produces nothing, so the list is not noise.
+    assert not any("none" in str(w.get("rule")) for w in dto["warnings"])
+
+
+def test_the_finding_is_withdrawn_once_the_editor_edits(newsroom, model):
+    """The projection deliberately never replays a generation-time audit.
+
+    Re-showing "invented entity" against text the editor has since rewritten
+    would be the same class of error as the omission it fixes, so the finding
+    must disappear on the first edit rather than go stale.
+    """
+    article_id = _new_article(newsroom)
+    body = "Ректорът на училището ще присъства на събитието."
+    _seed_judged_draft(
+        newsroom,
+        body=body,
+        claims=[
+            {
+                "sentence": body,
+                "verdict": "UNSUPPORTED",
+                "issue": "invented_entity",
+                "note": "",
+                "supporting_fact_ids": [],
+            }
+        ],
+    )
+    _put_body(newsroom, article_id, body)
+    assert any(
+        w.get("rule") == "semantic_invented_entity"
+        for w in (app.read_article(article_id).get("warnings") or [])
+    )
+
+    edited = body + " Редакторът добави проверена информация."
+    _put_body(newsroom, article_id, edited)
+    after = app.read_article(article_id)
+    assert not any(
+        w.get("rule") == "semantic_invented_entity" for w in (after.get("warnings") or [])
+    ), after.get("warnings")
+
+
 def test_a_snippet_only_basis_is_refused(newsroom, model):
     """§B4: a discovery snippet can never reach a Draft.
 
