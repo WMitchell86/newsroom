@@ -4,6 +4,18 @@ These exist because of specific, recorded failures in this project. Each rule
 names the failure that produced it, so it can be deleted if it is ever wrong
 rather than becoming folklore.
 
+> **Note on this file's history (2026-10-02).** A second file, `agents.md`, sat
+> beside this one — same name, different case, both tracked, neither a superset
+> of the other. On a case-insensitive filesystem they are the same path, and an
+> agent reading "agents.md" could get the stale one. It was removed and its
+> still-true content merged into the Toolchain and rules 12-13 at the end of
+> this file. Its project description and repo map were **four weeks stale** —
+> they described this as "a deterministic RSS-monitoring assistant" with no
+> mention of model routing, research or the workbench UI, which are most of the
+> codebase now. Do not restore it from that description; the map is current.
+> A copy is kept at `var/backup_pre_agents_merge_1527/agents_lowercase_old.md`
+> (git-ignored), and in this file's git history either way.
+
 ## 1. Never report a system state that was not measured
 
 A claim about quota, health, capacity or "nothing is working" must be the
@@ -132,6 +144,21 @@ Measured 2026-10-02 on the real tree, `pytest --ignore=tests/browser`:
   `tests/test_research_ux_contract.py`, `tests/test_draft_readiness_parity.py` — 1 each
   (the last is a known intermittent)
 
+**Newly observed 2026-10-02, unexplained — do not assume it is harmless.**
+`tests/test_search_foundation.py::test_429_is_rate_limited_and_bounded` failed in
+one full-suite run and in no other, has never failed before, and passes both
+alone (30/30 in that file) and alongside the files the suite orders before it.
+It therefore needs a polluter from elsewhere in the ordering, which has not been
+identified. Nothing I changed that day could plausibly affect it — the edits were
+a dead constant and markdown — but "could not plausibly" is not "verified". If it
+reappears, capture the full-suite output and find the polluter rather than
+re-reading this line and moving on.
+
+**The failure SET drifts between runs even when the count does not.** Comparing
+only counts hides this: the run above also lost
+`test_draft_readiness_parity.py::test_a_stale_eligible_projection_is_refused_when_material_disappears`
+relative to the previous run. Diff the sorted `FAILED` lists, not the totals.
+
 - `tests/browser/` — 6-7, all in `test_d2a_stories` / `test_v11_d1_today` /
   `test_v11_d2_quick_draft` / `test_v12_g2_2_research_ux`. These skip entirely
   in a fresh `git worktree` (no `frontend/node_modules`), so a worktree is NOT
@@ -163,3 +190,58 @@ failure looks like a regression in whatever you just changed.
   together, not your file alone.
 - `git worktree add` gives a clean baseline for pure-Python tests only; browser
   tests skip there, so it silently "passes" work that is not being tested.
+
+---
+
+## Toolchain
+
+Merged from the removed `agents.md` on 2026-10-02. Each line was verified still
+true against the tree before being carried over.
+
+```bash
+PYTHONPATH=src python3 -m pytest -q        # offline suite; never add --browser by habit
+ruff check src tests
+```
+
+- **`pip install -e .` is blocked on this machine** (PEP 668 externally-managed
+  environment). Always run through `PYTHONPATH=src`.
+- **No new dependencies. Stdlib only** (`urllib`, `sqlite3`, `html.parser`,
+  `argparse`, `json`). This has held since the first milestone and is the reason
+  the transport is hand-rolled rather than a client library — which is also why
+  bugs like rule 6's swallowed exceptions are ours to fix by hand.
+- Tests must never touch the network. Mock the transport.
+- Never commit secrets (`.env`, tokens) or runtime state (`var/`, `*.sqlite3`).
+  Never put a provider token in a URL, a log line, or an error message.
+
+## 12. One test run at a time, and never re-launch to "check progress"
+
+Failure that produced this rule: a careless background launch had already frozen
+this host and required a restart. The offline suite is ~2000 tests and the
+browser suite drives real Chrome against a real HTTP server; a single test can
+hold a socket open for its whole timeout.
+
+1. **One run at a time.** Before launching: `pgrep -af 'pytest|vitest|chrome'`
+   must return nothing. If it does, clean up before starting anything.
+2. **Never re-launch to check progress.** A run is either running or finished.
+   Read its output file instead of starting it again.
+3. **Prefer a bounded, in-foreground run** — `timeout N` with a narrow selection
+   (`<file>`, `-k`). Reserve background runs for genuinely long suites (full
+   `pytest`, all of `tests/browser/`), then poll the output file from a
+   *separate* command.
+4. **Never combine `sleep` with launching work.** A sleep that outlives a
+   backgrounded run is what turns waiting into re-launching. Poll, read,
+   decide — then act once.
+
+## 13. Do not turn a verdict into a cause
+
+Failure that produced this rule: eight `FAILED:TRANSIENT` rows sat in the prompt
+log, six of them inside eleven minutes, with no recorded cause — because the
+router logged its own *classification* and dropped the exception it classified.
+The detail was one line below, being passed to `mark_route`.
+
+- A category (`TRANSIENT`, `RATE_LIMITED`, `EMPTY_OUTPUT`) is what the system
+  decided. A cause is what the provider said. Log the second one.
+- When you add a failure path, check that the thing you *learned* is written
+  somewhere durable — not only that you learned it.
+- Rows written before a logging fix do not retroactively gain the missing field.
+  Say so rather than implying the history is now explainable.

@@ -439,6 +439,38 @@ Two rules when adding a substitute:
   limits and health marks, not by whether the model has ever produced output.
   Check the ledger (`var/model_usage/<sofia-day>.json`) before trusting a route.
 
+### Streaming guards (V1.2-G4.28, 2026-10-02)
+
+The OpenRouter transport parses the SSE stream **incrementally**, so a generation
+that has stopped making progress is abandoned while it is happening rather than
+after. Two guards can stop one early; both write the reason into the attempt's
+`stopped_because`:
+
+| `stopped_because` | Meaning | Measured effect |
+|---|---|---|
+| *(empty)* | the stream ended on the provider's terms | normal |
+| `repetition_loop` | the model emitted no new character for 1 000 chars — it is cycling | 144 366 ms → 39 492 ms on the same prompt |
+| `deadline_exceeded` | it passed `OPENROUTER_DEADLINE_S` (default 180) | — |
+
+The loop guard asks **"has any character appeared lately that we had not already
+seen?"**, not "have I seen this text before?". Two earlier detectors that asked
+the latter were tried and both stayed silent on the live failure, because two
+samples only collide at the same *phase* of a repeating cycle. Do not "simplify"
+this back to a repeated-window comparison — it will look equivalent and stop
+working, with no test failure to warn you. The one that catches it
+(`test_a_model_that_repeats_itself_is_stopped_early`) streams ~20-char chunks
+around a ~129-char cycle, the shape the live model actually produced.
+
+`stopped_because` reaches the operator through the router as a named cause
+(`REPETITION_LOOP`, `DEADLINE_EXCEEDED`) with its own wording and next step,
+rather than a bare "empty output".
+
+**`SPENT_BUDGET_ON_REASONING` is legacy.** It claimed a model spent its whole
+token ceiling on reasoning, which no observation supports. It is no longer
+produced; rows already written keep it. If you see it in the log, it predates
+2026-10-02 and the label itself was never trustworthy — re-read the row as
+"empty output, cause unknown" rather than as a budget diagnosis.
+
 ### Reading the usage ledger
 
 `var/model_usage/<Europe/Sofia day>.json` is the only record of what was asked of
@@ -496,6 +528,19 @@ newsroom models prompts --json
 
 Store: `var/editorial_workflow/model_prompts.jsonl`, **mode `0600`** like the
 other private editorial stores — a draft prompt carries unpublished source text.
+
+**A failed row's `error` field is the provider's own message, not a category.**
+Since 2026-10-02 (V1.2-G4.29) a failed attempt records
+`"<ExceptionType>: <what the provider said>"`, truncated to 200 chars. Rows
+written before that date have **no `error` field at all** — if you are diagnosing
+an old failure, the cause is not recoverable from this file and you must re-run
+the call. The `outcome` prefix (`FAILED:TRANSIENT`, `FAILED:RATE_LIMITED`, …) is
+the router's *verdict*, not the cause, and has never been sufficient on its own.
+
+A row whose `outcome` is `FAILED:QUOTA_EXHAUSTED` means waiting — the quota resets
+on the provider's schedule. `FAILED:TRANSIENT` means overload and clears in
+minutes. Do not read either as a permanent outage, and do not act on one without
+a fresh `models status` (AGENTS.md rule 2).
 
 **The prompt text is NOT in the usage ledger, and must never be.** The ledger is
 aggregated and diffed while investigating a provider failure;

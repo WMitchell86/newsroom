@@ -9,7 +9,7 @@ Full harness rules: [`AI_HARNESS_EDITOR_ASSISTANT.md`](./AI_HARNESS_EDITOR_ASSIS
 **Current state: [`CURRENT_STATE.md`](./CURRENT_STATE.md).** (`MILESTONE.md` and
 `handoff.md` are chronological history.) Deferred ideas: [`BACKLOG.md`](./BACKLOG.md).
 Alert format calibration (editor decisions pending): [`UX_AUDIT.md`](./UX_AUDIT.md).
-Session guides for AI agents: [`agents.md`](./agents.md) (how to work in this repo).
+Session guides for AI agents: [`AGENTS.md`](./AGENTS.md) (how to work in this repo).
 
 ## Safety defaults
 

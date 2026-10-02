@@ -910,7 +910,7 @@ dangling git checkpoint (`deb9653`) and the full suite verifies them.
 # handoff.md — session-to-session state
 
 Last updated: 2026-09-12 (M1.5 DONE — no renderer changes afterwards) · branch `main` · Suite: 135 passed, ruff clean
-Read first: `agents.md` (how to work here) · `MILESTONE.md` (current gate, top section)
+Read first: `AGENTS.md` (how to work here) · `MILESTONE.md` (current gate, top section)
 
 ## Status
 DONE (committed + verified live): M0 bootstrap · M1.1 RSS parser + fixture · M1.2 live read-only fetch ·
@@ -975,7 +975,7 @@ env DRY_RUN=false PYTHONPATH=src python3 -m editor_assistant.send_telegram --db 
 - Smoke guard: the token `telegram` is allowed only in `notify/telegram.py` and
   `send_telegram.py`; everything else in `src/**` must stay free of it (and of
   `publish`/`wordpress`/`n8n`/`requests`/`httpx`).
-- The store↔outbox import cycles are intentional (lazy imports) — see `agents.md`.
+- The store↔outbox import cycles are intentional (lazy imports) — see `AGENTS.md`.
 - Messages >4096 chars fail locally and stay PENDING — correct behavior, tested.
 - `--send` without `DRY_RUN=false` stays dry; without credentials it exits 2 cleanly.
 - Payload stores `body_excerpt` (≤500 chars), **not** the full body — fingerprint

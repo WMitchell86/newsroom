@@ -111,7 +111,6 @@ OPENROUTER_REASONING_EFFORT = str(os.environ.get("OPENROUTER_REASONING_EFFORT", 
 #:
 #: 1 000 characters with no new character at all is far outside anything real
 #: prose does, even deliberately repetitive text.
-LOOP_WINDOW = 80
 LOOP_STALE_CHARS = 1_000
 #: Whitespace carries no information about whether the model is advancing, so it
 #: is stripped before the novelty test. Otherwise a model padding with spaces

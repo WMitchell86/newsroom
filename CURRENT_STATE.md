@@ -6,7 +6,7 @@
 > Older `HARNESS_PROMPT_*.md` files are **historical, not current instructions**.
 > When they disagree with this file, this file wins.
 
-> ⚠ **Before running the test suite, read `agents.md` § "Long test runs".**
+> ⚠ **Before running the test suite, read `AGENTS.md` rule 12** ("One test run at a time, and never re-launch to 'check progress'"). It was formerly `agents.md`; that file was merged into `AGENTS.md` on 2026-10-02.
 > A careless launch has already pinned this host at 100% CPU and required a
 > reboot. One test run at a time, never re-launch to poll, and rebuild
 > `frontend/dist` after any frontend change or the browser suite silently
