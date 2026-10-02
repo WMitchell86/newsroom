@@ -822,6 +822,41 @@ def _skip_category(reasons) -> str:
     return ROUTE_UNHEALTHY
 
 
+def empty_output_outcome(meta) -> str:
+    """The logged outcome for an empty answer, naming the CAUSE we observed.
+
+    A bare `EMPTY_OUTPUT` reads the same for three different faults: a model
+    with nothing to say, a provider that refused, and an answer the token
+    ceiling cut off. Measured on qwen/qwen3.8-27b:free with the real
+    12 630-char draft prompt at max_tokens 16384: `finish_reason: "length"`
+    with zero content chunks - the model spent the whole budget and emitted
+    nothing, and the log could not tell the operator that.
+
+    The cause is APPENDED to the existing code, never substituted, so anything
+    matching on the `FAILED:EMPTY_OUTPUT` prefix keeps working. When the
+    provider gave no reason at all the row says exactly that rather than
+    implying a cause nobody observed (AGENTS.md rule 6).
+    """
+    stop = str((meta or {}).get("finish_reason") or "").strip()
+    # V1.2-G4.24. Reasoning tokens count INSIDE `max_tokens` on OpenRouter, so a
+    # model that spends the whole ceiling thinking emits no content at all and
+    # looks identical to a model with nothing to say. Measured on
+    # stealth/space-bunny-alpha with a real 2 858-char draft prompt: 70 036 chars
+    # of `delta.reasoning`, and at the old 8192 ceiling zero content. That is a
+    # BUDGET problem with a named cause, not a silent one - so it is reported as
+    # such instead of collapsing into a bare EMPTY_OUTPUT (AGENTS.md rule 6).
+    reasoning_chars = int((meta or {}).get("reasoning_chars") or 0)
+    if reasoning_chars and not stop:
+        return f"FAILED:{EMPTY_OUTPUT}:SPENT_BUDGET_ON_REASONING"
+    if reasoning_chars and stop == "length":
+        return f"FAILED:{EMPTY_OUTPUT}:TRUNCATED_BY_TOKEN_LIMIT"
+    if stop == "length":
+        return f"FAILED:{EMPTY_OUTPUT}:TRUNCATED_BY_TOKEN_LIMIT"
+    if stop:
+        return f"FAILED:{EMPTY_OUTPUT}:stop={stop}"
+    return f"FAILED:{EMPTY_OUTPUT}:no_stop_reason"
+
+
 def _try_route(
     route,
     role,
@@ -972,6 +1007,17 @@ def _try_route(
         latency_ms = int((time.monotonic() - started) * 1000)
         if not (text or "").strip():
             allowed = attempts_allowed[EMPTY_OUTPUT]
+            # V1.2-G4.22. WHY it was empty, in the operator's language.
+            #
+            # `EMPTY_OUTPUT` on its own is a dead end: it reads identically for a
+            # model that had nothing to say, a provider that refused, and an
+            # answer the token ceiling cut off. Measured on qwen/qwen3.8-27b:free
+            # with the real 12 630-char draft prompt: `finish_reason: "length"`
+            # with zero content chunks - the model burned the whole budget and
+            # emitted nothing. The category the router RETURNS is unchanged
+            # (callers and the tests pin `EMPTY_OUTPUT`); only the logged row
+            # gains the cause, so a human can read what happened.
+            empty_outcome = empty_output_outcome(meta)
             if attempt < allowed:
                 sleep(1)
                 # A retried EMPTY counts as an execution: one row for what the
@@ -985,7 +1031,7 @@ def _try_route(
                     route_index=index,
                     payload_class=payload_class,
                     attempt=attempt,
-                    outcome=f"FAILED:{EMPTY_OUTPUT}",
+                    outcome=empty_outcome,
                     sent_chars=sent_chars,
                     root=prompt_log_root,
                 )
@@ -999,7 +1045,7 @@ def _try_route(
                 route_index=index,
                 payload_class=payload_class,
                 attempt=attempt,
-                outcome=f"FAILED:{EMPTY_OUTPUT}",
+                outcome=empty_outcome,
                 sent_chars=sent_chars,
                 root=prompt_log_root,
             )

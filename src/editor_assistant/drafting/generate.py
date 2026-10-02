@@ -15,6 +15,39 @@ MODEL_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL_ID + ":generateContent"
 )
 GENERATION_SETTINGS = {"temperature": 0.4, "max_tokens": 8192}
+
+#: V1.2-G4.24. Token ceiling per provider — and a MEASURED negative result.
+#:
+#: 8192 is right for Gemini, which spends a small, bounded amount on thinking and
+#: has its own `thinkingConfig`. OpenRouter reasoning models behave differently:
+#: OpenRouter counts reasoning INSIDE `completion_tokens`, so a model that thinks
+#: before writing can burn the entire ceiling and still emit no content.
+#:
+#: Two measurements on `stealth/space-bunny-alpha`, real 2 858-char draft prompt:
+#:
+#:     max_tokens=8192   -> finish_reason="length", content 0, ~11-15k chars reasoning
+#:     max_tokens=32768  -> finish_reason="length", content 0, reasoning 101 417 chars,
+#:                          completion_tokens=32 768 (the FULL budget), 292 s
+#:
+#: So RAISING THE CEILING IS NOT THE FIX - it buys more silence and more latency.
+#: The 32 768 ceiling was tried, measured, and REVERTED; `OPENROUTER_MAX_TOKENS`
+#: therefore stays at the shared 8192. The one 352 s run that did return 1 201
+#: chars was the exception, not the rule.
+#:
+#: What this slice actually fixes is VISIBILITY (see REASONING_DELTA_KEYS and the
+#: `SPENT_BUDGET_ON_REASONING` outcome): the operator can now see that a model
+#: spent its whole budget thinking, instead of being told it returned nothing.
+#: These models are unsuitable for this workload for reasons of their own, and
+#: the honest response is to route around them, not to buy a bigger budget.
+OPENROUTER_MAX_TOKENS = int(os.environ.get("OPENROUTER_MAX_TOKENS", "8192"))
+
+#: Delta keys a reasoning model may stream its thinking under. Observed live:
+#: `reasoning` on stealth/space-bunny-alpha; `reasoning_content` is the other
+#: spelling OpenRouter passes through. Both are read; NEITHER is ever returned as
+#: the answer - thinking text is not the article, and passing it on would put
+#: chain-of-thought into the editor's draft store.
+REASONING_DELTA_KEYS = ("reasoning", "reasoning_content")
+
 # Gemini 3.x spends output budget on internal "thinking" before emitting text.
 # For structured JSON drafting that starved the answer (measured: 1921 thinking
 # tokens vs 75 output tokens -> truncated JSON that could not parse). Disable
@@ -281,7 +314,12 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
             "model": model,
             "messages": [{"role": "user", "content": prompt_text}],
             "temperature": GENERATION_SETTINGS["temperature"],
-            "max_tokens": GENERATION_SETTINGS["max_tokens"],
+            # V1.2-G4.24: an explicit, measured ceiling for this provider. It
+            # EQUALS the shared 8192 today, and that is a finding, not an
+            # oversight: raising it to 32768 was tried on a reasoning model and
+            # the model spent the whole 32 768-token budget thinking and still
+            # returned nothing, in 292 s. See OPENROUTER_MAX_TOKENS.
+            "max_tokens": OPENROUTER_MAX_TOKENS,
             # The parser below reads OpenAI-style SSE frames (`data: {...}`), so
             # streaming MUST be requested explicitly.  Without it OpenRouter
             # answers with ONE json object, no line starts with `data:`, and the
@@ -297,6 +335,31 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = resp.read().decode("utf-8", errors="replace")
     chunks = []
+    finish_reason = ""
+    # V1.2-G4.22. The provider's own stop reason is captured here and it is the
+    # ONLY thing that distinguishes "the model had nothing to say" from "the
+    # token ceiling cut the answer off before a single character arrived".
+    #
+    # Measured on the real failing draft prompt (12 630 chars) against
+    # qwen/qwen3.8-27b:free: at max_tokens 16384 the stream ends with
+    # `finish_reason: "length"` and ZERO content chunks — the model spent the
+    # whole budget and emitted nothing, which the caller reported as a bare
+    # `EMPTY_OUTPUT`. The same prompt at 8192 was served normally, so raising
+    # the ceiling is NOT the fix; a higher ceiling made this worse, not better.
+    #
+    # V1.2-G4.24 corrects that reading: the ceiling WAS the problem, for the
+    # REASONING models. They stream thinking under `delta.reasoning`, which this
+    # parser used to drop, so a model mid-thought looked identical to a model with
+    # nothing to say. Reasoning is now counted and reported (never returned as
+    # the answer — see REASONING_DELTA_KEYS).
+    #
+    # Both fields are returned because the caller logs them: without them the
+    # operator sees "empty output" and has to guess between a dead model, a
+    # quota wall, a truncated answer and a model that spent its budget thinking
+    # (AGENTS.md rule 6).
+    prompt_chars = None
+    completion_tokens = None
+    reasoning_chars = 0
     for raw_line in body.splitlines():
         line = raw_line.strip()
         if not line.startswith("data:"):
@@ -308,18 +371,36 @@ def _call_openrouter(prompt_text, *, api_key, timeout, model):
             data = json.loads(payload_text)
         except ValueError:
             continue
+        usage = data.get("usage") or {}
+        if isinstance(usage, dict):
+            prompt_chars = usage.get("prompt_tokens") or prompt_chars
+            completion_tokens = usage.get("completion_tokens") or completion_tokens
         choices = data.get("choices") or []
         if not choices:
             continue
-        delta = choices[0].get("delta", {}) or {}
+        choice = choices[0]
+        finish_reason = choice.get("finish_reason") or finish_reason
+        delta = choice.get("delta", {}) or {}
         if delta.get("content"):
             chunks.append(delta["content"])
+        for key in REASONING_DELTA_KEYS:
+            value = delta.get(key)
+            if isinstance(value, str):
+                reasoning_chars += len(value)
     text = "".join(chunks)
     if not text.strip():
         # Defensive: a provider that ignores/refuses `stream` returns a single
         # JSON completion.  Parse that rather than report an empty generation.
         text = _openrouter_nonstream_text(body)
-    return text, {"model": model, "usage": {}, "provider": "openrouter"}
+    return text, {
+        "model": model,
+        "usage": {},
+        "provider": "openrouter",
+        "finish_reason": finish_reason,
+        "prompt_chars": prompt_chars,
+        "completion_tokens": completion_tokens,
+        "reasoning_chars": reasoning_chars,
+    }
 
 
 # Paid OpenRouter models that are explicitly forbidden during the test phase.

@@ -1775,3 +1775,352 @@ def test_a_chmod_failure_writes_no_world_readable_row(monkeypatch, tmp_path):
     assert row is None, "best effort: the call reports the loss, it does not raise"
     path = tmp_path / "editorial_workflow" / model_prompt_log.FILENAME
     assert not path.exists() or path.read_text(encoding="utf-8") == ""
+
+
+# ---------------------------------------------------------------------------
+# V1.2-G4.22: an empty answer must say WHY it was empty.
+#
+# Measured: qwen/qwen3.8-27b:free, real 12 630-char draft prompt,
+# max_tokens 16384 -> `finish_reason: "length"` with zero content chunks.
+# The caller reported a bare `EMPTY_OUTPUT`, which reads the same for a model
+# with nothing to say, a refusal, and an answer the ceiling cut off.
+# ---------------------------------------------------------------------------
+
+
+def _sse(*frames: str) -> bytes:
+    return ("\n".join(f"data: {f}" for f in frames) + "\ndata: [DONE]\n").encode("utf-8")
+
+
+def _call_with_body(generate, body: bytes):
+    """Call `_call_openrouter` against a canned SSE body. No network, no key."""
+    import io
+    import urllib.request
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            self.close()
+            return False
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = lambda *_a, **_k: _Resp(body)
+    try:
+        return generate._call_openrouter("prompt", api_key="k", timeout=5, model="m:free")
+    finally:
+        urllib.request.urlopen = real
+
+
+def test_the_openrouter_transport_reports_the_providers_own_stop_reason():
+    """`finish_reason` must survive the stream parse, not be dropped on the floor."""
+    from editor_assistant.drafting import generate
+
+    body = _sse('{"choices":[{"delta":{},"finish_reason":"length"}]}')
+    text, meta = _call_with_body(generate, body)
+
+    assert text == "", "no content chunk, so no text - that is the failure being traced"
+    assert meta["finish_reason"] == "length", meta
+    assert meta["provider"] == "openrouter"
+
+
+def test_a_normal_openrouter_answer_still_returns_its_text():
+    """The added bookkeeping must not cost a working model its answer."""
+    from editor_assistant.drafting import generate
+
+    body = _sse(
+        '{"choices":[{"delta":{"content":"Здравейте"},"finish_reason":null}]}',
+        '{"choices":[{"delta":{"content":" от Бургас"},"finish_reason":"stop"}]}',
+    )
+    text, meta = _call_with_body(generate, body)
+
+    assert text == "Здравейте от Бургас", text
+    assert meta["finish_reason"] == "stop", meta
+
+
+def test_the_logged_outcome_names_the_token_limit_rather_than_a_bare_empty():
+    """The regression, pinned: `finish_reason: length` must be visible in the log.
+
+    Before this the row read `FAILED:EMPTY_OUTPUT` and the operator had to guess
+    between a dead model, a quota wall and an answer the ceiling cut off.
+    """
+    from editor_assistant.drafting import model_router
+
+    assert (
+        model_router.empty_output_outcome({"finish_reason": "length"})
+        == "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT"
+    )
+    # No stop reason at all: say exactly that, never imply a cause we did not see.
+    assert model_router.empty_output_outcome({}) == "FAILED:EMPTY_OUTPUT:no_stop_reason"
+    assert model_router.empty_output_outcome(None) == "FAILED:EMPTY_OUTPUT:no_stop_reason"
+    # A stop reason we have no sentence for is still reported, not swallowed.
+    assert (
+        model_router.empty_output_outcome({"finish_reason": "content_filter"})
+        == "FAILED:EMPTY_OUTPUT:stop=content_filter"
+    )
+    # The bare code remains a PREFIX: anything matching on `FAILED:EMPTY_OUTPUT`
+    # keeps working, because the cause was added, not substituted.
+    for meta in ({"finish_reason": "length"}, {}, {"finish_reason": "stop"}):
+        assert model_router.empty_output_outcome(meta).startswith("FAILED:EMPTY_OUTPUT")
+
+
+def _page(outcome, host="a.test", **extra):
+    row = {"at": "2026-10-02T05:29:00Z", "outcome": outcome, "host": host,
+           "url": f"https://{host}/x", "story_id": "s-one"}
+    row.update(extra)
+    return row
+
+
+def _round(considered, kept, facts, dropped=0, questions=()):
+    return {"at": "2026-10-02T05:30:00Z", "outcome": "ROUND", "story_id": "s-one",
+            "considered": considered, "kept": kept, "facts": facts,
+            "dropped_by_gate": dropped, "questions": list(questions)}
+
+
+def test_reasoning_is_counted_but_never_returned_as_the_answer():
+    """The parser used to DROP `delta.reasoning`, so a model mid-thought looked
+    identical to a model with nothing to say. Counted now; NEVER returned."""
+    from editor_assistant.drafting import generate
+
+    body = _sse(
+        '{"choices":[{"delta":{"reasoning":"мисъл едно "},"finish_reason":null}]}',
+        '{"choices":[{"delta":{"reasoning":"мисъл две"},"finish_reason":null}]}',
+        '{"choices":[{"delta":{"content":"Бургас, "},"finish_reason":null}]}',
+        '{"choices":[{"delta":{"content":"велосипеди."},"finish_reason":"stop"}]}',
+        '{"usage":{"prompt_tokens":423,"completion_tokens":3956},"choices":[]}',
+    )
+    text, meta = _call_with_body(generate, body)
+
+    assert text == "Бургас, велосипеди.", text
+    assert "мисъл" not in text, "chain-of-thought must never reach the draft store"
+    assert meta["reasoning_chars"] == len("мисъл едно ") + len("мисъл две"), meta
+    assert meta["completion_tokens"] == 3956, meta
+    assert meta["prompt_chars"] == 423, meta
+
+
+def test_reasoning_content_is_the_other_spelling_and_also_counted():
+    from editor_assistant.drafting import generate
+
+    body = _sse('{"choices":[{"delta":{"reasoning_content":"abc"},"finish_reason":null}]}')
+    _text, meta = _call_with_body(generate, body)
+    assert meta["reasoning_chars"] == 3, meta
+
+
+def test_a_model_that_only_thinks_is_named_not_called_silent():
+    """The regression: an empty answer that spent its whole budget reasoning."""
+    from editor_assistant.drafting import model_router
+
+    spent = model_router.empty_output_outcome(
+        {"finish_reason": "length", "reasoning_chars": 70036}
+    )
+    assert spent == "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT", spent
+    thinking = model_router.empty_output_outcome(
+        {"finish_reason": "", "reasoning_chars": 70036}
+    )
+    assert thinking == "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING", thinking
+    # A genuinely silent model (no reasoning, no stop reason) is still its own case.
+    assert (
+        model_router.empty_output_outcome({"finish_reason": "", "reasoning_chars": 0})
+        == "FAILED:EMPTY_OUTPUT:no_stop_reason"
+    )
+
+
+def test_openrouter_has_its_own_explicit_token_ceiling():
+    """A MEASURED NEGATIVE RESULT, pinned so nobody re-raises it blind.
+
+    Raising the ceiling to 32768 was tried against a reasoning model on a real
+    2 858-char draft prompt: it spent the FULL 32 768-token budget on reasoning
+    (101 417 chars) and still returned zero content, in 292 s. A bigger budget
+    bought more silence and more latency, so the ceiling stays at 8192.
+    """
+    from editor_assistant.drafting import generate
+
+    assert generate.OPENROUTER_MAX_TOKENS == 8192, generate.OPENROUTER_MAX_TOKENS
+
+    sent = {}
+    import io
+    import urllib.request
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            self.close()
+            return False
+
+    def _capture(req, *_a, **_k):
+        sent.update(json.loads(req.data.decode("utf-8")))
+        return _Resp(b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n')
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = _capture
+    try:
+        generate._call_openrouter("p", api_key="k", timeout=5, model="m:free")
+    finally:
+        urllib.request.urlopen = real
+    assert sent["max_tokens"] == generate.OPENROUTER_MAX_TOKENS, sent["max_tokens"]
+
+
+def test_the_operator_output_explains_a_reasoning_budget_failure():
+    from editor_assistant.workflow import cli
+
+    text = cli.readable_outcome("FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING")
+    assert "размишление" in text, text
+    # The advice must name the exact knob, so the operator can act without
+    # reading the source: an unnamed "raise the limit" is what produced the
+    # wrong fix in the first place.
+    assert "OPENROUTER_MAX_TOKENS" in cli.next_step("FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING")
+
+
+def test_the_research_summary_reports_what_was_actually_gathered():
+    """The achievement, not the activity. Measured need: a round can consider
+    many pages, keep some, and still gather nothing."""
+    from editor_assistant.workflow import cli
+
+    rows = [
+        _round(considered=40, kept=4, facts=0, dropped=30,
+               questions=["Кой е замесен?"]),
+        _page("KEPT", "a.test"), _page("KEPT", "a.test"),
+        _page("KEPT", "b.test"), _page("KEPT", "c.test"),
+        _page("SKIPPED_CLAIM_GATE", "d.test"), _page("OPEN_FAILED", "e.test"),
+    ]
+    summary = cli.summarise_research(rows, story_id="s-one")
+    out = "\n".join(cli.render_research_summary(summary))
+
+    assert summary["pagesConsidered"] == 6, summary
+    assert summary["pagesKept"] == 4, summary
+    assert summary["facts"] == 0, summary
+    # Zero facts with six pages kept is the exact case that reads as "busy" and
+    # delivered nothing, so it must be stated in words, not left to arithmetic.
+    assert "НУЛА" in out, out
+    assert "40" not in out.split("Разгледани")[0], "activity must not lead the report"
+    assert "Кой е замесен?" in out, out
+
+
+def test_kept_pages_that_brought_no_fact_are_called_out():
+    """The quiet failure: `kept` reading as `useful`."""
+    from editor_assistant.workflow import cli
+
+    rows = [
+        _round(considered=3, kept=2, facts=1),
+        # No fact_ids and no claim_count: kept, but bought nothing.
+        _page("KEPT", "a.test"), _page("KEPT", "b.test"),
+        _page("KEPT", "c.test", fact_ids=["f1"], claim_count=1),
+    ]
+    summary = cli.summarise_research(rows)
+    out = "\n".join(cli.render_research_summary(summary))
+
+    assert summary["keptWithoutFacts"] == 2, summary
+    assert "без нито един факт" in out, out
+
+
+def test_one_publisher_supplying_everything_is_flagged():
+    """Corroboration is the point; a single host cannot corroborate itself."""
+    from editor_assistant.workflow import cli
+
+    rows = [_round(considered=5, kept=3, facts=3),
+            _page("KEPT", "only.test"), _page("KEPT", "only.test"),
+            _page("KEPT", "only.test", fact_ids=["f1"], claim_count=1)]
+    summary = cli.summarise_research(rows)
+    out = "\n".join(cli.render_research_summary(summary))
+    assert " един източник" in out, out
+
+    # Two hosts, no warning: the guard must not cry wolf on a healthy round.
+    rows2 = rows + [_page("KEPT", "second.test")]
+    out2 = "\n".join(cli.render_research_summary(cli.summarise_research(rows2)))
+    assert " един източник" not in out2, out2
+
+
+def test_every_drop_reason_is_translated_and_unknowns_pass_through():
+    """A code with no sentence must not be smoothed into a friendlier guess."""
+    from editor_assistant.workflow import cli
+
+    assert "не е новинарски издател" in cli.readable_research_outcome("SKIPPED_NON_PUBLISHER")
+    assert "не се отвори" in cli.readable_research_outcome("OPEN_FAILED")
+    assert "запазена" in cli.readable_research_outcome("KEPT")
+    assert cli.readable_research_outcome("SOMETHING_NEW") == "SOMETHING_NEW"
+    assert cli.readable_research_outcome("") == "—"
+
+
+def test_the_summary_lists_pages_only_when_asked():
+    from editor_assistant.workflow import cli
+
+    rows = [_round(considered=1, kept=1, facts=1), _page("KEPT", "a.test")]
+    summary = cli.summarise_research(rows)
+    assert "Всяка разгледана страница" not in "\n".join(cli.render_research_summary(summary))
+    assert "Всяка разгледана страница" in "\n".join(
+        cli.render_research_summary(summary, pages=[r for r in rows if r["outcome"] != "ROUND"])
+    )
+
+
+def test_the_operator_output_names_the_cause_and_the_next_step():
+    """A human must be able to read the cause without opening the JSON."""
+    from editor_assistant.workflow import cli
+
+    text = cli.readable_outcome("FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT")
+    assert "TRUNCATED" not in text, "the raw token must not leak into the sentence"
+    assert "токени" in text, text
+    # The advice must NOT tell the operator to raise the ceiling: measured,
+    # raising max_tokens made this failure worse (238s, zero characters).
+    step = cli.next_step("FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT")
+    assert "Намали" in step or "смени маршрута" in step, step
+
+    assert "квотата" in cli.readable_outcome("FAILED:QUOTA_EXHAUSTED")
+    assert "успешно" in cli.readable_outcome("SENT")
+
+    # An unmapped code degrades to the raw value, never to a friendlier guess.
+    assert cli.readable_outcome("FAILED:SOMETHING_NEW") == "провален — SOMETHING_NEW"
+    assert cli.readable_outcome("") == "няма отчетен резултат (редът е от стара версия без поле outcome)"
+
+    # Two wording bugs found by printing every code, not by reading the table:
+    # `no_stop_reason` must not be dressed up as a cause the provider gave,
+    # and the `stop=` prefix must appear once, not twice.
+    assert "no_stop_reason" not in cli.readable_outcome("FAILED:EMPTY_OUTPUT:no_stop_reason")
+    filtered = cli.readable_outcome("FAILED:EMPTY_OUTPUT:stop=content_filter")
+    assert filtered.count("stop=") == 1, filtered
+    assert "content_filter" in filtered, filtered
+
+
+def test_the_prompts_command_shows_a_verdict_on_every_row(monkeypatch, capsys, tmp_path):
+    """The regression a human hits first: a line with no verdict at all.
+
+    Before this, `_print_sent_prompts` printed no outcome, so a failed row and a
+    successful row looked identical on screen.
+    """
+    from editor_assistant.drafting import model_prompt_log
+    from editor_assistant.workflow import cli
+
+    monkeypatch.setenv("MODEL_PROMPT_LOG", str(tmp_path / "model_prompts.jsonl"))
+    (tmp_path / "model_prompts.jsonl").write_text(
+        json.dumps(
+            {
+                "at": "2026-10-02T05:32:07Z",
+                "request_id": "r1",
+                "role": "draft",
+                "provider": "openrouter",
+                "model": "qwen/qwen3.8-27b:free",
+                "route_index": 5,
+                "attempt": 1,
+                "chars": 12630,
+                "sent_chars": 12630,
+                "payload_class": "private",
+                "prompt": "текст",
+                "outcome": "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class _Args:
+        role = model = request_id = limit = None
+        json = False
+        no_text = True
+
+    cli._print_sent_prompts(_Args())
+    out = capsys.readouterr().out
+    assert "резултат" in out, out
+    assert "токени" in out, out
+    assert "какво следва" in out, out

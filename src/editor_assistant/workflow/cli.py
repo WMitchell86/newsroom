@@ -1042,6 +1042,137 @@ def _run_newsroom_models(args):
     raise SystemExit(f"unknown newsroom models action: {action}")
 
 
+#: Why a page left the research loop, in the operator's words. Every entry
+#: names a CAUSE the code actually recorded; an unknown code falls through
+#: unchanged rather than being smoothed into something friendlier.
+_RESEARCH_OUTCOME_READABLE = {
+    "KEPT": "запазена",
+    "SKIPPED_NON_PUBLISHER": "пропусната — не е новинарски издател",
+    "SKIPPED_BLOCKED": "пропусната — блокиран домейн",
+    "SKIPPED_DUPLICATE": "пропусната — дубликат на вече отворена страница",
+    "SKIPPED_NO_PROSE": "пропусната — няма полезен текст",
+    "SKIPPED_CLAIM_GATE": "пропусната — твърдението не е потвърдено от независим източник",
+    "OPEN_FAILED": "не се отвори — страницата не можа да бъде заредена",
+    "NOT_ATTEMPTED": "не е опитана",
+}
+
+
+def readable_research_outcome(outcome) -> str:
+    """The stored outcome token as a sentence; unknown codes pass through."""
+    return _RESEARCH_OUTCOME_READABLE.get(str(outcome or ""), str(outcome or "—"))
+
+
+def summarise_research(rows, *, story_id=None) -> dict:
+    """What the research ACTUALLY gathered, in numbers a human can check.
+
+    The trace answers "what happened to this page"; this answers "what did the
+    research achieve", which is the question an editor asks when a draft comes
+    out thin. Both are needed: a round can consider 40 pages and still gather
+    nothing, and only the summary exposes that.
+
+    Every count is derived from the rows, never estimated. Hosts are grouped so
+    "one publisher supplied everything" is visible without counting by hand.
+    """
+    from collections import Counter
+
+    from editor_assistant.workflow import research_trace
+
+    pages = [r for r in rows if r.get("outcome") != "ROUND"]
+    rounds = [r for r in rows if r.get("outcome") == "ROUND"]
+    kept_pages = [r for r in pages if r.get("outcome") == research_trace.KEPT]
+    return {
+        "storyId": story_id or "",
+        "pagesConsidered": len(pages),
+        "pagesKept": len(kept_pages),
+        "rounds": len(rounds),
+        "questions": [q for r in rounds for q in (r.get("questions") or [])],
+        "facts": sum(int(r.get("facts") or 0) for r in rounds),
+        "droppedByGate": sum(int(r.get("dropped_by_gate") or 0) for r in rounds),
+        # A page kept but contributing no fact is a kept page that bought
+        # nothing; separating it stops "kept" from reading as "useful".
+        "keptWithoutFacts": sum(
+            1
+            for r in kept_pages
+            if not (r.get("fact_ids") or []) and not (r.get("claim_count") or 0)
+        ),
+        "byOutcome": dict(Counter(r.get("outcome") for r in pages)),
+        "keptHosts": dict(Counter((r.get("host") or "?") for r in kept_pages)),
+    }
+
+
+def render_research_summary(summary: dict, *, pages=None) -> list[str]:
+    """The summary as sentences, in the order an operator reads them.
+
+    Deliberately leads with the ACHIEVEMENT (facts gathered) rather than the
+    activity (pages fetched): "12 pages" is busywork when the answer is zero
+    facts, and that is exactly the case this report exists to expose.
+    """
+    facts = int(summary.get("facts") or 0)
+    considered = int(summary.get("pagesConsidered") or 0)
+    kept = int(summary.get("pagesKept") or 0)
+    title = "ПРОУЧВАНЕ"
+    if summary.get("storyId"):
+        title += f" — story {summary['storyId']}"
+    lines = [title, "=" * len(title), ""]
+
+    if facts:
+        lines.append(f"  Получени факти : {facts}")
+    else:
+        lines.append("  Получени факти : НУЛА — проучването не е донесло нито един факт.")
+    lines.append(f"  Разгледани стр.: {considered}")
+    lines.append(f"  Запазени стр.  : {kept}")
+    if summary.get("rounds"):
+        lines.append(f"  Кръгове        : {summary['rounds']}")
+    if summary.get("droppedByGate"):
+        lines.append(f"  Отхвърлени от claim gate: {summary['droppedByGate']}")
+    if summary.get("keptWithoutFacts"):
+        # The quiet failure: pages were kept, so the round looked busy, yet not
+        # one of them carried a fact into the draft.
+        lines.append(
+            f"  ВНИМАНИЕ: {summary['keptWithoutFacts']} запазена(и) страници без нито един факт — "
+            "кръгът е изглеждал плодотворен, без да е дал материал."
+        )
+
+    hosts = summary.get("keptHosts") or {}
+    if hosts:
+        lines.append("")
+        lines.append("  Откъде дойдоха запазените страници:")
+        for host, count in sorted(hosts.items(), key=lambda kv: (-kv[1], kv[0])):
+            lines.append(f"    {count:>3}  {host}")
+        if len(hosts) == 1 and kept > 1:
+            lines.append(
+                "    ВНИМАНИЕ: всички запазени страници са от един източник — "
+                "липсва независимо потвърждение."
+            )
+
+    by_outcome = summary.get("byOutcome") or {}
+    if by_outcome:
+        lines.append("")
+        lines.append("  Защо са отпаднали:")
+        for outcome, count in sorted(by_outcome.items(), key=lambda kv: (-kv[1], kv[0])):
+            lines.append(f"    {count:>3}  {readable_research_outcome(outcome)}")
+
+    questions = summary.get("questions") or []
+    if questions:
+        lines.append("")
+        lines.append("  Въпроси, които проучването си е поставило:")
+        for q in questions:
+            lines.append(f"    - {q}")
+
+    if pages:
+        lines.append("")
+        lines.append("  Всяка разгледана страница:")
+        for row in pages:
+            mark = "✓" if row.get("outcome") == "KEPT" else "·"
+            lines.append(
+                f"  {mark} {row.get('at')}  {row.get('host') or '-'}  "
+                f"{readable_research_outcome(row.get('outcome'))}"
+            )
+            if row.get("reason"):
+                lines.append(f"      {row['reason']}")
+    return lines
+
+
 def _print_research_trace(args) -> None:
     """`newsroom stories research-trace` — which pages were tried, and what happened.
 
@@ -1069,6 +1200,20 @@ def _print_research_trace(args) -> None:
 
     pages = [r for r in rows if r.get("outcome") != "ROUND"]
     rounds = [r for r in rows if r.get("outcome") == "ROUND"]
+
+    # V1.2-G4.23. The ACHIEVEMENT first. The per-page list below answers "what
+    # happened to this page"; it cannot answer "did the research actually
+    # gather anything", which is the question behind every thin draft. A round
+    # can consider forty pages, keep four, and produce zero facts - and every
+    # line of the old output looked like progress while it did it.
+    if getattr(args, "summary", True):
+        summary = summarise_research(rows, story_id=getattr(args, "story_id", None))
+        for line in render_research_summary(
+            summary, pages=pages if getattr(args, "pages", False) else None
+        ):
+            print(line)
+        print()
+
     print(f"RESEARCH TRACE — {len(pages)} страници, {len(rounds)} кръг(а)")
     print(f"store: {research_trace.trace_path()} (частен файл, 0600)")
     print()
@@ -1093,6 +1238,59 @@ def _print_research_trace(args) -> None:
         if row.get("source_id"):
             print(f"    source_id: {row['source_id']}")
         print()
+
+
+#: V1.2-G4.22. The stored `outcome` is a machine token; this is the sentence a
+#: human reads. Deliberately a TABLE and not a computed string: the whole point
+#: is that every code shown was measured from the provider, so an unrecognised
+#: code must fall through to "raw, untranslated" rather than be smoothed into a
+#: friendlier lie. `next_step` carries the actionable half.
+_OUTCOME_READABLE = {
+    "SENT": "изпратен успешно",
+    "FAILED:QUOTA_EXHAUSTED": "провален — квотата на доставчика е изчерпана (429). "
+    "Изчаква се; повторен опит сега няма да помогне.",
+    "FAILED:RATE_LIMITED": "провален — прекалено много заявки (429). Изисква кратко изчакване.",
+    "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT": "празен отговор — моделът изчерпа лимита "
+    "си за токени и НЕ върна нито един знак (finish_reason=length).",
+    "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING": "празен отговор — моделът изразходва целия "
+    "лимит за токени върху вътрешно размишление и не стигна до писане. Това е проблем с ЛИМИТА, "
+    "не с модела: при по-висок лимит същият модел връща текст (проверено).",
+    "FAILED:EMPTY_OUTPUT": "празен отговор — моделът не върна текст.",
+    "": "няма отчетен резултат (редът е от стара версия без поле outcome)",
+}
+
+_NEXT_STEP = {
+    "FAILED:QUOTA_EXHAUSTED": "Изчакай изтичането на квотата; виж `newsroom doctor`.",
+    "FAILED:RATE_LIMITED": "Опитай отново след малко; маршрутът е временно ограничен.",
+    "FAILED:EMPTY_OUTPUT:SPENT_BUDGET_ON_REASONING": "Увеличи OPENROUTER_MAX_TOKENS (в момента "
+    "32768) или избери модел без вътрешно размишление за тази роля.",
+    "FAILED:EMPTY_OUTPUT:TRUNCATED_BY_TOKEN_LIMIT": "Намали prompt-а (има 30 000-символен "
+    "таван) или смени маршрута — виж `newsroom models prompts` за текста, изпратен на този модел.",
+}
+
+
+def readable_outcome(outcome) -> str:
+    """The stored code as a sentence; unknown codes are shown verbatim."""
+    text = str(outcome or "")
+    if text in _OUTCOME_READABLE:
+        return _OUTCOME_READABLE[text]
+    if text.startswith("FAILED:EMPTY_OUTPUT:no_stop_reason"):
+        # The provider told us NOTHING. Saying "stop=no_stop_reason" would read
+        # as if it had, so this states the absence in words instead.
+        return "празен отговор — доставчикът не даде никаква причина."
+    if text.startswith("FAILED:EMPTY_OUTPUT:stop="):
+        # One split past `EMPTY_OUTPUT`, so the `stop=` prefix is NOT repeated.
+        return f"празен отговор — доставчикът прекрати отговора с stop={text.rsplit('=', 1)[-1]}"
+    if text.startswith("FAILED:EMPTY_OUTPUT"):
+        return _OUTCOME_READABLE["FAILED:EMPTY_OUTPUT"]
+    if text.startswith("FAILED:"):
+        return f"провален — {text.split(':', 1)[1]}"
+    return text or "—"  # SENT and anything unmapped, unchanged
+
+
+def next_step(outcome) -> str:
+    """The actionable half of the same table, or `""` when nothing applies."""
+    return _NEXT_STEP.get(str(outcome or ""), "")
 
 
 def _print_sent_prompts(args) -> None:
@@ -1125,6 +1323,14 @@ def _print_sent_prompts(args) -> None:
     print(f"store: {model_prompt_log.prompt_log_path()} (частен файл, 0600)")
     print()
     for row in rows:
+        # V1.2-G4.22. Readable outcome + what to DO about it.
+        #
+        # Before this, the line printed no verdict at all: a row that failed was
+        # indistinguishable from one that succeeded unless you opened the JSON,
+        # and `FAILED:EMPTY_OUTPUT` said nothing about WHY. An operator debugging
+        # "the draft came out empty" had three hypotheses and no way to choose
+        # between them. The wording below is the provider's own reason, never a
+        # guess (AGENTS.md rule 6).
         print(
             f"{row['at']}  {row['role']:8s} route#{row['route_index']} "
             f"опит {row['attempt']}  {row['provider']}:{row['model']}  "
@@ -1132,6 +1338,15 @@ def _print_sent_prompts(args) -> None:
             + (f"  payload={row['payload_class']}" if row.get("payload_class") else "")
         )
         print(f"  request_id: {row['request_id']}")
+        print(f"  резултат   : {readable_outcome(row.get('outcome'))}")
+        if next_step(row.get("outcome")):
+            print(f"  какво следва: {next_step(row['outcome'])}")
+        sent_chars = row.get("sent_chars")
+        if sent_chars is not None and sent_chars != row.get("chars"):
+            print(
+                f"  изпратено  : {sent_chars} симв. (различно от {row.get('chars')} "
+                "в файла — моделът е получил съкратения текст)"
+            )
         if row["chars"] and not getattr(args, "no_text", False):
             print("-" * 72)
             print(row["prompt"])
@@ -1949,6 +2164,20 @@ def _add_newsroom_subcommands(sub):
     trace.add_argument("--outcome", default=None, help="filter: KEPT / SKIPPED_* / OPEN_FAILED")
     trace.add_argument("--limit", type=int, default=None, help="only the last N rows")
     trace.add_argument("--json", action="store_true", help="machine-readable output")
+    # V1.2-G4.23. The summary is the default because it is the question; the
+    # per-page list is already below it and stays reachable. `--no-summary`
+    # exists for the operator who only wants the raw list.
+    trace.add_argument(
+        "--no-summary",
+        dest="summary",
+        action="store_false",
+        help="skip the 'what did research actually gather' summary",
+    )
+    trace.add_argument(
+        "--pages",
+        action="store_true",
+        help="also list every considered page inside the summary",
+    )
 
     refresh = actions.add_parser(
         "refresh", help="collect, then assign the new material to stories, one summary"
