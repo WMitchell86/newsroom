@@ -906,6 +906,12 @@ def _try_route(
     provider = route.get("provider")
     max_transient = int(policy["global"].get("max_transient_attempts", 2) or 0)
     max_rate_limited = int(policy["global"].get("max_rate_limited_attempts", 1) or 0)
+    # V1.2-G4.30. How long to wait before the single RATE_LIMITED retry. 60 s is
+    # measured, not guessed - see the sleep site below. Policy-tunable, so a
+    # different provider can be accommodated without editing code.
+    rate_limited_retry_wait = float(
+        policy["global"].get("rate_limited_retry_wait_s", 60) or 60
+    )
     max_empty = 1
     attempts_allowed = {
         TRANSIENT: max(1, max_transient),
@@ -1027,7 +1033,26 @@ def _try_route(
             )
             allowed = attempts_allowed.get(category, 1)
             if attempt < allowed:
-                sleep(min(2**attempt, 5))
+                # V1.2-G4.30. A 429 is NOT a transient blip and must not be
+                # retried on the transient backoff. `min(2**attempt, 5)` slept
+                # 2 seconds, while mark_route had just written the same route
+                # `until = now + 2 minutes` — so the retry re-called a route
+                # 118 seconds inside its OWN throttle window, which is a
+                # guaranteed failure, not a retry.
+                #
+                # Measured on qwen/qwen3.8-27b:free (prompt log, 2026-10-02) —
+                #   05:35:32 RATE_LIMITED -> 05:35:34 RATE_LIMITED  (2 s apart)
+                #   12:28:16 RATE_LIMITED -> 12:28:19 RATE_LIMITED  (3 s apart)
+                #   14:22:48 RATE_LIMITED -> 14:23:47 SENT         (59 s apart)
+                # The only call that recovered was the one that waited. 60 s is
+                # the measured floor for this tier, so it is the default; it is a
+                # policy value so an operator with a different provider can tune
+                # it rather than edit code.
+                if category == RATE_LIMITED or category == QUOTA_AMBIGUOUS:
+                    wait = rate_limited_retry_wait
+                else:
+                    wait = min(2**attempt, 5)
+                sleep(wait)
                 continue
             return None, None, category, attempt
         latency_ms = int((time.monotonic() - started) * 1000)

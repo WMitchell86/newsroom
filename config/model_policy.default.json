@@ -6,7 +6,8 @@
     "paid_enabled": false,
     "soft_paid_budget_usd_day": 2.0,
     "max_transient_attempts": 2,
-    "max_rate_limited_attempts": 1
+    "max_rate_limited_attempts": 1,
+    "rate_limited_retry_wait_s": 60
   },
   "roles": {
     "judge": {
