@@ -426,9 +426,28 @@ def save_policy(policy: dict, path=None) -> Path:
     later improvement to `config/model_policy.default.json` would then be silently
     shadowed by the operator's old copy. Only what the operator actually changed
     is stored, so untouched roles keep following the tracked defaults.
+
+    The operator's own top-level `note` is carried forward unchanged: it is
+    commentary about the policy rather than part of it, so it never appears in
+    the diff and would otherwise be erased by every `models set`.
     """
     target = Path(path) if path else policy_path()
     payload = _diff(normalize(load_defaults()), normalize(policy))
+    # The operator's top-level `note` is commentary ABOUT the policy, not part
+    # of it, so it is absent from `policy` and never appears in the diff. It was
+    # therefore silently DROPPED by every `models set`. Caught on 2026-10-02, when
+    # a note recording why qwen sat last in the draft ladder was destroyed by an
+    # unrelated `--remove`, taking its measurements with it.
+    #
+    # Carry the existing note forward. An explicitly supplied note still wins, so
+    # this can never override a deliberate edit - it only prevents accidental loss.
+    if isinstance(payload, dict) and "note" not in payload:
+        try:
+            previous = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
+        except (OSError, ValueError):
+            previous = {}
+        if isinstance(previous, dict) and previous.get("note"):
+            payload["note"] = previous["note"]
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text(

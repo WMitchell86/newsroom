@@ -2188,6 +2188,80 @@ def test_a_successful_attempt_records_no_error(monkeypatch):
     assert recorded["error"] == "", recorded
 
 
+def test_models_set_does_not_destroy_the_operator_note(tmp_path):
+    """The note is commentary ABOUT the policy, so it is never in the diff.
+
+    Measured 2026-10-02: `newsroom models set --remove` rewrote the override and
+    silently dropped a note recording why qwen sat last in the draft ladder,
+    taking its measurements with it.
+    """
+    from editor_assistant.drafting import model_policy
+
+    path = tmp_path / "model_policy.json"
+    model_policy.save_policy(model_policy.load_policy(), path)
+
+    note = "qwen is last because it fails on draft-length input (measured 3x)."
+    current = json.loads(path.read_text(encoding="utf-8"))
+    current["note"] = note
+    path.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
+
+    # An unrelated edit, exactly as `models set --remove` performs.
+    edited = model_policy.load_policy()
+    edited["roles"]["draft"]["routes"] = [
+        r for r in edited["roles"]["draft"]["routes"] if "qwen" not in str(r.get("model"))
+    ]
+    model_policy.save_policy(edited, path)
+
+    after = json.loads(path.read_text(encoding="utf-8"))
+    assert after.get("note") == note, after.get("note")
+    # And the edit itself still happened.
+    assert not any(
+        "qwen" in str(r.get("model")) for r in after["roles"]["draft"]["routes"]
+    )
+
+
+def test_the_note_never_round_trips_through_the_policy_object(tmp_path):
+    """Why the guard in `save_policy` is necessary, rather than redundant.
+
+    `load_policy()` returns only `global`, `roles` and `version` — the merge
+    drops the operator's `note` entirely. So `models set`, which round-trips a
+    policy object through `save_policy`, could NEVER write a note back: every
+    edit would erase it. The carry-forward in `save_policy` is the only thing
+    keeping it alive.
+    """
+    from editor_assistant.drafting import model_policy
+
+    path = tmp_path / "model_policy.json"
+    path.write_text(json.dumps({"note": "measured reasoning"}), encoding="utf-8")
+    policy = model_policy.load_policy(path)
+    assert "note" not in policy, sorted(policy)
+
+    model_policy.save_policy(policy, path)
+    after = json.loads(path.read_text(encoding="utf-8"))
+    assert after.get("note") == "measured reasoning", after
+
+
+def test_the_sigterm_handler_does_not_deadlock():
+    """`shutdown()` must not be called inline from the signal handler.
+
+    A signal handler runs on the main thread, which is the thread inside
+    `serve_forever()`. `shutdown()` blocks until that loop returns, so calling it
+    inline deadlocks: the live server ignored SIGTERM for 15+ s and had to be
+    SIGKILLed (measured 2026-10-02, parked in `futex_do_wait`).
+    """
+    from pathlib import Path as _Path
+
+    from editor_assistant.workflow.workbench import __main__ as wb_main
+
+    src = _Path(wb_main.__file__).read_text(encoding="utf-8")
+    handler = src[src.index("def _handle_sig") : src.index("signal.signal(signal.SIGINT")]
+    assert "threading.Thread(target=server.shutdown" in handler, handler
+    # And it is NOT invoked inline anywhere in the handler body.
+    assert not any(
+        line.strip().startswith("server.shutdown()") for line in handler.splitlines()
+    ), handler
+
+
 def test_a_model_that_repeats_itself_is_stopped_early():
     """V1.2-G4.28. The measured failure, reproduced in miniature.
 
@@ -2247,6 +2321,11 @@ def test_a_generation_past_its_deadline_is_cut_off(monkeypatch):
     text, meta = _call_with_body(generate, _sse(*frames))
 
     assert meta["stopped_because"] == "deadline_exceeded", meta
+    # Whatever arrived before the deadline is kept and flagged. The deadline
+    # trips on the first frame here (monotonic jumps immediately), so this is a
+    # partial answer - non-empty, and never passed off as finished.
+    assert text, "the partial answer must be preserved, not discarded"
+    assert len(text) < 10, f"deadline should cut it short, got {len(text)} chars"
     # The partial answer is kept as-is and flagged, never passed off as finished.
     assert meta["elapsed_ms"] > 0, meta
 

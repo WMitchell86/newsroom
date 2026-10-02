@@ -113,10 +113,16 @@ def main(argv=None):
 
     def _handle_sig(sig, frame):
         stop.set()
-        try:
-            server.shutdown()
-        except Exception:  # noqa: BLE001, S110 - signal-time shutdown is best-effort
-            pass
+        # `shutdown()` BLOCKS until `serve_forever()` returns, so calling it from
+        # this handler deadlocks: a signal handler runs on the MAIN thread, which
+        # is the very thread sitting inside `serve_forever()`. It waits for that
+        # loop to notice, and the loop cannot progress because the main thread is
+        # stuck here. Measured on 2026-10-02: the server ignored SIGTERM for
+        # 15+ s and had to be SIGKILLed, parked in `futex_do_wait`.
+        #
+        # Handing the call to a separate thread breaks the cycle. This is the
+        # same trick the /quit endpoint already uses (http.py::_quit).
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGINT, _handle_sig)
     signal.signal(signal.SIGTERM, _handle_sig)
