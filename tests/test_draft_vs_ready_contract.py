@@ -451,11 +451,40 @@ def test_a_snippet_only_basis_is_refused(newsroom, model):
     # refusal. The old expectation claimed we had looked and found nothing.
     # See the branch in article_readiness.evaluate and its comment on that.
     assert decision.reason_code == "DRAFT_FROM_UNREAD_SOURCE"
-    assert decision.is_researchable is True
-    with pytest.raises(app.EditorDraftNotReady) as refusal:
-        app.start_article_draft(article_id, idempotency_key="snippet-only")
-    assert refusal.value.code == "NO_DRAFT_MATERIAL"
-    assert model == [], "nothing may be generated from a snippet"
+    # `is_researchable` is FALSE here and that is correct: its docstring is "the
+    # editor's next step is Проучи още", and G4.22's answer is not "research
+    # more" but "make the draft, the worker reads the source". It used to assert
+    # True because the reason was NO_DRAFT_MATERIAL, which IS in
+    # RESEARCH_REMEDY_CODES; G4.22 moved the case to DRAFT_FROM_UNREAD_SOURCE,
+    # which is not, and this line was never updated with it.
+    #
+    # Crucially the editor does NOT lose an action: editor_application.py:798
+    # handles DRAFT_FROM_UNREAD_SOURCE BEFORE consulting is_researchable, and
+    # offers MAKE_DRAFT. That is the behaviour worth pinning, so it is asserted
+    # below against availableActions rather than through this convenience flag.
+    assert decision.is_researchable is False
+    _dto = app.read_article(article_id)
+    assert "MAKE_DRAFT" in _dto.get("availableActions", []), _dto.get("availableActions")
+    # V1.2-G4.22. This assertion used to be
+    #     with pytest.raises(app.EditorDraftNotReady): ... code == "NO_DRAFT_MATERIAL"
+    # That was the PRE-G4.22 contract, and it had not been updated here even
+    # though the two assertions directly above it were. This test was reported as
+    # a live safety hole for most of 2026-10-02. It is not one.
+    #
+    # G4.22 deliberately stopped refusing here: the Story has a real publication
+    # that simply has not been READ yet, so the honest answer is an ACTION ("go
+    # and read it") and the worker does read it. BOTH gates exempt the reason by
+    # name — `_draft_preflight` in editor_application.py, and
+    # `article_generation.evaluate` at article_generation.py:273.
+    #
+    # So the request is ACCEPTED. What must still hold is the property the test
+    # exists to protect: a snippet alone never grounds a Draft, and the Article
+    # cannot become eligible on this basis.
+    accepted = app.start_article_draft(article_id, idempotency_key="snippet-only")
+    assert accepted.get("operationToken"), accepted
+    assert model == [], "nothing may be generated from a snippet at request time"
+    still = article_readiness.evaluate(app._draft_snapshot(article_id))
+    assert still.eligible is False, "a snippet-only basis must never become eligible"
 
 
 def test_an_unresolved_aggregator_wrapper_is_refused(newsroom, model):
@@ -494,10 +523,21 @@ def test_an_unresolved_aggregator_wrapper_is_refused(newsroom, model):
     # See the branch in article_readiness.evaluate and its comment on that.
     assert decision.reason_code == "DRAFT_FROM_UNREAD_SOURCE"
     assert draft_material.is_opened_publisher_source({"domain": "news.google.com"}) is False
-    with pytest.raises(app.EditorDraftNotReady) as refusal:
-        app.start_article_draft(article_id, idempotency_key="wrapper-only")
-    assert refusal.value.code == "NO_DRAFT_MATERIAL"
-    assert model == []
+    # V1.2-G4.22 — see the note in test_a_snippet_only_basis_is_refused. The
+    # pre-G4.22 `pytest.raises(...)` / NO_DRAFT_MATERIAL expectation was left in
+    # place here too, and this test also reported as a live safety hole for most
+    # of 2026-10-02. Both gates exempt DRAFT_FROM_UNREAD_SOURCE by name, because
+    # the worker goes and READS the Story's own publication instead of refusing.
+    #
+    # The property that must hold is narrower, and is what this test is really
+    # about: `news.google.com` is a redirect surface, not a publisher, and the
+    # system must know that — so a wrapper can never count as an independent
+    # source, and this basis can never reach Ready.
+    accepted = app.start_article_draft(article_id, idempotency_key="wrapper-only")
+    assert accepted.get("operationToken"), accepted
+    assert model == [], "nothing may be generated from an unresolved wrapper"
+    still = article_readiness.evaluate(app._draft_snapshot(article_id))
+    assert still.eligible is False, "an unresolved wrapper must never become eligible"
 
 
 def test_a_known_conflict_still_refuses_the_draft(newsroom, model):
