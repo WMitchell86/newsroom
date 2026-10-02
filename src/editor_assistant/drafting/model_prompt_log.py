@@ -69,6 +69,7 @@ def record_sent_prompt(
     outcome="",
     attempt=1,
     sent_chars=None,
+    error=None,
     root=None,
 ):
     """Append one attempt's prompt. Best effort — logging must never fail a call.
@@ -85,6 +86,18 @@ def record_sent_prompt(
     in which case the stored text is what was handed to it). A generation
     must not fail because its own audit trail had a bad day.
 
+    `error` is V1.2-G4.29: the exception TYPE and the provider's own message for
+    a failed attempt. It exists because `FAILED:<category>` alone is not
+    diagnosable. Measured over 202 logged rows: eight `FAILED:TRANSIENT`, six of
+    them on nemotron inside eleven minutes, and not one row said WHY — the
+    category is the router's verdict, not the cause, and the operator was left
+    to guess between a dead route, a bad key and an overloaded provider. The
+    router already had the detail in `str(exc)` (it passes it to `mark_route`),
+    so this records what was observed rather than inventing a new diagnosis.
+
+    Truncated to 200 chars, matching `mark_route`, because provider messages can
+    carry whole request bodies and this file stores private editorial text.
+
     Returns the record, or `None` when it could not be written.
     """
     text = prompt_text if isinstance(prompt_text, str) else str(prompt_text or "")
@@ -100,6 +113,7 @@ def record_sent_prompt(
         "outcome": str(outcome or ""),
         "chars": len(text),
         "sent_chars": sent_chars if sent_chars is None else int(sent_chars),
+        "error": str(error or "")[:200],
         "prompt": text,
     }
     try:

@@ -2114,6 +2114,80 @@ def test_usage_accumulates_and_is_not_reset_by_later_frames():
     assert meta["input_tokens"] == 10, meta
 
 
+def test_a_failed_attempt_records_the_providers_own_reason(monkeypatch):
+    """V1.2-G4.29. `FAILED:TRANSIENT` is a verdict, not a cause.
+
+    Measured over the 202 logged rows: eight `FAILED:TRANSIENT`, six of them on
+    nemotron inside eleven minutes, and no row recorded what the provider had
+    actually returned. The category alone cannot distinguish a dead route from a
+    bad key from an overloaded provider.
+    """
+    import editor_assistant.drafting.model_router as mr
+    from editor_assistant.drafting import model_prompt_log
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    policy = _policy_with(
+        "draft",
+        [_route("openrouter", "third/model:free", billing="free")],
+    )
+    calls = []
+
+    def explode(*args, **kwargs):
+        raise TimeoutError("read timed out after 280s")
+
+    monkeypatch.setattr(
+        model_prompt_log,
+        "record_sent_prompt",
+        lambda **kw: (calls.append(kw), kw)[1],
+    )
+    with pytest.raises(mr.RoleUnavailable):
+        # Every route failed, so the role is unavailable. That is correct; the
+        # point of this test is the ROW, which is written before the raise.
+        model_router.call_role(
+            "draft",
+            "пиши текст",
+            policy=policy,
+            call_map={"openrouter": explode},
+        )
+
+    failed = [c for c in calls if str(c.get("outcome", "")).startswith("FAILED:")]
+    assert failed, f"no failed row recorded; calls={calls}"
+    # The provider's own message, and the exception's real type.
+    assert "read timed out after 280s" in failed[0]["error"], failed[0]
+    assert "TimeoutError" in failed[0]["error"], failed[0]
+
+
+def test_a_long_provider_message_is_truncated_not_stored_whole(monkeypatch):
+    """This file holds private editorial text, and a provider message can carry
+    a whole request body back."""
+    from editor_assistant.drafting import model_prompt_log
+
+    recorded = {}
+    monkeypatch.setattr(model_prompt_log, "_write", lambda row, root=None: recorded.update(row))
+    model_prompt_log.record_sent_prompt(
+        role="draft",
+        provider="openrouter",
+        model="m:free",
+        prompt_text="x",
+        outcome="FAILED:TRANSIENT",
+        error="HTTPError: " + ("y" * 5000),
+    )
+    assert len(recorded["error"]) == 200, len(recorded["error"])
+
+
+def test_a_successful_attempt_records_no_error(monkeypatch):
+    from editor_assistant.drafting import model_prompt_log
+
+    recorded = {}
+    monkeypatch.setattr(model_prompt_log, "_write", lambda row, root=None: recorded.update(row))
+    model_prompt_log.record_sent_prompt(
+        role="draft", provider="openrouter", model="m:free", prompt_text="x", outcome="SENT"
+    )
+    assert recorded["error"] == "", recorded
+
+
 def test_a_model_that_repeats_itself_is_stopped_early():
     """V1.2-G4.28. The measured failure, reproduced in miniature.
 
@@ -2135,6 +2209,9 @@ def test_a_model_that_repeats_itself_is_stopped_early():
     text, meta = _call_with_body(generate, _sse(*frames))
 
     assert meta["stopped_because"] == "repetition_loop", meta
+    # Nothing invented to fill the gap: the guard abandons the stream, it does
+    # not salvage partial reasoning into an answer.
+    assert text == "", repr(text[:200])
     assert meta["loop_repeats"] > 0.5, meta
     # And it stopped BEFORE consuming every frame - that is the whole point.
     assert meta["reasoning_chars"] < len(cycle) * 20, meta
@@ -2170,6 +2247,8 @@ def test_a_generation_past_its_deadline_is_cut_off(monkeypatch):
     text, meta = _call_with_body(generate, _sse(*frames))
 
     assert meta["stopped_because"] == "deadline_exceeded", meta
+    # The partial answer is kept as-is and flagged, never passed off as finished.
+    assert meta["elapsed_ms"] > 0, meta
 
 
 def test_the_two_new_causes_are_named_and_translated():

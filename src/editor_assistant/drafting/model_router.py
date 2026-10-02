@@ -965,6 +965,16 @@ def _try_route(
             raise
         except Exception as exc:  # noqa: BLE001 - every provider failure is classified
             category = classify_failure(exc)
+            # V1.2-G4.29. The exception TYPE and the provider's own words, not a
+            # paraphrase and not the category. `FAILED:TRANSIENT` on its own is
+            # the router's verdict, not a cause: measured over 202 logged rows,
+            # eight TRANSIENT failures - six on nemotron within eleven minutes -
+            # and not one of those rows said what the provider actually returned.
+            # The detail was in `exc` the whole time; it was passed to
+            # `mark_route` below and never reached the log. Recording the
+            # observed message is what lets the NEXT failure be diagnosed
+            # instead of guessed at.
+            failure_detail = f"{type(exc).__name__}: {exc}"
             model_prompt_log.record_sent_prompt(
                 role=role,
                 provider=provider,
@@ -976,6 +986,7 @@ def _try_route(
                 attempt=attempt,
                 outcome=f"FAILED:{category}",
                 sent_chars=None,
+                error=failure_detail,
                 root=prompt_log_root,
             )
             if category in _UNHEALTHY_UNTIL_POLICY_CHANGES:
